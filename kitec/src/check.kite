@@ -4365,7 +4365,7 @@ pub fn check_c(prelude: List<Node>, user: List<Node>) -> (List<(Int, Str)>, List
           }))
         }
       }
-      (errs, sigs, if len(errs) > 0 { [] } else { map(its, (it) => with_va(c.vav, apply_rw(c.rw, it))) }, c)
+      (errs, sigs, if len(errs) > 0 { [] } else { map(its, (it) => typed(c.ts, with_va(c.vav, apply_rw(c.rw, it)))) }, c)
     },
     Err(f) => ([(-1, f.msg)], [], [], c0),
   }
@@ -4491,3 +4491,13 @@ fn apply_rw(rw: Map<Int, Node>, v0: Node) -> Node {
     _         => v2,
   }
 }
+
+// ── 类型化 IR：把检查器记下的表达式类型（按 Node.id）挂到节点上 ──
+
+pub fn typed(ts: Map<Int, Ty>, n: Node) -> Node {
+  let n1 = if n.id >= 0 { Node { t: get(ts, n.id), ..n } } else { n }
+  ast.with_kids(n1, map(ast.kids(n1), (x) => typed(ts, x)))
+}
+
+// trait 默认方法按某个 impl 的类型快照降级（Python 版的 _tsnap）
+pub fn lowered_t(c: C, ts: Map<Int, Ty>, v: Node) -> Node { typed(ts, apply_rw(c.rw, v)) }

@@ -1124,12 +1124,23 @@ fn from_c(g0: Gn, src: Str, d: V) -> (Gn, Str) {
   }
 }
 
+fn ext_fn(it: ast.Node) -> ast.FnD {
+  match it.k {
+    NFn(f) => f,
+    _      => ast.FnD { name: "", params: [], ret: None, body: None, gen: ast.no_gen(), is_async: false, is_unsafe: false, varargs: false, ext: None,
+      cname: None, x: ast.no_fnx() },
+  }
+}
+
 fn externs(g0: Gn) -> Gn {
   var g = g0
-  var exts: List<(Str, V, V)> = []
+  var exts: List<(Str, ast.Node, V)> = []
   for n in g.bs.gord {
     match gv(g, n) {
-      GExt(it, va) => { exts = push(exts, (n, it, va)) },
+      GExt(it, va) => { exts = push(exts, (n, it, match va {
+        Some(xs) => VL(map(xs, (x) => VS(x))),
+        None     => VNil,
+      })) },
       _            => {},
     }
   }
@@ -1139,10 +1150,11 @@ fn externs(g0: Gn) -> Gn {
   }
   var i = 0
   for (n, it, va) in exts {
-    let cname = if is_nil(fld(it, "cname")) { sv(fld(it, "name")) } else { sv(fld(it, "cname")) }
-    let et = items(fld(it, "ext_tys"))
-    var ptys = items(et[0])
-    let rty = et[1]
+    let fd = ext_fn(it)
+    let cname = unwrap_or(fd.cname, fd.name)
+    let (ds, rd) = unwrap(fd.x.ext_tys)
+    var ptys = map(ds, ast.xd_v)
+    let rty = ast.xd_v(rd)
     let nfixed = len(ptys)
     if !is_nil(va) { ptys = ptys + items(va) }
     g = Gn { ext_id: set(g.ext_id, n, i), ..g }
@@ -1588,14 +1600,7 @@ pub fn ext_libs(bs: S) -> List<Str> {
   var out: List<Str> = []
   for n in bs.gord {
     match unwrap_or(get(bs.gval, n), GOther) {
-      GExt(it, _) => {
-        for l in items(fld(it, "extern")) {
-          match l {
-            VS(x) => { if !contains(out, x) { out = push(out, x) } },
-            _     => (),
-          }
-        }
-      },
+      GExt(it, _) => { for x in unwrap_or(ext_fn(it).ext, []) { if !contains(out, x) { out = push(out, x) } } },
       _ => (),
     }
   }

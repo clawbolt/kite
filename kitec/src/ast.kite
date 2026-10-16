@@ -2,6 +2,9 @@
 // 和 Python 版一样是“动态”的：节点 = 种类 + 行号 + 字段表，值用 V 表示
 // （类型、模式等在 Python 版里是元组，这里是 VT）
 
+use tys
+use tys.{ Ty }
+
 pub enum V {
   VS(Str),
   VQ(Str, Str?),
@@ -341,9 +344,10 @@ pub enum K {
 
 // 节点：编号、行号、种类；vis / label / attrs 是解析器在语句和声明上补的字段（Python 版的 node.pub / node.label / node.attrs）
 // pre：来自 prelude 的项（Python 版的 node.prelude）
-pub type Node = { id: Int, line: Int, k: K, vis: Vis?, label: Str?, attrs: List<Attr>?, pre: Bool }
+// t：检查后表达式的类型（类型化 IR，Python 版的 e._t）；检查前和检查器合成的无类型节点为 None
+pub type Node = { id: Int, line: Int, k: K, vis: Vis?, label: Str?, attrs: List<Attr>?, pre: Bool, t: Ty? }
 
-pub fn mkn(line: Int, k: K) -> Node { Node { id: -1, line: line, k: k, vis: None, label: None, attrs: None, pre: false } }
+pub fn mkn(line: Int, k: K) -> Node { Node { id: -1, line: line, k: k, vis: None, label: None, attrs: None, pre: false, t: None } }
 
 pub fn no_gen() -> Gen { Gen { names: [], bounds: [], cgens: [] } }
 

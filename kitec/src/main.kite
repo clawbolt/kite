@@ -56,8 +56,7 @@ fn main() {
         return
       },
     }
-    let (errs, sigs, lown, cst) = check.check_c(pits, items)
-    let low = map(lown, ast.to_v)
+    let (errs, sigs, low, cst) = check.check_c(pits, items)
     if len(errs) > 0 && errs[0].0 == -1 {
       print("UNSUP " + errs[0].1)
       return
@@ -76,7 +75,7 @@ fn main() {
       return
     }
     if mode == "lower" {
-      if len(errs) == 0 { for it in low { print(ast.dump(it)) } }
+      if len(errs) == 0 { for it in low { print(ast.dump(ast.to_v(it))) } }
       return
     }
     if mode == "c" || mode == "ck" {
@@ -192,8 +191,7 @@ fn build(args: List<Str>) -> Int {
       return 1
     },
   }
-  let (errs, _, lown, cst) = check.check_c(pits, items)
-  let low = map(lown, ast.to_v)
+  let (errs, _, low, cst) = check.check_c(pits, items)
   if len(errs) > 0 {
     for (ln, msg) in take(errs, 20) { eprint(loc(file, ln, modules.strip_lm(msg))) }
     return 1
