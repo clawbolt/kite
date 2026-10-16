@@ -1566,8 +1566,8 @@ pub fn collect(low: List<Node>, c: check.C) -> (Map<Str, KF>, Map<Str, Str>) {
       let ownm = filter(own, (x) => fkey(x) == fkey(m0))
       let key = target + "." + fnd(m0).name + "#m"
       if len(ownm) > 0 { m = ownm[0] } else {
-        match get(c.tsnap, target + "." + fkey(m0)) {
-          Some(sn) => { m = check.lowered_t(c, sn, m0) },
+        match get(c.dflt, target + "." + fkey(m0)) {
+          Some(dm) => { m = dm },
           None     => { continue },
         }
       }

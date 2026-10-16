@@ -1,7 +1,6 @@
 // Kite 自举编译器：类型检查（对应 typecheck.py 的 Checker，逐条移植，报错文字相同）
 // 检查器状态 C 按值传递；会出错的函数返回 Result<(C, 结果), F>，F 里带着出错时的状态（Python 版出错前的修改会保留）
-// 输入是强类型语法树 ast.Node；Python 版就地改写语法树，这里按 Node.id 把改写记在 C.rw，最后统一套用，
-// 再把每个表达式的类型（C.ts）挂到节点上，得到类型化 IR（Node.t）交给 KIR / 字节码 / C 后端
+// 检查函数直接返回类型化 IR（改写后的节点，表达式带 Node.t）；只有求解后才能定的改动按 Node.id 记成补丁（Pt），最后套上
 use ast
 use val
 use ast.{ Node, K, Lit, Nm, TyX, Pat, Attr, Vis, EvF, UseP, IPart, AConst, TAssoc, Arm, SArm, Gen, FnD, FnX, XD, ImplD, TraitD, MatchD, kname }
@@ -40,7 +39,17 @@ pub enum CgV {
 
 pub enum Arg {
   AN(Node),
-  AT(Ty, Int),
+  AT(Ty, Int, Node?),
+}
+
+// 类型求解之后才能确定的改动（按 Node.id 记，检查结束后套到类型化 IR 上）：
+// impl 补全的约束、extern 的 C 类型描述、常量泛型的隐藏实参 / 隐藏参数、sort / min / max 换成比较函数版
+pub enum Pt {
+  PtBounds(List<(Str, List<TyX>)>),
+  PtExt((List<XD>, XD)),
+  PtArgs(List<Node>),
+  PtParams(List<(Str, TyX?)>),
+  PtName(Str),
 }
 
 pub type C = {
@@ -86,9 +95,8 @@ pub type C = {
   trait_assoc: Map<Str, List<(Str, List<Str>, TyX?)>>,
   impl_assoc: Map<Str, (Node, TyX)>,
   deferred: List<(Ty, Ty, Int, Str)>,
-  rw: Map<Int, Node>,
-  ts: Map<Int, Ty>,
-  tsnap: Map<Str, Map<Int, Ty>>,
+  patch: Map<Int, List<Pt>>,
+  dflt: Map<Str, Node>,
   idn: Int,
   upd_n: Int,
 }
@@ -185,9 +193,8 @@ fn std_member(m: Str, nm: Str) -> (Str, List<(Str, Str)>)? {
 
 pub fn new_c() -> C {
   C {
-    rw: Map(),
-    ts: Map(),
-    tsnap: Map(),
+    patch: Map(),
+    dflt: Map(),
     idn: 0,
     upd_n: 0,
     sub: Map(),
@@ -716,25 +723,16 @@ fn solve_cg_sites(c0: C) -> C {
         },
       }
     }
-    if !failed {
-      let cur = latest(c, node)
-      let k2 = match cur.k {
-        NCall(f, args) => NCall(f, args + extra),
-        _              => cur.k,
-      }
-      c = rewrite(c, node, Node { k: k2, ..cur })
-    }
+    if !failed { c = add_patch(c, node, PtArgs(extra)) }
   }
   // 带常量泛型参数的函数补上隐藏参数
   for i in keys(c.cg_fns) {
     let (fnode, cga) = unwrap(get(c.cg_fns, i))
-    let cur = latest(c, fnode)
     let hid = map(cga, (n) => (n, Some(match get(c.tc_info, n) {
       Some((_, _, cty)) => cty,
       None              => YCon("Int", [], fnode.line),
     })))
-    let f = fnd(cur)
-    c = rewrite(c, fnode, with_fnd(cur, FnD { params: f.params + hid, ..f }))
+    c = add_patch(c, fnode, PtParams(hid))
   }
   C { cg_sites: [], cg_fns: Map(), ..c }
 }
@@ -1454,7 +1452,7 @@ fn declare_impl(c0: C, it: Node) -> Result<C, F> {
         }
       }
       let nb = map(ib, (kv) => (kv.0, map(kv.1, (b) => YCon(b, [], 0))))
-      c = rewrite(c, it, Node { k: NImpl(ImplD { gen: Gen { bounds: nb, ..d.gen }, ..d }), ..it })
+      c = add_patch(c, it, PtBounds(nb))
     }
   }
   var gm: Map<Str, Ty> = Map()
@@ -1593,20 +1591,33 @@ fn rest_r<T>(r: Result<(C, T), F>, s: Saved) -> Result<(C, T), F> {
 }
 
 
-fn check_impl_bodies(c0: C, it: Node, sc: Sc) -> Result<C, F> {
+// trait 默认方法：每个 impl 各自检查出一份类型化的函数体，按 "类型.方法名@行" 存在 C.dflt（Python 版的 _tsnap）
+fn check_impl_bodies(c0: C, it: Node, sc: Sc) -> Result<(C, Node), F> {
   var c = c0
   let d = implv(it)
   let target = d.target
+  var own = d.methods
   match get(c.impl_info, ikey(it)) {
     Some((_, ms)) => {
       for m in ms {
         if is_none(fnd(m).body) { continue }
         match get(c.msigs, target + "|" + fkey(m)) {
           Some(sig) => {
-            c = guard_c(c, check_fn_body2(c, m, sc, Some(sig), unwrap_or(get(c.mcga, target + "|" + fkey(m)), [])))?
-            // trait 默认方法的语法树由多个 impl 共用，ts 会被下一个 impl 覆盖：按目标类型留一份快照给 KIR（Python 版的 _tsnap）
-            if !any(d.methods, (x) => fkey(x) == fkey(m)) {
-              c = C { tsnap: set(c.tsnap, target + "." + fnd(m).name + "@" + "{m.line}", c.ts), ..c }
+            var m2 = m
+            match check_fn_body2(c, m, sc, Some(sig), unwrap_or(get(c.mcga, target + "|" + fkey(m)), [])) {
+              Ok((c1, x)) => {
+                c = c1
+                m2 = x
+              },
+              Err(f)      => {
+                if is_unsup(f) { return Err(f) }
+                c = add_err(c, f)
+              },
+            }
+            if any(d.methods, (x) => fkey(x) == fkey(m)) {
+              own = map(own, (x) => if fkey(x) == fkey(m) { m2 } else { x })
+            } else {
+              c = C { dflt: set(c.dflt, target + "." + fnd(m).name + "@" + "{m.line}", m2), ..c }
             }
           },
           None      => (),
@@ -1615,7 +1626,7 @@ fn check_impl_bodies(c0: C, it: Node, sc: Sc) -> Result<C, F> {
     },
     None          => (),
   }
-  Ok(c)
+  Ok((c, Node { k: NImpl(ImplD { methods: own, ..d }), ..it }))
 }
 
 fn stmts_of(b: Node) -> List<Node> {
@@ -1635,21 +1646,22 @@ fn diverges(b: Node) -> Bool {
   len(ss) > 0 && contains(["Return", "Break", "Continue"], kname(ss[len(ss) - 1]))
 }
 
-fn check_fn_body(c0: C, fnode: Node, sc: Sc, sig0: Ty?) -> Result<C, F> {
+fn check_fn_body(c0: C, fnode: Node, sc: Sc, sig0: Ty?) -> Result<(C, Node), F> {
   check_fn_body2(c0, fnode, sc, sig0, unwrap_or(get(c0.fcga, fkey(fnode)), []))
 }
 
-fn check_fn_body2(c0: C, fnode: Node, sc: Sc, sig0: Ty?, cga: List<Str>) -> Result<C, F> {
+// 检查函数体，返回函数体换成类型化 IR 的函数节点
+fn check_fn_body2(c0: C, fnode: Node, sc: Sc, sig0: Ty?, cga: List<Str>) -> Result<(C, Node), F> {
   let f = fnd(fnode)
   let body = match f.body {
     Some(b) => b,
-    None    => { return Ok(c0) },
+    None    => { return Ok((c0, fnode)) },
   }
   let sig = match sig0 {
     Some(s) => s,
     None    => match get(c0.fsigs, fkey(fnode)) {
       Some(s) => s,
-      None    => { return Ok(c0) },
+      None    => { return Ok((c0, fnode)) },
     },
   }
   var rigid: Map<Str, Ty> = Map()
@@ -1686,17 +1698,11 @@ fn check_fn_body2(c0: C, fnode: Node, sc: Sc, sig0: Ty?, cga: List<Str>) -> Resu
     // async fn：直接按内层类型 T 检查 Future { run: () => body } 里的闭包
     let lamv = async_lambda(body)
     let inner = targs(pr(c, rt))[0]
-    let ra = rest_r(async_body(c, lamv, sc2, inner, fnode.line, fname), s)
-    return match ra {
-      Ok((c5, _)) => Ok(c5),
-      Err(e)      => Err(e),
-    }
+    let (c5, lam2) = rest_r(async_body(c, lamv, sc2, inner, fnode.line, fname), s)?
+    return Ok((c5, with_fnd(fnode, FnD { body: Some(async_with(body, lam2)), ..f })))
   }
-  let r = rest_r(fn_body2(c, body, sc2, rt, fname), s)
-  match r {
-    Ok((c3, _)) => Ok(c3),
-    Err(e)      => Err(e),
-  }
+  let (c3, b2) = rest_r(fn_body2(c, body, sc2, rt, fname), s)?
+  Ok((c3, with_fnd(fnode, FnD { body: Some(b2), ..f })))
 }
 
 // async fn 的函数体是 { Future { run: () => 原函数体 } }：取出那个闭包
@@ -1711,11 +1717,28 @@ fn async_lambda(body: Node) -> Node {
   }
 }
 
-fn async_body(c: C, lamv: Node, sc: Sc, inner: Ty, ln: Int, name: Str) -> Result<(C, Bool), F> {
-  let (c1, lt) = expr(c, lamv, sc, Some(fn_t([], inner)))?
+// 把检查过的闭包放回 async fn 的函数体
+fn async_with(body: Node, lam2: Node) -> Node {
+  let ss = stmts_of(body)
+  let st = ss[0]
+  let st2 = match st.k {
+    NExprStmt(e) => match e.k {
+      NStructLit(n, fs, b) => Node { k: NExprStmt(Node { k: NStructLit(n, [(fs[0].0, lam2)] + skip(fs, 1), b), ..e }), ..st },
+      _                    => st,
+    },
+    _            => st,
+  }
+  match body.k {
+    NBlock(_, u) => Node { k: NBlock([st2] + skip(ss, 1), u), ..body },
+    _            => body,
+  }
+}
+
+fn async_body(c: C, lamv: Node, sc: Sc, inner: Ty, ln: Int, name: Str) -> Result<(C, Node), F> {
+  let (c1, lt, l2) = expr(c, lamv, sc, Some(fn_t([], inner)))?
   let xs = targs(pr(c1, lt))
   let c2 = unify(c1, inner, xs[len(xs) - 1], ln, "async fn {name} 的返回值")?
-  Ok((c2, true))
+  Ok((c2, l2))
 }
 
 fn call_parts(e: Node) -> (Node, List<Node>) {
@@ -1726,7 +1749,7 @@ fn call_parts(e: Node) -> (Node, List<Node>) {
 }
 
 // 调用可变参数 extern：固定参数照常检查；多出来的参数只能是 Int/Float/Bool/Str/Ptr
-fn va_call(c0: C, e: Node, en: Ent, sig: Ty, sc: Sc) -> Result<(C, Ty), F> {
+fn va_call(c0: C, e: Node, en: Ent, sig: Ty, sc: Sc) -> Result<(C, Ty, Node), F> {
   let (f, args) = call_parts(e)
   let ln = e.line
   let nm = split(en.ext, "|")[1]
@@ -1736,16 +1759,19 @@ fn va_call(c0: C, e: Node, en: Ent, sig: Ty, sc: Sc) -> Result<(C, Ty), F> {
   let xs = targs(sig)
   let fixed = take(xs, len(xs) - 1)
   if len(args) < len(fixed) { return Err(te(c, ln, "{nm} 至少需要 {len(fixed)} 个参数，给了 {len(args)} 个")) }
+  var out: List<Node> = []
   var i = 0
   while i < len(fixed) {
-    let (c2, at) = expr(c, args[i], sc, Some(fixed[i]))?
+    let (c2, at, a2) = expr(c, args[i], sc, Some(fixed[i]))?
     c = unify(c2, fixed[i], at, args[i].line, "{nm} 的参数")?
+    out = push(out, a2)
     i += 1
   }
   var extra: List<Str> = []
   while i < len(args) {
-    let (c3, at0) = expr(c, args[i], sc, None)?
+    let (c3, at0, a3) = expr(c, args[i], sc, None)?
     c = c3
+    out = push(out, a3)
     let at = pr(c, at0)
     if !(is_con(at) && contains(["Int", "Float", "Bool", "Str", "Ptr"], tname(at))) {
       return Err(te(c, args[i].line, "{nm} 的可变参数不能是 {sh(c, at)}（只支持 Int、Float、Bool、Str、Ptr）"))
@@ -1756,8 +1782,7 @@ fn va_call(c0: C, e: Node, en: Ent, sig: Ty, sc: Sc) -> Result<(C, Ty), F> {
   // 每种可变参数组合一个变体名（Python 版同时把变体记在 extern 函数的 _va_variants 上，代码生成时再补）
   let vkey = fname + "__va_" + join(extra, "_")
   if !any(c.vav, (t) => t.1 == vkey) { c = C { vav: push(c.vav, (fname, vkey, extra)), ..c } }
-  c = rewrite(c, f, Node { k: NName(vkey), ..f })
-  Ok((c, xs[len(xs) - 1]))
+  Ok((c, xs[len(xs) - 1], Node { k: NCall(Node { k: NName(vkey), ..f }, out), ..e }))
 }
 
 fn narrow_c(ta: TyX?) -> Bool {
@@ -1851,43 +1876,60 @@ fn check_extern(c0: C, it: Node, sig: Ty) -> Result<C, F> {
     i += 1
   }
   let et = (take(descs, len(descs) - 1), descs[len(descs) - 1])
-  Ok(rewrite(c, it, with_fnd(it, FnD { x: FnX { ext_tys: Some(et), ..f.x }, ..f })))
+  Ok(add_patch(c, it, PtExt(et)))
 }
 
-fn fn_body2(c: C, body: Node, sc: Sc, rt: Ty, name: Str) -> Result<(C, Bool), F> {
-  let (c1, bt) = block(c, body, sc, Some(rt))?
+
+fn fn_body2(c: C, body: Node, sc: Sc, rt: Ty, name: Str) -> Result<(C, Node), F> {
+  let (c1, bt, b2) = block(c, body, sc, Some(rt))?
   if !diverges(body) {
     let c2 = unify(c1, rt, bt, last_line(body), "函数 {name} 的返回值")?
-    return Ok((c2, true))
+    return Ok((c2, b2))
   }
-  Ok((c1, true))
+  Ok((c1, b2))
 }
+
 fn body_gmap(c: C) -> Map<Str, Ty> {
   var g: Map<Str, Ty> = Map()
   for r in c.rigid { for k in keys(r) { g = set(g, k, unwrap(get(r, k))) } }
   g
 }
 
-
 fn is_decl(k: Str) -> Bool { contains(["Fn", "Struct", "Enum", "Trait", "Impl", "Alias", "Use", "Mod"], k) }
 
-fn block(c0: C, b: Node, scope: Sc, expected: Ty?) -> Result<(C, Ty), F> {
+// 块：返回块的类型和类型化的块（块节点本身的类型由 expr 记）
+fn block(c0: C, b: Node, scope: Sc, expected: Ty?) -> Result<(C, Ty, Node), F> {
   var c = c0
   var sc = frame(scope)
   let ss = stmts_of(b)
   let local = filter(ss, (s) => is_decl(kname(s)))
+  var done: Map<Int, Node> = Map()
   if len(local) > 0 {
     let (c1, s1) = declare(c, local, sc)?
     c = c1
     sc = s1
+    var li = 0
     for s in local {
-      if is_k(s, "Fn") { c = check_fn_body(c, s, sc, None)? } else if is_k(s, "Impl") { c = check_impl_bodies(c, s, sc)? }
+      if is_k(s, "Fn") {
+        let (c2, x) = check_fn_body(c, s, sc, None)?
+        c = c2
+        done = set(done, li, x)
+      } else if is_k(s, "Impl") {
+        let (c2, x) = check_impl_bodies(c, s, sc)?
+        c = c2
+        done = set(done, li, x)
+      }
+      li += 1
     }
   }
   var t = unit_t()
   var i = 0
+  var di = 0
+  var out: List<Node> = []
   for s in ss {
     if is_decl(kname(s)) {
+      out = push(out, unwrap_or(get(done, di), s))
+      di += 1
       t = unit_t()
       i += 1
       continue
@@ -1895,21 +1937,23 @@ fn block(c0: C, b: Node, scope: Sc, expected: Ty?) -> Result<(C, Ty), F> {
     let r = match s.k {
       NExprStmt(ex) => if i == len(ss) - 1 && is_some(expected) {
         match expr(c, ex, sc, expected) {
-          Ok((c1, t1)) => Ok((c1, sc, t1)),
-          Err(f)       => Err(f),
+          Ok((c1, t1, x)) => Ok((c1, sc, t1, Node { k: NExprStmt(x), ..s })),
+          Err(f)          => Err(f),
         }
       } else { stmt(c, s, sc) },
       _             => stmt(c, s, sc),
     }
     match r {
-      Ok((c1, s1, t1)) => {
+      Ok((c1, s1, t1, x)) => {
         c = c1
         sc = s1
         t = t1
+        out = push(out, x)
       },
-      Err(f)           => {
+      Err(f)              => {
         if is_unsup(f) { return Err(f) }
         c = add_err(c, f)
+        out = push(out, s)
         if let NLet(p, mutable, _, _, _) = s.k {
           for nm in pat_names(p) {
             if !contains(frame_vars(sc), nm) {
@@ -1924,7 +1968,11 @@ fn block(c0: C, b: Node, scope: Sc, expected: Ty?) -> Result<(C, Ty), F> {
     }
     i += 1
   }
-  Ok((c, t))
+  let u = match b.k {
+    NBlock(_, x) => x,
+    _            => false,
+  }
+  Ok((c, t, Node { k: NBlock(out, u), ..b }))
 }
 
 fn pat_names(p: Pat) -> List<Str> {
@@ -1969,12 +2017,13 @@ fn const_literal(e: Node) -> Lit? {
   }
 }
 
-fn stmt(c0: C, s: Node, sc: Sc) -> Result<(C, Sc, Ty), F> {
+
+fn stmt(c0: C, s: Node, sc: Sc) -> Result<(C, Sc, Ty, Node), F> {
   let ln = s.line
   match s.k {
     NExprStmt(e) => {
-      let (c, t) = expr(c0, e, sc, None)?
-      return Ok((c, sc, t))
+      let (c, t, x) = expr(c0, e, sc, None)?
+      return Ok((c, sc, t, Node { k: NExprStmt(x), ..s }))
     },
     NLet(pat0, mutable, ty, value, is_const) => {
       var c = c0
@@ -1984,7 +2033,7 @@ fn stmt(c0: C, s: Node, sc: Sc) -> Result<(C, Sc, Ty), F> {
         c = c1
         ann = Some(a)
       }
-      let (c2, vt) = expr(c, value, sc, ann)?
+      let (c2, vt, v2) = expr(c, value, sc, ann)?
       c = c2
       var vt2 = vt
       if let Some(a) = ann {
@@ -1992,7 +2041,7 @@ fn stmt(c0: C, s: Node, sc: Sc) -> Result<(C, Sc, Ty), F> {
         if is_dyn(pr(c, a)) { vt2 = a }
       }
       let (c3, sc3, p) = pattern(c, pat0, vt2, sc, mutable, ln)?
-      c = rewrite(c3, s, Node { k: NLet(p, mutable, ty, value, is_const), ..s })
+      c = c3
       if is_const {
         let pn = match p {
           PBind(n)               => ast.nm_str(n),
@@ -2008,11 +2057,11 @@ fn stmt(c0: C, s: Node, sc: Sc) -> Result<(C, Sc, Ty), F> {
           None    => { c = C { const_lits: remove(c.const_lits, pn), ..c } },
         }
       }
-      return Ok((c, sc3, unit_t()))
+      return Ok((c, sc3, unit_t(), Node { k: NLet(p, mutable, ty, v2, is_const), ..s }))
     },
     NAssign(..) => {
-      let c = assign(c0, s, sc)?
-      return Ok((c, sc, unit_t()))
+      let (c, x) = assign(c0, s, sc)?
+      return Ok((c, sc, unit_t(), x))
     },
     NReturn(value) => {
       if len(c0.ret) == 0 { return Err(te(c0, ln, "return 只能出现在函数里")) }
@@ -2020,35 +2069,45 @@ fn stmt(c0: C, s: Node, sc: Sc) -> Result<(C, Sc, Ty), F> {
       if is_spawn(rt) { return Err(te(c0, ln, "spawn 任务里不能用 return（任务的值就是它的表达式）")) }
       var c = c0
       var vt = unit_t()
+      var v2: Node? = None
       if let Some(v) = value {
-        let (c1, t) = expr(c, v, sc, Some(rt))?
+        let (c1, t, x) = expr(c, v, sc, Some(rt))?
         c = c1
         vt = t
+        v2 = Some(x)
       }
       c = unify(c, rt, vt, ln, "return 的值")?
-      return Ok((c, sc, never_t()))
+      return Ok((c, sc, never_t(), Node { k: NReturn(v2), ..s }))
     },
-    NBreak(lab, val, _) => { return brk(c0, s, sc, true, lab, val) },
-    NContinue(lab)      => { return brk(c0, s, sc, false, lab, None) },
-    NWhile(cond, body)  => {
+    NBreak(lab, val, bare) => {
+      let (c, v2) = brk(c0, s, sc, true, lab, val)?
+      return Ok((c, sc, never_t(), Node { k: NBreak(lab, v2, bare), ..s }))
+    },
+    NContinue(lab) => {
+      let (c, _) = brk(c0, s, sc, false, lab, None)?
+      return Ok((c, sc, never_t(), s))
+    },
+    NWhile(cond, body) => {
       var c = c0
+      var cd2: Node? = None
       if let Some(cd) = cond {
-        let (c1, t) = expr(c, cd, sc, None)?
+        let (c1, t, x) = expr(c, cd, sc, None)?
         c = unify(c1, bool_t(), t, ln, "while 条件")?
+        cd2 = Some(x)
       }
       let sv0 = save(c)
       c = C { loop_depth: c.loop_depth + 1, labels: push(c.labels, (s.label, None, false)), ..c }
       let r = block(c, body, sc, None)
       let broke = match r {
-        Ok((cb, _)) => cb.labels[len(cb.labels) - 1].2,
-        Err(_)      => true,
+        Ok((cb, _, _)) => cb.labels[len(cb.labels) - 1].2,
+        Err(_)         => true,
       }
-      let (c2, _) = rest_r(r, sv0)?
+      let (c2, _, b2) = rest_r3(r, sv0)?
       // 语句位置的 loop（cond 为空）里没有 break 时永不结束，类型是 Never
-      return Ok((c2, sc, if is_none(cond) && !broke { never_t() } else { unit_t() }))
+      return Ok((c2, sc, if is_none(cond) && !broke { never_t() } else { unit_t() }, Node { k: NWhile(cd2, b2), ..s }))
     },
     NFor(pat0, iter, body) => {
-      let (c1, it0) = expr(c0, iter, sc, None)?
+      let (c1, it0, it2) = expr(c0, iter, sc, None)?
       var c = c1
       let it = pr(c, it0)
       let h = head(c, it)
@@ -2066,26 +2125,36 @@ fn stmt(c0: C, s: Node, sc: Sc) -> Result<(C, Sc, Ty), F> {
       } else {
         return Err(te(c, ln, "{sh(c, it)} 不可迭代"))
       }
-      let (c3a, inner, fp) = pattern(c, pat0, el, frame(sc), false, ln)?
-      let c3 = rewrite(c3a, s, Node { k: NFor(fp, iter, body), ..s })
+      let (c3, inner, fp) = pattern(c, pat0, el, frame(sc), false, ln)?
       let sv0 = save(c3)
       c = C { loop_depth: c3.loop_depth + 1, labels: push(c3.labels, (s.label, None, false)), ..c3 }
-      let (c4, _) = rest_r(block(c, body, inner, None), sv0)?
-      return Ok((c4, sc, unit_t()))
+      let (c4, _, b2) = rest_r3(block(c, body, inner, None), sv0)?
+      return Ok((c4, sc, unit_t(), Node { k: NFor(fp, it2, b2), ..s }))
     },
     NDefer(b) => {
-      let (c, _) = if is_k(b, "Block") { block(c0, b, sc, None)? } else { expr(c0, b, sc, None)? }
-      return Ok((c, sc, unit_t()))
+      if is_k(b, "Block") {
+        let (c, _, b2) = block(c0, b, sc, None)?
+        return Ok((c, sc, unit_t(), Node { k: NDefer(b2), ..s }))
+      }
+      let (c, _, b3) = expr(c0, b, sc, None)?
+      return Ok((c, sc, unit_t(), Node { k: NDefer(b3), ..s }))
     },
     _ => (),
   }
   let k = kname(s)
-  if is_decl(k) { return Ok((c0, sc, unit_t())) }
+  if is_decl(k) { return Ok((c0, sc, unit_t(), s)) }
   Err(te(c0, ln, "未知语句 {k}"))
 }
 
-// break / continue（Python 版两者共用 label / value 字段）
-fn brk(c0: C, s: Node, sc: Sc, is_break: Bool, lab: Str?, val: Node?) -> Result<(C, Sc, Ty), F> {
+fn rest_r3<T, U>(r: Result<(C, T, U), F>, s: Saved) -> Result<(C, T, U), F> {
+  match r {
+    Ok((c, x, y)) => Ok((restore(c, s), x, y)),
+    Err(f)        => Err(F { c: restore(f.c, s), ..f }),
+  }
+}
+
+// break / continue（Python 版两者共用 label / value 字段）；返回检查过的值
+fn brk(c0: C, s: Node, sc: Sc, is_break: Bool, lab: Str?, val: Node?) -> Result<(C, Node?), F> {
   let ln = s.line
   let k = if is_break { "break" } else { "continue" }
   if c0.loop_depth == 0 { return Err(te(c0, ln, k + " 只能出现在循环里")) }
@@ -2097,6 +2166,7 @@ fn brk(c0: C, s: Node, sc: Sc, is_break: Bool, lab: Str?, val: Node?) -> Result<
   }
   if fi < 0 { return Err(te(c0, ln, "找不到循环标签 '{unwrap_or(lab, "")}")) }
   var c = c0
+  var v2 = val
   if is_break {
     let fr = c.labels[fi]
     match fr.1 {
@@ -2107,9 +2177,10 @@ fn brk(c0: C, s: Node, sc: Sc, is_break: Bool, lab: Str?, val: Node?) -> Result<
       Some(lt) => {
         var vt = unit_t()
         if let Some(v) = val {
-          let (c1, t) = expr(c, v, sc, None)?
+          let (c1, t, x) = expr(c, v, sc, None)?
           c = c1
           vt = t
+          v2 = Some(x)
         }
         c = C { labels: set(c.labels, fi, (fr.0, fr.1, true)), ..c }
         c = unify(c, lt, vt, match val {
@@ -2119,18 +2190,18 @@ fn brk(c0: C, s: Node, sc: Sc, is_break: Bool, lab: Str?, val: Node?) -> Result<
       },
     }
   }
-  Ok((c, sc, never_t()))
+  Ok((c, v2))
 }
 
 fn bin_node(ln: Int, op: Str, l: Node, r: Node) -> Node { ast.mkn(ln, NBin(op, l, Some(r))) }
 
 fn call_node(ln: Int, f: Str, args: List<Node>) -> Node { call_n(ln, name_n(ln, f), args) }
 
-fn assign(c0: C, s: Node, sc: Sc) -> Result<C, F> {
+fn assign(c0: C, s: Node, sc: Sc) -> Result<(C, Node), F> {
   let ln = s.line
   let (t, op0s, value0) = match s.k {
     NAssign(a, b, x) => (a, b, x),
-    _                => { return Ok(c0) },
+    _                => { return Ok((c0, s)) },
   }
   var root = t
   var go = true
@@ -2151,23 +2222,34 @@ fn assign(c0: C, s: Node, sc: Sc) -> Result<C, F> {
   }
   if !e.mt { return Err(te(c0, ln, "不能修改不可变绑定 `{rn}`（改用 var 声明）")) }
   if task_between(sc, rn) { return Err(te(c0, ln, "spawn 任务不能修改外层变量 `{rn}`（数据竞争）")) }
-  let (c1, tt) = expr(c0, t, sc, None)?
+  let (c1, tt, t2) = expr(c0, t, sc, None)?
   var c = c1
   var op = op0s
-  var value = value0
   let op0 = if len(op) > 0 { __str_slice(op, 0, 1) } else { "" }
   if contains(["|=", "&=", "^=", "<<=", ">>="], op) || op == "-=" && head(c, tt) == "Set" ||
     op != "=" && op_method(op0) != "" && (user_type(c, tt) || op_bound(c, tt, op0)) {
-    let (c0b, bn) = fid(c, bin_node(ln, __str_slice(op, 0, len(op) - 1), t, value))
-    value = bn
-    op = "="
-    c = rewrite(c0b, s, Node { k: NAssign(t, "=", value), ..s })
+    // a op= b 改写成 a = a op b：目标在新的值里又检查一遍（Python 版两处是同一个节点，取后一次的结果）
+    let (c0b, bn) = fid(c, bin_node(ln, __str_slice(op, 0, len(op) - 1), t, value0))
+    let (c2, vt, v2) = expr(c0b, bn, sc, None)?
+    c = unify(c2, tt, vt, ln, "赋值")?
+    let tgt = unwrap_or(find_id(v2, t.id), t2)
+    return Ok((c, Node { k: NAssign(tgt, "=", v2), ..s }))
   }
-  let (c2, vt) = expr(c, value, sc, None)?
+  let (c2, vt, v2) = expr(c, value0, sc, None)?
   c = unify(c2, tt, vt, ln, "赋值")?
   if op != "=" { c = add_con(c, tt, if op == "+=" { KAdd } else { KNum }, ln) }
-  Ok(c)
+  Ok((c, Node { k: NAssign(t2, op, v2), ..s }))
 }
+
+// 子树里编号为 i 的节点（先序第一个）
+fn find_id(n: Node, i: Int) -> Node? {
+  if n.id == i { return Some(n) }
+  for k in ast.kids(n) {
+    if let Some(x) = find_id(k, i) { return Some(x) }
+  }
+  None
+}
+
 fn lookup(c: C, name: Str, sc: Sc, ln: Int) -> Result<(C, FT), F> {
   let e = match sc_find(c, sc, name) {
     Some(x) => x,
@@ -2201,60 +2283,64 @@ fn ft_ty(ft: FT) -> Ty {
 }
 
 
-fn exprs(c0: C, es: List<Node>, sc: Sc) -> Result<(C, List<Ty>), F> {
+
+fn exprs(c0: C, es: List<Node>, sc: Sc) -> Result<(C, List<Ty>, List<Node>), F> {
   var c = c0
   var out: List<Ty> = []
+  var ns: List<Node> = []
   for e in es {
-    let (c1, t) = expr(c, e, sc, None)?
+    let (c1, t, x) = expr(c, e, sc, None)?
     c = c1
     out = push(out, t)
+    ns = push(ns, x)
   }
-  Ok((c, out))
+  Ok((c, out, ns))
 }
 
-// 每个表达式节点的类型记进 C.ts（按 Node.id），最后挂到类型化 IR 的节点上（Python 版的 e._t）
-fn expr(c0: C, e: Node, sc: Sc, expected: Ty?) -> Result<(C, Ty), F> {
-  let (c, t) = expr_(c0, e, sc, expected)?
-  let i = e.id
-  if i < 0 { return Ok((c, t)) }
-  let c2 = C { ts: set(c.ts, i, t), ..c }
-  // f.<T>：运行时就是 f 本身（apply_rw 去掉 TypeApp），类型记在 f 上
-  if let NTypeApp(f, _) = e.k {
-    if f.id >= 0 { return Ok((C { ts: set(c2.ts, f.id, t), ..c2 }, t)) }
-  }
-  Ok((c2, t))
+// 检查表达式，返回类型和类型化 IR 节点：有编号的节点带上自己的类型（Python 版的 e._t）
+fn expr(c0: C, e: Node, sc: Sc, expected: Ty?) -> Result<(C, Ty, Node), F> {
+  let (c, t, x) = expr_(c0, e, sc, expected)?
+  if e.id < 0 { return Ok((c, t, x)) }
+  Ok((c, t, Node { t: Some(t), ..x }))
+}
+
+fn expr_t(c0: C, e: Node, sc: Sc, expected: Ty?) -> Result<(C, Ty), F> {
+  let (c, t, _) = expr(c0, e, sc, expected)?
+  Ok((c, t))
 }
 
 // 检查器合成、带类型的新节点（Python 版里新建 Node 后直接设 _t）
 fn typed_node(c: C, v: Node, t: Ty) -> (C, Node) {
   let (c1, v1) = fid(c, v)
-  (C { ts: set(c1.ts, v1.id, t), ..c1 }, v1)
+  (c1, Node { t: Some(t), ..v1 })
 }
 
-fn expr_(c0: C, e: Node, sc: Sc, expected: Ty?) -> Result<(C, Ty), F> {
+fn with_k(e: Node, k: K) -> Node { Node { k: k, ..e } }
+
+fn expr_(c0: C, e: Node, sc: Sc, expected: Ty?) -> Result<(C, Ty, Node), F> {
   let ln = e.line
   match e.k {
     NLit(l) => {
       match l {
-        LBool(_) => { return Ok((c0, bool_t())) },
-        LInt(_)  => { return Ok((c0, int_t())) },
+        LBool(_) => { return Ok((c0, bool_t(), e)) },
+        LInt(_)  => { return Ok((c0, int_t(), e)) },
         LBig(t)  => { return Err(te(c0, ln, "整数常量 {t} 超出 64 位范围")) },
-        LFlt(_)  => { return Ok((c0, float_t())) },
-        LStr(_)  => { return Ok((c0, str_t())) },
+        LFlt(_)  => { return Ok((c0, float_t(), e)) },
+        LStr(_)  => { return Ok((c0, str_t(), e)) },
       }
     },
     NName(n) => {
       let alts = unwrap_or(get(c0.variant_alts, n), [])
       if len(alts) > 1 && !is_local(sc, n) && all(alts, (a) => vf_nil(variant_fs(c0, a, n))) {
         let (c1, v) = fresh(c0)
-        return Ok((add_con(c1, v, KVar(n, alts), ln), v))
+        return Ok((add_con(c1, v, KVar(n, alts), ln), v, e))
       }
       if let Some(en) = sc_find(c0, sc, n) {
         if en.sch && starts(en.ext, "unsafe 函数|") {
           if let FTy(_) = en.t {
             // 取 unsafe 函数的值是安全的，得到 unsafe fn 类型；调用它时才需要 unsafe
             let (c1, ft1) = lookup(C { unsafe_d: c0.unsafe_d + 1, ..c0 }, n, sc, ln)?
-            return Ok((C { unsafe_d: c0.unsafe_d, ..c1 }, TC("UnsafeFn", [ft_ty(ft1)])))
+            return Ok((C { unsafe_d: c0.unsafe_d, ..c1 }, TC("UnsafeFn", [ft_ty(ft1)]), e))
           }
         }
       }
@@ -2262,32 +2348,37 @@ fn expr_(c0: C, e: Node, sc: Sc, expected: Ty?) -> Result<(C, Ty), F> {
       if len(cl.pend) > 0 { return Err(te(C { pend: [], ..cl }, ln, "{n} 带常量泛型参数，不能当值传递，请用 lambda 包一层")) }
       let c = cl
       match ft {
-        FTy(t)   => { return Ok((c, t)) },
-        FVar     => { return Ok((c, fn_t([any_t()], unit_t()))) },
+        FTy(t)   => { return Ok((c, t, e)) },
+        FVar     => { return Ok((c, fn_t([any_t()], unit_t()), e)) },
         FDict(_) => { return Err(te(c, ln, "内建函数 {n} 有多个重载，不能当值传递，请用 lambda 包一层")) },
       }
     },
     NInterp(ps) => {
       var c = c0
+      var out: List<IPart> = []
       for p in ps {
-        if let IExpr(x) = p {
-          let (c1, _) = expr(c, x, sc, None)?
-          c = c1
+        match p {
+          IExpr(x) => {
+            let (c1, _, x2) = expr(c, x, sc, None)?
+            c = c1
+            out = push(out, IExpr(x2))
+          },
+          IStr(_)  => { out = push(out, p) },
         }
       }
-      return Ok((c, str_t()))
+      return Ok((c, str_t(), with_k(e, NInterp(out))))
     },
     NBin(..) => { return binop(c0, e, sc) },
-    NUnary(op, o, _) => {
+    NUnary(op, o, pos) => {
       if op == "-" {
         if let NLit(LBig(s)) = o.k {
           if s == "9223372036854775808" {
-            let (cb, _) = repl(c0, e, lit_n(o.line, LInt(-9223372036854775807 - 1)))
-            return Ok((cb, int_t()))
+            let (_, ne) = repl(c0, e, lit_n(o.line, LInt(-9223372036854775807 - 1)))
+            return Ok((c0, int_t(), ne))
           }
         }
       }
-      let (c1, t) = expr(c0, o, sc, None)?
+      let (c1, t, o2) = expr(c0, o, sc, None)?
       var c = c1
       if op == "~" || op == "!" && head(c, t) == "Int" {
         if head(c, t) != "Int" {
@@ -2299,19 +2390,19 @@ fn expr_(c0: C, e: Node, sc: Sc, expected: Ty?) -> Result<(C, Ty), F> {
         }
         if op == "!" { return Err(te(c, ln, "! 只用于 Bool；Int 的按位取反请写 ~x（kite fmt --migrate 可自动改写）")) }
         let (cb, ne) = repl(c, e, call_node(ln, "__bnot", [o]))
-        return expr(cb, ne, sc, None)
+        return expr_(cb, ne, sc, None)
       }
       if op == "!" {
         let c2 = unify(c, bool_t(), t, ln, "! 的操作数")?
-        return Ok((c2, bool_t()))
+        return Ok((c2, bool_t(), with_k(e, NUnary(op, o2, pos))))
       }
       if op == "-" && (user_type(c, t) || op_bound(c, t, "neg")) { return overload(c, e, "neg", t, sc) }
-      return Ok((add_con(c, t, KNum, ln), t))
+      return Ok((add_con(c, t, KNum, ln), t, with_k(e, NUnary(op, o2, pos))))
     },
     NTuple(xs) => {
-      if len(xs) == 0 { return Ok((c0, unit_t())) }
-      let (c, ts) = exprs(c0, xs, sc)?
-      return Ok((c, TC("Tuple", ts)))
+      if len(xs) == 0 { return Ok((c0, unit_t(), e)) }
+      let (c, ts, ns) = exprs(c0, xs, sc)?
+      return Ok((c, TC("Tuple", ts), with_k(e, NTuple(ns))))
     },
     NList(xs) => {
       if let Some(ex) = expected {
@@ -2322,11 +2413,13 @@ fn expr_(c0: C, e: Node, sc: Sc, expected: Ty?) -> Result<(C, Ty), F> {
           let pel = pr(ca, targs(pe)[0])
           if is_dyn(pel) { el = pel }
           var c = ca
+          var ns: List<Node> = []
           for x in xs {
-            let (c2, xt) = expr(c, x, sc, Some(el))?
+            let (c2, xt, x2) = expr(c, x, sc, Some(el))?
             c = unify(c2, el, xt, x.line, "数组元素")?
+            ns = push(ns, x2)
           }
-          return Ok((c, TC("Array", [el, TC("#{len(xs)}", [])])))
+          return Ok((c, TC("Array", [el, TC("#{len(xs)}", [])]), with_k(e, NList(ns))))
         }
       }
       let (c1, el0) = fresh(c0)
@@ -2336,60 +2429,65 @@ fn expr_(c0: C, e: Node, sc: Sc, expected: Ty?) -> Result<(C, Ty), F> {
         if is_con(pe) && tname(pe) == "List" && len(targs(pe)) > 0 && is_dyn(pr(c1, targs(pe)[0])) { el = pr(c1, targs(pe)[0]) }
       }
       var c = c1
+      var ns: List<Node> = []
       for x in xs {
-        let (c2, xt) = expr(c, x, sc, Some(el))?
+        let (c2, xt, x2) = expr(c, x, sc, Some(el))?
         c = unify(c2, el, xt, x.line, "列表元素")?
+        ns = push(ns, x2)
       }
-      return Ok((c, list_t(el)))
+      return Ok((c, list_t(el), with_k(e, NList(ns))))
     },
     NCast(..) => { return cast(c0, e, sc) },
     NBlock(_, u) => {
-      if u { return rest_r(block(C { unsafe_d: c0.unsafe_d + 1, ..c0 }, e, sc, expected), save(c0)) }
+      if u { return rest_r3(block(C { unsafe_d: c0.unsafe_d + 1, ..c0 }, e, sc, expected), save(c0)) }
       return block(c0, e, sc, expected)
     },
     NLoop(body, lab) => {
       let (c1, v) = fresh(c0)
       let s = save(c1)
       let c = C { loop_depth: c1.loop_depth + 1, labels: push(c1.labels, (lab, Some(v), false)), ..c1 }
-      let (c2, _) = block(c, body, sc, None)?
+      let (c2, _, b2) = block(c, body, sc, None)?
       let hit = c2.labels[len(c2.labels) - 1].2
-      return Ok((restore(c2, s), if hit { v } else { never_t() }))
+      return Ok((restore(c2, s), if hit { v } else { never_t() }, with_k(e, NLoop(b2, lab))))
     },
     NIf(cond, thn, els) => {
-      let (c1, ct) = expr(c0, cond, sc, None)?
+      let (c1, ct, cond2) = expr(c0, cond, sc, None)?
       let c2 = unify(c1, bool_t(), ct, ln, "if 条件")?
-      let (c3, tt) = block(c2, thn, sc, expected)?
+      let (c3, tt, thn2) = block(c2, thn, sc, expected)?
       let ex = match els {
         Some(x) => x,
-        None    => { return Ok((c3, unit_t())) },
+        None    => { return Ok((c3, unit_t(), with_k(e, NIf(cond2, thn2, None)))) },
       }
-      let (c4, et) = expr(c3, ex, sc, expected)?
+      let (c4, et, ex2) = expr(c3, ex, sc, expected)?
+      let e2 = with_k(e, NIf(cond2, thn2, Some(ex2)))
       if let Some(dy) = expected {
         if is_dyn(pr(c4, dy)) {
           // 两个分支分别转换成 dyn
           let c5 = unify(c4, dy, tt, ln, "if 分支")?
           let c6 = unify(c5, dy, et, ln, "else 分支")?
-          return Ok((c6, dy))
+          return Ok((c6, dy, e2))
         }
       }
-      return join_t(c4, tt, et, ln, "if 两个分支")
+      let (c7, jt) = join_t(c4, tt, et, ln, "if 两个分支")?
+      return Ok((c7, jt, e2))
     },
     NMatch(_) => { return match_e(c0, e, sc, expected) },
     NIs(v, p0) => {
-      let (c1, vt) = expr(c0, v, sc, None)?
+      let (c1, vt, v2) = expr(c0, v, sc, None)?
       let (c2, _, ip) = pattern(c1, p0, vt, frame(sc), false, ln)?
-      return Ok((rewrite(c2, e, Node { k: NIs(v, ip), ..e }), bool_t()))
+      return Ok((c2, bool_t(), with_k(e, NIs(v2, ip))))
     },
     NLambda(..) => { return lam(c0, e, sc, expected) },
     NCall(f, fargs) => {
       let fname = unwrap_or(name_of(f), "")
       if fname == "__await" && len(fargs) == 1 {
-        let (c1, a0) = expr(c0, fargs[0], sc, None)?
+        let (c1, a0, a2) = expr(c0, fargs[0], sc, None)?
         let at = pr(c1, a0)
         if tname(at) != "Future" && tname(at) != "" && !is_tv(at) {
           return Err(te(c1, ln, "只能 .await 一个 Future（async fn 的调用结果），这里是 {sh(c1, at)}"))
         }
-        return call(c1, f, [AT(at, fargs[0].line)], sc, ln)
+        let (c2, rt, f2, as2) = call(c1, f, [AT(at, fargs[0].line, Some(a2))], sc, ln)?
+        return Ok((c2, rt, with_k(e, NCall(f2, as2))))
       }
       if fname == "__repeat" && len(fargs) == 2 {
         let cnt = fargs[1]
@@ -2404,10 +2502,11 @@ fn expr_(c0: C, e: Node, sc: Sc, expected: Ty?) -> Result<(C, Ty), F> {
             if is_con(pe) && tname(pe) == "Array" { lt = Some(TC("#{n}", [])) }
           }
         }
-        let (c1, rt) = call(c0, f, map(fargs, (a) => AN(a)), sc, ln)?
+        let (c1, rt, f2, as2) = call(c0, f, map(fargs, (a) => AN(a)), sc, ln)?
+        let e2 = with_k(e, NCall(f2, as2))
         return match lt {
-          Some(l) => Ok((c1, TC("Array", [targs(pr(c1, rt))[0], l]))),
-          None    => Ok((c1, rt)),
+          Some(l) => Ok((c1, TC("Array", [targs(pr(c1, rt))[0], l]), e2)),
+          None    => Ok((c1, rt, e2)),
         }
       }
       if is_k(f, "Name") {
@@ -2417,13 +2516,19 @@ fn expr_(c0: C, e: Node, sc: Sc, expected: Ty?) -> Result<(C, Ty), F> {
           }
         }
       }
-      return call(C { cg_node: Some(e), ..c0 }, f, map(fargs, (a) => AN(a)), sc, ln)
+      let (c3, rt3, f3, as3) = call(C { cg_node: Some(e), ..c0 }, f, map(fargs, (a) => AN(a)), sc, ln)?
+      return Ok((c3, rt3, with_k(e, NCall(f3, as3))))
     },
     NPipe(l, r) => {
-      let (c1, lt) = expr(c0, l, sc, None)?
-      let left = AT(lt, l.line)
-      if let NCall(rf, ra) = r.k { return call(C { cg_node: Some(r), ..c1 }, rf, push([], left) + map(ra, (a) => AN(a)), sc, ln) }
-      return call(c1, r, [left], sc, ln)
+      let (c1, lt, l2) = expr(c0, l, sc, None)?
+      let left = AT(lt, l.line, None)
+      if let NCall(rf, ra) = r.k {
+        let (c2, rt, rf2, ra2) = call(C { cg_node: Some(r), ..c1 }, rf, push([], left) + map(ra, (a) => AN(a)), sc, ln)?
+        // 管道右边的调用节点本身不经过 expr，没有类型（和 Python 版一样）
+        return Ok((c2, rt, with_k(e, NPipe(l2, with_k(r, NCall(rf2, ra2))))))
+      }
+      let (c3, rt3, r3, _) = call(c1, r, [left], sc, ln)?
+      return Ok((c3, rt3, with_k(e, NPipe(l2, r3))))
     },
     NField(obj, fname0) => {
       let fname = ast.nm_str(fname0)
@@ -2432,7 +2537,7 @@ fn expr_(c0: C, e: Node, sc: Sc, expected: Ty?) -> Result<(C, Ty), F> {
           let hn = "__tc_{on}_{fname}"
           if contains(c0.cg_ctx[len(c0.cg_ctx) - 1], hn) && is_none(sc_find(c0, sc, on)) {
             let (cb, ne) = repl(c0, e, name_n(ln, hn))
-            return expr(cb, ne, sc, expected)
+            return expr_(cb, ne, sc, expected)
           }
         }
         if len(c0.rigid) > 0 {
@@ -2444,7 +2549,7 @@ fn expr_(c0: C, e: Node, sc: Sc, expected: Ty?) -> Result<(C, Ty), F> {
       return field(c0, e, sc)
     },
     NTupleIndex(obj, il) => {
-      let (c, t0) = expr(c0, obj, sc, None)?
+      let (c, t0, o2) = expr(c0, obj, sc, None)?
       let t = pr(c, t0)
       let idx = match il {
         LInt(i) => i,
@@ -2452,37 +2557,39 @@ fn expr_(c0: C, e: Node, sc: Sc, expected: Ty?) -> Result<(C, Ty), F> {
       }
       if tname(t) == "Tuple" && is_con(t) {
         if idx >= len(targs(t)) { return Err(te(c, ln, "元组只有 {len(targs(t))} 个元素")) }
-        return Ok((c, targs(t)[idx]))
+        return Ok((c, targs(t)[idx], with_k(e, NTupleIndex(o2, il))))
       }
       return Err(te(c, ln, "{sh(c, t)} 不能用 .{idx} 取元素（需要明确的元组类型）"))
     },
     NIndex(obj, index) => {
-      let (c1, t0) = expr(c0, obj, sc, None)?
-      let (c2, it) = expr(c1, index, sc, None)?
+      let (c1, t0, o2) = expr(c0, obj, sc, None)?
+      let (c2, it, i2) = expr(c1, index, sc, None)?
+      let e2 = with_k(e, NIndex(o2, i2))
       let t = pr(c2, t0)
       let h = head(c2, t)
       if h == "List" {
         let c3 = unify(c2, int_t(), it, ln, "下标")?
-        return Ok((c3, targs(t)[0]))
+        return Ok((c3, targs(t)[0], e2))
       }
       if h == "Map" {
         let c3 = unify(c2, targs(t)[0], it, ln, "Map 的键")?
-        return Ok((c3, targs(t)[1]))
+        return Ok((c3, targs(t)[1], e2))
       }
       if h == "Str" {
         let c3 = unify(c2, int_t(), it, ln, "下标")?
-        return Ok((c3, str_t()))
+        return Ok((c3, str_t(), e2))
       }
       if is_tv(t) {
         let (c3, el) = fresh(c2)
         let c4 = unify(c3, list_t(el), t, ln, "")?
         let c5 = unify(c4, int_t(), it, ln, "")?
-        return Ok((c5, el))
+        return Ok((c5, el, e2))
       }
       return Err(te(c2, ln, "{sh(c2, t)} 不支持下标"))
     },
     NTry(v) => {
-      let (c1, t0) = expr(c0, v, sc, None)?
+      let (c1, t0, v2) = expr(c0, v, sc, None)?
+      let e2 = with_k(e, NTry(v2))
       let t = pr(c1, t0)
       if len(c1.ret) == 0 { return Err(te(c1, ln, "? 只能用在函数里")) }
       let rt = c1.ret[len(c1.ret) - 1]
@@ -2491,28 +2598,30 @@ fn expr_(c0: C, e: Node, sc: Sc, expected: Ty?) -> Result<(C, Ty), F> {
       if h == "Result" {
         let (c2, tv) = fresh(c1)
         let c3 = unify(c2, rt, TC("Result", [tv, targs(t)[1]]), ln, "? 要求函数返回同错误类型的 Result")?
-        return Ok((c3, targs(t)[0]))
+        return Ok((c3, targs(t)[0], e2))
       }
       if h == "Option" {
         let (c2, tv) = fresh(c1)
         let c3 = unify(c2, rt, TC("Option", [tv]), ln, "? 要求函数返回 Option")?
-        return Ok((c3, targs(t)[0]))
+        return Ok((c3, targs(t)[0], e2))
       }
       return Err(te(c1, ln, "? 只能用于 Result 或 Option，实际是 {sh(c1, t)}"))
     },
     NStructLit(..) => { return struct_lit(c0, e, sc, expected) },
     NSpawn(xs) => {
-      let (c1, ts) = spawn_items(c0, xs, sc)?
-      return group_t(c1, "Spawn", xs, ts)
+      let (c1, ts, ns) = spawn_items(c0, xs, sc)?
+      let (c2, t) = group_t(c1, "Spawn", xs, ts)?
+      return Ok((c2, t, with_k(e, NSpawn(ns))))
     },
     NRace(xs) => {
-      let (c1, ts) = spawn_items(c0, xs, sc)?
-      return group_t(c1, "Race", xs, ts)
+      let (c1, ts, ns) = spawn_items(c0, xs, sc)?
+      let (c2, t) = group_t(c1, "Race", xs, ts)?
+      return Ok((c2, t, with_k(e, NRace(ns))))
     },
     NAwait(g) => {
       let gi = group_items(g)
       let gk = kname(g)
-      let (c1a, ts0) = spawn_items(c0, gi, sc)?
+      let (c1a, ts0, ns0) = spawn_items(c0, gi, sc)?
       let (c1, _) = group_t(c1a, gk, gi, ts0)?
       var c = c1
       var ts: List<Ty> = []
@@ -2520,13 +2629,13 @@ fn expr_(c0: C, e: Node, sc: Sc, expected: Ty?) -> Result<(C, Ty), F> {
       var i = 0
       for x in gi {
         var t = pr(c, ts0[i])
-        var nx = x
+        var nx = ns0[i]
         if tname(t) == "Future" && is_con(t) {
           let (c2, ft) = lookup(c, "__await", sc, x.line)?
           let fa = targs(ft_ty(ft))
           c = unify(c2, fa[0], t, x.line, "")?
           t = fa[len(fa) - 1]
-          let (c3, nx2) = typed_node(c, call_node(x.line, "__await", [x]), t)
+          let (c3, nx2) = typed_node(c, call_node(x.line, "__await", [ns0[i]]), t)
           c = c3
           nx = nx2
         }
@@ -2541,8 +2650,9 @@ fn expr_(c0: C, e: Node, sc: Sc, expected: Ty?) -> Result<(C, Ty), F> {
         NList(_)  => Node { k: NList(ni), ..g },
         _         => g,
       }
-      let (cb, _) = repl(c, e, g2)
-      return group_t(cb, gk, gi, ts)
+      let (cb, ne) = repl(c, e, g2)
+      let (cc, t2) = group_t(cb, gk, gi, ts)?
+      return Ok((cc, t2, ne))
     },
     NSelect(_) => { return select_e(c0, e, sc) },
     NTypeApp(..) => { return type_app(c0, e, sc) },
@@ -2550,6 +2660,7 @@ fn expr_(c0: C, e: Node, sc: Sc, expected: Ty?) -> Result<(C, Ty), F> {
   }
   Err(te(c0, ln, "未知表达式 {kname(e)}"))
 }
+
 
 // spawn / race 的各项（Python 版 g.items）
 fn group_items(g: Node) -> List<Node> {
@@ -2562,17 +2673,19 @@ fn group_items(g: Node) -> List<Node> {
   }
 }
 
-fn spawn_items(c0: C, xs: List<Node>, sc: Sc) -> Result<(C, List<Ty>), F> {
+fn spawn_items(c0: C, xs: List<Node>, sc: Sc) -> Result<(C, List<Ty>, List<Node>), F> {
   var c = c0
   var ts: List<Ty> = []
+  var ns: List<Node> = []
   for x in xs {
     let s = save(c)
     c = C { ret: push(c.ret, spawn_t()), loop_depth: 0, labels: [], ..c }
-    let (c1, t) = rest_r(expr(c, x, task_frame(sc), None), s)?
+    let (c1, t, x2) = rest_r3(expr(c, x, task_frame(sc), None), s)?
     c = c1
     ts = push(ts, t)
+    ns = push(ns, x2)
   }
-  Ok((c, ts))
+  Ok((c, ts, ns))
 }
 
 fn group_t(c0: C, k: Str, xs: List<Node>, ts: List<Ty>) -> Result<(C, Ty), F> {
@@ -2591,7 +2704,17 @@ fn group_t(c0: C, k: Str, xs: List<Node>, ts: List<Ty>) -> Result<(C, Ty), F> {
   Ok((c0, if len(ts) > 0 { TC("Tuple", ts) } else { unit_t() }))
 }
 
-fn select_e(c0: C, e: Node, sc: Sc) -> Result<(C, Ty), F> {
+fn expr_o(c: C, e: Node?, sc: Sc) -> Result<(C, Ty, Node?), F> {
+  match e {
+    Some(x) => {
+      let (c1, t, x2) = expr(c, x, sc, None)?
+      Ok((c1, t, Some(x2)))
+    },
+    None    => Ok((c, unit_t(), None)),
+  }
+}
+
+fn select_e(c0: C, e: Node, sc: Sc) -> Result<(C, Ty, Node), F> {
   let ln = e.line
   let arms = match e.k {
     NSelect(a) => a,
@@ -2599,20 +2722,27 @@ fn select_e(c0: C, e: Node, sc: Sc) -> Result<(C, Ty), F> {
   }
   var c = c0
   var result: Ty? = None
+  var out: List<SArm> = []
   for arm in arms {
     let k = arm.kind
     var asc = frame(sc)
+    var g2 = arm.guard
+    var a2 = arm.a
+    var b2 = arm.b
     if let Some(g) = arm.guard {
-      let (c1, gt) = expr(c, g, sc, None)?
+      let (c1, gt, gx) = expr(c, g, sc, None)?
       c = unify(c1, bool_t(), gt, ln, "select 守卫")?
+      g2 = Some(gx)
     }
     if k == "recv" || k == "send" {
       let (c1, el) = fresh(c)
-      let (c2, at) = expr(c1, unwrap(arm.a), sc, None)?
+      let (c2, at, ax) = expr(c1, unwrap(arm.a), sc, None)?
       c = unify(c2, TC("Chan", [el]), at, ln, "{k} 的通道")?
+      a2 = Some(ax)
       if k == "send" {
-        let (c3, bt) = expr(c, unwrap(arm.b), sc, None)?
+        let (c3, bt, bx) = expr(c, unwrap(arm.b), sc, None)?
         c = unify(c3, el, bt, ln, "send 的值")?
+        b2 = Some(bx)
       } else if let Some(p) = arm.pat {
         if !irrefutable(c, p) { return Err(te(c, ln, "select 的 recv 绑定必须是变量名或 _（值是 Option，在分支里再 match）")) }
         let (c4, s4, _) = pattern(c, p, TC("Option", [el]), asc, false, ln)?
@@ -2620,11 +2750,13 @@ fn select_e(c0: C, e: Node, sc: Sc) -> Result<(C, Ty), F> {
         asc = s4
       }
     } else if k == "after" {
-      let (c1, at) = expr(c, unwrap(arm.a), sc, None)?
+      let (c1, at, ax) = expr(c, unwrap(arm.a), sc, None)?
       c = unify(c1, int_t(), at, ln, "after 的毫秒数")?
+      a2 = Some(ax)
     }
-    let (c5, bt) = expr(c, arm.body, asc, None)?
+    let (c5, bt, body2) = expr(c, arm.body, asc, None)?
     c = c5
+    out = push(out, SArm { a: a2, b: b2, guard: g2, body: body2, ..arm })
     match result {
       None    => { result = Some(bt) },
       Some(r) => {
@@ -2634,10 +2766,11 @@ fn select_e(c0: C, e: Node, sc: Sc) -> Result<(C, Ty), F> {
       },
     }
   }
-  Ok((c, unwrap_or(result, unit_t())))
+  Ok((c, unwrap_or(result, unit_t()), with_k(e, NSelect(out))))
 }
 
-fn type_app(c0: C, e: Node, sc: Sc) -> Result<(C, Ty), F> {
+// f.<T>：运行时就是 f 本身（Python 版去掉 TypeApp），类型记在 f 上
+fn type_app(c0: C, e: Node, sc: Sc) -> Result<(C, Ty, Node), F> {
   let ln = e.line
   let (f, targs_) = match e.k {
     NTypeApp(a, b) => (a, b),
@@ -2690,18 +2823,18 @@ fn type_app(c0: C, e: Node, sc: Sc) -> Result<(C, Ty), F> {
     let (c3, vs) = cg_vals(c, en.cga, m)
     c = take_cg(C { pend: vs, ..c3 }, c3.cg_node, fname, ln)?
   }
-  Ok((c, res))
+  Ok((c, res, if f.id >= 0 { Node { t: Some(res), ..f } } else { f }))
 }
 
 fn blk_of(ln: Int, e: Node) -> Node { ast.mkn(ln, NBlock([ast.mkn(ln, NExprStmt(e))], false)) }
 
-fn cast(c0: C, e: Node, sc: Sc) -> Result<(C, Ty), F> {
+fn cast(c0: C, e: Node, sc: Sc) -> Result<(C, Ty, Node), F> {
   let ln = e.line
   let (v, ty) = match e.k {
     NCast(a, b) => (a, b),
     _           => { return Err(te(c0, ln, "未知表达式")) },
   }
-  let (c1, s0) = expr(c0, v, sc, None)?
+  let (c1, s0) = expr_t(c0, v, sc, None)?
   let (c2, d0) = conv(c1, Some(ty), body_gmap(c1), false)?
   let src = pr(c2, s0)
   let dst = pr(c2, d0)
@@ -2723,10 +2856,12 @@ fn cast(c0: C, e: Node, sc: Sc) -> Result<(C, Ty), F> {
     return Err(te(c2, ln, "不能把 {sh(c2, src)} 转换为 {sh(c2, dst)}（as 只支持 Int、Float、Bool 之间的数值转换）"))
   }
   let (cb, ne) = repl(c2, e, rep)
-  expr(cb, ne, sc, None)
+  let (c3, t3, n3) = expr(cb, ne, sc, None)?
+  Ok((c3, t3, n3))
 }
 
-fn struct_lit(c0: C, e: Node, sc: Sc, expected: Ty?) -> Result<(C, Ty), F> {
+
+fn struct_lit(c0: C, e: Node, sc: Sc, expected: Ty?) -> Result<(C, Ty, Node), F> {
   let ln = e.line
   let (nv, fields, base) = match e.k {
     NStructLit(a, b, x) => (a, b, x),
@@ -2792,13 +2927,15 @@ fn struct_lit(c0: C, e: Node, sc: Sc, expected: Ty?) -> Result<(C, Ty), F> {
   let missing = filter(dnames, (f) => !contains(given, f))
   let st = TC(name, gvs)
   if let Some(bse) = base {
-    let (c3, bt) = expr(c, bse, sc, Some(st))?
+    let (c3, bt) = expr_t(c, bse, sc, Some(st))?
     c = unify(c3, st, bt, bse.line, "..base（应为 {name}）")?
+    var fs1: List<(Str, Node)> = []
     for (f, x) in fields {
       if !contains(dnames, f) { return Err(te(c, ln, "{name} 没有字段 {f}")) }
       let dt = dget_t(decl, f)
-      let (c4, xt) = expr(c, x, sc, Some(dt))?
+      let (c4, xt, x2) = expr(c, x, sc, Some(dt))?
       c = unify(c4, dt, xt, x.line, "字段 {f}")?
+      fs1 = push(fs1, (f, x2))
     }
     if is_k(bse, "Name") {
       var mf: List<Node> = []
@@ -2807,38 +2944,35 @@ fn struct_lit(c0: C, e: Node, sc: Sc, expected: Ty?) -> Result<(C, Ty), F> {
         c = cf
         mf = push(mf, fx)
       }
-      var fs1 = fields
       var mi = 0
-      for f in missing {
-        fs1 = push(fs1, (f, mf[mi]))
+      for fx in mf {
+        let (c5, _, fx2) = expr(c, fx, sc, None)?
+        c = c5
+        fs1 = push(fs1, (missing[mi], fx2))
         mi += 1
       }
-      c = rewrite(c, e, Node { k: NStructLit(nv, fs1, None), ..e })
-      for fx in mf {
-        let (c5, _) = expr(c, fx, sc, None)?
-        c = c5
-      }
-    } else {
-      c = C { upd_n: c.upd_n + 1, ..c }
-      let tmp = "__upd{c.upd_n}"
-      let src = name_n(ln, tmp)
-      let fs2 = fields + map(missing, (f) => (f, ast.mkn(ln, NField(src, NmS(f)))))
-      let lit = ast.mkn(ln, NStructLit(nv, fs2, None))
-      let pre_ = ast.mkn(ln, NLet(PBind(NmS(tmp)), false, None, bse, false))
-      let (cn, blk) = fresh_ids(c, ast.mkn(ln, NBlock([pre_, ast.mkn(ln, NExprStmt(lit))], false)))
-      let (cb, ne) = repl(cn, e, blk)
-      return expr(cb, ne, sc, None)
+      return Ok((c, st, with_k(e, NStructLit(nv, fs1, None))))
     }
-    return Ok((c, st))
+    c = C { upd_n: c.upd_n + 1, ..c }
+    let tmp = "__upd{c.upd_n}"
+    let src = name_n(ln, tmp)
+    let fs2 = fields + map(missing, (f) => (f, ast.mkn(ln, NField(src, NmS(f)))))
+    let lit = ast.mkn(ln, NStructLit(nv, fs2, None))
+    let pre_ = ast.mkn(ln, NLet(PBind(NmS(tmp)), false, None, bse, false))
+    let (cn, blk) = fresh_ids(c, ast.mkn(ln, NBlock([pre_, ast.mkn(ln, NExprStmt(lit))], false)))
+    let (cb, ne) = repl(cn, e, blk)
+    return expr(cb, ne, sc, None)
   }
   if len(missing) > 0 { return Err(te(c, ln, "{name} 缺少字段 " + join(missing, ", "))) }
+  var fs3: List<(Str, Node)> = []
   for (f, x) in fields {
     if !contains(dnames, f) { return Err(te(c, ln, "{name} 没有字段 {f}")) }
     let dt = dget_t(decl, f)
-    let (c4, xt) = expr(c, x, sc, Some(dt))?
+    let (c4, xt, x2) = expr(c, x, sc, Some(dt))?
     c = unify(c4, dt, xt, x.line, "字段 {f}")?
+    fs3 = push(fs3, (f, x2))
   }
-  Ok((c, st))
+  Ok((c, st, with_k(e, NStructLit(nv, fs3, base))))
 }
 
 fn dget_t(d: List<(Str, Ty)>, k: Str) -> Ty {
@@ -2853,21 +2987,22 @@ fn bin_parts(e: Node) -> (Str, Node, Node) {
   }
 }
 
-fn binop(c0: C, e: Node, sc: Sc) -> Result<(C, Ty), F> {
+fn binop(c0: C, e: Node, sc: Sc) -> Result<(C, Ty, Node), F> {
   let (op, left, right) = bin_parts(e)
   let ln = e.line
-  let (c1, lt) = expr(c0, left, sc, None)?
+  let (c1, lt, l2) = expr(c0, left, sc, None)?
   if let NBin(_, _, None) = e.k { return Err(te(c1, 0, "未知表达式 ")) }
-  let (c, rt) = expr(c1, right, sc, None)?
+  let (c, rt, r2) = expr(c1, right, sc, None)?
+  let e2 = with_k(e, NBin(op, l2, Some(r2)))
   if op == "&&" || op == "||" {
     let c2 = unify(c, bool_t(), lt, ln, "{op} 左边")?
     let c3 = unify(c2, bool_t(), rt, ln, "{op} 右边")?
-    return Ok((c3, bool_t()))
+    return Ok((c3, bool_t(), e2))
   }
   if op == ".." || op == "..=" {
     let c2 = unify(c, int_t(), lt, ln, "区间起点")?
     let c3 = unify(c2, int_t(), rt, ln, "区间终点")?
-    return Ok((c3, list_t(int_t())))
+    return Ok((c3, list_t(int_t()), e2))
   }
   if op == "^" || op == "<<" || op == ">>" || (op == "|" || op == "&") && (head(c, lt) == "Int" || head(c, rt) == "Int") {
     let c2 = unify(c, int_t(), lt, ln, "运算 {op} 左边")?
@@ -2886,10 +3021,11 @@ fn binop(c0: C, e: Node, sc: Sc) -> Result<(C, Ty), F> {
   }
   if op_method(op) != "" && (user_type(c, lt) || op_bound(c, lt, op)) { return overload(c, e, op, lt, sc) }
   let c2 = unify(c, lt, rt, ln, "运算 {op} 两边类型必须相同")?
-  if op == "==" || op == "!=" { return Ok((c2, bool_t())) }
-  if contains(["<", ">", "<=", ">="], op) { return Ok((add_con(c2, lt, KOrd, ln), bool_t())) }
-  Ok((add_con(c2, lt, if op == "+" { KAdd } else { KNum }, ln), lt))
+  if op == "==" || op == "!=" { return Ok((c2, bool_t(), e2)) }
+  if contains(["<", ">", "<=", ">="], op) { return Ok((add_con(c2, lt, KOrd, ln), bool_t(), e2)) }
+  Ok((add_con(c2, lt, if op == "+" { KAdd } else { KNum }, ln), lt, e2))
 }
+
 fn user_type(c: C, t: Ty) -> Bool {
   let p = pr(c, t)
   let h = tname(p)
@@ -2908,7 +3044,8 @@ fn op_bound(c: C, t: Ty, op: Str) -> Bool {
   }
 }
 
-fn overload(c: C, e: Node, op: Str, lt: Ty, sc: Sc) -> Result<(C, Ty), F> {
+
+fn overload(c: C, e: Node, op: Str, lt: Ty, sc: Sc) -> Result<(C, Ty, Node), F> {
   let ln = e.line
   let meth = if op == "neg" { "neg" } else { op_method(op) }
   let h = head(c, lt)
@@ -2922,15 +3059,15 @@ fn overload(c: C, e: Node, op: Str, lt: Ty, sc: Sc) -> Result<(C, Ty), F> {
     _                    => e,
   }
   if contains(["<", ">", "<=", ">="], op) {
+    // a < b 改写成 a.cmp(b) < 0
     let (c0a, cv) = fid(c, callv)
+    let (c1, ct, cv2) = expr(c0a, cv, sc, None)?
+    let c2 = unify(c1, int_t(), ct, ln, "{h}.cmp 的返回值")?
     let k2 = match e.k {
-      NBin(bop, _, _) => NBin(bop, cv, Some(lit_n(ln, LInt(0)))),
+      NBin(bop, _, _) => NBin(bop, cv2, Some(lit_n(ln, LInt(0)))),
       _               => e.k,
     }
-    let c0b = rewrite(c0a, e, Node { k: k2, ..e })
-    let (c1, ct) = expr(c0b, cv, sc, None)?
-    let c2 = unify(c1, int_t(), ct, ln, "{h}.cmp 的返回值")?
-    return Ok((c2, bool_t()))
+    return Ok((c2, bool_t(), with_k(e, k2)))
   }
   let (cb, ne) = repl(c, e, callv)
   expr(cb, ne, sc, None)
@@ -2943,7 +3080,7 @@ fn on_list(x: Node?) -> List<Node> {
   }
 }
 
-fn lam(c0: C, e: Node, sc: Sc, expected: Ty?) -> Result<(C, Ty), F> {
+fn lam(c0: C, e: Node, sc: Sc, expected: Ty?) -> Result<(C, Ty, Node), F> {
   let ln = e.line
   let (ps, body, ctx) = match e.k {
     NLambda(a, b, x) => (a, b, x),
@@ -2985,35 +3122,38 @@ fn lam(c0: C, e: Node, sc: Sc, expected: Ty?) -> Result<(C, Ty), F> {
     NBlock(_, u) => !u,
     _            => false,
   }
-  let r = rest_r(lam_body(c, body, inner, ret, isb, unwrap_or(ctx, "lambda 返回值"), ln), s)
-  let (c4, _) = r?
-  Ok((c4, fn_t(pts, ret)))
+  let (c4, b2) = rest_r(lam_body(c, body, inner, ret, isb, unwrap_or(ctx, "lambda 返回值"), ln), s)?
+  Ok((c4, fn_t(pts, ret), with_k(e, NLambda(ps, b2, ctx))))
 }
 
-fn lam_body(c: C, body: Node, inner: Sc, ret: Ty, isb: Bool, ctx: Str, ln: Int) -> Result<(C, Bool), F> {
-  let (c1, bt) = if isb { block(c, body, inner, Some(ret))? } else { expr(c, body, inner, Some(ret))? }
+fn lam_body(c: C, body: Node, inner: Sc, ret: Ty, isb: Bool, ctx: Str, ln: Int) -> Result<(C, Node), F> {
+  let (c1, bt, b2) = if isb { block(c, body, inner, Some(ret))? } else { expr(c, body, inner, Some(ret))? }
   let blk = is_k(body, "Block")
   if !(blk && diverges(body)) {
     let c2 = unify(c1, ret, bt, if blk { last_line(body) } else { ln }, ctx)?
-    return Ok((c2, true))
+    return Ok((c2, b2))
   }
-  Ok((c1, true))
+  Ok((c1, b2))
 }
 
-fn field(c0: C, e: Node, sc: Sc) -> Result<(C, Ty), F> {
+// 字段访问：返回类型和类型化的 Field 节点（Field 节点自己的类型由 expr 记）
+fn field(c0: C, e: Node, sc: Sc) -> Result<(C, Ty, Node), F> {
   let ln = e.line
-  let (obj, fname) = match e.k {
-    NField(o, f) => (o, ast.nm_str(f)),
+  let (obj, fname0) = match e.k {
+    NField(o, f) => (o, f),
     _            => { return Err(te(c0, ln, "未知表达式")) },
   }
+  let fname = ast.nm_str(fname0)
   if let Some(en) = name_of(obj) {
     if is_none(sc_find(c0, sc, en)) && contains(c0.enums, en) {
       if !has_variant(c0, en, fname) { return Err(te(c0, ln, "{en} 没有变体 {fname}")) }
       let (c1, vt) = variant_ctor_type(c0, en, fname)?
-      return Ok(inst(c1, vt, ln))
+      let (c2, t2) = inst(c1, vt, ln)
+      return Ok((c2, t2, e))
     }
   }
-  let (c, t0) = expr(c0, obj, sc, None)?
+  let (c, t0, o2) = expr(c0, obj, sc, None)?
+  let e2 = with_k(e, NField(o2, fname0))
   let t = pr(c, t0)
   let h = head(c, t)
   if starts(h, "Module:") {
@@ -3023,8 +3163,11 @@ fn field(c0: C, e: Node, sc: Sc) -> Result<(C, Ty), F> {
         let (c1, ft) = builtin_ft(c, kk, s)?
         if m == "ptr" && unsafe_ptr(fname) && c1.unsafe_d == 0 { return Err(te(c1, ln, "使用 unsafe 函数 {m}.{fname} 需要放在 unsafe \{ … } 里")) }
         match ft {
-          FTy(bt) => { return Ok(inst(c1, bt, ln)) },
-          _       => { return Ok((c1, fn_t([any_t()], unit_t()))) },
+          FTy(bt) => {
+            let (c2, t2) = inst(c1, bt, ln)
+            return Ok((c2, t2, e2))
+          },
+          _       => { return Ok((c1, fn_t([any_t()], unit_t()), e2)) },
         }
       },
       None          => { return Err(te(c, ln, "std.{m} 没有 {fname}")) },
@@ -3034,7 +3177,12 @@ fn field(c0: C, e: Node, sc: Sc) -> Result<(C, Ty), F> {
     let (gens, fs) = unwrap(get(c.structs, h))
     var gm: Map<Str, Ty> = Map()
     for (g, a) in zip(gens, targs(t)) { gm = set(gm, g, a) }
-    for f in fs { if f.0 == fname { return conv(c, f.1, gm, false) } }
+    for f in fs {
+      if f.0 == fname {
+        let (c3, ft3) = conv(c, f.1, gm, false)?
+        return Ok((c3, ft3, e2))
+      }
+    }
     return Err(te(c, ln, "{h} 没有字段 {fname}"))
   }
   if is_tv(t) { return Err(te(c, ln, "无法推断 .{fname} 的接收者类型，请加类型标注")) }
@@ -3043,17 +3191,21 @@ fn field(c0: C, e: Node, sc: Sc) -> Result<(C, Ty), F> {
 
 // ───────── 调用 ─────────
 
-fn arg_type(c: C, a: Arg, sc: Sc, expected: Ty?) -> Result<(C, Ty), F> {
+// 实参：AN 是还没检查的节点；AT 是已经知道类型的值（管道左边、接收者等），可带着已检查的节点
+fn arg_type(c: C, a: Arg, sc: Sc, expected: Ty?) -> Result<(C, Ty, Node?), F> {
   match a {
-    AT(t, _) => Ok((c, t)),
-    AN(v)    => expr(c, v, sc, expected),
+    AT(t, _, n) => Ok((c, t, n)),
+    AN(v)       => {
+      let (c1, t, x) = expr(c, v, sc, expected)?
+      Ok((c1, t, Some(x)))
+    },
   }
 }
 
 fn arg_line(a: Arg, ln: Int) -> Int {
   match a {
-    AT(_, l) => l,
-    AN(v)    => v.line,
+    AT(_, l, _) => l,
+    AN(v)       => v.line,
   }
 }
 
@@ -3064,7 +3216,14 @@ fn is_lam_arg(a: Arg) -> Bool {
   }
 }
 
-fn call(cin: C, fnode: Node, args: List<Arg>, sc: Sc, ln: Int) -> Result<(C, Ty), F> {
+fn somes_n(xs: List<Node?>) -> List<Node> {
+  var out: List<Node> = []
+  for x in xs { if let Some(n) = x { out = push(out, n) } }
+  out
+}
+
+// 返回 (状态, 结果类型, 类型化的被调函数节点, 类型化的实参节点：只含带节点的实参，按原顺序)
+fn call(cin: C, fnode: Node, args: List<Arg>, sc: Sc, ln: Int) -> Result<(C, Ty, Node, List<Node>), F> {
   let cg_node = cin.cg_node
   let c0 = C { cg_node: None, ..cin }
   if let NField(obj, fname0) = fnode.k {
@@ -3083,16 +3242,21 @@ fn call(cin: C, fnode: Node, args: List<Arg>, sc: Sc, ln: Int) -> Result<(C, Ty)
       }
     }
     if !(is_some(on0) && is_none(sc_find(c0, sc, on)) && contains(c0.enums, on)) {
-      let (c, rt0) = expr(c0, obj, sc, None)?
+      let (c, rt0, o2) = expr(c0, obj, sc, None)?
+      let f2 = with_k(fnode, NField(o2, fname0))
       let rt = pr(c, rt0)
       let h = head(c, rt)
       if starts(h, "Module:") {
         let m = __str_slice(h, 7, len(h))
         match std_member(m, fname) {
-          Some(("v", _)) => { return apply(c, FVar, args, sc, ln, fname) },
+          Some(("v", _)) => {
+            let (ca, ta, xa) = apply(c, FVar, args, sc, ln, fname)?
+            return Ok((ca, ta, f2, xa))
+          },
           _              => {
-            let (c1, ft) = field(c, fnode, sc)?
-            return apply(c1, FTy(ft), args, sc, ln, fname)
+            let (c1, ft, f3) = field(c, fnode, sc)?
+            let (cb, tb, xb) = apply(c1, FTy(ft), args, sc, ln, fname)?
+            return Ok((cb, tb, f3, xb))
           },
         }
       }
@@ -3102,8 +3266,9 @@ fn call(cin: C, fnode: Node, args: List<Arg>, sc: Sc, ln: Int) -> Result<(C, Ty)
             if fnd(m).name == fname {
               if fnd(m).is_unsafe && c.unsafe_d == 0 { return Err(te(c, ln, "使用 unsafe 方法 {fname} 需要放在 unsafe \{ … } 里")) }
               let (c1, sig) = fn_sig(c, m, set(Map(), "Self", rt), Some(rt))?
-              let recv = if has_self(m) { [AT(rt, ln)] } else { [] }
-              return apply(c1, FTy(sig), recv + args, sc, ln, fname)
+              let recv = if has_self(m) { [AT(rt, ln, None)] } else { [] }
+              let (cc, tc, xc) = apply(c1, FTy(sig), recv + args, sc, ln, fname)?
+              return Ok((cc, tc, f2, xc))
             }
           }
         }
@@ -3114,19 +3279,22 @@ fn call(cin: C, fnode: Node, args: List<Arg>, sc: Sc, ln: Int) -> Result<(C, Ty)
       let tbl = unwrap_or(get(c.methods, h), Map())
       if let Some((sig, hs)) = get(tbl, fname) {
         if contains(c.umeth, h + "|" + fname) && c.unsafe_d == 0 { return Err(te(c, ln, "使用 unsafe 方法 {h}.{fname} 需要放在 unsafe \{ … } 里")) }
-        let recv = if hs { [AT(rt, ln)] } else { [] }
+        let recv = if hs { [AT(rt, ln, None)] } else { [] }
         let (c1, isig) = inst_cg(C { pend: [], ..c }, sig, ln, unwrap_or(get(c.mcga, h + "|#" + fname), []))
         let c1b = take_cg(c1, cg_node, fname, ln)?
-        return apply(c1b, FTy(isig), recv + args, sc, ln, fname)
+        let (cd, td, xd) = apply(c1b, FTy(isig), recv + args, sc, ln, fname)?
+        return Ok((cd, td, f2, xd))
       }
       if contains(c.structs, h) && any(unwrap(get(c.structs, h)).1, (f) => f.0 == fname) {
-        let (c1, ft) = field(c, fnode, sc)?
-        return apply(c1, FTy(ft), args, sc, ln, fname)
+        let (c1, ft, f3) = field(c, fnode, sc)?
+        let (ce, te_, xe) = apply(c1, FTy(ft), args, sc, ln, fname)?
+        return Ok((ce, te_, f3, xe))
       }
       if is_some(sc_find(c, sc, fname)) {
         if is_tv(rt) { return Err(te(c, ln, "无法推断 .{fname}() 的接收者类型，请加类型标注")) }
         let (c1, ft) = lookup(c, fname, sc, ln)?
-        return apply(c1, ft, push([], AT(rt, ln)) + args, sc, ln, fname)
+        let (cf, tf, xf) = apply(c1, ft, push([], AT(rt, ln, None)) + args, sc, ln, fname)?
+        return Ok((cf, tf, f2, xf))
       }
       if is_tv(rt) { return Err(te(c, ln, "无法推断 .{fname}() 的接收者类型，请加类型标注")) }
       return Err(te(c, ln, "{sh(c, rt)} 没有方法 {fname}"))
@@ -3134,6 +3302,7 @@ fn call(cin: C, fnode: Node, args: List<Arg>, sc: Sc, ln: Int) -> Result<(C, Ty)
   }
   var c = C { pend: [], ..c0 }
   var ft = FVar
+  var f2 = fnode
   let fnm = name_of(fnode)
   if let Some(fx) = fnm {
     let (c1, f1) = lookup(c, fx, sc, ln)?
@@ -3141,16 +3310,17 @@ fn call(cin: C, fnode: Node, args: List<Arg>, sc: Sc, ln: Int) -> Result<(C, Ty)
     ft = f1
   } else {
     if is_k(fnode, "TypeApp") { c = C { cg_node: cg_node, ..c } }
-    let (c1, t1) = expr(c, fnode, sc, None)?
+    let (c1, t1, fx2) = expr(c, fnode, sc, None)?
     c = C { cg_node: None, ..c1 }
     ft = FTy(t1)
+    f2 = fx2
   }
   let name = match fnode.k {
     NName(x)       => x,
     NTypeApp(g, _) => unwrap_or(name_of(g), "函数"),
     _              => "函数",
   }
-  let (c2, rt) = apply(c, ft, args, sc, ln, name)?
+  let (c2, rt, xs) = apply(c, ft, args, sc, ln, name)?
   c = c2
   if is_some(fnm) && contains(["sort", "min", "max"], name) {
     if let Some(en) = sc_find(c, sc, name) {
@@ -3164,23 +3334,27 @@ fn call(cin: C, fnode: Node, args: List<Arg>, sc: Sc, ln: Int) -> Result<(C, Ty)
       }
     }
   }
-  Ok((c, rt))
+  Ok((c, rt, f2, xs))
 }
+
 fn dict_get(d: List<(Str, Str)>, k: Str) -> Str? {
   for (a, b) in d { if a == k { return Some(b) } }
   None
 }
 
-fn apply(c0: C, ft: FT, args0: List<Arg>, sc: Sc, ln: Int, name: Str) -> Result<(C, Ty), F> {
+// 返回结果类型和类型化的实参节点（只含带节点的实参，按原顺序）
+fn apply(c0: C, ft: FT, args0: List<Arg>, sc: Sc, ln: Int, name: Str) -> Result<(C, Ty, List<Node>), F> {
   var args = args0
   match ft {
     FVar     => {
       var c = c0
+      var out: List<Node?> = []
       for a in args {
-        let (c1, _) = arg_type(c, a, sc, None)?
+        let (c1, _, x) = arg_type(c, a, sc, None)?
         c = c1
+        out = push(out, x)
       }
-      return Ok((c, unit_t()))
+      return Ok((c, unit_t(), somes_n(out)))
     },
     FDict(d) => {
       var c = c0
@@ -3189,10 +3363,10 @@ fn apply(c0: C, ft: FT, args0: List<Arg>, sc: Sc, ln: Int, name: Str) -> Result<
         Some(s) => { chosen = s },
         None    => {
           if len(args) == 0 { return Err(te(c, ln, "{name} 参数个数不对")) }
-          let (c1, f0) = arg_type(c, args[0], sc, None)?
+          let (c1, f0, x0) = arg_type(c, args[0], sc, None)?
           c = c1
           let first = pr(c, f0)
-          args = push([], AT(first, arg_line(args[0], ln))) + skip(args, 1)
+          args = push([], AT(first, arg_line(args[0], ln), x0)) + skip(args, 1)
           let h = head(c, first)
           match dict_get(d, h) {
             Some(s) => { chosen = s },
@@ -3237,20 +3411,24 @@ fn apply(c0: C, ft: FT, args0: List<Arg>, sc: Sc, ln: Int, name: Str) -> Result<
         if is_lam_arg(args[i]) { order = push(order, i) }
         i += 1
       }
+      var res: List<Node?> = map(args, (a) => match a {
+        AT(_, _, n) => n,
+        AN(_)       => None,
+      })
       for j in order {
-        let (c1, at) = arg_type(c, args[j], sc, Some(ps[j]))?
+        let (c1, at, x) = arg_type(c, args[j], sc, Some(ps[j]))?
         c = unify(c1, ps[j], at, arg_line(args[j], ln), if name == "__slice" { "切片的下标" } else { "{name} 的第 {j + 1} 个参数" })?
+        res = set(res, j, x)
       }
       if name == "sum" || name == "abs" { c = add_con(c, ret, KNum, ln) }
-      return Ok((c, ret))
+      return Ok((c, ret, somes_n(res)))
     },
   }
 }
 
 // ───────── match 与模式 ─────────
 
-
-fn match_e(c0: C, e: Node, sc: Sc, expected: Ty?) -> Result<(C, Ty), F> {
+fn match_e(c0: C, e: Node, sc: Sc, expected: Ty?) -> Result<(C, Ty, Node), F> {
   let ln = e.line
   let md = match e.k {
     NMatch(m) => m,
@@ -3267,7 +3445,7 @@ fn match_e(c0: C, e: Node, sc: Sc, expected: Ty?) -> Result<(C, Ty), F> {
     }
     if !ok { return Err(te(c0, els.line, "let ... else 的 else 块必须跳出（以 return / break / continue / panic 结尾）")) }
   }
-  let (c1, st) = expr(c0, md.subject, sc, None)?
+  let (c1, st, subj2) = expr(c0, md.subject, sc, None)?
   var c = c1
   var result: Ty? = None
   var arms: List<Pat> = []
@@ -3275,15 +3453,17 @@ fn match_e(c0: C, e: Node, sc: Sc, expected: Ty?) -> Result<(C, Ty), F> {
   for a in md.arms {
     let (c2, arm, p) = pattern(c, a.pat, st, frame(sc), false, ln)?
     c = c2
-    narms = push(narms, Arm { pat: p, ..a })
+    var g2 = a.guard
     if let Some(g) = a.guard {
-      let (c3, gt) = expr(c, g, arm, None)?
+      let (c3, gt, gx) = expr(c, g, arm, None)?
       c = unify(c3, bool_t(), gt, ln, "match 守卫")?
+      g2 = Some(gx)
     } else {
       arms = push(arms, p)
     }
-    let (c4, bt0) = expr(c, a.body, arm, expected)?
+    let (c4, bt0, body2) = expr(c, a.body, arm, expected)?
     c = c4
+    narms = push(narms, Arm { pat: p, guard: g2, body: body2 })
     var bt = bt0
     if let Some(ex) = expected {
       if is_dyn(pr(c, ex)) {
@@ -3300,10 +3480,13 @@ fn match_e(c0: C, e: Node, sc: Sc, expected: Ty?) -> Result<(C, Ty), F> {
       },
     }
   }
-  c = rewrite(c, e, Node { k: NMatch(MatchD { arms: narms, ..md }), ..e })
+  // let … else：let_else 和第二个分支的块是同一个对象（Python 版的改写两处一起生效）
+  let le = if is_some(md.let_else) && len(narms) == 2 { Some(narms[1].body) } else { md.let_else }
+  let e2 = with_k(e, NMatch(MatchD { subject: subj2, arms: narms, let_else: le, ..md }))
   c = exhaustive(c, ln, arms, st)?
-  Ok((c, unwrap_or(result, never_t())))
+  Ok((c, unwrap_or(result, never_t()), e2))
 }
+
 
 fn pname(n: Nm) -> Str { ast.nm_str(n) }
 
@@ -4055,7 +4238,7 @@ fn solve_ord_sites(c0: C) -> C {
     if let TR(rn, bs) = t {
       if has_bound(c, bs, "Ord") { continue }
       if has_bound(c, bs, "Cmp") {
-        c = rewrite(c, fnode, Node { k: NName(cmpn), ..fnode })
+        c = add_patch(c, fnode, PtName(cmpn))
         continue
       }
       c = C { errors: push(c.errors, (ln, "类型错误: {name} 需要可比较的元素，请给泛型加约束 {rn}: Ord 或 {rn}: Cmp")), ..c }
@@ -4066,7 +4249,7 @@ fn solve_ord_sites(c0: C) -> C {
     if !contains(c.impls, h + "|Cmp") {
       c = C { errors: push(c.errors, (ln, "类型错误: {name} 需要可比较的元素：{sh(c, t)} 没有实现 Cmp（impl Cmp for {h}）")), ..c }
     } else {
-      c = rewrite(c, fnode, Node { k: NName(cmpn), ..fnode })
+      c = add_patch(c, fnode, PtName(cmpn))
     }
   }
   C { ord_sites: [], ..c }
@@ -4332,7 +4515,7 @@ fn mark_pre(it: Node) -> Node {
   }
 }
 
-// 同 check，另外返回检查器的最终状态（KIR 要用其中的签名表和替换表 sub）
+// 同 check，另外返回检查器的最终状态（KIR 要用其中的签名表、替换表 sub 和各 impl 的 trait 默认方法 dflt）
 pub fn check_c(prelude: List<Node>, user: List<Node>) -> (List<(Int, Str)>, List<(Str, Str)>, List<Node>, C) {
   let c0 = match install(new_c()) {
     Ok(c)  => c,
@@ -4349,7 +4532,7 @@ pub fn check_c(prelude: List<Node>, user: List<Node>) -> (List<(Int, Str)>, List
   }
   let (its, nids) = number_list(lower_statics(low), 0)
   match check2(C { tconsts: tconsts, idn: nids, ..c0 }, its) {
-    Ok(c)  => {
+    Ok((c, out))  => {
       var keyed: List<(Int, (Int, Str))> = []
       var i = 0
       for e in c.errors {
@@ -4366,40 +4549,64 @@ pub fn check_c(prelude: List<Node>, user: List<Node>) -> (List<(Int, Str)>, List
           }))
         }
       }
-      (errs, sigs, if len(errs) > 0 { [] } else { map(its, (it) => typed(c.ts, with_va(c.vav, apply_rw(c.rw, it)))) }, c)
+      if len(errs) > 0 { return (errs, sigs, [], c) }
+      var dflt: Map<Str, Node> = Map()
+      for k in keys(c.dflt) { dflt = set(dflt, k, patched(c.patch, unwrap(get(c.dflt, k)))) }
+      (errs, sigs, map(out, (it) => with_va(c.vav, patched(c.patch, it))), C { dflt: dflt, ..c })
     },
     Err(f) => ([(-1, f.msg)], [], [], c0),
   }
 }
 
-fn check2(c0: C, its: List<Node>) -> Result<C, F> {
+// 返回类型化 IR：函数 / impl 换成检查过的版本，顶层语句换成检查结果，其余声明不变
+fn check2(c0: C, its: List<Node>) -> Result<(C, List<Node>), F> {
   let (c1, _) = declare(c0, its, STop)?
   var c = c1
+  var out: List<Node> = []
   for it in its {
     if !is_decl(kname(it)) {
       match stmt(c, it, STop) {
-        Ok((c2, _, _)) => { c = c2 },
-        Err(f)         => {
+        Ok((c2, _, _, x)) => {
+          c = c2
+          out = push(out, x)
+        },
+        Err(f)            => {
+          if is_unsup(f) { return Err(f) }
+          c = add_err(c, f)
+          out = push(out, it)
+        },
+      }
+    } else {
+      out = push(out, it)
+    }
+  }
+  var i = 0
+  for it in its {
+    if is_k(it, "Fn") {
+      match check_fn_body(c, it, STop, None) {
+        Ok((c2, x)) => {
+          c = c2
+          out = set(out, i, x)
+        },
+        Err(f)      => {
           if is_unsup(f) { return Err(f) }
           c = add_err(c, f)
         },
       }
-    }
-  }
-  for it in its {
-    if is_k(it, "Fn") {
-      c = guard_c(c, check_fn_body(c, it, STop, None))?
     } else if is_k(it, "Impl") {
-      c = check_impl_bodies(c, it, STop)?
+      let (c3, x) = check_impl_bodies(c, it, STop)?
+      c = c3
+      out = set(out, i, x)
     }
+    i += 1
   }
   c = solve_constraints(c)
   c = solve_ord_sites(c)
   c = solve_cg_sites(c)
-  Ok(c)
+  Ok((c, out))
 }
 
-// ── 改写：Python 版检查器就地改写语法树；这里给每个节点编号（Node.id），检查时把改写记在 C.rw，最后统一套用 ──
+// ── 编号：每个节点一个 Node.id（检查后有编号的表达式才带类型；求解后的补丁按编号套用）──
 
 fn number_ids(v: Node, n0: Int) -> (Node, Int) {
   let (ks, n) = number_list(ast.kids(v), n0 + 1)
@@ -4417,22 +4624,18 @@ fn number_list(xs: List<Node>, n0: Int) -> (List<Node>, Int) {
   (out, n)
 }
 
-// 记一次改写：节点 v 换成 new（new 里的原有子节点保留编号，后续改写照样生效）
-fn rewrite(c: C, v: Node, new: Node) -> C {
-  let i = v.id
-  if i < 0 { return c }
-  C { rw: set(c.rw, i, new), ..c }
+fn add_patch(c: C, v: Node, p: Pt) -> C {
+  if v.id < 0 { return c }
+  C { patch: set(c.patch, v.id, push(unwrap_or(get(c.patch, v.id), []), p)), ..c }
 }
 
 // e 整个换成 new（Python 的 e.__dict__ 替换）：new 继承 e 的编号
 fn repl(c: C, e: Node, new: Node) -> (C, Node) {
-  let i = e.id
-  if i < 0 { return (c, new) }
-  let n2 = Node { id: i, ..new }
-  (C { rw: set(c.rw, i, n2), ..c }, n2)
+  if e.id < 0 { return (c, new) }
+  (c, Node { id: e.id, ..new })
 }
 
-// 新建的节点给一个新编号（之后对它的改写才能记下来）
+// 新建的节点给一个新编号（检查后才会带类型、才能挂补丁）
 fn fid(c: C, v: Node) -> (C, Node) { (C { idn: c.idn + 1, ..c }, Node { id: c.idn, ..v }) }
 
 // 新合成的子树里没有编号的节点都给一个新编号（已有编号的原节点保留）
@@ -4449,8 +4652,6 @@ fn fresh_ids(c0: C, v: Node) -> (C, Node) {
   (c, ast.with_kids(v1, ks))
 }
 
-fn latest(c: C, v: Node) -> Node { unwrap_or(get(c.rw, v.id), v) }
-
 // 可变参数 extern 的各个变体（Python 版的 fn._va_variants），挂在 extern 声明上
 fn with_va(vav: List<(Str, Str, List<Str>)>, it: Node) -> Node {
   let f = match it.k {
@@ -4463,42 +4664,22 @@ fn with_va(vav: List<(Str, Str, List<Str>)>, it: Node) -> Node {
   with_fnd(it, FnD { x: FnX { va: map(vs, (t) => (t.1, t.2)), ..f.x }, ..f })
 }
 
-// 节点套用检查器记下的改写（KIR 取 trait 默认方法的函数体时用）
-pub fn lowered(c: C, v: Node) -> Node { apply_rw(c.rw, v) }
-
-fn apply_rw(rw: Map<Int, Node>, v0: Node) -> Node {
-  var v = v0
-  var guard = 0
-  while guard < 8 {
-    let i = v.id
-    if i < 0 { guard = 8 } else {
-      match get(rw, i) {
-        Some(r) => {
-          if r.id == i { guard = 8 }
-          v = r
-        },
-        None    => { guard = 8 },
-      }
-    }
-    guard += 1
-  }
-  if let NTypeApp(f, _) = v.k { return apply_rw(rw, f) }
-  let v2 = ast.with_kids(v, map(ast.kids(v), (x) => apply_rw(rw, x)))
-  match v2.k {
-    NMatch(m) => {
-      if is_some(m.let_else) && len(m.arms) == 2 { return Node { k: NMatch(MatchD { let_else: Some(m.arms[1].body), ..m }), ..v2 } }
-      v2
-    },
-    _         => v2,
+fn patch1(n: Node, p: Pt) -> Node {
+  match (p, n.k) {
+    (PtBounds(bs), NImpl(d))    => Node { k: NImpl(ImplD { gen: Gen { bounds: bs, ..d.gen }, ..d }), ..n },
+    (PtExt(et), NFn(f))         => with_fnd(n, FnD { x: FnX { ext_tys: Some(et), ..f.x }, ..f }),
+    (PtParams(hid), NFn(f))     => with_fnd(n, FnD { params: f.params + hid, ..f }),
+    (PtArgs(extra), NCall(f, a)) => Node { k: NCall(f, a + extra), ..n },
+    (PtName(nm), NName(_))      => Node { k: NName(nm), ..n },
+    _                           => n,
   }
 }
 
-// ── 类型化 IR：把检查器记下的表达式类型（按 Node.id）挂到节点上 ──
-
-pub fn typed(ts: Map<Int, Ty>, n: Node) -> Node {
-  let n1 = if n.id >= 0 { Node { t: get(ts, n.id), ..n } } else { n }
-  ast.with_kids(n1, map(ast.kids(n1), (x) => typed(ts, x)))
+// 套用求解后的补丁
+fn patched(pm: Map<Int, List<Pt>>, n0: Node) -> Node {
+  var n = n0
+  if n.id >= 0 {
+    if let Some(ps) = get(pm, n.id) { for p in ps { n = patch1(n, p) } }
+  }
+  ast.with_kids(n, map(ast.kids(n), (x) => patched(pm, x)))
 }
-
-// trait 默认方法按某个 impl 的类型快照降级（Python 版的 _tsnap）
-pub fn lowered_t(c: C, ts: Map<Int, Ty>, v: Node) -> Node { typed(ts, apply_rw(c.rw, v)) }
