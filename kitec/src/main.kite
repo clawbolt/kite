@@ -50,7 +50,7 @@ fn main() {
       },
     }
     let pits = match parser.parse(pre) {
-      Ok(its) => its,
+      Ok(its) => map(its, ast.to_v),
       Err(e)  => {
         print(e)
         return
@@ -113,7 +113,7 @@ fn main() {
     for (n, s) in sigs { print("F {n}: {s}") }
   } else {
     match parser.parse(src) {
-      Ok(items) => { for it in items { print(ast.dump(it)) } },
+      Ok(items) => { for it in items { print(ast.dump(ast.to_v(it))) } },
       Err(e)    => print(e),
     }
   }
@@ -185,7 +185,7 @@ fn build(args: List<Str>) -> Int {
     },
   }
   let pits = match parser.parse(pre) {
-    Ok(its) => its,
+    Ok(its) => map(its, ast.to_v),
     Err(e)  => {
       eprint("prelude: " + e)
       return 1

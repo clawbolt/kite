@@ -455,7 +455,7 @@ fn parse_file(l: L, p: Str) -> Result<(L, List<V>), ME> {
     Err(e) => { return Err(me(0, "无法读取 {p}: {e}")) },
   }
   match parser.parse_off(src, idx * LINE_BASE) {
-    Ok(its) => Ok((l1, its)),
+    Ok(its) => Ok((l1, map(its, ast.to_v))),
     Err(_)  => Err(me(-2, "SKIP parse")),
   }
 }

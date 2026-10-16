@@ -27,8 +27,14 @@
 
 ## 语法树
 
-`src/ast.kite` 里的 `V` 和 Python 版一样是“动态”的：节点是 `VN(种类, 行号, 字段表)`，Python 版里的元组（类型、模式、
-match 分支）是 `VT`，记录变体的字段表是 `VR`，限定的变体名是 `VQ`，超出 Int 的整数字面量是 `VBig`。
+`src/ast.kite` 定义强类型语法树，解析器直接产出它：
+
+- `Node = { id, line, k: K, vis, label, attrs }`，`K` 每种节点一个变体（`NFn(FnD)`、`NLet(pat, mutable, ty, value, is_const)`、`NMatch(MatchD)`、`NBin(op, left, right)` …），
+  字段都有确定类型；`vis` / `label` / `attrs` 是 Python 版在语句和声明上补的 `pub` / `label` / `attrs`。
+- 类型表达式 `TyX`（`YCon` / `YTup` / `YFn` / `YDyn` / `YImpl` / `YUnsafe`），模式 `Pat`（`PBind` / `PVariant` / `PList` …），
+  字面量 `Lit`，名字 `Nm`（`NmQ` 是限定名），属性 `Attr`，枚举变体字段 `EvF`，use 路径 `UseP`，插值片段 `IPart`。
+- `ast.to_v` 把强类型树转成旧的动态表示 `V`（`VN(种类, 行号, 字段表)` 等）；`ast_dump` 格式由它决定，与 Python 版逐字节一致。
+  检查器、模块系统、字节码、C 和 KIR 目前仍经 `to_v` 读动态树，下一步改为直接读强类型树、产出类型化 IR。
 
 ## 用法
 

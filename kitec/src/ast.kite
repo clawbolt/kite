@@ -159,3 +159,436 @@ pub fn dpairs(v: V) -> List<(Str, V)> {
     _       => [],
   }
 }
+
+// ═════════════════ 强类型语法树 ═════════════════
+// 解析器直接产出下面这些类型；每种节点一个变体，字段都有确定的类型。
+// to_v 把它转回旧的动态表示 V（ast_dump 的输出格式由它决定，和 Python 版逐字节一致）。
+
+// 字面量
+pub enum Lit {
+  LInt(Int),
+  LBig(Str),
+  LFlt(Float),
+  LStr(Str),
+  LBool(Bool),
+}
+
+// 名字：普通名字或限定名（A.Other）
+pub enum Nm {
+  NmS(Str),
+  NmQ(Str, Str?),
+}
+
+// 类型表达式（检查前的语法形式）
+pub enum TyX {
+  YCon(Str, List<TyX>, Int),
+  YTup(List<TyX>, Int),
+  YDyn(List<Str>, Int),
+  YImpl(List<Str>, Int),
+  YUnsafe(TyX, Int),
+  YFn(List<TyX>, TyX, Int),
+}
+
+// 模式
+pub enum Pat {
+  PWild,
+  PBind(Nm),
+  PVar(Nm),
+  PLit(Lit),
+  PRange(Lit?, Lit?, Bool),
+  PTuple(List<Pat>),
+  PList(List<Pat>, Str?, List<Pat>),
+  PVariant(Nm, List<Pat>?),
+  PStruct(Nm, List<(Str, Pat)>),
+  POr(List<Pat>),
+  PAt(Pat, Pat),
+  PDots,
+}
+
+// 属性 @name(k: v, …)
+pub type Attr = { name: Str, args: List<(Str?, Lit?)>, line: Int }
+
+// 可见性：pub 和 pub(pkg) / pub(mod)；has_vis 为假时只有 pub 字段（extern 块里的 fn）
+pub type Vis = { is_pub: Bool, vis: Str?, has_vis: Bool }
+
+// 枚举变体的字段：无字段 / 元组式 / 记录式
+pub enum EvF {
+  EvNone,
+  EvList(List<(Str, TyX)>),
+  EvRec(List<(Str, TyX)>),
+}
+
+// use 路径的一段
+pub enum UseP {
+  UName(Str),
+  UGroup(List<(Str, Str?)>),
+}
+
+// 字符串插值的一段
+pub enum IPart {
+  IStr(Str),
+  IExpr(Node),
+}
+
+// 关联常量 const NAME: T = v
+pub type AConst = { name: Str, ty: TyX, value: Node?, line: Int }
+
+// trait 里的关联类型 type A: B + C = D
+pub type TAssoc = { name: Str, bounds: List<Str>, dflt: TyX? }
+
+// match 分支
+pub type Arm = { pat: Pat, guard: Node?, body: Node }
+
+// select 分支：kind 是 recv / send / after / default
+pub type SArm = { kind: Str, a: Node?, b: Node?, pat: Pat?, guard: Node?, body: Node }
+
+// 泛型参数：名字、约束（保持插入顺序）、常量泛型
+// 约束按语法存成类型（Python 版取 ty(...)[1]，通常是名字）；ty_head 给出那一项
+pub type Gen = { names: List<Str>, bounds: List<(Str, List<TyX>)>, cgens: List<Str> }
+
+pub type FnD = {
+  name: Str,
+  params: List<(Str, TyX?)>,
+  ret: TyX?,
+  body: Node?,
+  gen: Gen,
+  is_async: Bool,
+  is_unsafe: Bool,
+  varargs: Bool,
+  ext: List<Str>?,
+  cname: Str?,
+}
+
+pub type ImplD = {
+  tr: TyX?,
+  target: Str,
+  target_t: TyX,
+  methods: List<Node>,
+  gen: Gen,
+  assoc: List<(Str, TyX)>,
+  consts: List<AConst>,
+}
+
+pub type TraitD = { name: Str, methods: List<Node>, assoc: List<TAssoc>, supers: List<Str>, consts: List<AConst> }
+
+pub type MatchD = { subject: Node, arms: List<Arm>, is_conj: (Node, Node)?, let_else: Node? }
+
+pub enum K {
+  // 声明
+  NFn(FnD),
+  NStruct(Str, List<(Str, TyX?)>, Gen),
+  NAlias(Str, TyX, Gen),
+  NEnum(Str, List<(Str, EvF)>, Gen),
+  NTrait(TraitD),
+  NImpl(ImplD),
+  NUse(List<UseP>, Str?),
+  NMod(Str?, List<Node>?),
+  NExtern(List<Node>),
+  // 语句
+  NLet(pat: Pat, mutable: Bool, ty: TyX?, value: Node, is_const: Bool),
+  NReturn(Node?),
+  NBreak(Str?, Node?, Bool),  // 第三项：while let 改写出来的 break（Python 版没有 label / value 字段）
+  NContinue(Str?),
+  NWhile(Node?, Node),
+  NFor(Pat, Node, Node),
+  NLoop(Node, Str?),
+  NDefer(Node),
+  NAssign(target: Node, op: Str, value: Node),
+  NExprStmt(Node),
+  // 表达式
+  NBlock(List<Node>, Bool),
+  NIf(Node, Node, Node?),
+  NLit(Lit),
+  NName(Str),
+  NBin(op: Str, left: Node, right: Node?),
+  NUnary(op: Str, operand: Node, pos: Int),
+  NCast(Node, TyX),
+  NPipe(Node, Node),
+  NIs(Node, Pat),
+  NCall(Node, List<Node>),
+  NAwait(Node),
+  NTypeApp(Node, List<TyX?>),
+  NTupleIndex(Node, Lit),
+  NField(Node, Str),
+  NIndex(Node, Node),
+  NTry(Node),
+  NInterp(List<IPart>),
+  NLambda(List<(Str, TyX?)>, Node, Str?),
+  NStructLit(Nm, List<(Str, Node)>, Node?),
+  NTuple(List<Node>),
+  NList(List<Node>),
+  NSpawn(List<Node>),
+  NRace(List<Node>),
+  NSelect(List<SArm>),
+  NMatch(MatchD),
+}
+
+// 节点：编号、行号、种类；vis / label / attrs 是解析器在语句和声明上补的字段（Python 版的 node.pub / node.label / node.attrs）
+pub type Node = { id: Int, line: Int, k: K, vis: Vis?, label: Str?, attrs: List<Attr>? }
+
+pub fn mkn(line: Int, k: K) -> Node { Node { id: 0, line: line, k: k, vis: None, label: None, attrs: None } }
+
+pub fn no_gen() -> Gen { Gen { names: [], bounds: [], cgens: [] } }
+
+pub fn kname(n: Node) -> Str {
+  match n.k {
+    NFn(_)          => "Fn",
+    NStruct(..)     => "Struct",
+    NAlias(..)      => "Alias",
+    NEnum(..)       => "Enum",
+    NTrait(_)       => "Trait",
+    NImpl(_)        => "Impl",
+    NUse(..)        => "Use",
+    NMod(..)        => "Mod",
+    NExtern(_)      => "Extern",
+    NLet(..)        => "Let",
+    NReturn(_)      => "Return",
+    NBreak(..)      => "Break",
+    NContinue(_)    => "Continue",
+    NWhile(..)      => "While",
+    NFor(..)        => "For",
+    NLoop(..)       => "Loop",
+    NDefer(_)       => "Defer",
+    NAssign(..)     => "Assign",
+    NExprStmt(_)    => "ExprStmt",
+    NBlock(..)      => "Block",
+    NIf(..)         => "If",
+    NLit(_)         => "Lit",
+    NName(_)        => "Name",
+    NBin(..)        => "Bin",
+    NUnary(..)      => "Unary",
+    NCast(..)       => "Cast",
+    NPipe(..)       => "Pipe",
+    NIs(..)         => "Is",
+    NCall(..)       => "Call",
+    NAwait(_)       => "Await",
+    NTypeApp(..)    => "TypeApp",
+    NTupleIndex(..) => "TupleIndex",
+    NField(..)      => "Field",
+    NIndex(..)      => "Index",
+    NTry(_)         => "Try",
+    NInterp(_)      => "Interp",
+    NLambda(..)     => "Lambda",
+    NStructLit(..)  => "StructLit",
+    NTuple(_)       => "Tuple",
+    NList(_)        => "List",
+    NSpawn(_)       => "Spawn",
+    NRace(_)        => "Race",
+    NSelect(_)      => "Select",
+    NMatch(_)       => "Match",
+  }
+}
+
+pub fn nm_str(n: Nm) -> Str {
+  match n {
+    NmS(s)    => s,
+    NmQ(s, _) => s,
+  }
+}
+
+// ── 转回动态表示 ──
+
+pub fn lit_v(l: Lit) -> V {
+  match l {
+    LInt(i)  => VI(i),
+    LBig(t)  => VBig(t),
+    LFlt(f)  => VF(f),
+    LStr(s)  => VS(s),
+    LBool(b) => VB(b),
+  }
+}
+
+pub fn olit_v(l: Lit?) -> V {
+  match l {
+    Some(x) => lit_v(x),
+    None    => VNil,
+  }
+}
+
+pub fn nm_v(n: Nm) -> V {
+  match n {
+    NmS(s)    => VS(s),
+    NmQ(s, q) => VQ(s, q),
+  }
+}
+
+pub fn ty_v(t: TyX) -> V {
+  match t {
+    YCon(n, a, l)  => VT([VS("con"), VS(n), VL(map(a, ty_v)), VI(l)]),
+    YTup(a, l)     => VT([VS("tuple"), VL(map(a, ty_v)), VI(l)]),
+    YDyn(bs, l)    => VT([VS("dyn"), strs(bs), VI(l)]),
+    YImpl(bs, l)   => VT([VS("impl"), strs(bs), VI(l)]),
+    YUnsafe(x, l)  => VT([VS("unsafe"), ty_v(x), VI(l)]),
+    YFn(a, r, l)   => VT([VS("fn"), VL(map(a, ty_v)), ty_v(r), VI(l)]),
+  }
+}
+
+pub fn oty_v(t: TyX?) -> V {
+  match t {
+    Some(x) => ty_v(x),
+    None    => VNil,
+  }
+}
+
+pub fn pat_v(p: Pat) -> V {
+  match p {
+    PWild              => VT([VS("wild")]),
+    PBind(n)           => VT([VS("bind"), nm_v(n)]),
+    PVar(n)            => VT([VS("bind"), nm_v(n), VB(true)]),
+    PLit(l)            => VT([VS("lit"), lit_v(l)]),
+    PRange(lo, hi, inc) => VT([VS("range"), olit_v(lo), olit_v(hi), VB(inc)]),
+    PTuple(xs)         => VT([VS("tuple"), VL(map(xs, pat_v))]),
+    PList(pre, rest, post) => {
+      let r = opt(rest)
+      if len(post) > 0 { VT([VS("list"), VL(map(pre, pat_v)), r, VL(map(post, pat_v))]) } else { VT([VS("list"), VL(map(pre,
+        pat_v)), r]) }
+    },
+    PVariant(n, subs)  => VT([VS("variant"), nm_v(n), match subs {
+      Some(xs) => VL(map(xs, pat_v)),
+      None     => VNil,
+    }]),
+    PStruct(n, fs)     => VT([VS("struct"), nm_v(n), VL(map(fs, (f) => VT([VS(f.0), pat_v(f.1)])))]),
+    POr(xs)            => VT([VS("or"), VL(map(xs, pat_v))]),
+    PAt(a, b)          => VT([VS("at"), pat_v(a), pat_v(b)]),
+    PDots              => VT([VS("dots")]),
+  }
+}
+
+pub fn opat_v(p: Pat?) -> V {
+  match p {
+    Some(x) => pat_v(x),
+    None    => VNil,
+  }
+}
+
+pub fn attr_v(a: Attr) -> V {
+  VT([VS(a.name), VL(map(a.args, (kv) => VT([opt(kv.0), olit_v(kv.1)]))), VI(a.line)])
+}
+
+fn params_v(ps: List<(Str, TyX?)>) -> V { VL(map(ps, (pr) => VT([VS(pr.0), oty_v(pr.1)]))) }
+
+fn bounds_v(bs: List<(Str, List<TyX>)>) -> V { VD(map(bs, (b) => (b.0, VL(map(b.1, ty_head))))) }
+
+// 类型元组的第二项（Python 版 where / 泛型约束、impl Trait for 里取的 ty(...)[1]）
+pub fn ty_head(t: TyX) -> V { items(ty_v(t))[1] }
+
+// 约束的名字（非 con 形式的约束是 ""）
+pub fn bound_name(t: TyX) -> Str { sv(ty_head(t)) }
+
+fn aconst_v(c: AConst) -> V { VT([VS(c.name), ty_v(c.ty), onode_v(c.value), VI(c.line)]) }
+
+pub fn onode_v(n: Node?) -> V {
+  match n {
+    Some(x) => to_v(x),
+    None    => VNil,
+  }
+}
+
+fn nodes_v(xs: List<Node>) -> V { VL(map(xs, to_v)) }
+
+fn gen_fs(g: Gen) -> List<(Str, V)> { [("generics", strs(g.names)), ("bounds", bounds_v(g.bounds)), ("cgens", strs(g.cgens))] }
+
+fn kfields(n: Node) -> List<(Str, V)> {
+  match n.k {
+    NFn(f) => {
+      var fs = [("name", VS(f.name)), ("params", params_v(f.params)), ("ret", oty_v(f.ret)), ("body", onode_v(f.body)), ("is_async",
+        VB(f.is_async)), ("is_unsafe", VB(f.is_unsafe))] + gen_fs(f.gen)
+      if f.varargs { fs = push(fs, ("varargs", VB(true))) }
+      if let Some(ls) = f.ext { fs = push(fs, ("extern", strs(ls))) }
+      if let Some(c) = f.cname { fs = push(fs, ("cname", VS(c))) }
+      fs
+    },
+    NStruct(name, fs, g) => [("name", VS(name)), ("fields", params_v(fs))] + gen_fs(g),
+    NAlias(name, t, g) => [("name", VS(name)), ("target", ty_v(t))] + gen_fs(g),
+    NEnum(name, vs, g) => {
+      let vv = map(vs, (v) => VT([VS(v.0), match v.1 {
+        EvNone    => VNil,
+        EvList(l) => VL(map(l, (f) => VT([VS(f.0), ty_v(f.1)]))),
+        EvRec(l)  => VR(map(l, (f) => VT([VS(f.0), ty_v(f.1)]))),
+      }]))
+      [("name", VS(name)), ("variants", VL(vv))] + gen_fs(g)
+    },
+    NTrait(t) => [("name", VS(t.name)), ("methods", nodes_v(t.methods)), ("assoc", VL(map(t.assoc, (a) => VT([VS(a.name), strs(a.bounds),
+      oty_v(a.dflt)])))), ("supers", strs(t.supers)), ("consts", VL(map(t.consts, aconst_v)))],
+    NImpl(d) => [("trait", match d.tr {
+      Some(t) => ty_head(t),
+      None    => VNil,
+    }), ("target", VS(d.target)), ("target_t", ty_v(d.target_t)), ("methods", nodes_v(d.methods)),
+      ("assoc", VL(map(d.assoc, (a) => VT([VS(a.0), ty_v(a.1)])))), ("consts", VL(map(d.consts, aconst_v)))] + gen_fs(d.gen),
+    NUse(path, alias) => [("path", VL(map(path, (u) => match u {
+      UName(s)  => VS(s),
+      UGroup(g) => VL(map(g, (e) => match e.1 {
+        Some(a) => VT([VS(e.0), VS(a)]),
+        None    => VS(e.0),
+      })),
+    }))), ("alias", opt(alias))],
+    NMod(name, its) => [("name", opt(name)), ("items", match its {
+      Some(xs) => nodes_v(xs),
+      None     => VNil,
+    })],
+    NExtern(fs) => [("fns", nodes_v(fs))],
+    NLet(pat, mutable, t, value, is_const) => {
+      let fs = [("pat", pat_v(pat)), ("mutable", VB(mutable)), ("ty", oty_v(t)), ("value", to_v(value))]
+      if is_const { push(fs, ("is_const", VB(true))) } else { fs }
+    },
+    NReturn(v) => [("value", onode_v(v))],
+    NBreak(l, v, bare) => if bare { [] } else { [("label", opt(l)), ("value", onode_v(v))] },
+    NContinue(l) => [("label", opt(l)), ("value", VNil)],
+    NWhile(c, b) => [("cond", onode_v(c)), ("body", to_v(b))],
+    NFor(p, it, b) => [("pat", pat_v(p)), ("iter", to_v(it)), ("body", to_v(b))],
+    NLoop(b, l) => [("body", to_v(b)), ("label", opt(l))],
+    NDefer(b) => [("body", to_v(b))],
+    NAssign(t, op, v) => [("target", to_v(t)), ("op", VS(op)), ("value", to_v(v))],
+    NExprStmt(e) => [("expr", to_v(e))],
+    NBlock(ss, u) => if u { [("stmts", nodes_v(ss)), ("unsafe", VB(true))] } else { [("stmts", nodes_v(ss))] },
+    NIf(c, t, e) => [("cond", to_v(c)), ("then", to_v(t)), ("els", onode_v(e))],
+    NLit(l) => [("value", lit_v(l))],
+    NName(s) => [("name", VS(s))],
+    NBin(op, l, r) => [("op", VS(op)), ("left", to_v(l)), ("right", onode_v(r))],
+    NUnary(op, x, pos) => [("op", VS(op)), ("operand", to_v(x)), ("pos", VI(pos))],
+    NCast(v, t) => [("value", to_v(v)), ("ty", ty_v(t))],
+    NPipe(l, r) => [("left", to_v(l)), ("right", to_v(r))],
+    NIs(v, p) => [("value", to_v(v)), ("pat", pat_v(p))],
+    NCall(f, a) => [("fn", to_v(f)), ("args", nodes_v(a))],
+    NAwait(v) => [("value", to_v(v))],
+    NTypeApp(f, ts) => [("fn", to_v(f)), ("targs", VL(map(ts, oty_v)))],
+    NTupleIndex(o, i) => [("obj", to_v(o)), ("index", lit_v(i))],
+    NField(o, s) => [("obj", to_v(o)), ("name", VS(s))],
+    NIndex(o, i) => [("obj", to_v(o)), ("index", to_v(i))],
+    NTry(v) => [("value", to_v(v))],
+    NInterp(ps) => [("parts", VL(map(ps, (x) => match x {
+      IStr(s)  => VS(s),
+      IExpr(e) => to_v(e),
+    })))],
+    NLambda(ps, b, ctx) => {
+      let fs = [("params", params_v(ps)), ("body", to_v(b))]
+      match ctx {
+        Some(c) => push(fs, ("ctx", VS(c))),
+        None    => fs,
+      }
+    },
+    NStructLit(name, fs, base) => [("name", nm_v(name)), ("fields", VL(map(fs, (f) => VT([VS(f.0), to_v(f.1)])))), ("base", onode_v(base))],
+    NTuple(xs) => [("items", nodes_v(xs))],
+    NList(xs) => [("items", nodes_v(xs))],
+    NSpawn(xs) => [("items", nodes_v(xs))],
+    NRace(xs) => [("items", nodes_v(xs))],
+    NSelect(arms) => [("arms", VL(map(arms, (a) => VT([VS(a.kind), onode_v(a.a), onode_v(a.b), opat_v(a.pat), onode_v(a.guard), to_v(a.body)]))))],
+    NMatch(m) => {
+      var fs = [("subject", to_v(m.subject)), ("arms", VL(map(m.arms, (a) => VT([pat_v(a.pat), onode_v(a.guard), to_v(a.body)]))))]
+      if let Some(ic) = m.is_conj { fs = push(fs, ("is_conj", VT([to_v(ic.0), to_v(ic.1)]))) }
+      if let Some(le) = m.let_else { fs = push(fs, ("let_else", to_v(le))) }
+      fs
+    },
+  }
+}
+
+pub fn to_v(n: Node) -> V {
+  var fs = kfields(n)
+  if let Some(v) = n.vis {
+    fs = push(fs, ("pub", VB(v.is_pub)))
+    if v.has_vis { fs = push(fs, ("vis", opt(v.vis))) }
+  }
+  if let Some(l) = n.label { fs = push(fs, ("label", VS(l))) }
+  if let Some(a) = n.attrs { fs = push(fs, ("attrs", VL(map(a, attr_v)))) }
+  nd(kname(n), n.line, fs)
+}

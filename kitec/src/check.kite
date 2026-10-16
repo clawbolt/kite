@@ -961,7 +961,7 @@ fn builtin_ft(c: C, k: Str, s: List<(Str, Str)>) -> Result<(C, FT), F> {
 fn parse_sig(c: C, s: Str) -> Result<(C, Ty), F> {
   if let Some(t) = get(c.sigs, s) { return Ok((c, t)) }
   let ta = match parser.parse_type(s) {
-    Ok(v)  => v,
+    Ok(v)  => ast.ty_v(v),
     Err(e) => { return Err(F { c: c, ln: 0, msg: e }) },
   }
   let (c1, t) = conv(c, ta, Map(), true)?
