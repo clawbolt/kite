@@ -75,7 +75,7 @@ fn main() {
       return
     }
     if mode == "lower" {
-      if len(errs) == 0 { for it in low { print(ast.dump(ast.to_v(it))) } }
+      if len(errs) == 0 { for it in low { print(ast.dump(it)) } }
       return
     }
     if mode == "c" || mode == "ck" {
@@ -113,7 +113,7 @@ fn main() {
     for (n, s) in sigs { print("F {n}: {s}") }
   } else {
     match parser.parse(src) {
-      Ok(items) => { for it in items { print(ast.dump(ast.to_v(it))) } },
+      Ok(items) => { for it in items { print(ast.dump(it)) } },
       Err(e)    => print(e),
     }
   }

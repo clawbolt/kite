@@ -6,7 +6,9 @@
 // Python 版的 Unsupported 异常在这里是状态里的 err：设置后不再生成指令，函数整体回退。
 
 use ast
-use ast.{ V, sv, iv, items, is_nil, Node, K, Lit, Nm, Pat, Arm, MatchD, FnD, TyX, kname }
+use val
+use val.{ V, sv, iv, items, is_nil }
+use ast.{ Node, K, Lit, Nm, Pat, Arm, MatchD, FnD, TyX, kname }
 use tys
 use tys.{ Ty }
 use check

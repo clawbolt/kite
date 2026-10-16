@@ -3,7 +3,8 @@
 // 解析器状态 P 按值传递：每个解析函数返回 (新状态, 结果)
 use ast
 use lexer
-use ast.{ V, sv, iv, items, is_nil, Node, K, Lit, Nm, TyX, Pat, Attr, Vis, EvF, UseP, IPart, AConst, TAssoc, Arm, SArm, Gen, FnD,
+use lexer.{ TV, SPart, sv, iv, is_nil }
+use ast.{ Node, K, Lit, Nm, TyX, Pat, Attr, Vis, EvF, UseP, IPart, AConst, TAssoc, Arm, SArm, Gen, FnD,
   ImplD, TraitD, MatchD, mkn, kname }
 use lexer.{ Tok, err, repr_str, repr_v, first_upper, first_lower }
 
@@ -140,12 +141,11 @@ fn dset(d: List<(Str, List<TyX>)>, k: Str, v: List<TyX>) -> List<(Str, List<TyX>
   out
 }
 
-fn v_lit(v: V) -> Lit {
+fn v_lit(v: TV) -> Lit {
   match v {
-    VI(i)   => LInt(i),
-    VBig(t) => LBig(t),
-    VF(f)   => LFlt(f),
-    VB(b)   => LBool(b),
+    TkInt(i) => LInt(i),
+    TkBig(t) => LBig(t),
+    TkFlt(f) => LFlt(f),
     _       => LStr(sv(v)),
   }
 }
@@ -262,9 +262,9 @@ fn extern_block(p0: P) -> Result<(P, Node), Str> {
     let (q, t) = adv(p)
     p = q
     var abi = ""
-    for x in items(t.val) {
+    for x in lexer.parts(t.val) {
       match x {
-        VS(s) => { abi = abi + s },
+        SStr(s) => { abi = abi + s },
         _     => {},
       }
     }
@@ -355,23 +355,28 @@ fn attrs(p0: P) -> Result<(P, List<Attr>), Str> {
   Ok((p, out))
 }
 
-fn all_str(xs: List<V>) -> Bool {
+fn all_str(xs: List<SPart>) -> Bool {
   for x in xs {
     match x {
-      VS(_) => {},
+      SStr(_) => {},
       _     => { return false },
     }
   }
   true
 }
 
-fn join_strs(xs: List<V>) -> Str { join(map(xs, sv), "") }
+fn join_strs(xs: List<SPart>) -> Str {
+  join(map(xs, (x) => match x {
+    SStr(s) => s,
+    _       => "",
+  }), "")
+}
 
 fn attr_lit(p: P) -> Result<(P, Lit), Str> {
   let t = cur(p)
   if t.kind == "INT" || t.kind == "FLOAT" { return Ok((skip(p), v_lit(t.val))) }
   if t.kind == "KW" && (sv(t.val) == "true" || sv(t.val) == "false") { return Ok((skip(p), LBool(sv(t.val) == "true"))) }
-  if t.kind == "STR" && all_str(items(t.val)) { return Ok((skip(p), LStr(join_strs(items(t.val))))) }
+  if t.kind == "STR" && all_str(lexer.parts(t.val)) { return Ok((skip(p), LStr(join_strs(lexer.parts(t.val))))) }
   Err(e_at(t, "语法错误: 属性参数只能是字面量（整数、浮点、字符串、true/false）或名字"))
 }
 
@@ -588,8 +593,8 @@ fn use_decl(p0: P) -> Result<(P, Node), Str> {
 fn at_gt(p: P) -> (P, Bool) {
   let t = cur(p)
   if t.kind == "OP" && (sv(t.val) == ">>" || sv(t.val) == ">>=") {
-    let a = Tok { kind: "OP", val: VS(">"), line: t.line, col: t.col, nl: t.nl, pos: t.pos }
-    let b = Tok { kind: "OP", val: VS(__str_slice(sv(t.val), 1, len(sv(t.val)))), line: t.line, col: t.col + 1, nl: false, pos: t.pos }
+    let a = Tok { kind: "OP", val: TkStr(">"), line: t.line, col: t.col, nl: t.nl, pos: t.pos }
+    let b = Tok { kind: "OP", val: TkStr(__str_slice(sv(t.val), 1, len(sv(t.val)))), line: t.line, col: t.col + 1, nl: false, pos: t.pos }
     let nt = p.t[0..p.i] + [a, b] + p.t[p.i + 1..len(p.t)]
     return (P { t: nt, ..p }, true)
   }
@@ -1809,10 +1814,10 @@ fn primary(p0: P) -> Result<(P, Node), Str> {
   if tok.kind == "STR" {
     p = skip(p)
     var parts: List<IPart> = []
-    for part in items(tok.val) {
+    for part in lexer.parts(tok.val) {
       match part {
-        VT(xs) => {
-          let (src, spec) = split_fmt_spec(sv(xs[1]))
+        SExpr(etext, _) => {
+          let (src, spec) = split_fmt_spec(etext)
           let stoks0 = lexer.lex(src)?
           let stoks = map(stoks0, (st) => Tok { line: tok.line + st.line - 1, ..st })
           let sub = skip_nl(new_p(stoks))
@@ -1832,7 +1837,7 @@ fn primary(p0: P) -> Result<(P, Node), Str> {
           }
           parts = push(parts, IExpr(ex))
         },
-        _ => { parts = push(parts, IStr(sv(part))) },
+        SStr(ps) => { parts = push(parts, IStr(ps)) },
       }
     }
     if len(parts) == 1 {
@@ -2201,11 +2206,11 @@ fn pat_lit_start(p: P, k: Int) -> Bool {
   t.kind == "INT" || t.kind == "FLOAT" || t.kind == "STR" || (tis(t, "OP", "-") && (nk == "INT" || nk == "FLOAT"))
 }
 
-fn neg(v: V) -> Lit {
+fn neg(v: TV) -> Lit {
   match v {
-    VI(i)   => LInt(-i),
-    VF(f)   => LFlt(-f),
-    VBig(t) => if t == "9223372036854775808" { LInt(-9223372036854775807 - 1) } else { LBig("-" + t) },
+    TkInt(i) => LInt(-i),
+    TkFlt(f) => LFlt(-f),
+    TkBig(t) => if t == "9223372036854775808" { LInt(-9223372036854775807 - 1) } else { LBig("-" + t) },
     _       => v_lit(v),
   }
 }
@@ -2218,8 +2223,8 @@ fn pat_lit(p0: P) -> Result<(P, Lit), Str> {
     return Ok((q, neg(t.val)))
   }
   if tok.kind == "STR" {
-    if !all_str(items(tok.val)) { return Err(e_at(tok, "语法错误: 模式里的字符串不能有插值")) }
-    return Ok((skip(p0), LStr(join_strs(items(tok.val)))))
+    if !all_str(lexer.parts(tok.val)) { return Err(e_at(tok, "语法错误: 模式里的字符串不能有插值")) }
+    return Ok((skip(p0), LStr(join_strs(lexer.parts(tok.val)))))
   }
   if tok.kind == "INT" || tok.kind == "FLOAT" { return Ok((skip(p0), v_lit(tok.val))) }
   Err(e_at(tok, "语法错误: 期望字面量，实际是 " + repr_v(tok.val)))

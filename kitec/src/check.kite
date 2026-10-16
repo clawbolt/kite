@@ -3,6 +3,7 @@
 // 输入是强类型语法树 ast.Node；Python 版就地改写语法树，这里按 Node.id 把改写记在 C.rw，最后统一套用，
 // 再把每个表达式的类型（C.ts）挂到节点上，得到类型化 IR（Node.t）交给 KIR / 字节码 / C 后端
 use ast
+use val
 use ast.{ Node, K, Lit, Nm, TyX, Pat, Attr, Vis, EvF, UseP, IPart, AConst, TAssoc, Arm, SArm, Gen, FnD, FnX, XD, ImplD, TraitD, MatchD, kname }
 use tys
 use tys.{ Ty, tcon, fn_t, list_t, tname, targs, is_tv, is_tr, is_tg, is_con }
@@ -3421,7 +3422,7 @@ fn key_eq(a: Key, b: Key) -> Bool {
   }
 }
 
-fn pdump(p: Pat) -> Str { ast.dump(ast.pat_v(p)) }
+fn pdump(p: Pat) -> Str { val.dump(ast.pat_v(p)) }
 
 fn norm(c: C, p: Pat) -> Cell {
   match p {
@@ -3430,7 +3431,7 @@ fn norm(c: C, p: Pat) -> Cell {
     PVar(_)                => CW,
     PLit(l)                => match l {
       LBool(b) => CN(KB(b), []),
-      _        => CN(KLit("L" + ast.dump(ast.lit_v(l))), []),
+      _        => CN(KLit("L" + val.dump(ast.lit_v(l))), []),
     },
     PRange(..)             => CN(KLit("R" + pdump(p)), []),
     PTuple(xs)             => CN(KT(len(xs)), map(xs, (x) => CP(x))),
@@ -3745,7 +3746,7 @@ fn lit_repr(v: Lit) -> Str {
     LStr(s) => repr_str(s),
     LInt(i) => "{i}",
     LFlt(f) => "{f}",
-    _       => ast.dump(ast.lit_v(v)),
+    _       => val.dump(ast.lit_v(v)),
   }
 }
 

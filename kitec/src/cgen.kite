@@ -3,7 +3,8 @@
 // 注意：Kite 字符串里的花括号写成 \{ \}
 
 use ast
-use ast.{ V, kind, fld, sv, iv, items, is_nil }
+use val
+use val.{ V, sv, iv, items, is_nil }
 use bc
 use bc.{ S, PR, GV }
 use kir
@@ -128,7 +129,7 @@ fn const_c(g: Gn, v: V) -> (Gn, Str) {
     VS(s)   => sconst(g, s),
     VQ(s, _) => sconst(g, s),
     VN(_, _, _) => (g, "UNIT"),
-    _       => (gerr(g, "原生后端: 不支持的常量 " + ast.dump(v)), "UNIT"),
+    _       => (gerr(g, "原生后端: 不支持的常量 " + val.dump(v)), "UNIT"),
   }
 }
 
@@ -426,7 +427,7 @@ fn op_c(g: Gn, op: Str, a: V, d: Int, known: Map<Int, Int>, cur_pc: Int) -> (Gn,
     var i = 0
     for u in pr.upd {
       let ux = items(u)
-      parts = push(parts, if ast.truthy(ux[0]) { "f->ups[{i}] = find_up(&open, &L[{iv(ux[1])}]);" } else { "f->ups[{i}] = self->ups[{iv(ux[1])}];" })
+      parts = push(parts, if val.truthy(ux[0]) { "f->ups[{i}] = find_up(&open, &L[{iv(ux[1])}]);" } else { "f->ups[{i}] = self->ups[{iv(ux[1])}];" })
       i += 1
     }
     parts = push(parts, "S[{d}] = c; }")
@@ -533,7 +534,7 @@ fn pat(g0: Gn, p: V) -> (Gn, Str) {
     if !is_nil(hi) {
       let (g3, c) = const_c(g, hi)
       g = g3
-      conds = push(conds, "k_cmp(v, {c}) " + (if ast.truthy(xs[3]) { "<=" } else { "<" }) + " 0")
+      conds = push(conds, "k_cmp(v, {c}) " + (if val.truthy(xs[3]) { "<=" } else { "<" }) + " 0")
     }
     lines = push(lines, "  (void)L; return " + join(conds, " && ") + ";")
   } else if t == "at" {
@@ -1044,7 +1045,7 @@ fn cty(g0: Gn, d: V) -> (Gn, Str) {
     _     => {
       let xs = items(d)
       if sv(xs[0]) == "F" { return (g0, "void *") }
-      let key = ast.dump(d)
+      let key = val.dump(d)
       if let Some(n) = get(g0.cstructs, key) { return (g0, n) }
       var g = g0
       var parts: List<Str> = []

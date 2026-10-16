@@ -1,8 +1,50 @@
 // Kite 自举编译器：词法分析（对应 kite.py 的 lex）
 use std.unicode
-use ast.{ V, sv }
 
-pub type Tok = { kind: Str, val: V, line: Int, col: Int, nl: Bool, pos: Int }
+// 词法单元的值：名字 / 关键字 / 运算符 / 标签是 TkStr；字符串是若干段（文字段和插值段）
+pub enum SPart {
+  SStr(Str),
+  SExpr(Str, Int),
+}
+
+pub enum TV {
+  TkNone,
+  TkStr(Str),
+  TkInt(Int),
+  TkBig(Str),
+  TkFlt(Float),
+  TkParts(List<SPart>),
+}
+
+pub fn sv(v: TV) -> Str {
+  match v {
+    TkStr(s) => s,
+    _       => "",
+  }
+}
+
+pub fn iv(v: TV) -> Int {
+  match v {
+    TkInt(i) => i,
+    _       => 0,
+  }
+}
+
+pub fn is_nil(v: TV) -> Bool {
+  match v {
+    TkNone => true,
+    _     => false,
+  }
+}
+
+pub fn parts(v: TV) -> List<SPart> {
+  match v {
+    TkParts(ps) => ps,
+    _          => [],
+  }
+}
+
+pub type Tok = { kind: Str, val: TV, line: Int, col: Int, nl: Bool, pos: Int }
 
 const KEYWORDS: List<Str> = ["let", "var", "fn", "type", "enum", "trait", "impl", "match", "if", "else", "for", "while",
   "loop", "break", "continue", "return", "use", "mod", "pub", "spawn", "await", "defer", "unsafe", "extern", "as", "in",
@@ -82,16 +124,18 @@ fn pyesc(o: Int) -> Str {
   if o < 256 { "\\x" + hexn(o, 2) } else if o < 65536 { "\\u" + hexn(o, 4) } else { "\\U" + hexn(o, 8) }
 }
 
-pub fn repr_v(v: V) -> Str {
+// 与 Python 版 repr(token.value) 相同
+pub fn repr_v(v: TV) -> Str {
   match v {
-    VS(s)   => repr_str(s),
-    VI(i)   => "{i}",
-    VBig(t) => t,
-    VF(f)   => "{f}",
-    VNil    => "None",
-    VL(xs)  => "[" + join(map(xs, repr_v), ", ") + "]",
-    VT(xs)  => if len(xs) == 1 { "(" + repr_v(xs[0]) + ",)" } else { "(" + join(map(xs, repr_v), ", ") + ")" },
-    _       => "?",
+    TkStr(s)    => repr_str(s),
+    TkInt(i)    => "{i}",
+    TkBig(t)    => t,
+    TkFlt(f)    => "{f}",
+    TkNone      => "None",
+    TkParts(ps) => "[" + join(map(ps, (p) => match p {
+      SStr(s)     => repr_str(s),
+      SExpr(t, l) => "(" + repr_str("expr") + ", " + repr_str(t) + ", {l})",
+    }), ", ") + "]",
   }
 }
 
@@ -134,7 +178,7 @@ fn esc(nx: Str) -> Str? {
   } else if nx == "}" { Some("}") } else { None }
 }
 
-fn mk(kind: Str, val: V, line: Int, col: Int, nl: Bool, pos: Int) -> Tok {
+fn mk(kind: Str, val: TV, line: Int, col: Int, nl: Bool, pos: Int) -> Tok {
   Tok { kind: kind, val: val, line: line, col: col, nl: nl, pos: pos }
 }
 
@@ -199,7 +243,7 @@ pub fn lex(src: Str) -> Result<List<Tok>, Str> {
           let e = if j + 1 <= n { j + 1 } else { n }
           return Err(err(sl, Some(sc), "非法的数字字面量 " + repr_str(join(cs[i..e], ""))))
         }
-        toks = push(toks, mk("INT", VI(v), sl, sc, saw_nl, start))
+        toks = push(toks, mk("INT", TkInt(v), sl, sc, saw_nl, start))
         saw_nl = false
         col += j - i
         i = j
@@ -222,10 +266,10 @@ pub fn lex(src: Str) -> Result<List<Tok>, Str> {
         }
       }
       let text = replace(join(cs[i..j], ""), "_", "")
-      let v = if is_float { VF(unwrap(parse_float(text))) } else {
+      let v = if is_float { TkFlt(unwrap(parse_float(text))) } else {
         match parse_int(text) {
-          Ok(x)  => VI(x),
-          Err(_) => VBig(text),
+          Ok(x)  => TkInt(x),
+          Err(_) => TkBig(text),
         }
       }
       toks = push(toks, mk(if is_float { "FLOAT" } else { "INT" }, v, sl, sc, saw_nl, start))
@@ -244,7 +288,7 @@ pub fn lex(src: Str) -> Result<List<Tok>, Str> {
         let end = find_from(cs, k + 1, close)
         if end < 0 { return Err(err(sl, Some(sc), "原始字符串未闭合")) }
         let body = join(cs[k + 1..end], "")
-        toks = push(toks, mk("STR", VL([VS(body)]), sl, sc, saw_nl, start))
+        toks = push(toks, mk("STR", TkParts([SStr(body)]), sl, sc, saw_nl, start))
         saw_nl = false
         let j = end + 1 + hashes
         var nls = 0
@@ -282,7 +326,7 @@ pub fn lex(src: Str) -> Result<List<Tok>, Str> {
         j = i + 2
       }
       if j >= n || cs[j] != "'" { return Err(err(sl, Some(sc), "字符字面量只能包含一个字符")) }
-      toks = push(toks, mk("STR", VL([VS(c)]), sl, sc, saw_nl, start))
+      toks = push(toks, mk("STR", TkParts([SStr(c)]), sl, sc, saw_nl, start))
       saw_nl = false
       col += j + 1 - i
       i = j + 1
@@ -292,7 +336,7 @@ pub fn lex(src: Str) -> Result<List<Tok>, Str> {
       var j = i
       while j < n && (is_alnum(cs[j]) || cs[j] == "_") { j += 1 }
       let word = join(cs[i..j], "")
-      toks = push(toks, mk(if contains(KEYWORDS, word) { "KW" } else { "IDENT" }, VS(word), sl, sc, saw_nl, start))
+      toks = push(toks, mk(if contains(KEYWORDS, word) { "KW" } else { "IDENT" }, TkStr(word), sl, sc, saw_nl, start))
       saw_nl = false
       col += j - i
       i = j
@@ -302,7 +346,7 @@ pub fn lex(src: Str) -> Result<List<Tok>, Str> {
       var j = i + 1
       while j < n && (is_alnum(cs[j]) || cs[j] == "_") { j += 1 }
       if j < n && cs[j] == "'" { return Err(err(sl, Some(sc), "字符字面量只能包含一个字符（字符串请用双引号）")) }
-      toks = push(toks, mk("LABEL", VS(join(cs[i + 1..j], "")), sl, sc, saw_nl, start))
+      toks = push(toks, mk("LABEL", TkStr(join(cs[i + 1..j], "")), sl, sc, saw_nl, start))
       saw_nl = false
       col += j - i
       i = j
@@ -310,7 +354,7 @@ pub fn lex(src: Str) -> Result<List<Tok>, Str> {
     }
     if ch == "\"" {
       var j = i + 1
-      var parts: List<V> = []
+      var parts: List<SPart> = []
       var buf = ""
       var has_buf = false
       while true {
@@ -354,11 +398,11 @@ pub fn lex(src: Str) -> Result<List<Tok>, Str> {
           }
           if depth > 0 { return Err(err(sl, Some(sc), "字符串插值未闭合")) }
           if has_buf {
-            parts = push(parts, VS(buf))
+            parts = push(parts, SStr(buf))
             buf = ""
             has_buf = false
           }
-          parts = push(parts, VT([VS("expr"), VS(join(cs[j + 1..k - 1], "")), VI(sl)]))
+          parts = push(parts, SExpr(join(cs[j + 1..k - 1], ""), sl))
           j = k
           continue
         }
@@ -373,8 +417,8 @@ pub fn lex(src: Str) -> Result<List<Tok>, Str> {
         has_buf = true
         j += 1
       }
-      if has_buf || len(parts) == 0 { parts = push(parts, VS(buf)) }
-      toks = push(toks, mk("STR", VL(parts), sl, sc, saw_nl, start))
+      if has_buf || len(parts) == 0 { parts = push(parts, SStr(buf)) }
+      toks = push(toks, mk("STR", TkParts(parts), sl, sc, saw_nl, start))
       saw_nl = false
       col += j - i
       i = j
@@ -384,12 +428,12 @@ pub fn lex(src: Str) -> Result<List<Tok>, Str> {
     let s2 = if i + 2 <= n { cs[i] + cs[i + 1] } else { "" }
     let op = if contains(OPS3, s3) { s3 } else if contains(OPS2, s2) { s2 } else if contains(OPS1, ch) { ch } else { "" }
     if op == "" { return Err(err(line, Some(col), "无法识别的字符 " + repr_str(ch))) }
-    toks = push(toks, mk("OP", VS(op), sl, sc, saw_nl, start))
+    toks = push(toks, mk("OP", TkStr(op), sl, sc, saw_nl, start))
     saw_nl = false
     i += len(op)
     col += len(op)
   }
-  toks = push(toks, mk("EOF", VNil, line, col, false, i))
+  toks = push(toks, mk("EOF", TkNone, line, col, false, i))
   Ok(newlines(toks))
 }
 
@@ -466,7 +510,7 @@ fn newlines(toks: List<Tok>) -> List<Tok> {
       if (pv == ">" || pv == ">>") && alias_line_end(out) { pv = "\u{0}none" }
       if pv == "*" && len(out) >= 2 && opv(out[len(out) - 2]) == "." { pv = "\u{0}none" }
       if top == "\{" && !contains(CONT_END, pv) && !contains(CONT_START, nv) && prev.kind != "NEWLINE" {
-        out = push(out, mk("NEWLINE", VNil, prev.line, prev.col, false, prev.pos))
+        out = push(out, mk("NEWLINE", TkNone, prev.line, prev.col, false, prev.pos))
       }
     }
     if t.kind == "OP" {

@@ -1,0 +1,127 @@
+// Kite 自举编译器：动态值
+// 只用于两处：字节码 / KIR 的常量与操作数（Python VM 的常量本来就是动态值），
+// 以及各种 dump 输出的统一格式（与 tools/*_dump.py 逐字节一致）。语法树本身是强类型的（ast.kite）。
+
+pub enum V {
+  VS(Str),
+  VQ(Str, Str?),
+  VI(Int),
+  VBig(Str),
+  VF(Float),
+  VB(Bool),
+  VNil,
+  VL(List<V>),
+  VR(List<V>),
+  VT(List<V>),
+  VD(List<(Str, V)>),
+  VN(Str, Int, Map<Str, V>),
+}
+
+
+
+
+
+
+
+pub fn sv(v: V) -> Str {
+  match v {
+    VS(s)    => s,
+    VQ(s, _) => s,
+    _        => "",
+  }
+}
+
+pub fn iv(v: V) -> Int {
+  match v {
+    VI(i) => i,
+    _     => 0,
+  }
+}
+
+pub fn items(v: V) -> List<V> {
+  match v {
+    VL(xs) => xs,
+    VR(xs) => xs,
+    VT(xs) => xs,
+    _      => [],
+  }
+}
+
+pub fn is_nil(v: V) -> Bool {
+  match v {
+    VNil => true,
+    _    => false,
+  }
+}
+
+pub fn opt(s: Str?) -> V {
+  match s {
+    Some(x) => VS(x),
+    None    => VNil,
+  }
+}
+
+
+pub fn strs(xs: List<Str>) -> V { VL(map(xs, (s) => VS(s))) }
+
+// ── 输出（与 tools/ast_dump.py 逐字节一致）──
+
+fn quote(s: Str) -> Str {
+  var out = "\""
+  for c in chars(s) {
+    let o = __ord(c)
+    out = out + (if c == "\"" { "\\\"" } else if c == "\\" { "\\\\" } else if c == "\n" { "\\n" } else if c == "\t" {
+      "\\t"
+      } else if c == "\r" { "\\r" } else if o < 32 || o == 127 { "\\u\{{__hex(o)}}" } else { c })
+  }
+  out + "\""
+}
+
+fn __hex(n: Int) -> Str {
+  let ds = "0123456789abcdef"
+  if n < 16 { return __str_slice(ds, n, n + 1) }
+  __hex(n / 16) + __str_slice(ds, n % 16, n % 16 + 1)
+}
+
+fn seq(xs: List<V>) -> Str { join(map(xs, dump), " ") }
+
+pub fn dump(v: V) -> Str {
+  match v {
+    VNil        => "~",
+    VB(b)       => if b { "T" } else { "F" },
+    VS(s)       => quote(s),
+    VQ(s, qual) => "Q" + quote(s) + "/" + (match qual {
+      Some(x) => quote(x),
+      None    => "~",
+    }),
+    VI(i)       => "{i}",
+    VBig(t)     => t,
+    VF(f)       => "f{f}",
+    VN(k, l, m) => {
+      var parts = ["\{{k}@{l}"]
+      for key in sort(keys(m)) { if !starts_with(key, "_") { parts = push(parts, " {key}=" + dump(unwrap(get(m, key)))) } }
+      parts = push(parts, "}")
+      join(parts, "")
+    },
+    VL(xs)  => "[" + seq(xs) + "]",
+    VR(xs)  => "R[" + seq(xs) + "]",
+    VT(xs)  => "<" + seq(xs) + ">",
+    VD(kvs) => "D\{" + join(map(kvs, (kv) => quote(kv.0) + ":" + dump(kv.1)), " ") + "}",
+  }
+}
+
+pub fn truthy(v: V) -> Bool {
+  match v {
+    VB(b) => b,
+    _     => false,
+  }
+}
+
+
+
+// 节点的输出形式：{种类@行号 字段=值 …}
+pub fn nd(kind: Str, line: Int, fs: List<(Str, V)>) -> V {
+  var m: Map<Str, V> = Map()
+  for (k, v) in fs { m = set(m, k, v) }
+  VN(kind, line, m)
+}

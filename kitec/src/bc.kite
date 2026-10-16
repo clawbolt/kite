@@ -3,7 +3,9 @@
 // 指令的操作码直接用名字（Str），操作数用 V：Proto 引用是 VI(创建序号)，输出时换成 {P@序号}；Unit 是 {U@0}
 
 use ast
-use ast.{ V, sv, iv, items, is_nil, Node, K, Lit, Nm, Pat, Arm, SArm, MatchD, FnD, kname }
+use val
+use val.{ V, sv, iv, items, is_nil }
+use ast.{ Node, K, Lit, Nm, Pat, Arm, SArm, MatchD, FnD, kname }
 use modules
 
 type Lp = { breaks: List<Int>, cont: Int, depth: Int, slot: Int, defers: Int, label: Str?, res: Int }
@@ -922,10 +924,10 @@ pub fn dump(s: S, chunk: Int) -> List<Str> {
         let (o2, s2) = add_p(s, order, seen, pi)
         order = o2
         seen = s2
-        out = push(out, "G " + ast.dump(VS(name)) + " fn")
+        out = push(out, "G " + val.dump(VS(name)) + " fn")
       },
-      GStruct(f) => { out = push(out, "G " + ast.dump(VS(name)) + " struct " + ast.dump(f)) },
-      GEnum(v)   => { out = push(out, "G " + ast.dump(VS(name)) + " enum " + ast.dump(v)) },
+      GStruct(f) => { out = push(out, "G " + val.dump(VS(name)) + " struct " + val.dump(f)) },
+      GEnum(v)   => { out = push(out, "G " + val.dump(VS(name)) + " enum " + val.dump(v)) },
       _          => {},
     }
   }
@@ -938,17 +940,17 @@ pub fn dump(s: S, chunk: Int) -> List<Str> {
       let (o2, s2) = add_p(s, order, seen, pi)
       order = o2
       seen = s2
-      out = push(out, "M " + ast.dump(VS(t + "." + m)) + " P{unwrap(get(seen, pi))}")
+      out = push(out, "M " + val.dump(VS(t + "." + m)) + " P{unwrap(get(seen, pi))}")
     }
   }
   var k = 0
   for pi in order {
     let p = s.protos[pi]
     let nm = unwrap_or(get(pname, pi), p.name)
-    out = push(out, "P {k} " + ast.dump(VS(nm)) + " {p.np} {p.nl} " + ast.dump(VL(p.upd)))
+    out = push(out, "P {k} " + val.dump(VS(nm)) + " {p.np} {p.nl} " + val.dump(VL(p.upd)))
     var i = 0
     for (op, arg) in p.code {
-      out = push(out, "  {i} {op} " + ast.dump(conv_arg(seen, op, arg)) + " {p.lines[i]}")
+      out = push(out, "  {i} {op} " + val.dump(conv_arg(seen, op, arg)) + " {p.lines[i]}")
       i += 1
     }
     k += 1

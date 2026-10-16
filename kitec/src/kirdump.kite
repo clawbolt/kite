@@ -1,7 +1,7 @@
 // Kite 自举编译器：KIR 的文本形式，与 tools/kir_dump.py 逐字节相同（自举第 3d 步）
 
-use ast
-use ast.{ V }
+use val
+use val.{ V }
 use kir
 use kir.{ A, X, T, In, Bk, KF }
 use cgen
@@ -54,7 +54,7 @@ fn dump_fn(f: KF, lamf: KF, out0: List<Str>) -> List<Str> {
   out = push(out, hdr)
   var i = 0
   for p in f.pats {
-    out = push(out, "pat {i} " + ast.dump(p))
+    out = push(out, "pat {i} " + val.dump(p))
     i += 1
   }
   for b in f.blocks {
