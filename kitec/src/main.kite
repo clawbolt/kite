@@ -50,13 +50,14 @@ fn main() {
       },
     }
     let pits = match parser.parse(pre) {
-      Ok(its) => map(its, ast.to_v),
+      Ok(its) => its,
       Err(e)  => {
         print(e)
         return
       },
     }
-    let (errs, sigs, low, cst) = check.check_c(pits, map(items, ast.to_v))
+    let (errs, sigs, lown, cst) = check.check_c(pits, items)
+    let low = map(lown, ast.to_v)
     if len(errs) > 0 && errs[0].0 == -1 {
       print("UNSUP " + errs[0].1)
       return
@@ -185,13 +186,14 @@ fn build(args: List<Str>) -> Int {
     },
   }
   let pits = match parser.parse(pre) {
-    Ok(its) => map(its, ast.to_v),
+    Ok(its) => its,
     Err(e)  => {
       eprint("prelude: " + e)
       return 1
     },
   }
-  let (errs, _, low, cst) = check.check_c(pits, map(items, ast.to_v))
+  let (errs, _, lown, cst) = check.check_c(pits, items)
+  let low = map(lown, ast.to_v)
   if len(errs) > 0 {
     for (ln, msg) in take(errs, 20) { eprint(loc(file, ln, modules.strip_lm(msg))) }
     return 1

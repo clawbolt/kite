@@ -325,7 +325,7 @@ pub enum K {
   NAwait(Node),
   NTypeApp(Node, List<TyX?>),
   NTupleIndex(Node, Lit),
-  NField(Node, Str),
+  NField(Node, Nm),  // 字段名：检查器合成的 Enum.Variant 记录变体调用里是限定名
   NIndex(Node, Node),
   NTry(Node),
   NInterp(List<IPart>),
@@ -576,7 +576,7 @@ fn kfields(n: Node) -> List<(Str, V)> {
     NAwait(v) => [("value", to_v(v))],
     NTypeApp(f, ts) => [("fn", to_v(f)), ("targs", VL(map(ts, oty_v)))],
     NTupleIndex(o, i) => [("obj", to_v(o)), ("index", lit_v(i))],
-    NField(o, s) => [("obj", to_v(o)), ("name", VS(s))],
+    NField(o, s) => [("obj", to_v(o)), ("name", nm_v(s))],
     NIndex(o, i) => [("obj", to_v(o)), ("index", to_v(i))],
     NTry(v) => [("value", to_v(v))],
     NInterp(ps) => [("parts", VL(map(ps, (x) => match x {
@@ -614,6 +614,7 @@ pub fn to_v(n: Node) -> V {
   if let Some(l) = n.label { fs = push(fs, ("label", VS(l))) }
   if let Some(a) = n.attrs { fs = push(fs, ("attrs", VL(map(a, attr_v)))) }
   if n.pre { fs = push(fs, ("prelude", VB(true))) }
+  if n.id >= 0 { fs = push(fs, ("_id", VI(n.id))) }
   nd(kname(n), n.line, fs)
 }
 

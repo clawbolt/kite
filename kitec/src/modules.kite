@@ -460,7 +460,7 @@ fn rk(r: Rn, k: K) -> K {
     NCast(v, t)            => NCast(v, rt(r, t)),
     NIs(v, p)              => NIs(v, rp(r, p)),
     NTypeApp(f, ts)        => NTypeApp(f, map(ts, (t) => rto(r, t))),
-    NField(o, s)           => NField(o, rs(r, s)),
+    NField(o, s)           => NField(o, rnm(r, s)),
     NInterp(ps)            => NInterp(map(ps, (p) => match p {
       IStr(s)  => IStr(rs(r, s)),
       IExpr(e) => IExpr(e),
@@ -1430,13 +1430,14 @@ fn rexpr_m(l: L, r0: R, e: Node) -> Result<(R, Node, Str), ME> {
   let ln = e.line
   match e.k {
     NName(s)        => { return Ok((r, Node { k: NName(value(l, r, s)), ..e }, "#")) },
-    NField(o, fname) => {
+    NField(o, fname0) => {
+      let fname = ast.nm_str(fname0)
       if let Some(on) = is_name(o) {
         if !is_local(r, on) && contains(r.aliases, on) {
           let ak = unwrap(get(r.aliases, on))
           if contains(gm(l, ak).inl, fname) {
             let mk = sub_mod(l, ak, fname, ln, r.key)?
-            return Ok((r, ast.mkn(ln, NField(o, fname)), mk))
+            return Ok((r, ast.mkn(ln, NField(o, NmS(fname))), mk))
           }
           return Ok((r, ast.mkn(ln, NName(export(l, ak, fname, ln, Some(r.key))?)), "#"))
         }
@@ -1446,14 +1447,14 @@ fn rexpr_m(l: L, r0: R, e: Node) -> Result<(R, Node, Str), ME> {
         if mk0 != "#" {
           if contains(gm(l, mk0).inl, fname) {
             let mk = sub_mod(l, mk0, fname, ln, r.key)?
-            return Ok((r1, ast.mkn(ln, NField(o2, fname)), mk))
+            return Ok((r1, ast.mkn(ln, NField(o2, NmS(fname))), mk))
           }
           return Ok((r1, ast.mkn(ln, NName(export(l, mk0, fname, ln, Some(r.key))?)), "#"))
         }
-        return Ok((r1, Node { k: NField(o2, fname), ..e }, "#"))
+        return Ok((r1, Node { k: NField(o2, fname0), ..e }, "#"))
       }
       let (r2, o3) = rexpr(l, r, o)?
-      return Ok((r2, Node { k: NField(o3, fname), ..e }, "#"))
+      return Ok((r2, Node { k: NField(o3, fname0), ..e }, "#"))
     },
     NBlock(ss, u)   => {
       let (r1, b) = rblock(l, r, e, ss, u)?

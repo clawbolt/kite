@@ -1482,11 +1482,11 @@ pub fn collect(low: List<V>, c: check.C) -> (Map<Str, KF>, Map<Str, Str>) {
   for it in impls {
     let target = sv(fld(it, "target"))
     let own = items(fld(it, "methods"))
-    let all_ms = match get(c.impl_info, target + "@" + "{line(it)}") {
-      Some((_, ms)) => ms,
-      None          => own,
+    let all_ms: List<(V, ast.Node?)> = match get(c.impl_info, target + "@" + "{line(it)}") {
+      Some((_, ms)) => map(ms, (x) => (ast.to_v(x), Some(x))),
+      None          => map(own, (x) => (x, None)),
     }
-    for m0 in all_ms {
+    for (m0, m0n) in all_ms {
       var m = m0
       let ownm = filter(own, (x) => fkey(x) == fkey(m0))
       let key = target + "." + sv(fld(m0, "name")) + "#m"
@@ -1495,7 +1495,7 @@ pub fn collect(low: List<V>, c: check.C) -> (Map<Str, KF>, Map<Str, Str>) {
           Some(sn) => { snaps = set(snaps, key, sn) },
           None     => { continue },
         }
-        m = check.lowered(c, m0)
+        m = ast.to_v(check.lowered(c, unwrap(m0n)))
       }
       seen = set(seen, key, unwrap_or(get(seen, key), 0) + 1)
       if is_nil(fld(m, "body")) { continue }

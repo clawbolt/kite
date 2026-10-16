@@ -1569,7 +1569,8 @@ fn postfix(p0: P, e0: Node) -> Result<(P, Node), Str> {
         var go = true
         while go {
           match x.k {
-            NField(o, fnm) => {
+            NField(o, fnm0) => {
+              let fnm = ast.nm_str(fnm0)
               path_names = push(path_names, fnm)
               x = o
             },
@@ -1585,7 +1586,7 @@ fn postfix(p0: P, e0: Node) -> Result<(P, Node), Str> {
           continue
         }
       }
-      e = mkn(ln, NField(e, name))
+      e = mkn(ln, NField(e, NmS(name)))
     } else if at_op(p, "[") {
       let (q, bt) = adv(p)
       p = q
