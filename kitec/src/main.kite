@@ -56,7 +56,7 @@ fn main() {
         return
       },
     }
-    let (errs, sigs, low, cst) = check.check_c(pits, items)
+    let (errs, sigs, low, cst) = check.check_c(pits, map(items, ast.to_v))
     if len(errs) > 0 && errs[0].0 == -1 {
       print("UNSUP " + errs[0].1)
       return
@@ -191,7 +191,7 @@ fn build(args: List<Str>) -> Int {
       return 1
     },
   }
-  let (errs, _, low, cst) = check.check_c(pits, items)
+  let (errs, _, low, cst) = check.check_c(pits, map(items, ast.to_v))
   if len(errs) > 0 {
     for (ln, msg) in take(errs, 20) { eprint(loc(file, ln, modules.strip_lm(msg))) }
     return 1

@@ -222,7 +222,7 @@ fn fn_d(n: Node) -> FnD {
   match n.k {
     NFn(f) => f,
     _      => FnD { name: "", params: [], ret: None, body: None, gen: ast.no_gen(), is_async: false, is_unsafe: false, varargs: false,
-      ext: None, cname: None },
+      ext: None, cname: None, x: ast.no_fnx() },
   }
 }
 
@@ -933,7 +933,7 @@ fn fn_decl(p0: P) -> Result<(P, Node), Str> {
     }
   }
   let fd = FnD { name: name, params: ps, ret: ret, body: body, gen: Gen { names: d3.gens, bounds: d3.bounds, cgens: cgens }, is_async:
-    is_async, is_unsafe: is_unsafe, varargs: va, ext: None, cname: None }
+    is_async, is_unsafe: is_unsafe, varargs: va, ext: None, cname: None, x: ast.no_fnx() }
   Ok((p, mkn(ln, NFn(fd))))
 }
 

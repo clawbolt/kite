@@ -783,7 +783,7 @@ pub fn compile_chunk(its: List<V>) -> (S, Int) {
   var s = new_s()
   for st in its {
     if kind(st) == "Let" && ast.truthy(fld(st, "mutable")) {
-      for nm in modules.pat_binds(fld(st, "pat")) { s = S { gmut: set(s.gmut, nm, true), ..s } }
+      for nm in modules.pat_binds_v(fld(st, "pat")) { s = S { gmut: set(s.gmut, nm, true), ..s } }
     }
   }
   s = hoist(s, its)
