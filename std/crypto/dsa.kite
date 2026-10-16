@@ -1,0 +1,76 @@
+// std.crypto.dsa：对齐 Go 1.27 的 crypto/dsa（已不推荐）
+//   generate_key / sign 需要的随机字节由调用方给出（rand，按 Go 读取 io.Reader 的顺序取用）；verify 与 Go 相同。
+//   不提供 GenerateParameters
+
+use std.math.big
+use std.math.big.{ BigInt }
+
+pub type Parameters = { p: BigInt, q: BigInt, g: BigInt }
+
+pub type PublicKey = { params: Parameters, y: BigInt }
+
+pub type PrivateKey = { pub_: PublicKey, x: BigInt }
+
+pub const ERR_INVALID_PUBLIC_KEY: Str = "crypto/dsa: invalid public key"
+
+fn read(rand: List<Int>, pos: Int, n: Int) -> Result<List<Int>, Str> {
+  if pos + n <= len(rand) { return Ok(rand[pos..pos + n]) }
+  Err(if pos >= len(rand) && n > 0 { "EOF" } else { "unexpected EOF" })
+}
+
+pub fn generate_key(params: Parameters, rand: List<Int>) -> Result<PrivateKey, Str> {
+  if params.p.sign() == 0 || params.q.sign() == 0 || params.g.sign() == 0 { return Err("crypto/dsa: parameters not set up before generating key") }
+  let n = params.q.bit_len() / 8
+  var pos = 0
+  loop {
+    let b = read(rand, pos, n)?
+    pos += n
+    let x = big.set_bytes(b)
+    if x.sign() != 0 && x.cmp(params.q) < 0 {
+      return Ok(PrivateKey { pub_: PublicKey { params: params, y: unwrap(params.g.exp(x, params.p)) }, x: x })
+    }
+  }
+}
+
+pub fn sign(rand: List<Int>, priv: PrivateKey, hash: List<Int>) -> Result<(BigInt, BigInt), Str> {
+  let pr = priv.pub_.params
+  var n = pr.q.bit_len()
+  if pr.q.sign() <= 0 || pr.p.sign() <= 0 || pr.g.sign() <= 0 || priv.x.sign() <= 0 || n % 8 != 0 { return Err(ERR_INVALID_PUBLIC_KEY) }
+  n = n / 8
+  var pos = 0
+  var attempts = 10
+  while attempts > 0 {
+    var k = big.zero()
+    loop {
+      let b = read(rand, pos, n)?
+      pos += n
+      k = big.set_bytes(b)
+      if k.sign() > 0 && k.cmp(pr.q) < 0 { break }
+    }
+    let kinv = unwrap(k.exp(pr.q.sub(big.new_int(2)), pr.q))
+    let r = unwrap(pr.g.exp(k, pr.p)).modulo(pr.q)
+    if r.sign() == 0 {
+      attempts -= 1
+      continue
+    }
+    let z = big.set_bytes(hash)
+    let s = priv.x.mul(r).add(z).modulo(pr.q).mul(kinv).modulo(pr.q)
+    if s.sign() != 0 { return Ok((r, s)) }
+    attempts -= 1
+  }
+  Err(ERR_INVALID_PUBLIC_KEY)
+}
+
+pub fn verify(pub_: PublicKey, hash: List<Int>, r: BigInt, s: BigInt) -> Bool {
+  let pr = pub_.params
+  if pr.p.sign() == 0 { return false }
+  if r.sign() < 1 || r.cmp(pr.q) >= 0 { return false }
+  if s.sign() < 1 || s.cmp(pr.q) >= 0 { return false }
+  let Some(w) = s.mod_inverse(pr.q) else { return false }
+  if pr.q.bit_len() % 8 != 0 { return false }
+  let z = big.set_bytes(hash)
+  let u1 = z.mul(w).modulo(pr.q)
+  let u2 = r.mul(w).modulo(pr.q)
+  let v = unwrap(pr.g.exp(u1, pr.p)).mul(unwrap(pub_.y.exp(u2, pr.p))).modulo(pr.p).modulo(pr.q)
+  v.cmp(r) == 0
+}

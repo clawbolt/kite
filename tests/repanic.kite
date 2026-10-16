@@ -1,0 +1,13 @@
+fn risky(xs: List<Int>) -> Int {
+  xs[10]
+}
+
+fn main() {
+  match recover(() => risky([1, 2])) {
+    Ok(v)  => print(v)
+    Err(p) => {
+      print("记录后重新抛出", p.kind)
+      repanic(p)
+    }
+  }
+}

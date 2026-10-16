@@ -1,0 +1,106 @@
+// 通道：chan() 无缓冲、chan(n) 有缓冲；send / recv / try_recv / close；for x in ch 读到关闭为止
+fn producer(ch: Chan<Int>, lo: Int, hi: Int) {
+  for i in lo..=hi { send(ch, i) }
+}
+
+fn is_prime(n: Int) -> Bool {
+  if n < 2 { return false }
+  var d = 2
+  while d * d <= n {
+    if n % d == 0 { return false }
+    d += 1
+  }
+  true
+}
+
+fn main() {
+  // 1. 生产者-消费者（有缓冲）
+  let nums: Chan<Int> = chan(8)
+  let (_, total) = spawn {
+    { producer(nums, 1, 1000); close(nums) },
+    {
+      var s = 0
+      for x in nums { s += x }
+      s
+    },
+  }
+  print("1..1000 的和:", total)
+
+  // 2. 工作池：4 个工人从同一个任务通道取活，结果汇总到一个通道
+  let jobs: Chan<Int> = chan()
+  let results: Chan<(Int, Bool)> = chan(200)  // 结果在 spawn 结束后才读，缓冲要放得下全部
+  let (_, (a, b, c, d)) = spawn {
+    { producer(jobs, 1, 200); close(jobs) },
+    spawn {
+      {
+        var n = 0
+        for j in jobs { send(results, (j, is_prime(j))); n += 1 }
+        n
+      },
+      {
+        var n = 0
+        for j in jobs { send(results, (j, is_prime(j))); n += 1 }
+        n
+      },
+      {
+        var n = 0
+        for j in jobs { send(results, (j, is_prime(j))); n += 1 }
+        n
+      },
+      {
+        var n = 0
+        for j in jobs { send(results, (j, is_prime(j))); n += 1 }
+        n
+      },
+    },
+  }
+  close(results)
+  var primes = 0
+  for (_, p) in results {
+    if p { primes += 1 }
+  }
+  print("工人共处理", a + b + c + d, "个数，其中素数", primes, "个")
+
+  // 3. 流水线：生成 → 平方 → 过滤偶数 → 收集
+  let s1: Chan<Int> = chan()
+  let s2: Chan<Int> = chan()
+  let s3: Chan<Int> = chan()
+  let (_, _, _, out) = spawn {
+    { producer(s1, 1, 10); close(s1) },
+    { for x in s1 { send(s2, x * x) }; close(s2) },
+    {
+      for x in s2 {
+        if x % 2 == 0 { send(s3, x) }
+      }
+      close(s3)
+    },
+    {
+      var acc = []
+      for x in s3 { acc = push(acc, x) }
+      acc
+    },
+  }
+  print("偶数平方:", out)
+
+  // 4. 很多任务同时阻塞：50 个任务各等一个信号，主流程逐个放行
+  let gate: Chan<Int> = chan()
+  let done: Chan<Int> = chan(50)
+  let (_, _) = spawn {
+    par_map(1..=50, i => {
+      let v = unwrap(recv(gate))
+      send(done, v * 2)
+      0
+    }),
+    { for i in 1..=50 { send(gate, i) } },
+  }
+  close(done)
+  var sum = 0
+  for v in done { sum += v }
+  print("50 个任务的结果之和:", sum)
+
+  // 5. 关闭后的行为
+  let ch: Chan<Str> = chan(2)
+  send(ch, "最后一条")
+  close(ch)
+  print(recv(ch), recv(ch), try_recv(ch))
+}

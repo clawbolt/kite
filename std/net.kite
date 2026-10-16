@@ -1,0 +1,145 @@
+// std.net：TCP（IPv4）与 TLS
+// 所有等待（accept、读、写）都会让出调度：可以放进 spawn / par_map，也能被 timeout 取消
+// 数据按 UTF-8 文本处理；read_bytes 的长度按字节计
+
+// tls 为 0 时是普通 TCP；否则是服务端 TLS 上下文的编号（listen_tls 创建）
+pub type Listener = { fd: Int, port: Int, tls: Int }
+
+// TLS 客户端选项：ca 为 "" 时用系统根证书；verify 为 false 时不校验证书和主机名（仅限测试）
+pub type TlsConfig = { ca: Str, verify: Bool }
+
+pub fn tls_config() -> TlsConfig { TlsConfig { ca: "", verify: true } }
+
+pub type Conn = { fd: Int }
+
+// host 为 "" 或 "0.0.0.0" 时监听所有地址；port 为 0 时由系统分配，实际端口在 .port
+pub fn listen(host: Str, port: Int) -> Result<Listener, Str> {
+  let fd = __tcp_listen(host, port)?
+  Ok(Listener { fd: fd, port: __tcp_port(fd), tls: 0 })
+}
+
+// TLS 服务端：cert 是 PEM 证书链文件，key 是 PEM 私钥文件；握手在连接第一次读写时进行
+pub fn listen_tls(host: Str, port: Int, cert: Str, key: Str) -> Result<Listener, Str> {
+  let ctx = __tls_server_ctx(cert, key)?
+  let fd = __tcp_listen(host, port)?
+  Ok(Listener { fd: fd, port: __tcp_port(fd), tls: ctx })
+}
+
+pub fn connect(host: Str, port: Int) -> Result<Conn, Str> {
+  let fd = __tcp_connect(host, port)?
+  Ok(Conn { fd: fd })
+}
+
+// TLS 客户端：校验证书链与主机名（SNI 也用 host）
+pub fn connect_tls(host: Str, port: Int) -> Result<Conn, Str> { connect_tls_with(host, port, tls_config()) }
+
+pub fn connect_tls_with(host: Str, port: Int, cfg: TlsConfig) -> Result<Conn, Str> {
+  let fd = __tcp_connect(host, port)?
+  match handshake(fd, host, cfg) {
+    Ok(_)  => Ok(Conn { fd: fd }),
+    Err(e) => {
+      __tcp_close(fd)
+      Err(e)
+    },
+  }
+}
+
+fn handshake(fd: Int, host: Str, cfg: TlsConfig) -> Result<Unit, Str> {
+  __tls_client(fd, host, cfg.ca, cfg.verify)?
+  var d = 1
+  while !__tls_handshake(fd)? { d = backoff(d) }
+  Ok(())
+}
+
+// 等待退避：1、2、4 … 最多 16 毫秒
+fn backoff(d: Int) -> Int {
+  sleep(d)
+  if d < 16 { d * 2 } else { d }
+}
+
+impl Listener {
+  fn accept(self) -> Result<Conn, Str> {
+    var d = 1
+    while true {
+      match __tcp_accept(self.fd)? {
+        Some(c) => {
+          if self.tls == 0 { return Ok(Conn { fd: c }) }
+          match __tls_accept(c, self.tls) {
+            Ok(_)  => { return Ok(Conn { fd: c }) },
+            Err(_) => { __tcp_close(c) },
+          }
+        },
+        None    => { d = backoff(d) },
+      }
+    }
+    Err("unreachable")
+  }
+
+  fn close(self) { __tcp_close(self.fd) }
+}
+
+impl Conn {
+  // 读一行（去掉行尾的 \r\n）；对方关闭连接时为 Err
+  fn read_line(self) -> Result<Str, Str> {
+    var d = 1
+    while true {
+      match __tcp_read_line(self.fd)? {
+        Some(s) => { return Ok(s) },
+        None    => { d = backoff(d) },
+      }
+    }
+    Err("unreachable")
+  }
+
+  // 最多等 ms 毫秒读一行；超时为 Ok(None)（keep-alive 的空闲超时用）
+  fn read_line_within(self, ms: Int) -> Result<Option<Str>, Str> {
+    let deadline = now_ms() + ms
+    var d = 1
+    while true {
+      match __tcp_read_line(self.fd)? {
+        Some(s) => { return Ok(Some(s)) },
+        None    => {
+          if now_ms() >= deadline { return Ok(None) }
+          d = backoff(d)
+        },
+      }
+    }
+    Err("unreachable")
+  }
+
+  // 正好读 n 个字节
+  fn read_bytes(self, n: Int) -> Result<Str, Str> {
+    var d = 1
+    while true {
+      match __tcp_read_bytes(self.fd, n)? {
+        Some(s) => { return Ok(s) },
+        None    => { d = backoff(d) },
+      }
+    }
+    Err("unreachable")
+  }
+
+  // 一直读到对方关闭连接
+  fn read_all(self) -> Result<Str, Str> {
+    var d = 1
+    while true {
+      match __tcp_read_all(self.fd)? {
+        Some(s) => { return Ok(s) },
+        None    => { d = backoff(d) },
+      }
+    }
+    Err("unreachable")
+  }
+
+  fn write(self, data: Str) -> Result<Unit, Str> {
+    var done = __tcp_write(self.fd, data)?
+    var d = 1
+    while !done {
+      d = backoff(d)
+      done = __tcp_flush(self.fd)?
+    }
+    Ok(())
+  }
+
+  fn close(self) { __tcp_close(self.fd) }
+}

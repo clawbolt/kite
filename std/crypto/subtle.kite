@@ -1,0 +1,51 @@
+// std.crypto.subtle：常数时间操作（对齐 Go 的 crypto/subtle）
+
+// 长度和内容都相同返回 1，否则 0；比较时间只和长度有关
+pub fn constant_time_compare(x: List<Int>, y: List<Int>) -> Int {
+  if len(x) != len(y) { return 0 }
+  var v = 0
+  var i = 0
+  while i < len(x) {
+    v = v | ((x[i] ^ y[i]) & 0xff)
+    i += 1
+  }
+  constant_time_byte_eq(v, 0)
+}
+
+// v 为 1 时返回 x，为 0 时返回 y
+pub fn constant_time_select(v: Int, x: Int, y: Int) -> Int { (~(v - 1) & x) | ((v - 1) & y) }
+
+pub fn constant_time_byte_eq(x: Int, y: Int) -> Int { (((x ^ y) & 0xff) - 1) >> 63 & 1 }
+
+pub fn constant_time_eq(x: Int, y: Int) -> Int { ((((x ^ y) & 0xffffffff) - 1) >> 63) & 1 }
+
+// v 为 1 时返回 y 的副本，为 0 时返回 x
+pub fn constant_time_copy(v: Int, x: List<Int>, y: List<Int>) -> List<Int> {
+  if len(x) != len(y) { panic("subtle: slices have different lengths") }
+  let xmask = (v - 1) & 0xff
+  let ymask = (~(v - 1)) & 0xff
+  var out: List<Int> = []
+  var i = 0
+  while i < len(x) {
+    out = push(out, (x[i] & xmask) | (y[i] & ymask))
+    i += 1
+  }
+  out
+}
+
+// 0 <= x <= y 时返回 1
+pub fn constant_time_less_or_eq(x: Int, y: Int) -> Int {
+  if x <= y { 1 } else { 0 }
+}
+
+// 逐字节异或，长度取较短的
+pub fn xor_bytes(x: List<Int>, y: List<Int>) -> List<Int> {
+  let n = if len(x) < len(y) { len(x) } else { len(y) }
+  var out: List<Int> = []
+  var i = 0
+  while i < n {
+    out = push(out, (x[i] ^ y[i]) & 0xff)
+    i += 1
+  }
+  out
+}

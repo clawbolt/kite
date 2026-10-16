@@ -1,0 +1,178 @@
+// std.slices：列表工具（对齐 Go 的 slices 包）。所有函数都返回新列表，不改原列表
+// 全局已有的 map / filter / fold / sort / sort_by / sort_with / reverse / contains / zip / enumerate 不在这里重复
+
+// x 第一次出现的位置
+pub fn index<T: Eq>(xs: List<T>, x: T) -> Option<Int> {
+  var i = 0
+  while i < len(xs) {
+    if xs[i] == x { return Some(i) }
+    i += 1
+  }
+  None
+}
+
+pub fn index_func<T>(xs: List<T>, f: fn(T) -> Bool) -> Option<Int> {
+  var i = 0
+  while i < len(xs) {
+    if f(xs[i]) { return Some(i) }
+    i += 1
+  }
+  None
+}
+
+// 在升序列表里二分查找：(插入位置, 是否找到)
+pub fn binary_search<T: Ord>(xs: List<T>, x: T) -> (Int, Bool) {
+  var lo = 0
+  var hi = len(xs)
+  while lo < hi {
+    let m = (lo + hi) / 2
+    if xs[m] < x { lo = m + 1 } else { hi = m }
+  }
+  (lo, lo < len(xs) && xs[lo] == x)
+}
+
+// cmp(元素) < 0 表示元素在目标之前
+pub fn binary_search_func<T>(xs: List<T>, cmp: fn(T) -> Int) -> (Int, Bool) {
+  var lo = 0
+  var hi = len(xs)
+  while lo < hi {
+    let m = (lo + hi) / 2
+    if cmp(xs[m]) < 0 { lo = m + 1 } else { hi = m }
+  }
+  (lo, lo < len(xs) && cmp(xs[lo]) == 0)
+}
+
+pub fn is_sorted<T: Ord>(xs: List<T>) -> Bool {
+  var i = 1
+  while i < len(xs) {
+    if xs[i] < xs[i - 1] { return false }
+    i += 1
+  }
+  true
+}
+
+// 在位置 i 插入 vals
+pub fn insert<T>(xs: List<T>, i: Int, vals: List<T>) -> List<T> {
+  if i < 0 || i > len(xs) { panic("slices.insert: 下标越界 {i}") }
+  xs[..i] + vals + xs[i..]
+}
+
+// 删除 [i, j)
+pub fn delete<T>(xs: List<T>, i: Int, j: Int) -> List<T> {
+  if i < 0 || j > len(xs) || i > j { panic("slices.delete: 区间越界 [{i}, {j})") }
+  xs[..i] + xs[j..]
+}
+
+// 把 [i, j) 换成 vals
+pub fn replace<T>(xs: List<T>, i: Int, j: Int, vals: List<T>) -> List<T> {
+  if i < 0 || j > len(xs) || i > j { panic("slices.replace: 区间越界 [{i}, {j})") }
+  xs[..i] + vals + xs[j..]
+}
+
+// 去掉相邻的重复元素
+pub fn compact<T: Eq>(xs: List<T>) -> List<T> {
+  var out: List<T> = []
+  for x in xs {
+    if len(out) == 0 || out[len(out) - 1] != x { out = push(out, x) }
+  }
+  out
+}
+
+// 去重，保留第一次出现的顺序
+pub fn unique<T: Hash>(xs: List<T>) -> List<T> {
+  var seen = Set()
+  var out: List<T> = []
+  for x in xs {
+    if !contains(seen, x) {
+      seen = union(seen, Set([x]))
+      out = push(out, x)
+    }
+  }
+  out
+}
+
+pub fn equal<T: Eq>(a: List<T>, b: List<T>) -> Bool { a == b }
+
+// 每 n 个一组，最后一组可能不满
+pub fn chunk<T>(xs: List<T>, n: Int) -> List<List<T>> {
+  if n <= 0 { panic("slices.chunk: n 必须大于 0") }
+  var out: List<List<T>> = []
+  var i = 0
+  while i < len(xs) {
+    out = push(out, xs[i..if i + n < len(xs) { i + n } else { len(xs) }])
+    i += n
+  }
+  out
+}
+
+// 长度为 n 的滑动窗口
+pub fn windows<T>(xs: List<T>, n: Int) -> List<List<T>> {
+  if n <= 0 { panic("slices.windows: n 必须大于 0") }
+  var out: List<List<T>> = []
+  var i = 0
+  while i + n <= len(xs) {
+    out = push(out, xs[i..i + n])
+    i += 1
+  }
+  out
+}
+
+pub fn flatten<T>(xss: List<List<T>>) -> List<T> {
+  var out: List<T> = []
+  for xs in xss { out = out + xs }
+  out
+}
+
+pub fn repeat<T>(xs: List<T>, n: Int) -> List<T> {
+  var out: List<T> = []
+  for _ in 0..n { out = out + xs }
+  out
+}
+
+// (满足 f 的, 不满足 f 的)
+pub fn partition<T>(xs: List<T>, f: fn(T) -> Bool) -> (List<T>, List<T>) {
+  var yes: List<T> = []
+  var no: List<T> = []
+  for x in xs {
+    if f(x) { yes = push(yes, x) } else { no = push(no, x) }
+  }
+  (yes, no)
+}
+
+// 按 key(元素) 分组，组内保持原顺序
+pub fn group_by<T, K: Hash>(xs: List<T>, key: fn(T) -> K) -> Map<K, List<T>> {
+  var m: Map<K, List<T>> = Map()
+  for x in xs {
+    let k = key(x)
+    m = set(m, k, push(unwrap_or(get(m, k), []), x))
+  }
+  m
+}
+
+pub fn max_by<T, K: Ord>(xs: List<T>, key: fn(T) -> K) -> Option<T> {
+  if len(xs) == 0 { return None }
+  var best = xs[0]
+  var bk = key(best)
+  for x in xs[1..] {
+    let k = key(x)
+    if k > bk {
+      best = x
+      bk = k
+    }
+  }
+  Some(best)
+}
+
+pub fn min_by<T, K: Ord>(xs: List<T>, key: fn(T) -> K) -> Option<T> {
+  if len(xs) == 0 { return None }
+  var best = xs[0]
+  var bk = key(best)
+  for x in xs[1..] {
+    let k = key(x)
+    if k < bk {
+      best = x
+      bk = k
+    }
+  }
+  Some(best)
+}

@@ -1,0 +1,645 @@
+// std.mime：MIME 类型、媒体类型参数、RFC 2047 编码字（对齐 Go 的 mime 包）
+//   类型表（Go 是全局可变表，Kite 用不可变的 TypeTable 值，add 返回新表）：
+//     let t = mime.builtin_types()          // Go 的 builtinTypesLower（16 项）
+//     t.type_by_extension(".html")          // "text/html; charset=utf-8"，找不到为 ""
+//     t.extensions_by_type("image/jpeg")    // Ok([".jpeg", ".jpg"])，未知类型 Ok([])
+//     t.add_extension_type(".foo", "text/x-foo") -> Result<TypeTable, Str>（text/ 类型补 "; charset=utf-8"）
+//     模块级 type_by_extension / extensions_by_type 用内建表
+//   媒体类型：format_media_type(t, params: Map<Str, Str>) -> Str（不合法时 ""）
+//             parse_media_type(v) -> (Str, Map<Str, Str>, Str)  第三项是错误信息，"" 表示成功
+//             （RFC 2231 续行 / 编码参数，字符集只支持 us-ascii 和 utf-8）
+//   编码字：b_encoding() / q_encoding() 的 .encode(charset, s)（75 字符一字）
+//           word_decoder().decode(word) / .decode_header(h) -> Result<Str, Str>，字符集 utf-8 / us-ascii / iso-8859-1
+//   和 Go 的差别：
+//     - 不读系统的 /etc/mime.types、globs2，只有内建表（Go 在 Unix 上会额外加载系统表）。
+//     - WordDecoder 没有 CharsetReader，其他字符集一律返回 "mime: unhandled charset %q"。
+//     - Kite 的 Str 必须是合法 UTF-8：解码结果（RFC 2047 内容、RFC 2231 百分号解码）里不合法的字节
+//       按 Go 的 for-range 规则每个换成 U+FFFD（Go 会原样保留这些字节）。
+//     - 额外导出 percent_hex_unescape（Go 里是私有的 percentHexUnescape，错误 "mime: bogus characters after %: %q"）、
+//       new_type_table(lower, mix)、builtin_types_lower()。
+//     - 错误用 Str 表示；ErrInvalidMediaParameter 对应常量 ERR_INVALID_MEDIA_PARAMETER。
+
+use std.encoding.base64
+use std.strings
+use std.unicode
+use std.unicode.utf8
+
+pub const ERR_INVALID_MEDIA_PARAMETER: Str = "mime: invalid media parameter"
+
+const ERR_INVALID_WORD: Str = "mime: invalid RFC 2047 encoded-word"
+
+const UPPERHEX: Str = "0123456789ABCDEF"
+
+const HEXL: Str = "0123456789abcdef"
+
+// ───────── 小工具 ─────────
+fn hexc(n: Int) -> Str { __str_slice(HEXL, n, n + 1) }
+
+fn uhex(n: Int) -> Int { __ord(__str_slice(UPPERHEX, n, n + 1)) }
+
+fn is_print_rune(r: Int) -> Bool {
+  if r < 0x20 || r == 0x7f { return false }
+  if r < 0x7f { return true }
+  if r < 0xa1 || r == 0xad { return false }
+  if r >= 0xd800 && r <= 0xdfff { return false }
+  if r == 0xfeff || r == 0xfffe || r == 0xffff { return false }
+  if r >= 0xe000 && r <= 0xf8ff { return false }
+  if r == 0x2028 || r == 0x2029 || r == 0x200b || r == 0x200e || r == 0x200f { return false }
+  true
+}
+
+// Go 的 %q
+fn gquote(s: Str) -> Str {
+  var out = "\""
+  for c in chars(s) {
+    let o = __ord(c)
+    out = out + if c == "\"" { "\\\"" } else if c == "\\" { "\\\\" } else if o == 7 { "\\a" } else if o == 8 { "\\b" } else if o == 12 { "\\f" } else if o == 10 { "\\n" } else if o == 13 { "\\r" } else if o == 9 { "\\t" } else if o == 11 { "\\v" } else if is_print_rune(o) { c } else if o < 0x80 { "\\x" + hexc(o / 16) + hexc(o % 16) } else if o < 0x10000 { "\\u" + hexc(o >> 12) + hexc((o >> 8) & 15) + hexc((o >> 4) & 15) + hexc(o & 15) } else { "\\U00" + hexc(o >> 20) + hexc((o >> 16) & 15) + hexc((o >> 12) & 15) + hexc((o >> 8) & 15) + hexc((o >> 4) & 15) + hexc(o & 15) }
+  }
+  out + "\""
+}
+
+// 字节 → Str；不合法的字节每个换成 U+FFFD
+fn lossy(bs: List<Int>) -> Str {
+  match __from_bytes(bs) {
+    Some(s) => { return s }
+    None    => {}
+  }
+  var out: List<Int> = []
+  var i = 0
+  while i < len(bs) {
+    let (r, n) = utf8.decode_rune_at(bs, i)
+    if n == 1 && bs[i] >= 0x80 { out = out + [239, 191, 189] } else { out = out + bs[i..i + n] }
+    i += n
+  }
+  unwrap(__from_bytes(out))
+}
+
+fn ascii_lower(s: Str) -> Str {
+  var out: List<Int> = []
+  for b in __bytes(s) { out = push(out, if b >= 65 && b <= 90 { b + 32 } else { b }) }
+  unwrap(__from_bytes(out))
+}
+
+// ───────── grammar ─────────
+fn is_tspecial(c: Str) -> Bool { __str_find("()<>@,;:\\\"/[]?=", c, 0) >= 0 }
+
+fn is_token_char(c: Str) -> Bool {
+  let o = __ord(c)
+  o > 0x20 && o < 0x7f && !is_tspecial(c)
+}
+
+fn is_token(s: Str) -> Bool {
+  if s == "" { return false }
+  for c in chars(s) {
+    if !is_token_char(c) { return false }
+  }
+  true
+}
+
+fn is_space(c: Str) -> Bool { unicode.is_space(c) }
+
+// 列表形式的字符串处理：cs 是 chars(s)
+fn skip_space(cs: List<Str>, i0: Int) -> Int {
+  var i = i0
+  while i < len(cs) && is_space(cs[i]) { i += 1 }
+  i
+}
+
+fn cjoin(cs: List<Str>, a: Int, b: Int) -> Str { join(cs[a..b], "") }
+
+// 返回 token 结束位置（i0 表示没有 token）
+fn token_end(cs: List<Str>, i0: Int) -> Int {
+  var i = i0
+  while i < len(cs) && is_token_char(cs[i]) { i += 1 }
+  i
+}
+
+// ───────── FormatMediaType ─────────
+fn needs_encoding(s: Str) -> Bool {
+  for c in chars(s) {
+    let o = __ord(c)
+    if (o < 32 || o > 126) && o != 9 { return true }
+  }
+  false
+}
+
+pub fn format_media_type(t: Str, param: Map<Str, Str>) -> Str {
+  var b = ""
+  let slash = __str_find(t, "/", 0)
+  if slash < 0 {
+    if !is_token(t) { return "" }
+    b = ascii_lower(t)
+  } else {
+    let major = __str_slice(t, 0, slash)
+    let sub = __str_slice(t, slash + 1, len(t))
+    if !is_token(major) || !is_token(sub) { return "" }
+    b = ascii_lower(major) + "/" + ascii_lower(sub)
+  }
+  let attrs = sort(keys(param))
+  for attribute in attrs {
+    let value = unwrap(get(param, attribute))
+    if !is_token(attribute) { return "" }
+    b = b + "; " + ascii_lower(attribute)
+    if needs_encoding(value) {
+      var out: List<Int> = __bytes("*=utf-8''")
+      for ch in __bytes(value) {
+        if ch <= 32 || ch >= 0x7f || ch == 42 || ch == 39 || ch == 37 || is_tspecial(__chr(ch)) {
+          out = out + [37, uhex(ch >> 4), uhex(ch & 15)]
+        } else {
+          out = push(out, ch)
+        }
+      }
+      b = b + unwrap(__from_bytes(out))
+      continue
+    }
+    if is_token(value) {
+      b = b + "=" + value
+      continue
+    }
+    var q = "=\""
+    for c in chars(value) {
+      if c == "\"" || c == "\\" { q = q + "\\" }
+      q = q + c
+    }
+    b = b + q + "\""
+  }
+  b
+}
+
+// ───────── ParseMediaType ─────────
+fn check_media_type_disposition(s: Str) -> Str {
+  let cs = chars(s)
+  let e = token_end(cs, 0)
+  if e == 0 { return "mime: no media type" }
+  if e == len(cs) { return "" }
+  if cs[e] != "/" { return "mime: expected slash after first token" }
+  let e2 = token_end(cs, e + 1)
+  if e2 == e + 1 { return "mime: expected token after slash" }
+  if e2 != len(cs) { return "mime: unexpected content after media subtype" }
+  ""
+}
+
+// consumeValue：返回 (值, 新位置)；失败时 ("", i0)
+fn consume_value(cs: List<Str>, i0: Int) -> (Str, Int) {
+  if i0 >= len(cs) { return ("", i0) }
+  if cs[i0] != "\"" {
+    let e = token_end(cs, i0)
+    return (cjoin(cs, i0, e), e)
+  }
+  var buf = ""
+  var i = i0 + 1
+  while i < len(cs) {
+    let r = cs[i]
+    if r == "\"" { return (buf, i + 1) }
+    if r == "\\" && i + 1 < len(cs) && is_tspecial(cs[i + 1]) {
+      buf = buf + cs[i + 1]
+      i += 2
+      continue
+    }
+    if r == "\r" || r == "\n" { return ("", i0) }
+    buf = buf + r
+    i += 1
+  }
+  ("", i0)
+}
+
+// consumeMediaParam：返回 (键, 值, 新位置)；失败时 ("", "", i0)
+fn consume_media_param(cs: List<Str>, i0: Int) -> (Str, Str, Int) {
+  var i = skip_space(cs, i0)
+  if i >= len(cs) || cs[i] != ";" { return ("", "", i0) }
+  i = skip_space(cs, i + 1)
+  let e = token_end(cs, i)
+  let param = ascii_lower(cjoin(cs, i, e))
+  if param == "" { return ("", "", i0) }
+  i = skip_space(cs, e)
+  if i >= len(cs) || cs[i] != "=" { return ("", "", i0) }
+  i = skip_space(cs, i + 1)
+  let (value, j) = consume_value(cs, i)
+  if value == "" && j == i { return ("", "", i0) }
+  (param, value, j)
+}
+
+fn ishex(c: Int) -> Bool { (c >= 48 && c <= 57) || (c >= 97 && c <= 102) || (c >= 65 && c <= 70) }
+
+fn unhex(c: Int) -> Int { if c >= 48 && c <= 57 { c - 48 } else if c >= 97 && c <= 102 { c - 87 } else if c >= 65 && c <= 70 { c - 55 } else { 0 } }
+
+// Go 的 percentHexUnescape（错误时 Err，信息和 Go 相同）
+pub fn percent_hex_unescape(s: Str) -> Result<Str, Str> {
+  let bs = __bytes(s)
+  var out: List<Int> = []
+  var i = 0
+  while i < len(bs) {
+    if bs[i] != 37 {
+      out = push(out, bs[i])
+      i += 1
+      continue
+    }
+    if i + 2 >= len(bs) || !ishex(bs[i + 1]) || !ishex(bs[i + 2]) {
+      let end = if len(bs) - i > 3 { i + 3 } else { len(bs) }
+      return Err("mime: bogus characters after %: " + gquote(lossy(bs[i..end])))
+    }
+    out = push(out, unhex(bs[i + 1]) * 16 + unhex(bs[i + 2]))
+    i += 3
+  }
+  Ok(lossy(out))
+}
+
+fn decode2231_enc(v: Str) -> Option<Str> {
+  let sv = strings.split_n(v, "'", 3)
+  if len(sv) != 3 { return None }
+  let charset = strings.to_lower(sv[0])
+  if charset == "" { return None }
+  if charset != "us-ascii" && charset != "utf-8" { return None }
+  match percent_hex_unescape(sv[2]) {
+    Ok(s)  => Some(s),
+    Err(_) => None,
+  }
+}
+
+// 返回 (媒体类型, 参数, 错误)；错误为 "" 表示成功。
+// 和 Go 一样：参数不合法时媒体类型照常返回，参数为空表，错误是 ERR_INVALID_MEDIA_PARAMETER
+pub fn parse_media_type(v: Str) -> (Str, Map<Str, Str>, Str) {
+  let semi = __str_find(v, ";", 0)
+  let base = if semi < 0 { v } else { __str_slice(v, 0, semi) }
+  let mediatype = strings.trim_space(strings.to_lower(base))
+  let err = check_media_type_disposition(mediatype)
+  if err != "" { return ("", Map(), err) }
+  var params: Map<Str, Str> = Map()
+  var cont: Map<Str, Map<Str, Str>> = Map()
+  var cont_order: List<Str> = []
+  let cs = chars(v)
+  var i = len(base)
+  while i < len(cs) {
+    i = skip_space(cs, i)
+    if i >= len(cs) { break }
+    let (key, value, j) = consume_media_param(cs, i)
+    if key == "" {
+      if strings.trim_space(cjoin(cs, i, len(cs))) == ";" { break }
+      return (mediatype, Map(), ERR_INVALID_MEDIA_PARAMETER)
+    }
+    let star = __str_find(key, "*", 0)
+    if star >= 0 {
+      let base_name = __str_slice(key, 0, star)
+      let pmap = match get(cont, base_name) {
+        Some(m) => m,
+        None    => {
+          cont_order = push(cont_order, base_name)
+          Map()
+        }
+      }
+      match get(pmap, key) {
+        Some(old) => {
+          if old != value { return ("", Map(), "mime: duplicate parameter name") }
+        }
+        None => {}
+      }
+      cont = set(cont, base_name, set(pmap, key, value))
+    } else {
+      match get(params, key) {
+        Some(old) => {
+          if old != value { return ("", Map(), "mime: duplicate parameter name") }
+        }
+        None => {}
+      }
+      params = set(params, key, value)
+    }
+    i = j
+  }
+  for key in cont_order {
+    let piece = unwrap(get(cont, key))
+    match get(piece, key + "*") {
+      Some(sv) => {
+        match decode2231_enc(sv) {
+          Some(d) => { params = set(params, key, d) }
+          None    => {}
+        }
+        continue
+      }
+      None => {}
+    }
+    var buf = ""
+    var valid = false
+    var n = 0
+    loop {
+      let simple = key + "*" + "{n}"
+      match get(piece, simple) {
+        Some(pv) => {
+          valid = true
+          buf = buf + pv
+          n += 1
+          continue
+        }
+        None => {}
+      }
+      let Some(ev) = get(piece, simple + "*") else { break }
+      valid = true
+      if n == 0 {
+        match decode2231_enc(ev) {
+          Some(d) => { buf = buf + d }
+          None    => {}
+        }
+      } else {
+        match percent_hex_unescape(ev) {
+          Ok(d)  => { buf = buf + d }
+          Err(_) => {}
+        }
+      }
+      n += 1
+    }
+    if valid { params = set(params, key, buf) }
+  }
+  (mediatype, params, "")
+}
+
+// ───────── 类型表 ─────────
+pub type TypeTable = { types: Map<Str, Str>, lower: Map<Str, Str>, exts: Map<Str, List<Str>> }
+
+const BUILTIN: List<(Str, Str)> = [
+  (".avif", "image/avif"),
+  (".css", "text/css; charset=utf-8"),
+  (".gif", "image/gif"),
+  (".htm", "text/html; charset=utf-8"),
+  (".html", "text/html; charset=utf-8"),
+  (".jpeg", "image/jpeg"),
+  (".jpg", "image/jpeg"),
+  (".js", "text/javascript; charset=utf-8"),
+  (".json", "application/json"),
+  (".mjs", "text/javascript; charset=utf-8"),
+  (".pdf", "application/pdf"),
+  (".png", "image/png"),
+  (".svg", "image/svg+xml"),
+  (".wasm", "application/wasm"),
+  (".webp", "image/webp"),
+  (".xml", "text/xml; charset=utf-8"),
+]
+
+// Go 的 builtinTypesLower
+pub fn builtin_types_lower() -> Map<Str, Str> { Map(BUILTIN) }
+
+// 只含内建类型的表（Go 的 setMimeTypes(builtinTypesLower, builtinTypesLower)）
+pub fn builtin_types() -> TypeTable { new_type_table(Map(BUILTIN), Map(BUILTIN)) }
+
+pub fn new_type_table(lower_ext: Map<Str, Str>, mix_ext: Map<Str, Str>) -> TypeTable {
+  var exts: Map<Str, List<Str>> = Map()
+  for (k, v) in lower_ext {
+    let (just, _, err) = parse_media_type(v)
+    if err != "" { panic(err) }
+    exts = set(exts, just, push(unwrap_or(get(exts, just), []), k))
+  }
+  TypeTable { types: mix_ext, lower: lower_ext, exts: exts }
+}
+
+pub fn type_by_extension(ext: Str) -> Str { builtin_types().type_by_extension(ext) }
+
+pub fn extensions_by_type(typ: Str) -> Result<List<Str>, Str> { builtin_types().extensions_by_type(typ) }
+
+impl TypeTable {
+  fn type_by_extension(self, ext: Str) -> Str {
+    match get(self.types, ext) {
+      Some(v) => { return v }
+      None    => {}
+    }
+    let l = if __byte_len(ext) == len(ext) { ascii_lower(ext) } else { strings.to_lower(ext) }
+    unwrap_or(get(self.lower, l), "")
+  }
+
+  fn extensions_by_type(self, typ: Str) -> Result<List<Str>, Str> {
+    let (just, _, err) = parse_media_type(typ)
+    if err != "" { return Err(err) }
+    Ok(sort(unwrap_or(get(self.exts, just), [])))
+  }
+
+  fn add_extension_type(self, ext: Str, typ: Str) -> Result<TypeTable, Str> {
+    if !starts_with(ext, ".") { return Err("mime: extension " + gquote(ext) + " missing leading dot") }
+    self.set_extension_type(ext, typ)
+  }
+
+  fn set_extension_type(self, extension: Str, mime_type0: Str) -> Result<TypeTable, Str> {
+    let (just, param, err) = parse_media_type(mime_type0)
+    if err != "" { return Err(err) }
+    var mime_type = mime_type0
+    if starts_with(mime_type, "text/") && unwrap_or(get(param, "charset"), "") == "" {
+      mime_type = format_media_type(just, set(param, "charset", "utf-8"))
+    }
+    let ext_lower = strings.to_lower(extension)
+    let types = set(self.types, extension, mime_type)
+    let lower = set(self.lower, ext_lower, mime_type)
+    let cur = unwrap_or(get(self.exts, just), [])
+    let exts = if contains(cur, ext_lower) { self.exts } else { set(self.exts, just, push(cur, ext_lower)) }
+    Ok(TypeTable { types: types, lower: lower, exts: exts })
+  }
+}
+
+// ───────── RFC 2047 编码 ─────────
+pub type WordEncoder = { e: Int }
+
+pub fn b_encoding() -> WordEncoder { WordEncoder { e: 98 } }
+
+pub fn q_encoding() -> WordEncoder { WordEncoder { e: 113 } }
+
+const MAX_CONTENT_LEN: Int = 63
+
+const MAX_BASE64_LEN: Int = 45
+
+fn is_utf8(charset: Str) -> Bool { strings.equal_fold(charset, "UTF-8") }
+
+fn write_q(bs: List<Int>) -> List<Int> {
+  var out: List<Int> = []
+  for b in bs {
+    if b == 32 {
+      out = push(out, 95)
+    } else if b >= 33 && b <= 126 && b != 61 && b != 63 && b != 95 {
+      out = push(out, b)
+    } else {
+      out = out + [61, uhex(b >> 4), uhex(b & 15)]
+    }
+  }
+  out
+}
+
+impl WordEncoder {
+  fn encode(self, charset: Str, s: Str) -> Str {
+    if !needs_encoding(s) { return s }
+    self.encode_word(charset, s)
+  }
+
+  fn open_word(self, charset: Str) -> Str { "=?" + charset + "?" + __chr(self.e) + "?" }
+
+  fn split_word(self, charset: Str) -> Str { "?= " + self.open_word(charset) }
+
+  fn encode_word(self, charset: Str, s: Str) -> Str {
+    let body = if self.e == 98 { self.b_encode(charset, s) } else { self.q_encode(charset, s) }
+    self.open_word(charset) + body + "?="
+  }
+
+  fn b_encode(self, charset: Str, s: Str) -> Str {
+    let enc = base64.std_encoding()
+    let bs = __bytes(s)
+    if !is_utf8(charset) || enc.encoded_len(len(bs)) <= MAX_CONTENT_LEN { return enc.encode_to_string(bs) }
+    var out = ""
+    var cur: List<Int> = []
+    for c in chars(s) {
+      let cb = __bytes(c)
+      if len(cur) + len(cb) <= MAX_BASE64_LEN {
+        cur = cur + cb
+      } else {
+        out = out + enc.encode_to_string(cur) + self.split_word(charset)
+        cur = cb
+      }
+    }
+    out + enc.encode_to_string(cur)
+  }
+
+  fn q_encode(self, charset: Str, s: Str) -> Str {
+    if !is_utf8(charset) { return unwrap(__from_bytes(write_q(__bytes(s)))) }
+    var out = ""
+    var cur = 0
+    for c in chars(s) {
+      let cb = __bytes(c)
+      let b = cb[0]
+      let enc_len = if b >= 32 && b <= 126 && b != 61 && b != 63 && b != 95 { 1 } else { 3 * len(cb) }
+      if cur + enc_len > MAX_CONTENT_LEN {
+        out = out + self.split_word(charset)
+        cur = 0
+      }
+      out = out + unwrap(__from_bytes(write_q(cb)))
+      cur += enc_len
+    }
+    out
+  }
+}
+
+// ───────── RFC 2047 解码 ─────────
+pub type WordDecoder = { charset_reader: Bool }
+
+pub fn word_decoder() -> WordDecoder { WordDecoder { charset_reader: false } }
+
+fn from_hex(b: Int) -> Result<Int, Str> {
+  if b >= 48 && b <= 57 { return Ok(b - 48) }
+  if b >= 65 && b <= 70 { return Ok(b - 55) }
+  if b >= 97 && b <= 102 { return Ok(b - 87) }
+  Err("mime: invalid hex byte 0x" + hexstr(b))
+}
+
+fn hexstr(b: Int) -> Str { if b < 16 { hexc(b) } else { hexc(b >> 4) + hexc(b & 15) } }
+
+fn q_decode(s: List<Int>) -> Result<List<Int>, Str> {
+  var out: List<Int> = []
+  var i = 0
+  while i < len(s) {
+    let c = s[i]
+    if c == 95 {
+      out = push(out, 32)
+    } else if c == 61 {
+      if i + 2 >= len(s) { return Err(ERR_INVALID_WORD) }
+      let hb = from_hex(s[i + 1])?
+      let lb = from_hex(s[i + 2])?
+      out = push(out, hb * 16 + lb)
+      i += 2
+    } else if (c <= 126 && c >= 32) || c == 10 || c == 13 || c == 9 {
+      out = push(out, c)
+    } else {
+      return Err(ERR_INVALID_WORD)
+    }
+    i += 1
+  }
+  Ok(out)
+}
+
+fn decode_text(encoding: Int, text: List<Int>) -> Result<List<Int>, Str> {
+  if encoding == 66 || encoding == 98 { return base64.std_encoding().decode_string(lossy(text)) }
+  if encoding == 81 || encoding == 113 { return q_decode(text) }
+  Err(ERR_INVALID_WORD)
+}
+
+fn convert(charset: Str, content: List<Int>) -> Result<List<Int>, Str> {
+  if strings.equal_fold("utf-8", charset) { return Ok(content) }
+  if strings.equal_fold("iso-8859-1", charset) {
+    var out: List<Int> = []
+    for c in content { out = out + utf8.encode_rune(c) }
+    return Ok(out)
+  }
+  if strings.equal_fold("us-ascii", charset) {
+    var out: List<Int> = []
+    for c in content { out = if c >= 0x80 { out + [239, 191, 189] } else { push(out, c) } }
+    return Ok(out)
+  }
+  Err("mime: unhandled charset " + gquote(charset))
+}
+
+fn bfind(h: List<Int>, pat: List<Int>, start: Int) -> Int {
+  var i = start
+  while i + len(pat) <= len(h) {
+    var k = 0
+    while k < len(pat) && h[i + k] == pat[k] { k += 1 }
+    if k == len(pat) { return i }
+    i += 1
+  }
+  -1
+}
+
+fn has_non_whitespace(bs: List<Int>) -> Bool {
+  for b in bs {
+    if b != 32 && b != 9 && b != 10 && b != 13 { return true }
+  }
+  false
+}
+
+impl WordDecoder {
+  fn decode(self, word: Str) -> Result<Str, Str> {
+    let w = __bytes(word)
+    if len(w) < 8 || !starts_with(word, "=?") || !ends_with(word, "?=") || len(filter(w, (b) => b == 63)) != 4 { return Err(ERR_INVALID_WORD) }
+    let inner = w[2..len(w) - 2]
+    let q1 = bfind(inner, [63], 0)
+    let charset = inner[..q1]
+    if len(charset) == 0 { return Err(ERR_INVALID_WORD) }
+    let q2 = bfind(inner, [63], q1 + 1)
+    if q2 - q1 - 1 != 1 { return Err(ERR_INVALID_WORD) }
+    let content = decode_text(inner[q1 + 1], inner[q2 + 1..])?
+    let out = convert(lossy(charset), content)?
+    Ok(lossy(out))
+  }
+
+  fn decode_header(self, header: Str) -> Result<Str, Str> {
+    let h0 = __bytes(header)
+    let i0 = bfind(h0, [61, 63], 0)
+    if i0 == -1 { return Ok(header) }
+    var buf: List<Int> = h0[..i0]
+    var h = h0[i0..]
+    var between = false
+    loop {
+      let start = bfind(h, [61, 63], 0)
+      if start == -1 { break }
+      var cur = start + 2
+      let i = bfind(h, [63], cur)
+      if i == -1 { break }
+      let charset = h[cur..i]
+      cur = i + 1
+      if len(h) < cur + 4 { break }
+      let encoding = h[cur]
+      cur += 1
+      if h[cur] != 63 { break }
+      cur += 1
+      let j = bfind(h, [63, 61], cur)
+      if j == -1 { break }
+      let text = h[cur..j]
+      let end = j + 2
+      match decode_text(encoding, text) {
+        Err(_) => {
+          between = false
+          buf = buf + h[..start + 2]
+          h = h[start + 2..]
+          continue
+        }
+        Ok(content) => {
+          if start > 0 && (!between || has_non_whitespace(h[..start])) { buf = buf + h[..start] }
+          let conv = convert(lossy(charset), content)?
+          buf = buf + conv
+          h = h[end..]
+          between = true
+        }
+      }
+    }
+    Ok(lossy(buf + h))
+  }
+}

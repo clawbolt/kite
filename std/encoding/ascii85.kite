@@ -1,0 +1,93 @@
+// std.encoding.ascii85：Ascii85 编码（对齐 Go 的 encoding/ascii85，btoa / PostScript / PDF 用的格式）
+//   encode(bs) -> 字节列表；encode_to_string(bs)；max_encoded_len(n)
+//   decode(bs, flush) -> Result<(字节列表, 用掉的输入字节数), Str>；decode_string(s)（flush = true）
+//   和 Go 一样不处理 <~ ~> 包装；全零的 4 字节编码成 z
+
+const M32: Int = 0xffffffff
+
+pub fn max_encoded_len(n: Int) -> Int { (n + 3) / 4 * 5 }
+
+pub fn encode(src: List<Int>) -> List<Int> {
+  var out: List<Int> = []
+  var i = 0
+  let n = len(src)
+  while i < n {
+    let rem = n - i
+    var v = 0
+    if rem >= 4 { v = v | src[i + 3] }
+    if rem >= 3 { v = v | (src[i + 2] << 8) }
+    if rem >= 2 { v = v | (src[i + 1] << 16) }
+    v = v | (src[i] << 24)
+    if v == 0 && rem >= 4 {
+      out = push(out, 122)
+      i += 4
+      continue
+    }
+    var d = [0, 0, 0, 0, 0]
+    var k = 4
+    while k >= 0 {
+      d = set(d, k, 33 + v % 85)
+      v = v / 85
+      k -= 1
+    }
+    let m = if rem < 4 { 5 - (4 - rem) } else { 5 }
+    out = out + take(d, m)
+    i += 4
+  }
+  out
+}
+
+pub fn encode_to_string(src: List<Int>) -> Str { unwrap(__from_bytes(encode(src))) }
+
+fn corrupt(n: Int) -> Str { "illegal ascii85 data at input byte {n}" }
+
+pub fn decode(src: List<Int>, flush: Bool) -> Result<(List<Int>, Int), Str> {
+  var out: List<Int> = []
+  var v = 0
+  var nb = 0
+  var nsrc = 0
+  var i = 0
+  while i < len(src) {
+    let b = src[i]
+    if b <= 32 {
+      i += 1
+      continue
+    }
+    if b == 122 && nb == 0 {
+      nb = 5
+      v = 0
+    } else if b >= 33 && b <= 117 {
+      v = (v * 85 + (b - 33)) & M32
+      nb += 1
+    } else {
+      return Err(corrupt(i))
+    }
+    if nb == 5 {
+      nsrc = i + 1
+      out = out + [(v >> 24) & 255, (v >> 16) & 255, (v >> 8) & 255, v & 255]
+      nb = 0
+      v = 0
+    }
+    i += 1
+  }
+  if flush {
+    nsrc = len(src)
+    if nb > 0 {
+      if nb == 1 { return Err(corrupt(len(src))) }
+      var k = nb
+      while k < 5 {
+        v = (v * 85 + 84) & M32
+        k += 1
+      }
+      k = 0
+      while k < nb - 1 {
+        out = push(out, (v >> 24) & 255)
+        v = (v << 8) & M32
+        k += 1
+      }
+    }
+  }
+  Ok((out, nsrc))
+}
+
+pub fn decode_string(s: Str) -> Result<List<Int>, Str> { Ok(decode(__bytes(s), true)?.0) }

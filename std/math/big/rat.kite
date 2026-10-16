@@ -1,0 +1,598 @@
+// std.math.big.rat：任意精度有理数（对齐 Go 的 math/big.Rat；类型叫 Rat，分子分母是 std.math.big 的 BigInt）
+//   rat.new_rat(a, b)（NewRat / SetFrac64）、rat.from_int(BigInt)（SetInt）、rat.from_int64(n)、rat.from_frac(a, b)（SetFrac）、
+//   rat.from_float64(f) -> Option<Rat>（SetFloat64，非有限值得到 None）、rat.parse(s) -> Option<Rat>（SetString）
+//   方法（都返回新值）：num denom add sub mul quo negate（Go 的 Neg） abs_value（Abs） inv cmp sign is_int
+//     string（总是 "a/b"） rat_string float_string(prec) float64() -> (Float, Bool) float_prec() -> (Int, Bool)
+//   parse 和 Go 一样接受 "a/b"（分子按 Int.SetString(s, 0)，分母不带符号）、小数 "1.25"、指数 "1e-3" / "0x1p-2"、
+//     0b 0o 0x 前缀以及数字间的 _；分母为 0、指数过大（|exp5| > 1e6 或 |exp2| > 1e7）时失败
+//   和 Go 的差别：值不可变（Go 的 z.Add(x, y) 写成 x.add(y)）；没有 Float32、Scan、Format、gob/JSON/文本编解码
+//   另外导出几个 float64 的位操作工具（Kite 没有 math.Float64bits）：float64_bits float64_frombits frexp ldexp pow2
+//     它们只用精确的 2 的幂乘法实现，三个后端结果逐位相同
+
+use std.math.big
+use std.math.big.{ BigInt }
+use std.math
+
+pub type Rat = { a: BigInt, b: BigInt }
+
+// ───────── float64 位工具 ─────────
+
+// 2^k（-1074 <= k <= 1023 时精确；更大得到 +Inf，更小得到 0）
+pub fn pow2(k: Int) -> Float {
+  var r = 1.0
+  if k >= 0 {
+    var n = k
+    if n > 1100 { n = 1100 }
+    while n >= 512 {
+      r = r * 1.3407807929942597e154
+      n -= 512
+    }
+    if n >= 256 {
+      r = r * 1.157920892373162e77
+      n -= 256
+    }
+    if n >= 128 {
+      r = r * 3.402823669209385e38
+      n -= 128
+    }
+    if n >= 64 {
+      r = r * 1.8446744073709552e19
+      n -= 64
+    }
+    while n > 0 {
+      r = r * 2.0
+      n -= 1
+    }
+    return r
+  }
+  var n = -k
+  if n > 1100 { n = 1100 }
+  while n >= 512 {
+    r = r * 7.458340731200207e-155
+    n -= 512
+  }
+  if n >= 256 {
+    r = r * 8.636168555094445e-78
+    n -= 256
+  }
+  if n >= 128 {
+    r = r * 2.938735877055719e-39
+    n -= 128
+  }
+  if n >= 64 {
+    r = r * 5.421010862427522e-20
+    n -= 64
+  }
+  while n > 0 {
+    r = r * 0.5
+    n -= 1
+  }
+  r
+}
+
+// 有限非零的 |f| = mant * 2^e：规格化数 2^52 <= mant < 2^53；非规格化数 e = -1074、mant < 2^52
+pub fn decompose(f: Float) -> (Int, Int) {
+  var a = if f < 0.0 { -f } else { f }
+  if a < 2.2250738585072014e-308 {
+    return (int(a * pow2(1000) * pow2(74)), -1074)
+  }
+  var e = 0
+  for k in [512, 256, 128, 64, 32, 16, 8, 4, 2, 1] {
+    while a >= pow2(52 + k) {
+      a = a * pow2(-k)
+      e += k
+    }
+  }
+  for k in [512, 256, 128, 64, 32, 16, 8, 4, 2, 1] {
+    while a < pow2(53 - k) {
+      a = a * pow2(k)
+      e -= k
+    }
+  }
+  if a >= 9007199254740992.0 {
+    a = a * 0.5
+    e += 1
+  }
+  (int(a), e)
+}
+
+// math.Float64bits（NaN 统一成 Go 的 math.NaN() 的位模式 0x7FF8000000000001）
+pub fn float64_bits(f: Float) -> Int {
+  if math.is_nan(f) { return 9221120237041090561 }
+  let sign = if math.signbit(f) { 1 << 63 } else { 0 }
+  if math.is_inf(f) { return sign | (2047 << 52) }
+  if f == 0.0 { return sign }
+  let (m, e) = decompose(f)
+  if m < (1 << 52) { return sign | m }
+  sign | ((e + 52 + 1023) << 52) | (m & ((1 << 52) - 1))
+}
+
+// math.Float64frombits
+pub fn float64_frombits(b: Int) -> Float {
+  let neg = b < 0
+  let ex = (b >> 52) & 2047
+  let m = b & ((1 << 52) - 1)
+  var v = 0.0
+  if ex == 2047 {
+    v = if m == 0 { math.inf } else { math.nan }
+  } else if ex == 0 {
+    v = float(m) * pow2(-1074)
+  } else {
+    v = float(m | (1 << 52)) * pow2(ex - 1075)
+  }
+  if neg { -v } else { v }
+}
+
+// math.Frexp：f = frac * 2^exp，0.5 <= |frac| < 1
+pub fn frexp(f: Float) -> (Float, Int) {
+  if f == 0.0 || math.is_inf(f) || math.is_nan(f) { return (f, 0) }
+  let (m, e) = decompose(f)
+  let bl = bit_len64(m)
+  let fr = float(m) * pow2(-bl)
+  (if f < 0.0 { -fr } else { fr }, e + bl)
+}
+
+fn bit_len64(x: Int) -> Int {
+  var n = 0
+  var v = x
+  while v > 0 {
+    v = v >> 1
+    n += 1
+  }
+  n
+}
+
+// math.Ldexp：frac * 2^exp，结果是非规格化数时按就近偶数舍入一次（和 Go 相同）
+pub fn ldexp(frac: Float, exp: Int) -> Float {
+  if frac == 0.0 || math.is_inf(frac) || math.is_nan(frac) { return frac }
+  let neg = frac < 0.0
+  let (m, e) = decompose(frac)
+  let lead = e + bit_len64(m) - 1 + exp
+  var v = 0.0
+  if lead < -1075 {
+    v = 0.0
+  } else if lead > 1023 {
+    v = math.inf
+  } else if lead < -1022 {
+    let s = e + exp + 1074
+    var q = m
+    if s < 0 {
+      let sh = -s
+      if sh > 62 {
+        q = 0
+      } else {
+        q = m >> sh
+        let rem = m - (q << sh)
+        let half = 1 << (sh - 1)
+        if rem > half || (rem == half && (q & 1) == 1) { q += 1 }
+      }
+    } else {
+      q = m << s
+    }
+    v = float(q) * pow2(-1074)
+  } else {
+    v = float(m) * pow2(e + exp)
+  }
+  if neg { -v } else { v }
+}
+
+// ───────── 扫描（Go 的 nat.scan / scanSign / scanExponent）─────────
+
+pub const ERR_NO_DIGITS: Str = "number has no digits"
+
+pub const ERR_INVAL_SEP: Str = "'_' must separate successive digits"
+
+pub type NatScan = { mag: BigInt, base: Int, count: Int, err: Str, pos: Int }
+
+fn digit_of(ch: Int, b: Int) -> Int {
+  if ch >= 48 && ch <= 57 { return ch - 48 }
+  if ch >= 97 && ch <= 122 { return ch - 97 + 10 }
+  if ch >= 65 && ch <= 90 { return if b <= 36 { ch - 65 + 10 } else { ch - 65 + 36 } }
+  63
+}
+
+// Go 的 nat.scan：base 为 0 时识别前缀（frac_ok 时没有 "0" 八进制前缀）；frac_ok 时允许一个小数点，count 变成 -(小数位数)
+pub fn scan_nat(bs: List<Int>, pos0: Int, base: Int, frac_ok0: Bool) -> NatScan {
+  var pos = pos0
+  var frac_ok = frac_ok0
+  var prev = 46
+  var inval_sep = false
+  var count = 0
+  var b = base
+  var prefix = 0
+  if base == 0 {
+    b = 10
+    if pos < len(bs) && bs[pos] == 48 {
+      prev = 48
+      count = 1
+      pos += 1
+      if pos < len(bs) {
+        let ch = bs[pos]
+        if ch == 98 || ch == 66 {
+          b = 2
+          prefix = 98
+        } else if ch == 111 || ch == 79 {
+          b = 8
+          prefix = 111
+        } else if ch == 120 || ch == 88 {
+          b = 16
+          prefix = 120
+        } else if !frac_ok {
+          b = 8
+          prefix = 48
+        }
+        if prefix != 0 {
+          count = 0
+          if prefix != 48 { pos += 1 }
+        }
+      }
+    }
+  }
+  var z = big.zero()
+  var di = 0
+  var dpow = 1
+  var dp = -1
+  while pos < len(bs) {
+    let ch = bs[pos]
+    if ch == 46 && frac_ok {
+      frac_ok = false
+      if prev == 95 { inval_sep = true }
+      prev = 46
+      dp = count
+    } else if ch == 95 && base == 0 {
+      if prev != 48 { inval_sep = true }
+      prev = 95
+    } else {
+      let d1 = digit_of(ch, b)
+      if d1 >= b { break }
+      prev = 48
+      count += 1
+      di = di * b + d1
+      dpow = dpow * b
+      if dpow >= (1 << 40) {
+        z = z.mul(big.new_int(dpow)).add(big.new_int(di))
+        di = 0
+        dpow = 1
+      }
+    }
+    pos += 1
+  }
+  var err = ""
+  if inval_sep || prev == 95 { err = ERR_INVAL_SEP }
+  if count == 0 {
+    if prefix == 48 { return NatScan { mag: big.zero(), base: 10, count: 1, err: err, pos: pos } }
+    err = ERR_NO_DIGITS
+  }
+  if dpow > 1 { z = z.mul(big.new_int(dpow)).add(big.new_int(di)) }
+  if dp >= 0 { count = dp - count }
+  NatScan { mag: z, base: b, count: count, err: err, pos: pos }
+}
+
+// 返回 (exp, base, err, pos)；err 为 "" 表示成功
+pub fn scan_exponent(bs: List<Int>, pos0: Int, base2ok: Bool, sep_ok: Bool) -> (Int, Int, Str, Int) {
+  var pos = pos0
+  if pos >= len(bs) { return (0, 10, "", pos) }
+  let c0 = bs[pos]
+  var base = 10
+  if c0 == 101 || c0 == 69 {
+    base = 10
+  } else if (c0 == 112 || c0 == 80) && base2ok {
+    base = 2
+  } else {
+    return (0, 10, "", pos)
+  }
+  pos += 1
+  var digits: List<Int> = []
+  if pos < len(bs) && (bs[pos] == 43 || bs[pos] == 45) {
+    if bs[pos] == 45 { digits = push(digits, 45) }
+    pos += 1
+  }
+  var prev = 46
+  var inval_sep = false
+  var has_digits = false
+  while pos < len(bs) {
+    let ch = bs[pos]
+    if ch >= 48 && ch <= 57 {
+      digits = push(digits, ch)
+      prev = 48
+      has_digits = true
+    } else if ch == 95 && sep_ok {
+      if prev != 48 { inval_sep = true }
+      prev = 95
+    } else {
+      break
+    }
+    pos += 1
+  }
+  if !has_digits { return (0, base, ERR_NO_DIGITS, pos) }
+  let (e, perr) = parse_int64(digits)
+  if perr != "" { return (e, base, perr, pos) }
+  if inval_sep || prev == 95 { return (e, base, ERR_INVAL_SEP, pos) }
+  (e, base, "", pos)
+}
+
+// strconv.ParseInt(s, 10, 64)，s 是可选的 '-' 加十进制数字
+fn parse_int64(ds: List<Int>) -> (Int, Str) {
+  let s = unwrap(__from_bytes(ds))
+  let neg = len(ds) > 0 && ds[0] == 45
+  var i = if neg { 1 } else { 0 }
+  while i < len(ds) - 1 && ds[i] == 48 { i += 1 }
+  let n = len(ds) - i
+  let lim = if neg { "9223372036854775808" } else { "9223372036854775807" }
+  let body = unwrap(__from_bytes(ds[i..]))
+  if n > 19 || (n == 19 && body > lim) {
+    let v = if neg { -9223372036854775807 - 1 } else { 9223372036854775807 }
+    return (v, "strconv.ParseInt: parsing \"{s}\": value out of range")
+  }
+  var v = 0
+  while i < len(ds) {
+    v = v * 10 - (ds[i] - 48)
+    i += 1
+  }
+  (if neg { v } else { -v }, "")
+}
+
+// ───────── Rat ─────────
+
+fn norm(a: BigInt, b: BigInt) -> Rat {
+  if a.sign() == 0 { return Rat { a: big.zero(), b: big.one() } }
+  let g = a.abs_value().gcd(b)
+  if g.cmp(big.one()) == 0 { return Rat { a: a, b: b } }
+  Rat { a: a.quo(g), b: b.quo(g) }
+}
+
+// NewRat(a, b)：b 为 0 时 panic
+pub fn new_rat(a: Int, b: Int) -> Rat {
+  if b == 0 { panic("division by zero") }
+  var x = big.new_int(a)
+  var y = big.new_int(b)
+  if b < 0 {
+    x = x.negate()
+    y = y.negate()
+  }
+  norm(x, y)
+}
+
+pub fn from_int(x: BigInt) -> Rat { Rat { a: x, b: big.one() } }
+
+pub fn from_int64(x: Int) -> Rat { Rat { a: big.new_int(x), b: big.one() } }
+
+pub fn from_uint64(x: Int) -> Rat { Rat { a: big.new_uint64(x), b: big.one() } }
+
+// SetFrac(a, b)：b 为 0 时 panic
+pub fn from_frac(a: BigInt, b: BigInt) -> Rat {
+  if b.sign() == 0 { panic("division by zero") }
+  let a2 = if (a.sign() < 0) != (b.sign() < 0) { a.abs_value().negate() } else { a.abs_value() }
+  norm(a2, b.abs_value())
+}
+
+// SetFloat64：f 不是有限值时返回 None
+pub fn from_float64(f: Float) -> Option<Rat> {
+  if math.is_nan(f) || math.is_inf(f) { return None }
+  if f == 0.0 { return Some(from_int64(0)) }
+  let (m0, e) = decompose(f)
+  var m = m0
+  var shift = -e
+  while (m & 1) == 0 && shift > 0 {
+    m = m >> 1
+    shift -= 1
+  }
+  var a = big.new_int(m)
+  var b = big.one()
+  if shift > 0 { b = b.lsh(shift) } else { a = a.lsh(-shift) }
+  if f < 0.0 { a = a.negate() }
+  Some(norm(a, b))
+}
+
+// SetString
+pub fn parse(s: Str) -> Option<Rat> {
+  let bs = __bytes(s)
+  if len(bs) == 0 { return None }
+  var sep = -1
+  var i = 0
+  while i < len(bs) {
+    if bs[i] == 47 {
+      sep = i
+      break
+    }
+    i += 1
+  }
+  if sep >= 0 {
+    let a = big.parse(unwrap(__from_bytes(bs[..sep])), 0)?
+    let r = scan_nat(bs, sep + 1, 0, false)
+    if r.err != "" { return None }
+    if r.pos != len(bs) { return None }
+    if r.mag.sign() == 0 { return None }
+    return Some(norm(a, r.mag))
+  }
+  var pos = 0
+  var neg = false
+  if bs[0] == 45 || bs[0] == 43 {
+    neg = bs[0] == 45
+    pos = 1
+  }
+  let r = scan_nat(bs, pos, 0, true)
+  if r.err != "" { return None }
+  let (exp, ebase, eerr, epos) = scan_exponent(bs, r.pos, true, true)
+  if eerr != "" { return None }
+  if epos != len(bs) { return None }
+  if r.mag.sign() == 0 { return Some(from_int64(0)) }
+  var exp2 = 0
+  var exp5 = 0
+  if r.count < 0 {
+    let d = r.count
+    if r.base == 10 {
+      exp5 = d
+      exp2 = d
+    } else if r.base == 2 {
+      exp2 = d
+    } else if r.base == 8 {
+      exp2 = d * 3
+    } else {
+      exp2 = d * 4
+    }
+  }
+  if ebase == 10 { exp5 += exp }
+  exp2 += exp
+  var a = r.mag
+  var b = big.one()
+  if exp5 != 0 {
+    let n = if exp5 < 0 { -exp5 } else { exp5 }
+    if n > 1000000 { return None }
+    let p5 = big.new_int(5).exp(big.new_int(n), big.zero()).unwrap_or(big.one())
+    if exp5 > 0 { a = a.mul(p5) } else { b = p5 }
+  }
+  if exp2 < -10000000 || exp2 > 10000000 { return None }
+  if exp2 > 0 { a = a.lsh(exp2) } else if exp2 < 0 { b = b.lsh(-exp2) }
+  if neg { a = a.negate() }
+  Some(norm(a, b))
+}
+
+// Go 的 quotToFloat64：a/b 的最近 float64（a、b 非负，b 非零）
+fn quot_to_float64(a: BigInt, b: BigInt) -> (Float, Bool) {
+  let alen = a.bit_len()
+  if alen == 0 { return (0.0, true) }
+  let blen = b.bit_len()
+  if blen == 0 { panic("division by zero") }
+  var exp = alen - blen
+  var a2 = a
+  var b2 = b
+  let shift = 54 - exp
+  if shift > 0 { a2 = a2.lsh(shift) } else if shift < 0 { b2 = b2.lsh(-shift) }
+  let (q, r) = a2.quo_rem(b2)
+  var mantissa = q.int64()
+  var have_rem = r.sign() != 0
+  if (mantissa >> 54) == 1 {
+    if (mantissa & 1) == 1 { have_rem = true }
+    mantissa = mantissa >> 1
+    exp += 1
+  }
+  if (mantissa >> 53) != 1 { panic("expected exactly 54 bits of result") }
+  if -1022 - 52 <= exp && exp <= -1022 {
+    let sh = -1022 - (exp - 1)
+    let lostbits = mantissa & ((1 << sh) - 1)
+    have_rem = have_rem || lostbits != 0
+    mantissa = mantissa >> sh
+    exp = 2 - 1023
+  }
+  var exact = !have_rem
+  if (mantissa & 1) != 0 {
+    exact = false
+    if have_rem || (mantissa & 2) != 0 {
+      mantissa += 1
+      if mantissa >= (1 << 54) {
+        mantissa = mantissa >> 1
+        exp += 1
+      }
+    }
+  }
+  mantissa = mantissa >> 1
+  let f = ldexp(float(mantissa), exp - 53)
+  if math.is_inf(f) { exact = false }
+  (f, exact)
+}
+
+impl Rat {
+  fn num(self) -> BigInt { self.a }
+
+  fn denom(self) -> BigInt { self.b }
+
+  fn sign(self) -> Int { self.a.sign() }
+
+  fn is_int(self) -> Bool { self.b.cmp(big.one()) == 0 }
+
+  fn cmp(self, y: Rat) -> Int { self.a.mul(y.b).cmp(y.a.mul(self.b)) }
+
+  fn add(self, y: Rat) -> Rat { norm(self.a.mul(y.b).add(y.a.mul(self.b)), self.b.mul(y.b)) }
+
+  fn sub(self, y: Rat) -> Rat { norm(self.a.mul(y.b).sub(y.a.mul(self.b)), self.b.mul(y.b)) }
+
+  fn mul(self, y: Rat) -> Rat { norm(self.a.mul(y.a), self.b.mul(y.b)) }
+
+  // y 为 0 时 panic
+  fn quo(self, y: Rat) -> Rat {
+    if y.a.sign() == 0 { panic("division by zero") }
+    let a = self.a.mul(y.b)
+    let b = y.a.mul(self.b)
+    let a2 = if (a.sign() < 0) != (b.sign() < 0) { a.abs_value().negate() } else { a.abs_value() }
+    norm(a2, b.abs_value())
+  }
+
+  fn negate(self) -> Rat { Rat { a: self.a.negate(), b: self.b } }
+
+  fn abs_value(self) -> Rat { Rat { a: self.a.abs_value(), b: self.b } }
+
+  // 0 时 panic
+  fn inv(self) -> Rat {
+    if self.a.sign() == 0 { panic("division by zero") }
+    if self.a.sign() < 0 { Rat { a: self.b.negate(), b: self.a.abs_value() } } else { Rat { a: self.b, b: self.a } }
+  }
+
+  fn string(self) -> Str { "{self.a.string()}/{self.b.string()}" }
+
+  fn rat_string(self) -> Str { if self.is_int() { self.a.string() } else { self.string() } }
+
+  // 小数点后 prec 位，最后一位四舍五入（一半时远离零）
+  fn float_string(self, prec: Int) -> Str {
+    if self.is_int() {
+      var s = self.a.string()
+      if prec > 0 {
+        s = s + "."
+        var i = 0
+        while i < prec {
+          s = s + "0"
+          i += 1
+        }
+      }
+      return s
+    }
+    let (q0, r0) = self.a.abs_value().quo_rem(self.b)
+    var q = q0
+    var p = big.one()
+    if prec > 0 { p = big.new_int(10).exp(big.new_int(prec), big.zero()).unwrap_or(big.one()) }
+    let (r1, r2) = r0.mul(p).quo_rem(self.b)
+    var r = r1
+    if self.b.cmp(r2.add(r2)) <= 0 {
+      r = r.add(big.one())
+      if r.cmp(p) >= 0 {
+        q = q.add(big.one())
+        r = r.sub(p)
+      }
+    }
+    var s = if self.a.sign() < 0 { "-" } else { "" }
+    s = s + q.string()
+    if prec > 0 {
+      s = s + "."
+      let rs = r.string()
+      var i = prec - len(rs)
+      while i > 0 {
+        s = s + "0"
+        i -= 1
+      }
+      s = s + rs
+    }
+    s
+  }
+
+  // 最近的 float64，以及是否精确
+  fn float64(self) -> (Float, Bool) {
+    let (f, exact) = quot_to_float64(self.a.abs_value(), self.b)
+    (if self.a.sign() < 0 { -f } else { f }, exact)
+  }
+
+  // FloatPrec：精确表示成小数需要的小数位数，以及是否能有限表示
+  fn float_prec(self) -> (Int, Bool) {
+    let d = self.b
+    let p2 = d.trailing_zero_bits()
+    var q = d.rsh(p2)
+    var p5 = 0
+    let five = big.new_int(5)
+    loop {
+      let (t, r) = q.quo_rem(five)
+      if r.sign() != 0 { break }
+      p5 += 1
+      q = t
+    }
+    (if p2 > p5 { p2 } else { p5 }, q.cmp(big.one()) == 0)
+  }
+}

@@ -1,0 +1,437 @@
+// std.compress.bzip2：bzip2 解压（对齐 Go 的 compress/bzip2，只有解压器）
+//   read_all(bs) -> (List<Int>, Str)：等价于 Go 的 io.ReadAll(bzip2.NewReader(bytes.NewReader(bs)))，
+//     返回出错前已经读出的数据和错误信息（"" 表示没有错误）
+//   decompress(bs) -> Result<List<Int>, Str>：没有错误时 Ok(数据)，否则 Err(错误信息)
+//   decompress_str(bs) -> Result<Str, Str>：结果按 UTF-8 解成字符串
+//   错误信息和 Go 相同："bzip2 data invalid: ..."（StructuralError）、"unexpected EOF"
+//   支持多个块、多个首尾相连的流；校验块 CRC 和文件 CRC。
+//   和 Go 的差别：
+//   - 出错时“已经读出的数据”按 io.ReadAll 的缓冲区增长规律（512、896、1408 …，取自 Go 1.23）模拟，
+//     缓冲区超过 78839808 字节以后按翻倍估算，和 Go 可能不同。
+//   - Go 的 Reader 是流式的；这里一次解出整个输入。
+
+const UNEXPECTED_EOF: Str = "unexpected EOF"
+
+const BLOCK_MAGIC: Int = 0x314159265359
+
+const FINAL_MAGIC: Int = 0x177245385090
+
+const CAPS: List<Int> = [512, 896, 1408, 2048, 3072, 4096, 5376, 6912, 9472, 12288, 16384, 21760, 28672, 40960, 57344, 73728, 98304, 131072, 172032, 221184, 278528, 352256, 442368, 557056, 704512, 884736, 1114112, 1400832, 1753088, 2195456, 2752512, 3448832, 4317184, 5398528, 6750208, 8445952, 10559488, 13205504, 16515072, 20652032, 25821184, 32284672, 40361984, 50454528, 63070208, 78839808]
+
+fn structural(s: Str) -> Str { "bzip2 data invalid: " + s }
+
+// io.ReadAll 在已读 n 字节时的缓冲区容量（最小的 > n 的容量）
+fn cap_after(n: Int) -> Int {
+  var c = 0
+  for x in CAPS {
+    if x > n { return x }
+    c = x
+  }
+  while c <= n { c = c * 2 }
+  c
+}
+
+// ── 位读取器（对齐 Go 的 bitReader：失败时设置 err、返回 0，已读入的字节保留） ──
+
+type Br = { data: List<Int>, pos: Int, n: Int, bits: Int, err: Str }
+
+fn read_bits(br: Br, k: Int) -> (Br, Int) {
+  var pos = br.pos
+  var n = br.n
+  var bits = br.bits
+  while k > bits {
+    if pos >= len(br.data) {
+      return (Br { pos: pos, n: n, bits: bits, err: UNEXPECTED_EOF, ..br }, 0)
+    }
+    n = (n << 8) | br.data[pos]
+    pos += 1
+    bits += 8
+  }
+  let v = (n >> (bits - k)) & ((1 << k) - 1)
+  (Br { pos: pos, n: n, bits: bits - k, ..br }, v)
+}
+
+// ── CRC（MSB 优先，多项式 0x04C11DB7） ──
+
+fn make_crc_table() -> List<Int> {
+  var tab: List<Int> = []
+  for i in 0..256 {
+    var crc = i << 24
+    for _ in 0..8 {
+      if crc & 0x80000000 != 0 {
+        crc = ((crc << 1) ^ 0x04C11DB7) & 0xffffffff
+      } else {
+        crc = (crc << 1) & 0xffffffff
+      }
+    }
+    tab = push(tab, crc)
+  }
+  tab
+}
+
+const CRC_TABLE: List<Int> = make_crc_table()
+
+pub fn update_crc(val: Int, bs: List<Int>) -> Int {
+  let tab = CRC_TABLE
+  var crc = ~val & 0xffffffff
+  for v in bs {
+    crc = tab[((crc >> 24) ^ v) & 0xff] ^ ((crc << 8) & 0xffffffff)
+  }
+  ~crc & 0xffffffff
+}
+
+// ── Huffman 树（和 Go 的 newHuffmanTree / buildHuffmanNode 完全一致） ──
+// 节点 i 占 nd[4i..4i+4]：left, right, left_value, right_value；INVALID 表示叶子
+
+const INVALID: Int = 0xffff
+
+fn build_node(cc: List<Int>, cv: List<Int>, lo: Int, hi: Int, level: Int, nd: List<Int>) -> Result<(List<Int>, Int), Str> {
+  let test = 1 << (31 - level)
+  var first_right = hi
+  var i = lo
+  while i < hi {
+    if cc[i] & test != 0 {
+      first_right = i
+      break
+    }
+    i += 1
+  }
+  let nl = first_right - lo
+  let nr = hi - first_right
+  if nl == 0 || nr == 0 {
+    if hi - lo < 2 { return Err(structural("empty Huffman tree")) }
+    if level == 31 { return Err(structural("equal symbols in Huffman tree")) }
+    return build_node(cc, cv, lo, hi, level + 1, nd)
+  }
+  let idx = len(nd) / 4
+  var nodes = push(push(push(push(nd, 0), 0), 0), 0)
+  if nl == 1 {
+    nodes = set(nodes, idx * 4, INVALID)
+    nodes = set(nodes, idx * 4 + 2, cv[lo])
+  } else {
+    let (n2, li) = build_node(cc, cv, lo, first_right, level + 1, nodes)?
+    nodes = set(n2, idx * 4, li)
+  }
+  if nr == 1 {
+    nodes = set(nodes, idx * 4 + 1, INVALID)
+    nodes = set(nodes, idx * 4 + 3, cv[first_right])
+  } else {
+    let (n3, ri) = build_node(cc, cv, first_right, hi, level + 1, nodes)?
+    nodes = set(n3, idx * 4 + 1, ri)
+  }
+  Ok((nodes, idx))
+}
+
+fn new_tree(lengths: List<Int>) -> Result<List<Int>, Str> {
+  var keys: List<Int> = []
+  var i = 0
+  for l in lengths {
+    keys = push(keys, l * 65536 + i)
+    i += 1
+  }
+  let pairs = sort(keys)
+  var code = 0
+  var length = 32
+  var ckeys: List<Int> = []
+  var j = len(pairs) - 1
+  while j >= 0 {
+    let pl = pairs[j] / 65536
+    if length > pl { length = pl }
+    // 按 (码, 值) 排序：相同的码只会导致 equal symbols 错误，顺序不影响结果
+    ckeys = push(ckeys, code * 65536 + (pairs[j] % 65536))
+    code = (code + (1 << (32 - length))) & 0xffffffff
+    j -= 1
+  }
+  let sorted = sort(ckeys)
+  var cc: List<Int> = []
+  var cv: List<Int> = []
+  for k in sorted {
+    cc = push(cc, k / 65536)
+    cv = push(cv, k % 65536)
+  }
+  let (nd, _) = build_node(cc, cv, 0, len(cc), 0, [])?
+  Ok(nd)
+}
+
+fn decode_sym(br: Br, nd: List<Int>) -> (Br, Int) {
+  var b = br
+  var n = br.n
+  var bits = br.bits
+  var node = 0
+  loop {
+    var bit = 0
+    if bits > 0 {
+      bits -= 1
+      bit = (n >> bits) & 1
+    } else {
+      let (b2, v) = read_bits(Br { n: n, bits: bits, ..b }, 1)
+      b = b2
+      n = b2.n
+      bits = b2.bits
+      bit = v
+    }
+    let next = if bit == 1 { nd[node * 4] } else { nd[node * 4 + 1] }
+    if next == INVALID {
+      let v = if bit == 1 { nd[node * 4 + 2] } else { nd[node * 4 + 3] }
+      return (Br { n: n, bits: bits, ..b }, v)
+    }
+    node = next
+  }
+}
+
+fn mtf_decode(m: List<Int>, k: Int) -> List<Int> {
+  if k == 0 { return m }
+  [m[k]] + m[..k] + m[k + 1..]
+}
+
+// 一个解好的块：tt 是 BWT 之后的字节，nxt 是逆 BWT 的指针，start 是起始位置
+type Block = { tt: List<Int>, nxt: List<Int>, start: Int }
+
+// 返回 (位读取器, 块或错误, 新的 file CRC, 期望的块 CRC)
+fn read_block(br0: Br, block_size: Int, file_crc0: Int) -> (Br, Result<Block, Str>, Int, Int) {
+  var br = br0
+  let (b1, want) = read_bits(br, 32)
+  br = b1
+  let file_crc = (((file_crc0 << 1) | (file_crc0 >> 31)) & 0xffffffff) ^ want
+  let (b2, randomized) = read_bits(br, 1)
+  br = b2
+  if randomized != 0 { return (br, Err(structural("deprecated randomized files")), file_crc, want) }
+  let (b3, orig_ptr) = read_bits(br, 24)
+  br = b3
+  let (b4, used) = read_bits(br, 16)
+  br = b4
+  var symbols: List<Int> = []
+  for r in 0..16 {
+    if used & (1 << (15 - r)) != 0 {
+      let (b5, bits) = read_bits(br, 16)
+      br = b5
+      for s in 0..16 {
+        if bits & (1 << (15 - s)) != 0 { symbols = push(symbols, 16 * r + s) }
+      }
+    }
+  }
+  if len(symbols) == 0 { return (br, Err(structural("no symbols in input")), file_crc, want) }
+  let (b6, num_trees) = read_bits(br, 3)
+  br = b6
+  if num_trees < 2 || num_trees > 6 { return (br, Err(structural("invalid number of Huffman trees")), file_crc, want) }
+  let (b7, num_selectors) = read_bits(br, 15)
+  br = b7
+  var tmtf: List<Int> = []
+  for i in 0..num_trees { tmtf = push(tmtf, i) }
+  var tree_indexes: List<Int> = []
+  for _ in 0..num_selectors {
+    var c = 0
+    loop {
+      let (b8, inc) = read_bits(br, 1)
+      br = b8
+      if inc == 0 { break }
+      c += 1
+    }
+    if c >= num_trees { return (br, Err(structural("tree index too large")), file_crc, want) }
+    let t = tmtf[c]
+    tmtf = mtf_decode(tmtf, c)
+    tree_indexes = push(tree_indexes, t)
+  }
+  var mtf = symbols
+  let num_symbols = len(symbols) + 2
+  var trees: List<List<Int>> = []
+  for _ in 0..num_trees {
+    let (b9, l0) = read_bits(br, 5)
+    br = b9
+    var length = l0
+    var lengths: List<Int> = []
+    for _ in 0..num_symbols {
+      loop {
+        if length < 1 || length > 20 { return (br, Err(structural("Huffman length out of range")), file_crc, want) }
+        let (b10, x) = read_bits(br, 1)
+        br = b10
+        if x == 0 { break }
+        let (b11, y) = read_bits(br, 1)
+        br = b11
+        if y != 0 { length -= 1 } else { length += 1 }
+      }
+      lengths = push(lengths, length)
+    }
+    match new_tree(lengths) {
+      Ok(t)  => { trees = push(trees, t) },
+      Err(e) => { return (br, Err(e), file_crc, want) },
+    }
+  }
+  if len(tree_indexes) == 0 { return (br, Err(structural("no tree selectors given")), file_crc, want) }
+  var selector_index = 1
+  var cur = trees[tree_indexes[0]]
+  var tt: List<Int> = []
+  var repeat = 0
+  var repeat_power = 0
+  var decoded = 0
+  loop {
+    if decoded == 50 {
+      if selector_index >= num_selectors {
+        return (br, Err(structural("insufficient selector indices for number of symbols")), file_crc, want)
+      }
+      cur = trees[tree_indexes[selector_index]]
+      selector_index += 1
+      decoded = 0
+    }
+    let (b12, v) = decode_sym(br, cur)
+    br = b12
+    decoded += 1
+    if v < 2 {
+      if repeat == 0 { repeat_power = 1 }
+      repeat += repeat_power << v
+      repeat_power = repeat_power << 1
+      if repeat > 2 * 1024 * 1024 { return (br, Err(structural("repeat count too large")), file_crc, want) }
+      continue
+    }
+    if repeat > 0 {
+      if repeat > block_size - len(tt) { return (br, Err(structural("repeats past end of block")), file_crc, want) }
+      let f = mtf[0]
+      for _ in 0..repeat { tt = push(tt, f) }
+      repeat = 0
+    }
+    if v == num_symbols - 1 { break }
+    let b = mtf[v - 1]
+    mtf = mtf_decode(mtf, v - 1)
+    if len(tt) >= block_size { return (br, Err(structural("data exceeds block size")), file_crc, want) }
+    tt = push(tt, b)
+  }
+  if orig_ptr >= len(tt) { return (br, Err(structural("origPtr out of bounds")), file_crc, want) }
+  // 逆 BWT：按 (字节, 下标) 稳定排序，得到每个位置的后继
+  var keys: List<Int> = []
+  var i = 0
+  for b in tt {
+    keys = push(keys, (b << 24) | i)
+    i += 1
+  }
+  var nxt: List<Int> = []
+  for k in sort(keys) { nxt = push(nxt, k & 0xffffff) }
+  (br, Ok(Block { tt: tt, nxt: nxt, start: nxt[orig_ptr] }), file_crc, want)
+}
+
+// 块的最终输出（逆 RLE），最多 limit 字节
+fn block_output(blk: Block, limit: Int) -> List<Int> {
+  let tt = blk.tt
+  let nxt = blk.nxt
+  let total = len(tt)
+  var out: List<Int> = []
+  var t = blk.start
+  var used = 0
+  var last = -1
+  var byte_repeats = 0
+  var repeats = 0
+  var n = 0
+  while (repeats > 0 || used < total) && n < limit {
+    if repeats > 0 {
+      out = push(out, last)
+      n += 1
+      repeats -= 1
+      if repeats == 0 { last = -1 }
+      continue
+    }
+    let b = tt[t]
+    t = nxt[t]
+    used += 1
+    if byte_repeats == 3 {
+      repeats = b
+      byte_repeats = 0
+      continue
+    }
+    if last == b { byte_repeats += 1 } else { byte_repeats = 0 }
+    last = b
+    out = push(out, b)
+    n += 1
+  }
+  out
+}
+
+// setup：返回 (位读取器, 错误, 块大小)
+fn setup(br0: Br, need_magic: Bool) -> (Br, Str, Int) {
+  var br = br0
+  if need_magic {
+    let (b1, magic) = read_bits(br, 16)
+    br = b1
+    if magic != 0x425a { return (br, structural("bad magic value"), 0) }
+  }
+  let (b2, t) = read_bits(br, 8)
+  br = b2
+  if t != 104 { return (br, structural("non-Huffman entropy encoding"), 0) }
+  let (b3, level) = read_bits(br, 8)
+  br = b3
+  if level < 49 || level > 57 { return (br, structural("invalid compression level"), 0) }
+  (br, "", 100 * 1000 * (level - 48))
+}
+
+// Go 的 Read 在 br.err 非空时总是返回 br.err
+fn sticky(br: Br, e: Str) -> Str { if br.err != "" { br.err } else { e } }
+
+pub fn read_all(bs: List<Int>) -> (List<Int>, Str) {
+  var out: List<Int> = []
+  let (b0, e0, bsz0) = setup(Br { data: bs, pos: 0, n: 0, bits: 0, err: "" }, true)
+  var br = b0
+  if sticky(br, e0) != "" { return (out, sticky(br, e0)) }
+  var block_size = bsz0
+  var file_crc = 0
+  var block_crc = 0
+  var want_crc = 0
+  loop {
+    if block_crc != want_crc { return (out, structural("block checksum mismatch")) }
+    let (b1, magic) = read_bits(br, 48)
+    br = b1
+    if magic == BLOCK_MAGIC {
+      let (b2, res, fc, want) = read_block(br, block_size, file_crc)
+      br = b2
+      file_crc = fc
+      want_crc = want
+      match res {
+        Err(e)  => { return (out, sticky(br, e)) },
+        Ok(blk) => {
+          if br.err != "" {
+            // 块在读取出错的状态下解完：这次 Read 只能交出缓冲区剩余空间那么多字节
+            let space = cap_after(len(out)) - len(out)
+            return (out + block_output(blk, space), br.err)
+          }
+          let data = block_output(blk, len(blk.tt) * 256 + 256)
+          block_crc = update_crc(0, data)
+          out = out + data
+        },
+      }
+    } else if magic == FINAL_MAGIC {
+      let (b3, want_file) = read_bits(br, 32)
+      br = b3
+      if br.err != "" { return (out, br.err) }
+      if file_crc != want_file { return (out, structural("file checksum mismatch")) }
+      if br.bits % 8 != 0 {
+        let (b4, _) = read_bits(br, br.bits % 8)
+        br = b4
+      }
+      let n = len(bs)
+      if br.pos >= n { return (out, "") }
+      let b = bs[br.pos]
+      if br.pos + 1 >= n { return (out, UNEXPECTED_EOF) }
+      let z = bs[br.pos + 1]
+      br = Br { pos: br.pos + 2, ..br }
+      if b != 66 || z != 90 { return (out, structural("bad magic value in continuation file")) }
+      let (b5, e5, bsz) = setup(br, false)
+      br = b5
+      if sticky(br, e5) != "" { return (out, sticky(br, e5)) }
+      block_size = bsz
+      file_crc = 0
+    } else {
+      return (out, sticky(br, structural("bad magic value found")))
+    }
+  }
+}
+
+pub fn decompress(bs: List<Int>) -> Result<List<Int>, Str> {
+  let (out, err) = read_all(bs)
+  if err != "" { return Err(err) }
+  Ok(out)
+}
+
+pub fn decompress_str(bs: List<Int>) -> Result<Str, Str> {
+  let out = decompress(bs)?
+  match __from_bytes(out) {
+    Some(s) => Ok(s),
+    None    => Err("bzip2: output is not valid UTF-8"),
+  }
+}

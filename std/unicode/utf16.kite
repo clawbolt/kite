@@ -1,0 +1,72 @@
+// std.unicode.utf16：UTF-16 编解码（对齐 Go 的 unicode/utf16）
+//   码点和 UTF-16 码元都用 Int 表示；无效码点编码成 U+FFFD，孤立的代理项解码成 U+FFFD
+
+const REPLACEMENT: Int = 0xfffd
+
+const SURR1: Int = 0xd800
+
+const SURR2: Int = 0xdc00
+
+const SURR3: Int = 0xe000
+
+const SURR_SELF: Int = 0x10000
+
+const MAX_RUNE: Int = 0x10ffff
+
+// r 能否作为代理对的一半
+pub fn is_surrogate(r: Int) -> Bool { SURR1 <= r && r < SURR3 }
+
+// 代理对 (r1, r2) 解出的码点；不是合法的代理对时返回 U+FFFD
+pub fn decode_rune(r1: Int, r2: Int) -> Int {
+  if SURR1 <= r1 && r1 < SURR2 && SURR2 <= r2 && r2 < SURR3 {
+    ((r1 - SURR1) << 10 | (r2 - SURR2)) + SURR_SELF
+  } else {
+    REPLACEMENT
+  }
+}
+
+// 码点的代理对；不需要代理对或码点无效时返回 (U+FFFD, U+FFFD)
+pub fn encode_rune(r: Int) -> (Int, Int) {
+  if r < SURR_SELF || r > MAX_RUNE { return (REPLACEMENT, REPLACEMENT) }
+  let v = r - SURR_SELF
+  (SURR1 + ((v >> 10) & 0x3ff), SURR2 + (v & 0x3ff))
+}
+
+// 码点需要几个 UTF-16 码元；无效码点返回 -1
+pub fn rune_len(r: Int) -> Int {
+  if 0 <= r && r < SURR1 || SURR3 <= r && r < SURR_SELF { 1 } else if SURR_SELF <= r && r <= MAX_RUNE { 2 } else { -1 }
+}
+
+pub fn append_rune(a: List<Int>, r: Int) -> List<Int> {
+  if 0 <= r && r < SURR1 || SURR3 <= r && r < SURR_SELF { return push(a, r) }
+  if SURR_SELF <= r && r <= MAX_RUNE {
+    let (r1, r2) = encode_rune(r)
+    return a + [r1, r2]
+  }
+  push(a, REPLACEMENT)
+}
+
+pub fn encode(s: List<Int>) -> List<Int> { fold(s, [], (a, r) => append_rune(a, r)) }
+
+pub fn decode(s: List<Int>) -> List<Int> {
+  var out: List<Int> = []
+  var i = 0
+  while i < len(s) {
+    let r = s[i]
+    if r < SURR1 || SURR3 <= r {
+      out = push(out, r)
+    } else if SURR1 <= r && r < SURR2 && i + 1 < len(s) && SURR2 <= s[i + 1] && s[i + 1] < SURR3 {
+      out = push(out, decode_rune(r, s[i + 1]))
+      i += 1
+    } else {
+      out = push(out, REPLACEMENT)
+    }
+    i += 1
+  }
+  out
+}
+
+// 便捷函数：Str 和 UTF-16 码元互转（Kite 的 Str 总是合法的 Unicode）
+pub fn encode_str(s: Str) -> List<Int> { encode(map(chars(s), (c) => __ord(c))) }
+
+pub fn decode_str(u: List<Int>) -> Str { join(map(decode(u), (r) => __chr(r)), "") }

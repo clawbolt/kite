@@ -1,0 +1,33 @@
+trait Source {
+  type Item: Ord
+  fn next(self) -> Option<Self.Item>
+}
+type A = { n: Int }
+type B = { n: Int }
+type C = { n: Int }
+type D = { n: Int }
+impl Source for A {
+  fn next(self) -> Option<Int> { None }
+}
+impl Source for B {
+  type Item = Int
+  type Extra = Int
+  fn next(self) -> Option<Int> { None }
+}
+impl Source for C {
+  type Item = Bool
+  fn next(self) -> Option<Bool> { None }
+}
+impl Source for D {
+  type Item = Int
+  fn next(self) -> Option<Str> { None }
+}
+fn bad<S: Source>(s: S) -> Int {
+  s.next().unwrap()
+}
+fn nob<T>(x: T) -> T.Item {
+  x
+}
+fn main() {
+  let s: Str = bad(A { n: 1 }) |> str
+}

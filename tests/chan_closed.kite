@@ -1,0 +1,6 @@
+fn main() {
+  let ch: Chan<Int> = chan(1)
+  close(ch)
+  print(recv(ch))
+  send(ch, 1)
+}

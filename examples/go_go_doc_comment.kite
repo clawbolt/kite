@@ -1,0 +1,57 @@
+// 对拍 tests/go/go_doc_comment.go：go/doc/comment 的 Parser.Parse 与 Printer.Comment（零值 Parser / Printer）
+//   输入取自 Go 的 testdata、标准库注释和手写用例（tests/go/testdata/go_doc_comment.txt，tools/gen_go_doc_comment.go 生成）
+use std.go.doc.comment as dc
+use std.strconv
+use std.encoding.hex
+
+fn q(s: Str) -> Str { strconv.quote_go(s) }
+fn b(x: Bool) -> Str { if x { "true" } else { "false" } }
+
+fn texts(ts: List<dc.Text>) -> Str {
+  var out: List<Str> = []
+  for t in ts {
+    match t {
+      Plain(s) => { out = push(out, "p<" + s + ">") },
+      Italic(s) => { out = push(out, "i<" + s + ">") },
+      Link { auto, text, url } => { out = push(out, "a<" + b(auto) + "," + url + ";" + texts(text) + ">") },
+      DocLink { text, import_path, recv, name } => { out = push(out, "d<" + import_path + "," + recv + "," + name + ";" + texts(text) + ">") },
+    }
+  }
+  join(out, "")
+}
+
+fn blocks(bs: List<dc.Block>) -> Str {
+  var out: List<Str> = []
+  for x in bs {
+    match x {
+      Paragraph { text } => { out = push(out, "P(" + texts(text) + ")") },
+      Heading { text } => { out = push(out, "H(" + texts(text) + ")") },
+      Code { text } => { out = push(out, "C(" + text + ")") },
+      List { items, force_blank_before, force_blank_between } => {
+        var s = "L(" + b(force_blank_before) + "," + b(force_blank_between) + "," + b(dc.list_blank_before(x)) + "," + b(dc.list_blank_between(x))
+        for it in items { s = s + " #" + it.number + ":" + blocks(it.content) }
+        out = push(out, s + ")")
+      },
+    }
+  }
+  join(out, "")
+}
+
+fn dump(d: dc.Doc) -> Str {
+  var s = blocks(d.content)
+  for l in d.links { s = s + "[" + l.text + "|" + l.url + "|" + b(l.used) + "]" }
+  s
+}
+
+fn main() {
+  let text = unwrap(__from_bytes(unwrap(__read_bytes("tests/go/testdata/go_doc_comment.txt"))))
+  for line in split(text, "\n") {
+    if line == "" { continue }
+    let sp = __str_find(line, " ", 0)
+    let name = __str_slice(line, 0, sp)
+    let src = unwrap(__from_bytes(unwrap(hex.decode(__str_slice(line, sp + 1, len(line))))))
+    let d = dc.parse(src)
+    print(name + " " + q(dc.comment(d)))
+    print("  D " + q(dump(d)))
+  }
+}

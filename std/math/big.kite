@@ -1,0 +1,886 @@
+// std.math.big：任意精度整数（对齐 Go 的 math/big.Int；类型叫 BigInt，因为 Int 是 Kite 的内建整数）
+//   big.new_int(123)、big.parse("123456789012345678901234567890", 10) -> Option<Int>
+//   方法（都返回新值）：add sub mul quo rem quo_rem div modulo（Go 的 Mod；mod 是关键字） div_mod negate abs_value cmp cmp_abs sign
+//     exp(y, m) mod_inverse(n) gcd(b) gcd_ext(b) sqrt lsh rsh and or xor not and_not bit set_bit
+//     bit_len trailing_zero_bits is_int64 int64 is_uint64 uint64 probably_prime(n) text(base) string
+//     bytes / set_bytes、binomial、mul_range
+//   语义和 Go 相同：quo/rem 向零截断，div/mod 是欧几里得除法（余数非负）；位运算按无穷长的二进制补码；
+//   rsh 对负数向下取整；text 支持 2..62 进制；parse 的 base 为 0 时识别 0b 0o 0x 0 前缀和数字间的 _
+
+use std.math.bits
+
+const SHIFT: Int = 30
+
+const BASE: Int = 1 << 30
+
+const MASK: Int = (1 << 30) - 1
+
+// 绝对值：小端序 30 位一组，没有多余的高位 0；零是空列表
+pub type BigInt = { neg: Bool, mag: List<Int> }
+
+// ───────── 绝对值运算 ─────────
+
+// Montgomery 乘法（CIOS）：a、b < m，结果 a*b*R^-1 mod m，R = 2^(30n)
+fn mont_mul(a: List<Int>, b: List<Int>, m: List<Int>, n0: Int) -> List<Int> {
+  let n = len(m)
+  var t: List<Int> = []
+  for _ in 0..n + 2 { t = push(t, 0) }
+  for i in 0..n {
+    let ai = if i < len(a) { a[i] } else { 0 }
+    var u: List<Int> = []
+    var c = 0
+    for j in 0..n {
+      let bj = if j < len(b) { b[j] } else { 0 }
+      let v = t[j] + ai * bj + c
+      u = push(u, v & MASK)
+      c = v >> SHIFT
+    }
+    let v1 = t[n] + c
+    u = push(u, v1 & MASK)
+    u = push(u, t[n + 1] + (v1 >> SHIFT))
+    let mi = (u[0] * n0) & MASK
+    var w: List<Int> = []
+    var c2 = (u[0] + mi * m[0]) >> SHIFT
+    for j in 1..n {
+      let v = u[j] + mi * m[j] + c2
+      w = push(w, v & MASK)
+      c2 = v >> SHIFT
+    }
+    let v2 = u[n] + c2
+    w = push(w, v2 & MASK)
+    w = push(w, u[n + 1] + (v2 >> SHIFT))
+    w = push(w, 0)
+    t = w
+  }
+  let res = norm(t[..n + 1])
+  if mcmp(res, m) >= 0 { norm(msub(res, m)) } else { res }
+}
+
+fn mont_exp(x: List<Int>, e: BigInt, m: List<Int>) -> List<Int> {
+  let n = len(m)
+  var inv = 1
+  for _ in 0..5 { inv = (inv * ((2 - ((m[0] * inv) & MASK)) & MASK)) & MASK }
+  let n0 = (BASE - inv) & MASK
+  var rpad: List<Int> = []
+  for _ in 0..n { rpad = push(rpad, 0) }
+  let one_m = mdivmod(rpad + [1], m).1
+  let xm = mdivmod(rpad + x, m).1
+  // 4 位窗口
+  var tab = [one_m, xm]
+  for i in 2..16 { tab = push(tab, mont_mul(tab[i - 1], xm, m, n0)) }
+  var acc = one_m
+  let nb = e.bit_len()
+  var i = ((nb + 3) / 4) * 4 - 4
+  var first = true
+  while i >= 0 {
+    if !first {
+      acc = mont_mul(acc, acc, m, n0)
+      acc = mont_mul(acc, acc, m, n0)
+      acc = mont_mul(acc, acc, m, n0)
+      acc = mont_mul(acc, acc, m, n0)
+    }
+    first = false
+    let w = e.bit(i) + 2 * e.bit(i + 1) + 4 * e.bit(i + 2) + 8 * e.bit(i + 3)
+    if w != 0 { acc = mont_mul(acc, tab[w], m, n0) }
+    i -= 4
+  }
+  norm(mont_mul(acc, [1], m, n0))
+}
+
+fn norm(a: List<Int>) -> List<Int> {
+  var n = len(a)
+  while n > 0 && a[n - 1] == 0 { n -= 1 }
+  if n == len(a) { a } else { a[..n] }
+}
+
+fn mk(neg: Bool, mag: List<Int>) -> BigInt {
+  let m = norm(mag)
+  BigInt { neg: neg && len(m) > 0, mag: m }
+}
+
+fn mcmp(a: List<Int>, b: List<Int>) -> Int {
+  if len(a) != len(b) { return if len(a) < len(b) { -1 } else { 1 } }
+  var i = len(a) - 1
+  while i >= 0 {
+    if a[i] != b[i] { return if a[i] < b[i] { -1 } else { 1 } }
+    i -= 1
+  }
+  0
+}
+
+fn madd(a: List<Int>, b: List<Int>) -> List<Int> {
+  var out: List<Int> = []
+  var carry = 0
+  var i = 0
+  let n = if len(a) > len(b) { len(a) } else { len(b) }
+  while i < n {
+    let s = (if i < len(a) { a[i] } else { 0 }) + (if i < len(b) { b[i] } else { 0 }) + carry
+    out = push(out, s & MASK)
+    carry = s >> SHIFT
+    i += 1
+  }
+  if carry > 0 { out = push(out, carry) }
+  out
+}
+
+// a >= b
+fn msub(a: List<Int>, b: List<Int>) -> List<Int> {
+  var out: List<Int> = []
+  var borrow = 0
+  var i = 0
+  while i < len(a) {
+    var d = a[i] - (if i < len(b) { b[i] } else { 0 }) - borrow
+    if d < 0 {
+      d += BASE
+      borrow = 1
+    } else {
+      borrow = 0
+    }
+    out = push(out, d)
+    i += 1
+  }
+  norm(out)
+}
+
+fn mmul(a: List<Int>, b: List<Int>) -> List<Int> {
+  if len(a) == 0 || len(b) == 0 { return [] }
+  let n = len(a) + len(b) - 1
+  var out: List<Int> = []
+  var carry = 0
+  var k = 0
+  while k < n {
+    var lo = 0
+    var hi = 0
+    var i = if k - len(b) + 1 > 0 { k - len(b) + 1 } else { 0 }
+    let last = if k < len(a) - 1 { k } else { len(a) - 1 }
+    while i <= last {
+      let p = a[i] * b[k - i]
+      lo += p & MASK
+      hi += p >> SHIFT
+      i += 1
+    }
+    let t = lo + carry
+    out = push(out, t & MASK)
+    carry = (t >> SHIFT) + hi
+    k += 1
+  }
+  while carry > 0 {
+    out = push(out, carry & MASK)
+    carry = carry >> SHIFT
+  }
+  norm(out)
+}
+
+// a * s + c，s 和 c 小于 2^30
+fn mmul_small(a: List<Int>, s: Int, c0: Int) -> List<Int> {
+  var out: List<Int> = []
+  var c = c0
+  for x in a {
+    let t = x * s + c
+    out = push(out, t & MASK)
+    c = t >> SHIFT
+  }
+  if c > 0 { out = push(out, c) }
+  norm(out)
+}
+
+// (a / s, a % s)，0 < s < 2^30
+fn mdiv_small(a: List<Int>, s: Int) -> (List<Int>, Int) {
+  var q: List<Int> = []
+  var r = 0
+  var i = len(a) - 1
+  while i >= 0 {
+    let cur = (r << SHIFT) | a[i]
+    q = push(q, cur / s)
+    r = cur % s
+    i -= 1
+  }
+  (norm(reverse(q)), r)
+}
+
+fn mshl_limbs(a: List<Int>, k: Int) -> List<Int> {
+  if len(a) == 0 { return a }
+  var z: List<Int> = []
+  var i = 0
+  while i < k {
+    z = push(z, 0)
+    i += 1
+  }
+  z + a
+}
+
+fn mshl(a: List<Int>, n: Int) -> List<Int> {
+  if len(a) == 0 || n == 0 { return a }
+  let ls = n / SHIFT
+  let bs = n % SHIFT
+  if bs == 0 { return mshl_limbs(a, ls) }
+  var out: List<Int> = []
+  var carry = 0
+  for x in a {
+    out = push(out, ((x << bs) & MASK) | carry)
+    carry = x >> (SHIFT - bs)
+  }
+  if carry > 0 { out = push(out, carry) }
+  mshl_limbs(out, ls)
+}
+
+fn mshr(a: List<Int>, n: Int) -> List<Int> {
+  let ls = n / SHIFT
+  if ls >= len(a) { return [] }
+  let bs = n % SHIFT
+  let b = a[ls..]
+  if bs == 0 { return b }
+  var out: List<Int> = []
+  var i = 0
+  while i < len(b) {
+    let hi = if i + 1 < len(b) { (b[i + 1] << (SHIFT - bs)) & MASK } else { 0 }
+    out = push(out, (b[i] >> bs) | hi)
+    i += 1
+  }
+  norm(out)
+}
+
+fn mbitlen(a: List<Int>) -> Int { if len(a) == 0 { 0 } else { (len(a) - 1) * SHIFT + bits.len64(a[len(a) - 1]) } }
+
+// (a / b, a % b)，b 不为零（Knuth 算法 D 的思路，每步用整段的列表运算）
+fn mdivmod(a: List<Int>, b: List<Int>) -> (List<Int>, List<Int>) {
+  if mcmp(a, b) < 0 { return ([], a) }
+  if len(b) == 1 {
+    let (q, r) = mdiv_small(a, b[0])
+    return (q, if r == 0 { [] } else { [r] })
+  }
+  // 规范化：让除数最高一组的最高位为 1
+  let s = SHIFT - bits.len64(b[len(b) - 1])
+  let v = mshl(b, s)
+  var u = mshl(a, s)
+  let n = len(v)
+  let m = len(u) - n
+  let vtop = v[n - 1]
+  let vnext = v[n - 2]
+  var q: List<Int> = []
+  var j = m
+  while j >= 0 {
+    let u2 = if j + n < len(u) { u[j + n] } else { 0 }
+    let u1 = if j + n - 1 < len(u) { u[j + n - 1] } else { 0 }
+    let u0 = if j + n - 2 < len(u) { u[j + n - 2] } else { 0 }
+    let num = (u2 << SHIFT) | u1
+    var qhat = num / vtop
+    var rhat = num % vtop
+    if qhat > MASK {
+      qhat = MASK
+      rhat = num - qhat * vtop
+    }
+    while rhat < BASE && qhat * vnext > ((rhat << SHIFT) | u0) {
+      qhat -= 1
+      rhat += vtop
+    }
+    // u -= qhat * v * BASE^j
+    var sub = mshl_limbs(mmul_small(v, qhat, 0), j)
+    while mcmp(sub, u) > 0 {
+      qhat -= 1
+      sub = mshl_limbs(mmul_small(v, qhat, 0), j)
+    }
+    u = msub(u, sub)
+    q = push(q, qhat)
+    j -= 1
+  }
+  (norm(reverse(q)), mshr(u, s))
+}
+
+// ───────── 构造与转换 ─────────
+
+pub fn new_int(x: Int) -> BigInt {
+  if x == 0 { return BigInt { neg: false, mag: [] } }
+  if x == (1 << 63) { return BigInt { neg: true, mag: [0, 0, 8] } }
+  let neg = x < 0
+  var v = if neg { -x } else { x }
+  var mag: List<Int> = []
+  while v > 0 {
+    mag = push(mag, v & MASK)
+    v = v >> SHIFT
+  }
+  BigInt { neg: neg, mag: mag }
+}
+
+pub fn zero() -> BigInt { BigInt { neg: false, mag: [] } }
+
+pub fn one() -> BigInt { new_int(1) }
+
+// uint64 位模式（2^63 以上传负数）
+pub fn new_uint64(x: Int) -> BigInt {
+  if x >= 0 { return new_int(x) }
+  BigInt { neg: false, mag: [x & MASK, (x >> 30) & MASK, (x >> 60) & 15] }
+}
+
+fn digit_val(c: Int) -> Int {
+  if c >= 48 && c <= 57 { c - 48 } else if c >= 97 && c <= 122 { c - 87 } else if c >= 65 && c <= 90 { c - 29 } else { 99 }
+}
+
+// Go 的 SetString：失败时返回 None
+pub fn parse(s: Str, base0: Int) -> Option<BigInt> {
+  let bs = __bytes(s)
+  var i = 0
+  var neg = false
+  if i < len(bs) && (bs[i] == 43 || bs[i] == 45) {
+    neg = bs[i] == 45
+    i += 1
+  }
+  var base = base0
+  var prefix = false
+  if base0 == 0 {
+    base = 10
+    if i < len(bs) && bs[i] == 48 {
+      if i + 1 < len(bs) && (bs[i + 1] == 120 || bs[i + 1] == 88) {
+        base = 16
+        i += 2
+        prefix = true
+      } else if i + 1 < len(bs) && (bs[i + 1] == 98 || bs[i + 1] == 66) {
+        base = 2
+        i += 2
+        prefix = true
+      } else if i + 1 < len(bs) && (bs[i + 1] == 111 || bs[i + 1] == 79) {
+        base = 8
+        i += 2
+        prefix = true
+      } else {
+        base = 8
+        prefix = true
+        i += 1
+        // 单独的 "0" 也合法
+        if i == len(bs) { return Some(zero()) }
+        // 八进制前缀 0 本身算作一个数字，后面可以直接跟 _
+        return parse_digits(bs, i, 8, neg, base0 == 0, true, 1)
+      }
+    }
+  } else if base0 < 2 || base0 > 62 {
+    return None
+  }
+  parse_digits(bs, i, base, neg, base0 == 0, prefix, 0)
+}
+
+fn parse_digits(bs: List<Int>, start: Int, base: Int, neg: Bool, allow_us: Bool, prev_ok: Bool, count0: Int) -> Option<BigInt> {
+  var i = start
+  var mag: List<Int> = []
+  var count = count0
+  var prev_digit = prev_ok
+  var last_us = false
+  while i < len(bs) {
+    let c = bs[i]
+    if c == 95 && allow_us {
+      if !prev_digit { return None }
+      prev_digit = false
+      last_us = true
+      i += 1
+      continue
+    }
+    var d = digit_val(c)
+    if base <= 36 && c >= 65 && c <= 90 { d = c - 55 }
+    if d >= base { return None }
+    mag = mmul_small(mag, base, d)
+    count += 1
+    prev_digit = true
+    last_us = false
+    i += 1
+  }
+  if last_us { return None }
+  if count == 0 { return None }
+  Some(mk(neg, mag))
+}
+
+fn digits() -> List<Str> { chars("0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ") }
+
+// (base^k, k)：小于 2^30 的最大幂
+fn chunk(base: Int) -> (Int, Int) {
+  var p = base
+  var k = 1
+  while p * base < BASE {
+    p = p * base
+    k += 1
+  }
+  (p, k)
+}
+
+// 大端序字节
+pub fn set_bytes(bs: List<Int>) -> BigInt { fold(bs, zero(), (acc, b) => mk(false, mmul_small(acc.mag, 256, b & 255))) }
+
+// 1..n 的乘积等组合函数
+pub fn mul_range(a: Int, b: Int) -> BigInt {
+  if a > b { return one() }
+  if a <= 0 && b >= 0 { return zero() }
+  var r = one()
+  var i = a
+  while i <= b {
+    r = r.mul(new_int(i))
+    i += 1
+  }
+  r
+}
+
+pub fn binomial(n: Int, k0: Int) -> BigInt {
+  if k0 > n { return zero() }
+  let k = if k0 > n - k0 { n - k0 } else { k0 }
+  var r = one()
+  var i = 1
+  while i <= k {
+    r = r.mul(new_int(n - k + i)).quo(new_int(i))
+    i += 1
+  }
+  r
+}
+
+// 二进制补码：n 组 30 位
+fn to_tc(x: BigInt, n: Int) -> List<Int> {
+  var out: List<Int> = []
+  if !x.neg {
+    var i = 0
+    while i < n {
+      out = push(out, if i < len(x.mag) { x.mag[i] } else { 0 })
+      i += 1
+    }
+    return out
+  }
+  let m = msub(x.mag, [1])
+  var i = 0
+  while i < n {
+    out = push(out, (~(if i < len(m) { m[i] } else { 0 })) & MASK)
+    i += 1
+  }
+  out
+}
+
+fn from_tc(t: List<Int>, neg: Bool) -> BigInt {
+  if !neg { return mk(false, t) }
+  let inv = map(t, (x) => (~x) & MASK)
+  mk(true, madd(norm(inv), [1]))
+}
+
+fn bitop(x: BigInt, y: BigInt, op: Int) -> BigInt {
+  let n = (if len(x.mag) > len(y.mag) { len(x.mag) } else { len(y.mag) }) + 1
+  let a = to_tc(x, n)
+  let b = to_tc(y, n)
+  var out: List<Int> = []
+  var i = 0
+  while i < n {
+    out = push(out, if op == 0 { a[i] & b[i] } else if op == 1 { a[i] | b[i] } else if op == 2 { a[i] ^ b[i] } else { a[i] & ((~b[i]) & MASK) })
+    i += 1
+  }
+  let neg = if op == 0 { x.neg && y.neg } else if op == 1 { x.neg || y.neg } else if op == 2 { x.neg != y.neg } else { x.neg && !y.neg }
+  from_tc(out, neg)
+}
+
+fn small_primes() -> List<Int> { [2, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37, 41, 43, 47, 53] }
+
+// Jacobi 符号 (x/y)，y 为正奇数
+fn jacobi(x0: BigInt, y0: BigInt) -> Int {
+  var a = x0.modulo(y0)
+  var b = y0
+  var j = 1
+  while a.sign() != 0 {
+    while a.bit(0) == 0 {
+      a = a.rsh(1)
+      let r = b.mag[0] & 7
+      if r == 3 || r == 5 { j = -j }
+    }
+    let t = a
+    a = b
+    b = t
+    if (a.mag[0] & 3) == 3 && (b.mag[0] & 3) == 3 { j = -j }
+    a = a.modulo(b)
+  }
+  if b.cmp(one()) == 0 { j } else { 0 }
+}
+
+// Int.Divide 的取整方式（Go 里是 RoundingMode 的别名 ToZero、ToNegativeInf、ToNearestEven、ToPositiveInf）
+pub const TRUNC: Int = 2
+pub const FLOOR: Int = 4
+pub const ROUND: Int = 0
+pub const CEIL: Int = 5
+
+impl BigInt {
+  fn sign(self) -> Int { if len(self.mag) == 0 { 0 } else if self.neg { -1 } else { 1 } }
+
+  fn negate(self) -> BigInt { mk(!self.neg, self.mag) }
+
+  fn abs_value(self) -> BigInt { BigInt { neg: false, mag: self.mag } }
+
+  fn cmp(self, y: BigInt) -> Int {
+    if self.neg != y.neg { return if self.neg { -1 } else { 1 } }
+    let c = mcmp(self.mag, y.mag)
+    if self.neg { -c } else { c }
+  }
+
+  fn cmp_abs(self, y: BigInt) -> Int { mcmp(self.mag, y.mag) }
+
+  fn add(self, y: BigInt) -> BigInt {
+    if self.neg == y.neg { return mk(self.neg, madd(self.mag, y.mag)) }
+    let c = mcmp(self.mag, y.mag)
+    if c == 0 { return zero() }
+    if c > 0 { mk(self.neg, msub(self.mag, y.mag)) } else { mk(y.neg, msub(y.mag, self.mag)) }
+  }
+
+  fn sub(self, y: BigInt) -> BigInt { self.add(y.negate()) }
+
+  fn mul(self, y: BigInt) -> BigInt { mk(self.neg != y.neg, mmul(self.mag, y.mag)) }
+
+  // 向零截断
+  fn quo_rem(self, y: BigInt) -> (BigInt, BigInt) {
+    if len(y.mag) == 0 { panic("division by zero") }
+    let (q, r) = mdivmod(self.mag, y.mag)
+    (mk(self.neg != y.neg, q), mk(self.neg, r))
+  }
+
+  // Go 1.27 的 Int.Divide：按 mode（TRUNC / FLOOR / ROUND / CEIL）取整的商和对应余数 r = x - y*q
+  fn divide(self, y: BigInt, mode: Int) -> (BigInt, BigInt) {
+    if len(y.mag) == 0 { panic("division by zero") }
+    let neg = self.neg != y.neg
+    let (q0, r0) = mdivmod(self.mag, y.mag)
+    var q = q0
+    var r = r0
+    var r_neg = false
+    if len(r) > 0 {
+      var bump = false
+      if mode == TRUNC {
+        r_neg = self.neg
+      } else if mode == FLOOR {
+        r_neg = y.neg
+        bump = neg
+      } else if mode == CEIL {
+        r_neg = !y.neg
+        bump = !neg
+      } else if mode == ROUND {
+        let c = mcmp(madd(r, r), y.mag)
+        let even = len(q) == 0 || q[0] % 2 == 0
+        if c < 0 || (c == 0 && even) { r_neg = self.neg } else { r_neg = !self.neg; bump = true }
+      } else {
+        panic("unsupported rounding mode")
+      }
+      if bump {
+        q = madd(q, [1])
+        r = msub(y.mag, r)
+      }
+    }
+    (mk(neg, q), mk(r_neg, r))
+  }
+
+  fn quo(self, y: BigInt) -> BigInt { self.quo_rem(y).0 }
+
+  fn rem(self, y: BigInt) -> BigInt { self.quo_rem(y).1 }
+
+  // 欧几里得除法：余数总是非负
+  fn div_mod(self, y: BigInt) -> (BigInt, BigInt) {
+    let (q, r) = self.quo_rem(y)
+    if r.neg {
+      if y.neg { (q.add(one()), r.sub(y)) } else { (q.sub(one()), r.add(y)) }
+    } else {
+      (q, r)
+    }
+  }
+
+  fn div(self, y: BigInt) -> BigInt { self.div_mod(y).0 }
+
+  fn modulo(self, y: BigInt) -> BigInt { self.div_mod(y).1 }
+
+  fn lsh(self, n: Int) -> BigInt { mk(self.neg, mshl(self.mag, n)) }
+
+  // 负数向负无穷取整（和 Go 相同）
+  fn rsh(self, n: Int) -> BigInt {
+    if !self.neg { return mk(false, mshr(self.mag, n)) }
+    let t = mshr(msub(self.mag, [1]), n)
+    mk(true, madd(t, [1]))
+  }
+
+  fn bit_len(self) -> Int { mbitlen(self.mag) }
+
+  fn trailing_zero_bits(self) -> Int {
+    var i = 0
+    while i < len(self.mag) && self.mag[i] == 0 { i += 1 }
+    if i == len(self.mag) { 0 } else { i * SHIFT + bits.trailing_zeros64(self.mag[i]) }
+  }
+
+  // 第 i 位（负数按补码）
+  fn bit(self, i: Int) -> Int {
+    if i < 0 { panic("negative bit index") }
+    if !self.neg {
+      let k = i / SHIFT
+      if k >= len(self.mag) { 0 } else { (self.mag[k] >> (i % SHIFT)) & 1 }
+    } else {
+      let m = msub(self.mag, [1])
+      let k = i / SHIFT
+      let v = if k >= len(m) { 0 } else { (m[k] >> (i % SHIFT)) & 1 }
+      1 - v
+    }
+  }
+
+  fn set_bit(self, i: Int, b: Int) -> BigInt {
+    if i < 0 { panic("negative bit index") }
+    let m = one().lsh(i)
+    if b == 1 { self.or(m) } else if b == 0 { self.and_not(m) } else { panic("set bit is not 0 or 1") }
+  }
+
+  fn and(self, y: BigInt) -> BigInt { bitop(self, y, 0) }
+
+  fn or(self, y: BigInt) -> BigInt { bitop(self, y, 1) }
+
+  fn xor(self, y: BigInt) -> BigInt { bitop(self, y, 2) }
+
+  fn and_not(self, y: BigInt) -> BigInt { bitop(self, y, 3) }
+
+  fn not(self) -> BigInt { self.negate().sub(one()) }
+
+  fn is_int64(self) -> Bool {
+    let bl = self.bit_len()
+    bl <= 63 || (self.neg && bl == 64 && self.trailing_zero_bits() == 63)
+  }
+
+  // 低 64 位（按 Go 的 Int64：超出范围时结果未定义，这里取补码的低 64 位）
+  fn int64(self) -> Int {
+    var v = 0
+    var i = 0
+    while i < len(self.mag) && i < 3 {
+      v = v | (self.mag[i] << (SHIFT * i))
+      i += 1
+    }
+    if self.neg { bits.wneg(v) } else { v }
+  }
+
+  fn is_uint64(self) -> Bool { !self.neg && self.bit_len() <= 64 }
+
+  fn uint64(self) -> Int { self.int64() }
+
+  fn text(self, base: Int) -> Str {
+    if base < 2 || base > 62 { panic("invalid base") }
+    if len(self.mag) == 0 { return "0" }
+    let ds = digits()
+    let (p, k) = chunk(base)
+    var parts: List<Str> = []
+    var m = self.mag
+    while len(m) > 0 {
+      let (q, r) = mdiv_small(m, p)
+      m = q
+      var piece = ""
+      var x = r
+      var c = 0
+      while (len(m) > 0 && c < k) || (len(m) == 0 && x > 0) {
+        piece = ds[x % base] + piece
+        x = x / base
+        c += 1
+      }
+      parts = push(parts, piece)
+    }
+    var out = if self.neg { "-" } else { "" }
+    var i = len(parts) - 1
+    while i >= 0 {
+      out = out + parts[i]
+      i -= 1
+    }
+    out
+  }
+
+  fn string(self) -> Str { self.text(10) }
+
+  // 绝对值的大端序字节
+  fn bytes(self) -> List<Int> {
+    var out: List<Int> = []
+    var m = self.mag
+    while len(m) > 0 {
+      let (q, r) = mdiv_small(m, 256)
+      out = push(out, r)
+      m = q
+    }
+    reverse(out)
+  }
+
+  // 开平方取整；负数 panic
+  fn sqrt(self) -> BigInt {
+    if self.neg { panic("square root of negative number") }
+    if len(self.mag) == 0 { return zero() }
+    var x = one().lsh((self.bit_len() + 1) / 2 + 1)
+    loop {
+      let y = x.add(self.quo(x)).rsh(1)
+      if y.cmp(x) >= 0 { break x }
+      x = y
+    }
+  }
+
+  // z = x**y mod |m|；m 为零时不取模（y <= 0 时结果为 1）；m 不为零且 y < 0 时用模逆，求不出时返回 None
+  fn exp(self, y: BigInt, m: BigInt) -> Option<BigInt> {
+    let xneg = self.neg
+    var x = self
+    var e = y
+    if len(m.mag) > 0 && y.neg {
+      match x.mod_inverse(m) {
+        None     => { return None },
+        Some(iv) => {
+          x = iv
+          e = y.abs_value()
+        },
+      }
+    }
+    if e.neg || len(e.mag) == 0 {
+      return Some(if len(m.mag) > 0 && mcmp(m.mag, [1]) == 0 { zero() } else { one() })
+    }
+    let mm = m.mag
+    if len(mm) >= 4 && (mm[0] & 1) == 1 {
+      let r = mont_exp(mdivmod(x.mag, mm).1, e, mm)
+      let rr = mk(false, r)
+      let neg2 = len(rr.mag) > 0 && xneg && e.bit(0) == 1
+      if neg2 { return Some(mk(false, msub(mm, rr.mag))) }
+      return Some(rr)
+    }
+    var base = if len(mm) > 0 { mk(false, mdivmod(x.mag, mm).1) } else { x.abs_value() }
+    var acc = one()
+    let nb = e.bit_len()
+    var i = 0
+    while i < nb {
+      if e.bit(i) == 1 {
+        acc = acc.mul(base)
+        if len(mm) > 0 { acc = mk(false, mdivmod(acc.mag, mm).1) }
+      }
+      i += 1
+      if i < nb {
+        base = base.mul(base)
+        if len(mm) > 0 { base = mk(false, mdivmod(base.mag, mm).1) }
+      }
+    }
+    if len(mm) > 0 { acc = mk(false, mdivmod(acc.mag, mm).1) }
+    let neg = len(acc.mag) > 0 && xneg && e.bit(0) == 1
+    if neg && len(mm) > 0 { return Some(mk(false, msub(mm, acc.mag))) }
+    Some(mk(neg, acc.mag))
+  }
+
+  fn gcd(self, b: BigInt) -> BigInt { self.gcd_ext(b).0 }
+
+  // (g, x, y)：g = gcd(|a|, |b|) = a*x + b*y，系数和 Go 的 GCD 相同
+  fn gcd_ext(self, b: BigInt) -> (BigInt, BigInt, BigInt) {
+    let a = self
+    if len(a.mag) == 0 || len(b.mag) == 0 {
+      let g = if len(a.mag) == 0 { b.abs_value() } else { a.abs_value() }
+      let x = if len(a.mag) == 0 { zero() } else { mk(a.neg, [1]) }
+      let y = if len(b.mag) == 0 { zero() } else { mk(b.neg, [1]) }
+      return (g, x, y)
+    }
+    var aa = a.abs_value()
+    var bb = b.abs_value()
+    var ua = one()
+    var ub = zero()
+    if mcmp(aa.mag, bb.mag) < 0 {
+      let t = aa
+      aa = bb
+      bb = t
+      let u = ua
+      ua = ub
+      ub = u
+    }
+    while len(bb.mag) > 0 {
+      let (q, r) = aa.quo_rem(bb)
+      aa = bb
+      bb = r
+      let t = ub
+      ub = ua.sub(ub.mul(q))
+      ua = t
+    }
+    let x = if a.neg { ua.negate() } else { ua }
+    let y = aa.sub(a.mul(x)).div(b)
+    (aa, x, y)
+  }
+
+  // g 关于模 n 的逆元，结果在 [0, |n|)；不存在时返回 None
+  fn mod_inverse(self, n0: BigInt) -> Option<BigInt> {
+    let n = n0.abs_value()
+    let g = if self.neg { self.modulo(n) } else { self }
+    let (d, x, _) = g.gcd_ext(n)
+    if d.cmp(one()) != 0 { return None }
+    Some(if x.neg { x.add(n) } else { x })
+  }
+
+  // Baillie–PSW（Miller–Rabin 底 2 + 强 Lucas）外加 n 轮固定底的 Miller–Rabin；
+  // 对素数总返回 true，目前没有已知的合数能通过 BPSW，所以结果和 Go 一致
+  fn probably_prime(self, n: Int) -> Bool {
+    if n < 0 { panic("negative n for ProbablyPrime") }
+    if self.neg || len(self.mag) == 0 { return false }
+    if len(self.mag) == 1 && self.mag[0] < 64 {
+      return contains([2, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37, 41, 43, 47, 53, 59, 61], self.mag[0])
+    }
+    if self.mag[0] % 2 == 0 { return false }
+    for p in small_primes() {
+      if mdiv_small(self.mag, p).1 == 0 { return false }
+    }
+    if !self.miller_rabin(new_int(2)) { return false }
+    var k = 0
+    let bases = [3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37, 41]
+    while k < n && k < len(bases) {
+      if !self.miller_rabin(new_int(bases[k])) { return false }
+      k += 1
+    }
+    self.strong_lucas()
+  }
+
+  fn miller_rabin(self, a: BigInt) -> Bool {
+    let nm1 = self.sub(one())
+    let s = nm1.trailing_zero_bits()
+    let d = nm1.rsh(s)
+    var x = unwrap(a.exp(d, self))
+    if x.cmp(one()) == 0 || x.cmp(nm1) == 0 { return true }
+    var r = 1
+    while r < s {
+      x = x.mul(x).modulo(self)
+      if x.cmp(nm1) == 0 { return true }
+      if x.cmp(one()) == 0 { return false }
+      r += 1
+    }
+    false
+  }
+
+  // 强 Lucas 测试（Selfridge 方法 A 选 D）
+  fn strong_lucas(self) -> Bool {
+    let n = self
+    let sq = n.sqrt()
+    if sq.mul(sq).cmp(n) == 0 { return false }
+    var dd = 5
+    loop {
+      let j = jacobi(new_int(dd), n)
+      if j == -1 { break }
+      if j == 0 && new_int(if dd < 0 { -dd } else { dd }).cmp(n) != 0 { return false }
+      dd = if dd > 0 { -(dd + 2) } else { -dd + 2 }
+    }
+    let p = 1
+    let q = new_int((1 - dd) / 4)
+    let np1 = n.add(one())
+    let s = np1.trailing_zero_bits()
+    let d = np1.rsh(s)
+    var u = one()
+    var v = new_int(p)
+    var qk = q.modulo(n)
+    let dn = new_int(dd)
+    let two = new_int(2)
+    var i = d.bit_len() - 2
+    while i >= 0 {
+      u = u.mul(v).modulo(n)
+      v = v.mul(v).sub(qk.mul(two)).modulo(n)
+      qk = qk.mul(qk).modulo(n)
+      if d.bit(i) == 1 {
+        let u2 = u.mul(new_int(p)).add(v)
+        let v2 = dn.mul(u).add(v.mul(new_int(p)))
+        u = half_mod(u2, n)
+        v = half_mod(v2, n)
+        qk = qk.mul(q).modulo(n)
+      }
+      i -= 1
+    }
+    if u.sign() == 0 || v.sign() == 0 { return true }
+    var r = 1
+    while r < s {
+      v = v.mul(v).sub(qk.mul(two)).modulo(n)
+      if v.sign() == 0 { return true }
+      qk = qk.mul(qk).modulo(n)
+      r += 1
+    }
+    false
+  }
+}
+
+// x / 2 mod n（n 是奇数）
+fn half_mod(x0: BigInt, n: BigInt) -> BigInt {
+  let x = x0.modulo(n)
+  if x.bit(0) == 1 { x.add(n).rsh(1).modulo(n) } else { x.rsh(1) }
+}

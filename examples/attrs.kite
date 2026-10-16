@@ -1,0 +1,24 @@
+// 文法 v0.6 第三批（四）：显式泛型实参 .<T> 与属性 @attr
+@inline
+fn id<T>(x: T) -> T { x }
+fn pair<A, B>(a: A, b: B) -> (A, B) { (a, b) }
+@cold
+fn old_parse(s: Str) -> Int { int(s) }
+fn sum<T: Num>(xs: List<T>) -> T {
+  var t = xs[0]
+  for x in xs[1..] { t = t + x }
+  t
+}
+@doc("点")
+type P = {
+  @doc("横坐标") x: Int
+  y: Int
+}
+enum E {
+  @doc("a") A
+  B
+}
+fn main() {
+  let f = id.<Str>
+  print(id.<Int>(3), pair.<Int, _>(1, "b"), f("s"), sum.<Float>([1.0, 2.5]), old_parse("4"), P { x: 1, y: 2 }, A)
+}

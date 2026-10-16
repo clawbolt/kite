@@ -1,0 +1,65 @@
+// std.maps：Map 工具（对齐 Go 的 maps 包）。所有函数返回新的 Map
+//   Go 1.23 的 Keys / Values / All 返回迭代器，这里返回列表；sorted_keys 按键排序，便于得到确定的顺序
+
+pub fn keys<K, V>(m: Map<K, V>) -> List<K> {
+  var out: List<K> = []
+  for (k, _) in m { out = push(out, k) }
+  out
+}
+
+pub fn values<K, V>(m: Map<K, V>) -> List<V> {
+  var out: List<V> = []
+  for (_, v) in m { out = push(out, v) }
+  out
+}
+
+pub fn sorted_keys<K: Ord, V>(m: Map<K, V>) -> List<K> { sort(keys(m)) }
+
+pub fn all<K, V>(m: Map<K, V>) -> List<(K, V)> {
+  var out: List<(K, V)> = []
+  for (k, v) in m { out = push(out, (k, v)) }
+  out
+}
+
+pub fn clone<K, V>(m: Map<K, V>) -> Map<K, V> { m }
+
+// 把 src 的键值写进 dst（Go 的 maps.Copy）
+pub fn copy<K, V>(dst: Map<K, V>, src: Map<K, V>) -> Map<K, V> {
+  var out = dst
+  for k in keys(src) { out = set(out, k, src[k]) }
+  out
+}
+
+// 删掉 del(k, v) 为 true 的项
+pub fn delete_func<K, V>(m: Map<K, V>, del: fn(K, V) -> Bool) -> Map<K, V> {
+  var out = m
+  for k in keys(m) {
+    if del(k, m[k]) { out = remove(out, k) }
+  }
+  out
+}
+
+pub fn equal<K, V: Eq>(a: Map<K, V>, b: Map<K, V>) -> Bool {
+  if len(a) != len(b) { return false }
+  for k in keys(a) {
+    if !contains(b, k) || a[k] != b[k] { return false }
+  }
+  true
+}
+
+pub fn equal_func<K, V1, V2>(a: Map<K, V1>, b: Map<K, V2>, eq: fn(V1, V2) -> Bool) -> Bool {
+  if len(a) != len(b) { return false }
+  for k in keys(a) {
+    if !contains(b, k) || !eq(a[k], b[k]) { return false }
+  }
+  true
+}
+
+// 从 (键, 值) 列表建 Map（后出现的覆盖先出现的）
+pub fn collect<K, V>(pairs: List<(K, V)>) -> Map<K, V> { insert(Map(), pairs) }
+
+pub fn insert<K, V>(m: Map<K, V>, pairs: List<(K, V)>) -> Map<K, V> {
+  var out = m
+  for (k, v) in pairs { out = set(out, k, v) }
+  out
+}

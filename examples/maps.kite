@@ -1,0 +1,48 @@
+// 0.22：持久化 Map —— set/remove 返回新 Map，旧版本保持不变；写入不再整份复制
+
+type P = { xs: List<Int> }
+enum Sh {
+  Poly(List<Int>)
+  Dot
+}
+fn main() {
+  var m: Map<Int, Int> = Map()
+  var seed = 12345
+  var i = 0
+  while i < 20000 {
+    seed = (seed * 1103515245 + 12345) % 2147483648
+    let k = seed % 3000
+    if seed % 5 == 0 {
+      m = remove(m, k)
+    } else {
+      m = set(m, k, i)
+    }
+    i += 1
+  }
+  var s = 0
+  for (k, v) in m {
+    s = (s * 31 + k * 7 + v) % 1000000007
+  }
+  print(len(m), s, take(keys(m), 8), get(m, 17))
+  let a = Map([(1.0, "x"), (2.5, "y")])
+  let b = set(set(Map(), 2.5, "y"), 1.0, "x")
+  print(a == b, get(a, 1.0), remove(a, 9.0) == a, remove(a, 1.0))
+  var w: Map<Str, Int> = Map()
+  for x in split("the quick brown fox jumps over the lazy dog the end", " ") {
+    w = set(w, x, (get(w, x) |> unwrap_or(0)) + 1)
+  }
+  w = remove(w, "quick")
+  w = set(w, "quick", 9)
+  print(w)
+  let old = w
+  let w2 = set(w, "the", 100)
+  print(get(old, "the"), get(w2, "the"), len(Map([((1, "z"), 3)])))
+  // 任意值都能当键：List、结构体、带数据的变体、Map 本身
+  let m = Map([([1, 2], "a"), ([3], "b")])
+  print(get(m, [1, 2]), get(m, [2, 1]), contains(m, [3]))
+  let n = set(Map(), P { xs: [1] }, 1)
+  print(get(n, P { xs: [1] }), get(set(Map(), Poly([1, 2]), 5), Poly([1, 2])))
+  let mm = Map([(m, 1)])
+  print(get(mm, Map([([3], "b"), ([1, 2], "a")])), len(mm))
+  print(remove(m, [3]), m == Map([([3], "b"), ([1, 2], "a")]))
+}

@@ -1,0 +1,3 @@
+type Sorted<T: Ord> = List<T>
+fn bad<T>(xs: Sorted<T>) -> Int { 0 }
+fn main() { print(bad([1])) }

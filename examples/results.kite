@@ -1,0 +1,37 @@
+fn parse_age(s: Str) -> Result<Int, Str> {
+  let n = parse_int(s)?
+  if n < 0 || n > 150 {
+    return Err("年龄不合理: {n}")
+  }
+  Ok(n)
+}
+
+fn main() {
+  for input in ["42", "-3", "abc"] {
+    match parse_age(input) {
+      Ok(age) if age >= 18 => print("{input}: 成年人")
+      Ok(age)              => print("{input}: 未成年")
+      Err(e)               => print("{input}: 错误 -> {e}")
+    }
+  }
+
+  let prices = Map([("咖啡", 28), ("茶", 18)])
+  print(prices["咖啡"], prices.get("果汁"))
+  let xs = [3, 1, 2]
+  print(xs.sort(), xs.len(), xs |> first())
+  let level = if xs.len() > 2 { "高" } else { "低" }
+  print(level)
+
+  var count = 0
+  while true {
+    count += 1
+    if count >= 5 { break }
+  }
+  print("count = {count}")
+
+  let (a, b) = spawn {
+    10 * 2,
+    "done",
+  }.await
+  print(a, b)
+}

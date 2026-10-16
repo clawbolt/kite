@@ -1,0 +1,58 @@
+// Set：持久化集合，元素可以是任何值，遍历按插入顺序
+type Point = { x: Int, y: Int }
+
+fn main() {
+  let a = Set([3, 1, 4, 1, 5, 9, 2, 6])
+  print(a, len(a))
+  print(contains(a, 4), contains(a, 7))
+
+  let b = insert(insert(a, 7), 3)
+  print(b, a)
+  print(remove(b, 1))
+
+  let evens = Set([2, 4, 6, 8])
+  print(union(a, evens))
+  print(intersect(a, evens))
+  print(difference(a, evens))
+  print(is_subset(Set([1, 2]), a), is_subset(evens, a))
+
+  // 相等不看插入顺序
+  print(Set([1, 2, 3]) == Set([3, 2, 1]), Set([1]) == Set([1, 2]))
+
+  // 任何值都能当元素，包括结构体、列表和集合本身
+  let pts = Set([Point { x: 1, y: 2 }, Point { x: 1, y: 2 }, Point { x: 0, y: 0 }])
+  print(len(pts), contains(pts, Point { x: 0, y: 0 }))
+  let groups = Set([Set([1, 2]), Set([2, 1]), Set([3])])
+  print(groups)
+
+  // 当 Map 的键
+  let m = Map([(Set(["a", "b"]), 1)])
+  print(get(m, Set(["b", "a"])))
+
+  // 字面量与运算符：| 并集，& 交集，- 差集（也有 |= &= -=）
+  let x = Set{1, 2, 3}
+  let y = Set{3, 4}
+  print(x | y, x & y, x - y, Set{})
+  print(x | y == Set{4, 3, 2, 1}, len(x | y & Set{4}))
+  var acc = Set{"a"}
+  acc |= Set{"b", "c"}
+  acc -= Set{"a"}
+  acc &= Set{"c", "d"}
+  print(acc)
+  if x == Set{3, 2, 1} { print("相等") }
+
+  // 遍历、转列表
+  var total = 0
+  for x in a { total += x }
+  print(total, to_list(a) |> map((x) => x * 10))
+
+  // 去重并保持首次出现的顺序
+  let words = split("the cat and the dog and the bird", " ")
+  print(to_list(Set(words)) |> join(" "))
+
+  var seen: Set<Str> = Set()
+  for w in words {
+    if !contains(seen, w) { seen = insert(seen, w) }
+  }
+  print(seen, type_of(seen), remove(Set([0]), 0) == Set())
+}

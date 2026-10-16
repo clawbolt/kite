@@ -1,0 +1,142 @@
+// std.encoding.base32：Base32 编码（对齐 Go 的 encoding/base32，RFC 4648）
+//   base32.std_encoding() / hex_encoding()；new_encoding(字母表)；
+//   方法：enc.with_padding(c)（NO_PADDING 表示不填充）、enc.encode_to_string(bs)、enc.encode(bs)、
+//         enc.decode_string(s) -> Result<List<Int>, Str>、enc.encoded_len(n)、enc.decoded_len(n)
+//   解码时忽略 \r 和 \n；错误信息和 Go 相同：illegal base32 data at input byte N
+
+pub const STD_PADDING: Int = 61
+
+pub const NO_PADDING: Int = -1
+
+pub type Encoding = { abc: List<Int>, dmap: List<Int>, pad: Int }
+
+pub fn new_encoding(alphabet: Str) -> Encoding {
+  let abc = __bytes(alphabet)
+  if len(abc) != 32 { panic("encoding alphabet is not 32-bytes long") }
+  var dmap: List<Int> = []
+  for _ in 0..256 { dmap = push(dmap, 255) }
+  var i = 0
+  while i < 32 {
+    if abc[i] == 10 || abc[i] == 13 { panic("encoding alphabet contains newline character") }
+    if dmap[abc[i]] != 255 { panic("encoding alphabet includes duplicate symbols") }
+    dmap = set(dmap, abc[i], i)
+    i += 1
+  }
+  Encoding { abc: abc, dmap: dmap, pad: STD_PADDING }
+}
+
+pub fn std_encoding() -> Encoding { new_encoding("ABCDEFGHIJKLMNOPQRSTUVWXYZ234567") }
+
+pub fn hex_encoding() -> Encoding { new_encoding("0123456789ABCDEFGHIJKLMNOPQRSTUV") }
+
+fn corrupt(n: Int) -> Str { "illegal base32 data at input byte {n}" }
+
+impl Encoding {
+  fn with_padding(self, pad: Int) -> Encoding {
+    if pad == 13 || pad == 10 || pad > 0xff { panic("invalid padding") }
+    if pad >= 0 && self.dmap[pad] != 255 { panic("padding contained in alphabet") }
+    Encoding { pad: pad, ..self }
+  }
+
+  fn encoded_len(self, n: Int) -> Int { if self.pad == NO_PADDING { n / 5 * 8 + (n % 5 * 8 + 4) / 5 } else { (n + 4) / 5 * 8 } }
+
+  fn decoded_len(self, n: Int) -> Int { if self.pad == NO_PADDING { n / 8 * 5 + n % 8 * 5 / 8 } else { n / 8 * 5 } }
+
+  fn encode(self, src: List<Int>) -> List<Int> {
+    var out: List<Int> = []
+    var i = 0
+    let n = len(src)
+    while i < n {
+      var b: List<Int> = [0, 0, 0, 0, 0, 0, 0, 0]
+      let rem = n - i
+      // 按 Go 的 switch 从后往前拼 5 位一组
+      if rem >= 5 {
+        b = set(b, 7, src[i + 4] & 0x1f)
+        b = set(b, 6, src[i + 4] >> 5)
+      }
+      if rem >= 4 {
+        b = set(b, 6, b[6] | ((src[i + 3] << 3) & 0x1f))
+        b = set(b, 5, (src[i + 3] >> 2) & 0x1f)
+        b = set(b, 4, src[i + 3] >> 7)
+      }
+      if rem >= 3 {
+        b = set(b, 4, b[4] | ((src[i + 2] << 1) & 0x1f))
+        b = set(b, 3, (src[i + 2] >> 4) & 0x1f)
+      }
+      if rem >= 2 {
+        b = set(b, 3, b[3] | ((src[i + 1] << 4) & 0x1f))
+        b = set(b, 2, (src[i + 1] >> 1) & 0x1f)
+        b = set(b, 1, (src[i + 1] >> 6) & 0x1f)
+      }
+      b = set(b, 1, b[1] | ((src[i] << 2) & 0x1f))
+      b = set(b, 0, src[i] >> 3)
+      let size = if rem >= 5 { 8 } else { [0, 2, 4, 5, 7][rem] }
+      var k = 0
+      while k < size {
+        out = push(out, self.abc[b[k] & 31])
+        k += 1
+      }
+      if size < 8 && self.pad != NO_PADDING {
+        while k < 8 {
+          out = push(out, self.pad)
+          k += 1
+        }
+      }
+      i += 5
+    }
+    out
+  }
+
+  fn encode_to_string(self, src: List<Int>) -> Str { unwrap(__from_bytes(self.encode(src))) }
+
+  fn decode(self, input: List<Int>) -> Result<List<Int>, Str> {
+    let src = filter(input, (c) => c != 10 && c != 13)
+    let olen = len(src)
+    var out: List<Int> = []
+    var si = 0
+    var end = false
+    while si < olen && !end {
+      var dbuf: List<Int> = [0, 0, 0, 0, 0, 0, 0, 0]
+      var dlen = 8
+      var j = 0
+      while j < 8 {
+        if si == olen {
+          if self.pad != NO_PADDING { return Err(corrupt(olen - (olen - si) - j)) }
+          dlen = j
+          end = true
+          break
+        }
+        let c = src[si]
+        si += 1
+        let left = olen - si
+        if c == self.pad && j >= 2 && left < 8 {
+          if left + j < 7 { return Err(corrupt(olen)) }
+          var k = 0
+          while k < 7 - j {
+            if left > k && src[si + k] != self.pad { return Err(corrupt(olen - left + k - 1)) }
+            k += 1
+          }
+          dlen = j
+          end = true
+          if dlen == 1 || dlen == 3 || dlen == 6 { return Err(corrupt(olen - left - 1)) }
+          break
+        }
+        let v = self.dmap[c]
+        if v == 255 { return Err(corrupt(olen - left - 1)) }
+        dbuf = set(dbuf, j, v)
+        j += 1
+      }
+      let d = dbuf
+      var q: List<Int> = []
+      if dlen >= 2 { q = push(q, ((d[0] << 3) | (d[1] >> 2)) & 0xff) }
+      if dlen >= 4 { q = push(q, ((d[1] << 6) | (d[2] << 1) | (d[3] >> 4)) & 0xff) }
+      if dlen >= 5 { q = push(q, ((d[3] << 4) | (d[4] >> 1)) & 0xff) }
+      if dlen >= 7 { q = push(q, ((d[4] << 7) | (d[5] << 2) | (d[6] >> 3)) & 0xff) }
+      if dlen >= 8 { q = push(q, ((d[6] << 5) | d[7]) & 0xff) }
+      out = out + q
+    }
+    Ok(out)
+  }
+
+  fn decode_string(self, s: Str) -> Result<List<Int>, Str> { self.decode(__bytes(s)) }
+}

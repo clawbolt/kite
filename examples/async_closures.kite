@@ -1,0 +1,29 @@
+// async 块与 async 闭包：同样返回惰性的 Future
+async fn fetch(n: Int) -> Int {
+  sleep(30)
+  n * 10
+}
+
+async fn main() {
+  let double = async (x: Int) => fetch(x).await * 2
+  print(double(2).await)
+  let job = async {
+    let a = fetch(1).await
+    let b = fetch(2).await
+    a + b
+  }
+  print("还没执行")
+  print(job.await)
+  let tag = async fn(s: Str) -> Str {
+    if s == "" { return "空" }
+    "<{s}>"
+  }
+  let (x, y, z) = spawn { double(5), async { fetch(7).await + 1 }, tag("k") }.await
+  print(x, y, z, tag("").await)
+  let fs = [1, 2, 3].map(n => fetch(n))
+  var total = 0
+  for f in fs {
+    total += f.await
+  }
+  print(total)
+}

@@ -1,0 +1,64 @@
+// 0.78：对齐 Go 标准库的第一批模块（全部用 Kite 写，三个引擎通用）
+use std.strconv
+use std.strings
+use std.slices
+use std.path
+use std.encoding.hex
+use std.encoding.base64
+use std.encoding.csv
+use std.crypto.sha256
+use std.hash.crc32
+use std.hash.fnv
+use std.flag
+use std.log
+use std.container.heap
+use std.unicode.utf8
+
+fn main() {
+  print(strconv.parse_int_base("ff", 16), strconv.parse_int_base("-0x7fff_ffff_ffff_ffff", 0), strconv.parse_int_base("-9223372036854775808", 10), strconv.parse_int_base("9223372036854775808", 10), strconv.parse_int_base("12a", 10))
+  print(strconv.format_int(255, 2), strconv.format_int(-255, 16), strconv.format_int(-9223372036854775807 - 1, 36), strconv.parse_bool("T"), strconv.format_float(3.14159, 3))
+  let q = strconv.quote("a\"b\\c\n\t中" + strings.chr(1))
+  print(q, strconv.unquote(q), strconv.unquote("\"\\u4e2d\\u\{1F600\}\""), strconv.unquote("x"))
+  print(strings.find_last("abcabc", "bc"), strings.find_any("hello", "xyl"), strings.split_n("a,b,c,d", ",", 2), strings.cut("k=v=w", "="), strings.title("hello wide world"))
+  print(strings.trim_chars("xxhixyx", "xy"), strings.trim_prefix("v1", "v"), strings.replace_n("aaaa", "a", "b", 2), strings.equal_fold("Go", "GO"), strings.fields(" a  b "))
+  print(slices.index([3, 1, 4], 4), slices.binary_search([1, 3, 5, 7], 5), slices.binary_search([1, 3, 5, 7], 4), slices.insert([1, 2, 5], 2, [3, 4]), slices.delete([1, 2, 3, 4], 1, 3))
+  print(slices.compact([1, 1, 2, 2, 1]), slices.unique([3, 1, 3, 2, 1]), slices.chunk([1, 2, 3, 4, 5], 2), slices.windows([1, 2, 3, 4], 3), slices.partition([1, 2, 3, 4], (x) => x % 2 == 0))
+  print(slices.group_by(["ab", "c", "de", "f"], (s) => len(s)), slices.max_by(["aa", "b", "cccc"], (s) => len(s)), slices.flatten([[1], [2, 3]]), slices.is_sorted([1, 2, 2]))
+  print(path.clean("a//b/./c/../d/"), path.clean("/../x"), path.clean("../../a/.."), path.join(["a", "", "b/", "../c"]), path.base("/a/b.txt/"), path.dir("/a/b/c"), path.ext("x/y.tar.gz"), path.split("a/b/c.go"), path.stem("dir/f.kite"))
+  print(path.match_glob("*.kite", "main.kite"), path.match_glob("a/*/c", "a/b/c"), path.match_glob("*", "a/b"), path.match_glob("[a-c]?x", "bzx"), path.match_glob("[!a]x", "ax"))
+  print(hex.encode("Hi 中"), hex.decode("4869e4b8ad"), hex.decode_str("e4b8ad"), hex.decode_str("ff"), hex.decode("4g"))
+  print(hex.dump("hello, world! 0123456789"))
+
+  print(base64.encode(""), base64.encode("f"), base64.encode("fo"), base64.encode("foo"), base64.encode("中文?>"), base64.url_encode("中文?>"), base64.raw_url_encode("ab"))
+  print(base64.decode_str("5Lit5paHPz4="), base64.url_decode_str("5Lit5paHPz4="), base64.raw_url_decode_str("YWI"), base64.decode("abc"), base64.decode("Zm9=v"), base64.decode("Zh=="))
+  let rows = csv.parse("name,note\r\n\"Li, Lei\",\"say \"\"hi\"\"\nok\"\n\nx,\n")
+  print(rows)
+  print(csv.format(unwrap(rows)))
+  print(csv.parse("a,\"b"), csv.parse("a,b\"c"), csv.parse_records("k,v\n1,2\n3,4"), csv.parse_with("a\tb", "\t"))
+  print(sha256.sum(""), sha256.sum("abc"))
+  print(sha256.sum("abcdbcdecdefdefgefghfghighijhijkijkljklmklmnlmnomnopnopq"))
+  print(sha256.hmac("key", "The quick brown fox jumps over the lazy dog"))
+  print(crc32.checksum("The quick brown fox jumps over the lazy dog"), crc32.checksum(""), crc32.update(crc32.checksum("hello "), utf8.bytes("world")) == crc32.checksum("hello world"))
+  print(fnv.hash32("hello"), fnv.hex64(fnv.hash64("hello")), fnv.hex64(fnv.hash64("")))
+  let specs = [flag.str("out", "a.out", "输出文件"), flag.int("n", 1, "次数"), flag.bool("v", "详细输出")]
+  match flag.parse(specs, ["-v", "--n=3", "in.txt", "--", "-x"]) {
+    Ok(f)  => print(flag.get(f, "out"), flag.get_int(f, "n"), flag.get_bool(f, "v"), flag.is_set(f, "out"), flag.args(f)),
+    Err(e) => print(e),
+  }
+  print(flag.parse(specs, ["-n", "x"]), flag.parse(specs, ["-q"]) |> is_err)
+  match flag.parse(specs, ["--help"]) {
+    Ok(_)  => print("?"),
+    Err(e) => print(e),
+  }
+  let l = log.with_level(log.new("[app] ", false), "INFO")
+  log.ldebug(l, "看不到")
+  log.linfo(l, "启动")
+  log.lerror(l, "出错了")
+  var h = heap.min_heap()
+  for x in [5, 1, 4, 1, 3, 9, 2] { h = heap.insert(h, x) }
+  print(heap.peek(h), heap.size(h), heap.drain(h), heap.size(h))
+  let mh = heap.from_list((a, b) => len(a) > len(b), ["aa", "b", "cccc", "ddd"])
+  print(heap.drain(mh), heap.pop(heap.max_heap()) |> is_none)
+  print(utf8.bytes("é中😀"), utf8.decode([0xe4, 0xb8, 0xad]), utf8.valid([0xc0, 0x80]), utf8.valid([0xed, 0xa0, 0x80]), utf8.byte_len("é中😀"), utf8.rune_count("é中😀"))
+  print(utf8.encode_rune(128512), utf8.rune_len(0x110000), utf8.runes("aé"), utf8.from_runes([20013, 25991]))
+}

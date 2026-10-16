@@ -1,0 +1,20 @@
+use std.encoding.base32
+fn show(r: Result<List<Int>, Str>) -> Str {
+  match r {
+    Ok(bs) => "ok {bs}",
+    Err(e) => "err " + e,
+  }
+}
+fn main() {
+  let encs = [base32.std_encoding(), base32.hex_encoding(), base32.std_encoding().with_padding(base32.NO_PADDING), base32.hex_encoding().with_padding(42)]
+  let ins = ["", "f", "fo", "foo", "foob", "fooba", "foobar", "你好世界!", "\u{0}\u{1}\u{ff}"]
+  for e in encs {
+    for s in ins {
+      let t = e.encode_to_string(__bytes(s))
+      print(t, e.encoded_len(len(__bytes(s))), e.decoded_len(len(t)), show(e.decode_string(t)))
+    }
+    for bad in ["MZXW6===", "MZXW6YQ=", "MZXW6Y==", "MZ======", "M=======", "MZX=====", "MZXW6YTB\nOI======", "MZXW6YTBOI=====", "MZXW6YTBOI=X====", "MZXW6YTBOI======MZ", "1ZXW6===", "MZXW6", "MZXW6YT", "mzxw", "CPNMU===", "CPNMU", "CPNMUOJ1", "CPNMU*", "M*******", "MZXW6YTB\r\nMZXW6YTB"] {
+      print(bad, show(e.decode_string(bad)))
+    }
+  }
+}

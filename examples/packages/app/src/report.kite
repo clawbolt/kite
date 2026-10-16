@@ -1,0 +1,11 @@
+// app 自己的模块（src/report.kite），用 use report 引入
+use geom.shapes.Shape
+use geom.describe
+
+pub fn lines(items: List<Shape>) -> List<Str> {
+  items |> map(s => "- {describe(s)}")
+}
+
+fn helper() -> Str {
+  "report 内部"
+}

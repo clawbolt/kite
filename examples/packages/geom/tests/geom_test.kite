@@ -1,0 +1,17 @@
+// 集成测试：只能访问 geom 的 pub 项
+use geom
+use geom.{ Point, dist }
+use geom.shapes.Shape
+
+fn test_dist() {
+  assert_eq(dist(Point { x: 0.0, y: 0.0 }, Point { x: 3.0, y: 4.0 }), 5.0)
+}
+
+fn test_area() {
+  assert_eq(geom.area(Square(3.0)), 9.0)
+  assert(geom.area(Circle(1.0)) > 3.14, "圆面积")
+}
+
+fn test_describe() {
+  assert_eq(geom.describe(Square(2.0)), "正方形，面积 4.0")
+}

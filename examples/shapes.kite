@@ -1,0 +1,34 @@
+type Point = { x: Float, y: Float }
+
+enum Shape {
+  Circle(r: Float)
+  Rect(w: Float, h: Float)
+}
+
+trait Describe {
+  fn describe(self) -> Str { "一个形状，面积 {self.area()}" }
+}
+
+impl Shape {
+  fn area(self) -> Float {
+    match self {
+      Circle(r)  => 3.14159 * r * r
+      Rect(w, h) => w * h
+    }
+  }
+}
+impl Describe for Shape {}
+
+fn main() {
+  let shapes = [Circle(1.0), Shape.Rect(2.0, 3.0)]
+  for s in shapes {
+    print(s.describe())
+  }
+  let total = shapes |> map(s => s.area()) |> sum()
+  print("总面积: {total}")
+
+  let p = Point { x: 1.0, y: 2.0 }
+  var q = p
+  q.x = 10.0
+  print(p, q)
+}

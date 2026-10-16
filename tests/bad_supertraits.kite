@@ -1,0 +1,9 @@
+trait A { fn a(self) -> Int }
+trait B: A { fn b(self) -> Int }
+trait C: Missing {}
+trait X: Y {}
+trait Y: X {}
+type T = { v: Int }
+impl B for T { fn b(self) -> Int { 1 } }
+fn up(x: dyn B) -> dyn A { x }
+fn main() {}

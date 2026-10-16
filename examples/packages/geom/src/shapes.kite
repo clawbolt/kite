@@ -1,0 +1,12 @@
+// geom 的子模块：使用者写 use geom.shapes
+pub enum Shape {
+  Circle(Float),
+  Square(Float),
+}
+
+pub fn name(s: Shape) -> Str {
+  match s {
+    Circle(_) => "圆",
+    Square(_) => "正方形",
+  }
+}

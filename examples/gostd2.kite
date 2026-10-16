@@ -1,0 +1,83 @@
+// 0.79：对齐 Go 标准库的第二批（math、os、time、bufio、regexp）
+use std.math
+use std.os
+use std.time
+use std.bufio
+use std.fs
+use std.regexp
+
+fn main() {
+  print(math.sqrt(2.0), math.sqrt(-1.0), math.log(0.0), math.pow(10.0, 400.0), math.exp(1.0), math.exp2(10.0))
+  print(math.tan(1.0), math.asin(2.0), math.atan2(1.0, -1.0), math.hypot(3.0, 4.0), math.fmod(7.5, 2.0), math.cbrt(27.0))
+  print(math.round(2.5), math.round(-2.5), math.trunc(-3.7), math.floor(-3.2), math.ceil(3.2), math.log2(8.0), math.log10(1000.0))
+  print(math.is_nan(math.nan), math.is_inf(-math.inf), math.signbit(-0.0), math.copysign(3.0, -1.0), math.gcd(12, -18), math.lcm(4, 6))
+  print(math.max_int, math.min_int, math.max_float, math.smallest_float, math.tau, math.phi, math.ln2, math.sinh(1.0), math.atanh(0.5))
+
+  let d = os.temp_dir() + "/kite_gostd2_{os.getpid()}"
+  os.remove_all(d) |> unwrap
+  os.mkdir_all(d + "/a/b") |> unwrap
+  fs.write(d + "/a/x.txt", "hello") |> unwrap
+  fs.write(d + "/a/b/y.kite", "y") |> unwrap
+  os.write_bytes(d + "/bin.dat", [0, 255, 128, 10]) |> unwrap
+  os.append_bytes(d + "/bin.dat", [7]) |> unwrap
+  print(os.read_bytes(d + "/bin.dat"), os.copy_file(d + "/bin.dat", d + "/c.dat"), os.read_bytes(d + "/c.dat"))
+  let fi = os.stat(d + "/a/x.txt") |> unwrap
+  print(fi.name, fi.size, fi.is_file, fi.is_dir, fi.mtime_ms > 1700000000000, os.stat(d + "/nope") |> is_err)
+  print(map(os.walk(d) |> unwrap, (p) => replace(p, d, "D")))
+  print(map(os.read_dir(d + "/a") |> unwrap, (f) => (f.name, f.is_dir)))
+  print(map(os.glob(d + "/*/*.txt"), (p) => replace(p, d, "D")), map(os.glob(d + "/a/*/*.kite"), (p) => replace(p, d, "D")))
+  os.setenv("KITE_T", "v1")
+  print(os.getenv("KITE_T"), any(os.environ(), (e) => e == "KITE_T=v1"))
+  os.unsetenv("KITE_T")
+  print(os.getenv("KITE_T"), os.getpid() > 0, len(os.hostname()) > 0, starts_with(os.getwd(), "/"))
+  print(os.remove_all(d), fs.exists(d), os.remove_all(d))
+  let t = time.date(2026, 10, 10, 13, 5, 9, 42)
+  print(t, time.utc(t), time.format(t, time.RFC3339), time.format(t, "Mon, 02 Jan 2006 03:04:05.000 PM MST"), time.format(t, "Monday January 2 2006 _2 002"))
+  let t8 = time.in_offset(t, 8 * 3600)
+  print(time.format_dt(t8, time.RFC3339), time.format_dt(t8, "-0700 Z0700"), time.to_ms(t8) == t)
+  print(time.parse(time.RFC3339, "2026-10-10T21:05:09+08:00") == Ok(t - 42), time.parse("2006-01-02 15:04:05.000", "2026-10-10 13:05:09.042") == Ok(t), time.parse("Jan 2, 2006 3:04 PM", "Oct 10, 2026 1:05 PM"))
+  print(time.parse(time.DATE_ONLY, "2026-02-30"), time.parse(time.DATE_ONLY, "x"), time.format(time.date(1969, 12, 31, 23, 59, 59, 0), time.DATETIME), time.utc(-1).weekday)
+  print(time.format(time.add_date(time.date(2024, 1, 31, 0, 0, 0, 0), 0, 1, 0), time.DATE_ONLY), time.format(time.truncate(t, time.DAY), time.DATETIME), time.is_leap(2000), time.days_in_month(2026, 2))
+  print(time.format_duration(3723500), time.format_duration(250), time.format_duration(-90000), time.format_duration(0), time.parse_duration("1h30m"), time.parse_duration("1.5s"), time.parse_duration("-250ms"), time.parse_duration("2x"))
+  let off = time.local_offset(t)
+  print(off % 60 == 0, time.to_ms(time.local(t)) == t)
+  var r = bufio.reader("line one\r\nline two\n\nword1   word2")
+  while let Some((l, r2)) = bufio.read_line(r) {
+    print("[" + l + "]")
+    r = r2
+  }
+  let r3 = bufio.reader("  ab cd")
+  let (w1, r4) = bufio.read_word(r3) |> unwrap
+  print(w1, bufio.peek(r4, 2), bufio.read_char(r4) |> map_char, bufio.scan_lines("a\nb\n"), bufio.scan_words(" x  y "))
+  var w = bufio.writer()
+  w = bufio.write_line(w, "第一行")
+  w = bufio.write(w, "第二行\n")
+  print(bufio.buffered(w))
+  w = bufio.flush_stdout(w)
+  print(bufio.buffered(w))
+
+  let re = regexp.must_compile("(\\w+)@(?P<host>[a-z]+)\\.com")
+  let s = "mail bob@example.com, ann@test.com; x@Y.com"
+  print(regexp.is_match(re, s), regexp.find(re, s), regexp.find_index(re, s), regexp.find_all(re, s, -1), regexp.find_all(re, s, 1))
+  print(regexp.captures(re, s), regexp.named(re, s), regexp.num_groups(re), regexp.group_names(re))
+  print(regexp.replace_all(re, s, "<$1 at $\{host\}>"), regexp.replace_all(re, s, "$$"), regexp.replace_all_func(regexp.must_compile("[0-9]+"), "a1b22c333", (m) => "{len(m)}"))
+  print(regexp.find_all(regexp.must_compile("a*"), "baaab", -1), regexp.find_all_index(regexp.must_compile(""), "abc", -1))
+  print(regexp.split(regexp.must_compile(",\\s*"), "a, b,c ,  d", -1), regexp.split(regexp.must_compile("x*"), "axbxxc", -1), regexp.split(regexp.must_compile(","), "a,b,c", 2))
+  print(regexp.find(regexp.must_compile("a+?"), "aaa"), regexp.find(regexp.must_compile("a\{2,3\}"), "aaaa"), regexp.find(regexp.must_compile("(a|ab)(c|bcd)(d*)"), "abcd"), regexp.captures(regexp.must_compile("(a|ab)(c|bcd)(d*)"), "abcd"))
+  print(regexp.find(regexp.must_compile("(?i)hello"), "say HeLLo"), regexp.find(regexp.must_compile("(?i:[a-c]+)x"), "zzABCx"), regexp.find_all(regexp.must_compile("(?m)^\\w+$"), "one\ntwo\nthree", -1), regexp.find(regexp.must_compile("^\\w+$"), "one\ntwo"))
+  print(regexp.find(regexp.must_compile("a.c"), "a\nc abc"), regexp.find(regexp.must_compile("(?s)a.c"), "a\nc"), regexp.find_all(regexp.must_compile("\\bcat\\b"), "cat concat cat.", -1), regexp.find(regexp.must_compile("[[:digit:]]+[^[:alpha:] ]"), "ab12-x"))
+  print(regexp.find(regexp.must_compile("[中-龥]+"), "hi 中文字 ok"), regexp.find(regexp.must_compile("\\x\{4e2d\}."), "a中文"), regexp.find(regexp.must_compile("[\\d\\-]+"), "tel: 555-1234."), regexp.captures(regexp.must_compile("(a)|(b)"), "b"))
+  print(regexp.compile("a(b"), regexp.compile("a)"), regexp.compile("*a"), regexp.compile("a**"), regexp.compile("[z-a]"), regexp.compile("\\q"), regexp.compile("a\{3,2\}"))
+  print(regexp.quote_meta("1+1=2? [yes]"), regexp.is_match(regexp.must_compile(regexp.quote_meta("a.b")), "axb"), regexp.matches("^[0-9]\{4\}-[0-9]\{2\}$", "2026-10"))
+  let big = regexp.must_compile("(a+)+$")
+  var s2 = ""
+  for _ in 0..30 { s2 = s2 + "a" }
+  print(regexp.is_match(big, s2 + "b"), regexp.find(regexp.must_compile("(x+x+)+y"), "xxxxxxxxxxxxxxxxxxxxxxxxy"))
+}
+
+fn map_char(o: Option<(Str, bufio.Reader)>) -> Str {
+  match o {
+    Some((c, _)) => "'" + c + "'",
+    None         => "-",
+  }
+}

@@ -1,0 +1,174 @@
+// std.index.suffixarray：对齐 Go 1.27 的 index/suffixarray
+//   new(data) 建后缀数组；lookup(s, n) 结果顺序与 Go 相同（按后缀数组顺序）；
+//   write 产生与 Index.Write 逐字节相同的序列化结果，read 反过来。
+//   （FindAllIndex 依赖 regexp 的 LiteralPrefix，暂未提供）
+
+use std.encoding.binary
+
+pub type Index = { data: List<Int>, sa: List<Int> }
+
+fn cmp_suffix(d: List<Int>, a: Int, b: Int) -> Int {
+  var i = a
+  var j = b
+  let n = len(d)
+  while i < n && j < n {
+    if d[i] != d[j] { return if d[i] < d[j] { -1 } else { 1 } }
+    i += 1
+    j += 1
+  }
+  if i == n && j == n { 0 } else if i == n { -1 } else { 1 }
+}
+
+// 倍增法：按 (rank[i], rank[i+k]) 排序直到名次各不相同
+pub fn new(data: List<Int>) -> Index {
+  let n = len(data)
+  var rank = data
+  var sa = map(0..n, (i) => i)
+  var k = 1
+  while n > 0 {
+    let r = rank
+    let kk = k
+    let key2 = (i: Int) => if i + kk < n { r[i + kk] } else { -1 }
+    sa = sort_with(sa, (a, b) => if r[a] != r[b] { if r[a] < r[b] { -1 } else { 1 } } else { let x = key2(a)
+      let y = key2(b)
+      if x < y { -1 } else if x > y { 1 } else { 0 } })
+    var nr = map(0..n, (_) => 0)
+    var cls = 0
+    for t in 1..n {
+      let a = sa[t - 1]
+      let b = sa[t]
+      if r[a] != r[b] || key2(a) != key2(b) { cls += 1 }
+      nr = set(nr, b, cls)
+    }
+    rank = nr
+    if cls == n - 1 { break }
+    k = k * 2
+  }
+  Index { data: data, sa: sa }
+}
+
+// bytes.Compare(data[p:], s)
+fn cmp_at(d: List<Int>, p: Int, s: List<Int>) -> Int {
+  var k = 0
+  while p + k < len(d) && k < len(s) {
+    if d[p + k] != s[k] { return if d[p + k] < s[k] { -1 } else { 1 } }
+    k += 1
+  }
+  let la = len(d) - p
+  if la == len(s) { 0 } else if la < len(s) { -1 } else { 1 }
+}
+
+fn has_prefix_at(d: List<Int>, p: Int, s: List<Int>) -> Bool {
+  if len(d) - p < len(s) { return false }
+  for k in 0..len(s) { if d[p + k] != s[k] { return false } }
+  true
+}
+
+fn search(n: Int, f: fn(Int) -> Bool) -> Int {
+  var lo = 0
+  var hi = n
+  while lo < hi {
+    let h = (lo + hi) / 2
+    if !f(h) { lo = h + 1 } else { hi = h }
+  }
+  lo
+}
+
+impl Index {
+  pub fn bytes(self) -> List<Int> { self.data }
+
+  pub fn lookup(self, s: List<Int>, n0: Int) -> List<Int> {
+    if len(s) == 0 || n0 == 0 { return [] }
+    let d = self.data
+    let sa = self.sa
+    let i = search(len(sa), (k) => cmp_at(d, sa[k], s) >= 0)
+    let j = i + search(len(sa) - i, (k) => !has_prefix_at(d, sa[k + i], s))
+    var n = n0
+    let count = j - i
+    if n < 0 || count < n { n = count }
+    sa[i..i + n]
+  }
+
+  // Index.Write 写出的字节
+  pub fn write(self) -> List<Int> {
+    var hdr = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+    let v = binary.put_varint(len(self.data))
+    for k in 0..len(v) { hdr = set(hdr, k, v[k]) }
+    var out = hdr + self.data
+    var rest = self.sa
+    while len(rest) > 0 {
+      var p = 10
+      var payload: List<Int> = []
+      var n = 0
+      while n < len(rest) && p + 10 <= 16384 {
+        let u = binary.put_uvarint(rest[n])
+        payload = payload + u
+        p += len(u)
+        n += 1
+      }
+      let hv = binary.put_varint(p)
+      for k in 0..len(hv) { hdr = set(hdr, k, hv[k]) }
+      out = out + hdr + payload
+      rest = rest[n..]
+    }
+    out
+  }
+}
+
+fn read_full(b: List<Int>, pos: Int, n: Int) -> Result<List<Int>, Str> {
+  if pos + n <= len(b) { return Ok(b[pos..pos + n]) }
+  if pos >= len(b) && n > 0 { return Err("EOF") }
+  Err("unexpected EOF")
+}
+
+fn varint(b: List<Int>) -> Int {
+  var x = 0
+  var s = 0
+  for c in b {
+    x = x | ((c & 127) << s)
+    if c < 128 { break }
+    s += 7
+  }
+  if (x & 1) == 1 { -((x >> 1) + 1) } else { x >> 1 }
+}
+
+fn uvarint(b: List<Int>, p: Int) -> (Int, Int) {
+  var x = 0
+  var s = 0
+  var i = p
+  while i < len(b) {
+    let c = b[i]
+    x = x | ((c & 127) << s)
+    i += 1
+    if c < 128 { return (x, i - p) }
+    s += 7
+  }
+  (0, 0)
+}
+
+// Index.Read
+pub fn read(b: List<Int>) -> Result<Index, Str> {
+  let h = read_full(b, 0, 10)?
+  let n = varint(h)
+  if n < 0 { return Err("suffixarray: data corrupted") }
+  var pos = 10
+  let data = read_full(b, pos, n)?
+  pos += n
+  var sa: List<Int> = []
+  while len(sa) < n {
+    let hb = read_full(b, pos, 10)?
+    pos += 10
+    let size = varint(hb)
+    if size < 0 { return Err("suffixarray: data corrupted") }
+    let body = read_full(b, pos, size - 10)?
+    pos += size - 10
+    var p = 0
+    while p < len(body) {
+      let (x, w) = uvarint(body, p)
+      if len(sa) >= n || x >= n || w == 0 { return Err("suffixarray: data corrupted") }
+      sa = push(sa, x)
+      p += w
+    }
+  }
+  Ok(Index { data: data, sa: sa })
+}

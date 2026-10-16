@@ -1,0 +1,56 @@
+// 原地追加优化（tree / VM）不能被别名观察到
+type S = { items: List<Int> }
+
+fn grow(v: List<Int>) -> List<Int> {
+  var w = v
+  w = push(w, 100)
+  w += [101]
+  w
+}
+
+fn main() {
+  var xs = [1, 2]
+  let ys = xs
+  xs = push(xs, 3)
+  print(ys, xs)
+  var a = [1]
+  var b = a
+  b += [2]
+  b = b + [3]
+  print(a, b)
+  let s = S { items: xs }
+  xs = push(xs, 4)
+  print(s.items, xs)
+  print(grow(xs), xs)
+  var hist: List<List<Int>> = []
+  var cur: List<Int> = []
+  for i in 0..4 {
+    cur = push(cur, i)
+    hist = push(hist, cur)
+  }
+  print(hist)
+  var d = [7]
+  d = d + d
+  d = push(d, len(d))
+  print(d)
+  let f = () => xs
+  xs = push(xs, 5)
+  print(f(), xs)
+  var m: Map<Str, List<Int>> = Map()
+  var v = [1]
+  m = set(m, "k", v)
+  v = push(v, 2)
+  print(m, v)
+  var n = 0
+  n += 5
+  n = n + 1
+  var t = "a"
+  t += "b"
+  t = t + "c"
+  print(n, t)
+  var big: List<Int> = []
+  for i in 0..200000 { big = push(big, i % 7) }
+  var tot = 0
+  for x in big { tot += x }
+  print(len(big), tot)
+}

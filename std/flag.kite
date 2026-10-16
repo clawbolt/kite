@@ -1,0 +1,103 @@
+// std.flag：命令行参数解析（对齐 Go 的 flag 包，同时接受 GNU 风格的 --name）
+//   先声明：flag.str("out", "a.out", "输出文件")、flag.int("n", "1", "次数")、flag.bool("v", "详细输出")
+//   再解析：flag.parse(specs, env.args()) -> Result<Flags, Str>
+//   支持 -name v、-name=v、--name v、--name=v；布尔参数不跟值（也可以写 -v=false）；
+//   -- 之后的都算位置参数；-h / --help 返回 Err(用法说明)
+//   取值：flag.get(f, name)（没给就是默认值）、flag.get_int、flag.get_bool、flag.args(f)
+
+pub type Spec = { name: Str, kind: Str, default: Str, help: Str }
+
+pub type Flags = { values: Map<Str, Str>, given: Set<Str>, rest: List<Str>, specs: List<Spec> }
+
+pub fn str(name: Str, default: Str, help: Str) -> Spec { Spec { name: name, kind: "str", default: default, help: help } }
+
+pub fn int(name: Str, default: Int, help: Str) -> Spec { Spec { name: name, kind: "int", default: "{default}", help: help } }
+
+pub fn bool(name: Str, help: Str) -> Spec { Spec { name: name, kind: "bool", default: "false", help: help } }
+
+fn find_spec(specs: List<Spec>, name: Str) -> Option<Spec> { find(specs, (s) => s.name == name) }
+
+// 用法说明，每个参数一行
+pub fn usage(specs: List<Spec>) -> Str {
+  var out = "用法:\n"
+  for s in specs {
+    let arg = if s.kind == "bool" { "" } else if s.kind == "int" { " <整数>" } else { " <值>" }
+    let def = if s.kind == "bool" || s.default == "" { "" } else { "（默认 {s.default}）" }
+    out = out + "  -{s.name}{arg}\n      {s.help}{def}\n"
+  }
+  out
+}
+
+fn check(s: Spec, v: Str) -> Result<Str, Str> {
+  if s.kind == "int" {
+    match parse_int(v) {
+      Ok(_) => Ok(v),
+      Err(_) => Err("参数 -{s.name} 需要整数，给的是 {v}"),
+    }
+  } else if s.kind == "bool" {
+    if v == "true" || v == "1" || v == "t" { Ok("true") } else if v == "false" || v == "0" || v == "f" { Ok("false") } else { Err("参数 -{s.name} 需要布尔值，给的是 {v}") }
+  } else {
+    Ok(v)
+  }
+}
+
+pub fn parse(specs: List<Spec>, argv: List<Str>) -> Result<Flags, Str> {
+  var values: Map<Str, Str> = Map(map(specs, (s) => (s.name, s.default)))
+  var given: Set<Str> = Set()
+  var rest: List<Str> = []
+  var i = 0
+  while i < len(argv) {
+    let a = argv[i]
+    if a == "--" {
+      rest = rest + argv[i + 1..]
+      break
+    }
+    if !starts_with(a, "-") || a == "-" {
+      rest = push(rest, a)
+      i += 1
+      continue
+    }
+    var body = if starts_with(a, "--") { __str_slice(a, 2, len(a)) } else { __str_slice(a, 1, len(a)) }
+    var val: Option<Str> = None
+    let eq = __str_find(body, "=", 0)
+    if eq >= 0 {
+      val = Some(__str_slice(body, eq + 1, len(body)))
+      body = __str_slice(body, 0, eq)
+    }
+    if body == "h" || body == "help" { return Err(usage(specs)) }
+    let Some(s) = find_spec(specs, body) else { return Err("未知参数 -{body}\n" + usage(specs)) }
+    var v = ""
+    match val {
+      Some(x) => { v = x },
+      None => {
+        if s.kind == "bool" {
+          v = "true"
+        } else {
+          if i + 1 >= len(argv) { return Err("参数 -{body} 缺少值") }
+          i += 1
+          v = argv[i]
+        }
+      },
+    }
+    values = set(values, body, check(s, v)?)
+    given = union(given, Set([body]))
+    i += 1
+  }
+  Ok(Flags { values: values, given: given, rest: rest, specs: specs })
+}
+
+// 参数的值（没给时是默认值）
+pub fn get(f: Flags, name: Str) -> Str {
+  if !contains(f.values, name) { panic("flag: 没有声明参数 -{name}") }
+  f.values[name]
+}
+
+pub fn get_int(f: Flags, name: Str) -> Int { unwrap(parse_int(get(f, name))) }
+
+pub fn get_bool(f: Flags, name: Str) -> Bool { get(f, name) == "true" }
+
+// 命令行上是否显式给了这个参数
+pub fn is_set(f: Flags, name: Str) -> Bool { contains(f.given, name) }
+
+// 位置参数
+pub fn args(f: Flags) -> List<Str> { f.rest }

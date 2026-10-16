@@ -1,0 +1,6 @@
+extern "C" {
+  fn printf(fmt: Str, ...) -> I32
+}
+fn main() {
+  unsafe { printf("%d", [1]) }
+}

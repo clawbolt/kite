@@ -1,0 +1,477 @@
+// std.bytes：字节列表工具（对齐 Go 的 bytes 包）。字节列表就是 List<Int>（每个元素 0..255），下标按字节计
+//   涉及字符的函数（fields、to_upper、index_rune、trim_space……）按 UTF-8 解码，无效字节当作 U+FFFD、宽度 1，和 Go 相同
+//   Buffer：不可变的字节缓冲，写入和读取都返回新的 Buffer
+
+use std.unicode.utf8
+use std.unicode
+
+pub const MIN_READ: Int = 512
+
+fn rune_str(r: Int) -> Str { __chr(r) }
+
+// ───────── 比较 ─────────
+
+pub fn compare(a: List<Int>, b: List<Int>) -> Int {
+  var i = 0
+  while i < len(a) && i < len(b) {
+    if a[i] != b[i] { return if a[i] < b[i] { -1 } else { 1 } }
+    i += 1
+  }
+  if len(a) == len(b) { 0 } else if len(a) < len(b) { -1 } else { 1 }
+}
+
+pub fn equal(a: List<Int>, b: List<Int>) -> Bool { a == b }
+
+pub fn clone(b: List<Int>) -> List<Int> { b }
+
+pub fn has_prefix(s: List<Int>, p: List<Int>) -> Bool { len(s) >= len(p) && s[..len(p)] == p }
+
+pub fn has_suffix(s: List<Int>, p: List<Int>) -> Bool { len(s) >= len(p) && s[len(s) - len(p)..] == p }
+
+// ───────── 查找 ─────────
+
+fn match_at(s: List<Int>, sep: List<Int>, i: Int) -> Bool {
+  var k = 0
+  while k < len(sep) {
+    if s[i + k] != sep[k] { return false }
+    k += 1
+  }
+  true
+}
+
+fn index_from(s: List<Int>, sep: List<Int>, start: Int) -> Int {
+  var i = start
+  while i + len(sep) <= len(s) {
+    if match_at(s, sep, i) { return i }
+    i += 1
+  }
+  -1
+}
+
+pub fn index(s: List<Int>, sep: List<Int>) -> Int { index_from(s, sep, 0) }
+
+pub fn last_index(s: List<Int>, sep: List<Int>) -> Int {
+  var i = len(s) - len(sep)
+  while i >= 0 {
+    if match_at(s, sep, i) { return i }
+    i -= 1
+  }
+  -1
+}
+
+pub fn index_byte(s: List<Int>, c: Int) -> Int {
+  var i = 0
+  while i < len(s) {
+    if s[i] == c { return i }
+    i += 1
+  }
+  -1
+}
+
+pub fn last_index_byte(s: List<Int>, c: Int) -> Int {
+  var i = len(s) - 1
+  while i >= 0 {
+    if s[i] == c { return i }
+    i -= 1
+  }
+  -1
+}
+
+pub fn contains(s: List<Int>, sub: List<Int>) -> Bool { index(s, sub) >= 0 }
+
+// 第一个满足 f 的码点的字节下标
+pub fn index_func(s: List<Int>, f: fn(Int) -> Bool) -> Int {
+  var i = 0
+  while i < len(s) {
+    let (r, w) = utf8.decode_rune_at(s, i)
+    if f(r) { return i }
+    i += w
+  }
+  -1
+}
+
+pub fn last_index_func(s: List<Int>, f: fn(Int) -> Bool) -> Int {
+  var i = len(s)
+  while i > 0 {
+    let (r, w) = utf8.decode_last_rune(take(s, i))
+    i -= w
+    if f(r) { return i }
+  }
+  -1
+}
+
+pub fn contains_func(s: List<Int>, f: fn(Int) -> Bool) -> Bool { index_func(s, f) >= 0 }
+
+// r 是 RUNE_ERROR 时也能找到无效字节，和 Go 相同
+pub fn index_rune(s: List<Int>, r: Int) -> Int {
+  if 0 <= r && r < 0x80 { return index_byte(s, r) }
+  if r == utf8.RUNE_ERROR {
+    return index_func(s, (x) => x == utf8.RUNE_ERROR)
+  }
+  if !utf8.valid_rune(r) { return -1 }
+  index(s, utf8.encode_rune(r))
+}
+
+pub fn contains_rune(s: List<Int>, r: Int) -> Bool { index_rune(s, r) >= 0 }
+
+fn in_chars(cs: Str, r: Int) -> Bool {
+  for c in chars(cs) { if __ord(c) == r { return true } }
+  false
+}
+
+fn runes_str(bs: List<Int>) -> Str { fold(runes(bs), "", (acc, r) => acc + __chr(r)) }
+
+pub fn index_any(s: List<Int>, chars: Str) -> Int {
+  if chars == "" { return -1 }
+  index_func(s, (r) => in_chars(chars, r))
+}
+
+pub fn last_index_any(s: List<Int>, chars: Str) -> Int {
+  if chars == "" { return -1 }
+  last_index_func(s, (r) => in_chars(chars, r))
+}
+
+pub fn contains_any(s: List<Int>, chars: Str) -> Bool { index_any(s, chars) >= 0 }
+
+// sep 为空时返回码点个数 + 1
+pub fn count(s: List<Int>, sep: List<Int>) -> Int {
+  if len(sep) == 0 { return utf8.rune_count_bytes(s) + 1 }
+  var n = 0
+  var i = index_from(s, sep, 0)
+  while i >= 0 {
+    n += 1
+    i = index_from(s, sep, i + len(sep))
+  }
+  n
+}
+
+// ───────── 切分 ─────────
+
+pub fn cut(s: List<Int>, sep: List<Int>) -> (List<Int>, List<Int>, Bool) {
+  let i = index(s, sep)
+  if i < 0 { (s, [], false) } else { (s[..i], s[i + len(sep)..], true) }
+}
+
+// Go 1.27 的 CutLast
+pub fn cut_last(s: List<Int>, sep: List<Int>) -> (List<Int>, List<Int>, Bool) {
+  let i = last_index(s, sep)
+  if i < 0 { (s, [], false) } else { (s[..i], s[i + len(sep)..], true) }
+}
+
+pub fn cut_prefix(s: List<Int>, p: List<Int>) -> (List<Int>, Bool) {
+  if has_prefix(s, p) { (s[len(p)..], true) } else { (s, false) }
+}
+
+pub fn cut_suffix(s: List<Int>, p: List<Int>) -> (List<Int>, Bool) {
+  if has_suffix(s, p) { (s[..len(s) - len(p)], true) } else { (s, false) }
+}
+
+// sep 为空：拆成一个个 UTF-8 序列
+fn explode(s: List<Int>, n: Int) -> List<List<Int>> {
+  var out: List<List<Int>> = []
+  var i = 0
+  while i < len(s) {
+    if n > 0 && len(out) == n - 1 {
+      out = push(out, s[i..])
+      return out
+    }
+    let (_, w) = utf8.decode_rune_at(s, i)
+    out = push(out, s[i..i + w])
+    i += w
+  }
+  out
+}
+
+fn gen_split(s: List<Int>, sep: List<Int>, sep_save: Int, n0: Int) -> List<List<Int>> {
+  if n0 == 0 { return [] }
+  if len(sep) == 0 { return explode(s, n0) }
+  let n = if n0 < 0 { count(s, sep) + 1 } else { n0 }
+  var out: List<List<Int>> = []
+  var start = 0
+  while len(out) < n - 1 {
+    let m = index_from(s, sep, start)
+    if m < 0 { break }
+    out = push(out, s[start..m + sep_save])
+    start = m + len(sep)
+  }
+  push(out, s[start..])
+}
+
+pub fn split(s: List<Int>, sep: List<Int>) -> List<List<Int>> { gen_split(s, sep, 0, -1) }
+
+pub fn split_n(s: List<Int>, sep: List<Int>, n: Int) -> List<List<Int>> { gen_split(s, sep, 0, n) }
+
+pub fn split_after(s: List<Int>, sep: List<Int>) -> List<List<Int>> { gen_split(s, sep, len(sep), -1) }
+
+pub fn split_after_n(s: List<Int>, sep: List<Int>, n: Int) -> List<List<Int>> { gen_split(s, sep, len(sep), n) }
+
+pub fn fields_func(s: List<Int>, f: fn(Int) -> Bool) -> List<List<Int>> {
+  var out: List<List<Int>> = []
+  var start = -1
+  var i = 0
+  while i < len(s) {
+    let (r, w) = utf8.decode_rune_at(s, i)
+    if f(r) {
+      if start >= 0 {
+        out = push(out, s[start..i])
+        start = -1
+      }
+    } else if start < 0 {
+      start = i
+    }
+    i += w
+  }
+  if start >= 0 { out = push(out, s[start..]) }
+  out
+}
+
+fn is_space_r(r: Int) -> Bool { unicode.is_space(rune_str(r)) }
+
+pub fn fields(s: List<Int>) -> List<List<Int>> { fields_func(s, is_space_r) }
+
+pub fn join(parts: List<List<Int>>, sep: List<Int>) -> List<Int> {
+  var out: List<Int> = []
+  var i = 0
+  while i < len(parts) {
+    if i > 0 { out = out + sep }
+    out = out + parts[i]
+    i += 1
+  }
+  out
+}
+
+pub fn repeat(b: List<Int>, n: Int) -> List<Int> {
+  if n < 0 { panic("bytes: negative Repeat count") }
+  var out: List<Int> = []
+  var k = 0
+  while k < n {
+    out = out + b
+    k += 1
+  }
+  out
+}
+
+// ───────── 替换和映射 ─────────
+
+pub fn replace(s: List<Int>, old: List<Int>, new: List<Int>, n0: Int) -> List<Int> {
+  let m = if len(old) == 0 { utf8.rune_count_bytes(s) + 1 } else { count(s, old) }
+  if m == 0 || n0 == 0 { return s }
+  let n = if n0 < 0 || m < n0 { m } else { n0 }
+  var out: List<Int> = []
+  var start = 0
+  var k = 0
+  while k < n {
+    var j = start
+    if len(old) == 0 {
+      if k > 0 {
+        let (_, w) = utf8.decode_rune_at(s, start)
+        j += w
+      }
+    } else {
+      j = index_from(s, old, start)
+    }
+    out = out + s[start..j] + new
+    start = j + len(old)
+    k += 1
+  }
+  out + s[start..]
+}
+
+pub fn replace_all(s: List<Int>, old: List<Int>, new: List<Int>) -> List<Int> { replace(s, old, new, -1) }
+
+// 对每个码点做映射；返回负数的丢掉；无效字节先当作 U+FFFD
+pub fn map_rune(f: fn(Int) -> Int, s: List<Int>) -> List<Int> {
+  var out: List<Int> = []
+  var i = 0
+  while i < len(s) {
+    let (r, w) = utf8.decode_rune_at(s, i)
+    let m = f(r)
+    if m >= 0 { out = out + utf8.encode_rune(m) }
+    i += w
+  }
+  out
+}
+
+pub fn runes(s: List<Int>) -> List<Int> {
+  var out: List<Int> = []
+  var i = 0
+  while i < len(s) {
+    let (r, w) = utf8.decode_rune_at(s, i)
+    out = push(out, r)
+    i += w
+  }
+  out
+}
+
+pub fn to_upper(s: List<Int>) -> List<Int> { map_rune((r) => __ord(unicode.to_upper(rune_str(r))), s) }
+
+pub fn to_lower(s: List<Int>) -> List<Int> { map_rune((r) => __ord(unicode.to_lower(rune_str(r))), s) }
+
+pub fn to_title(s: List<Int>) -> List<Int> { map_rune((r) => __ord(unicode.to_title(rune_str(r))), s) }
+
+// 每段连续的无效字节换成 replacement
+pub fn to_valid_utf8(s: List<Int>, replacement: List<Int>) -> List<Int> {
+  var out: List<Int> = []
+  var invalid = false
+  var i = 0
+  while i < len(s) {
+    let c = s[i]
+    if c < 0x80 {
+      out = push(out, c)
+      invalid = false
+      i += 1
+      continue
+    }
+    let (r, w) = utf8.decode_rune_at(s, i)
+    if r == utf8.RUNE_ERROR && w == 1 {
+      if !invalid {
+        out = out + replacement
+        invalid = true
+      }
+      i += 1
+      continue
+    }
+    invalid = false
+    out = out + s[i..i + w]
+    i += w
+  }
+  out
+}
+
+fn fold_r(r: Int) -> Int { __ord(unicode.to_lower(unicode.to_upper(rune_str(r)))) }
+
+pub fn equal_fold(a: List<Int>, b: List<Int>) -> Bool {
+  let x = runes(a)
+  let y = runes(b)
+  if len(x) != len(y) { return false }
+  var i = 0
+  while i < len(x) {
+    if x[i] != y[i] && fold_r(x[i]) != fold_r(y[i]) { return false }
+    i += 1
+  }
+  true
+}
+
+fn is_sep(r: Int) -> Bool {
+  if r <= 0x7f {
+    if (r >= 48 && r <= 57) || (r >= 97 && r <= 122) || (r >= 65 && r <= 90) || r == 95 { return false }
+    return true
+  }
+  let c = rune_str(r)
+  if unicode.is_letter(c) || unicode.is_digit(c) { return false }
+  unicode.is_space(c)
+}
+
+pub fn title(s: List<Int>) -> List<Int> {
+  var prev = 32
+  var out: List<Int> = []
+  for r in runes(s) {
+    out = out + utf8.encode_rune(if is_sep(prev) { __ord(unicode.to_title(rune_str(r))) } else { r })
+    prev = r
+  }
+  out
+}
+
+// ───────── 修剪 ─────────
+
+pub fn trim_left_func(s: List<Int>, f: fn(Int) -> Bool) -> List<Int> {
+  var i = 0
+  while i < len(s) {
+    let (r, w) = utf8.decode_rune_at(s, i)
+    if !f(r) { return s[i..] }
+    i += w
+  }
+  []
+}
+
+pub fn trim_right_func(s: List<Int>, f: fn(Int) -> Bool) -> List<Int> {
+  var i = last_index_func(s, (r) => !f(r))
+  if i >= 0 && s[i] >= 0x80 {
+    let (_, w) = utf8.decode_rune_at(s, i)
+    i += w
+  } else {
+    i += 1
+  }
+  s[..i]
+}
+
+pub fn trim_func(s: List<Int>, f: fn(Int) -> Bool) -> List<Int> { trim_right_func(trim_left_func(s, f), f) }
+
+pub fn trim(s: List<Int>, cutset: Str) -> List<Int> { trim_func(s, (r) => in_chars(cutset, r)) }
+
+pub fn trim_left(s: List<Int>, cutset: Str) -> List<Int> { trim_left_func(s, (r) => in_chars(cutset, r)) }
+
+pub fn trim_right(s: List<Int>, cutset: Str) -> List<Int> { trim_right_func(s, (r) => in_chars(cutset, r)) }
+
+pub fn trim_space(s: List<Int>) -> List<Int> { trim_func(s, is_space_r) }
+
+pub fn trim_prefix(s: List<Int>, p: List<Int>) -> List<Int> { cut_prefix(s, p).0 }
+
+pub fn trim_suffix(s: List<Int>, p: List<Int>) -> List<Int> { cut_suffix(s, p).0 }
+
+// ───────── Buffer（不可变；读写都返回新的 Buffer） ─────────
+
+pub type Buffer = { buf: List<Int>, off: Int }
+
+pub fn new_buffer(b: List<Int>) -> Buffer { Buffer { buf: b, off: 0 } }
+
+pub fn new_buffer_string(s: Str) -> Buffer { Buffer { buf: __bytes(s), off: 0 } }
+
+impl Buffer {
+  // 还没读的字节
+  fn bytes(self) -> List<Int> { self.buf[self.off..] }
+
+  // 还没读的部分按 UTF-8 转成 Str（无效字节变成 U+FFFD）
+  fn string(self) -> Str { runes_str(self.bytes()) }
+
+  fn len(self) -> Int { len(self.buf) - self.off }
+
+  fn reset(self) -> Buffer { Buffer { buf: [], off: 0 } }
+
+  fn truncate(self, n: Int) -> Buffer {
+    if n == 0 { return self.reset() }
+    if n < 0 || n > self.len() { panic("bytes.Buffer: truncation out of range") }
+    Buffer { buf: self.buf[..self.off + n], off: self.off }
+  }
+
+  fn write(self, p: List<Int>) -> Buffer { Buffer { buf: self.buf + p, off: self.off } }
+
+  fn write_string(self, s: Str) -> Buffer { self.write(__bytes(s)) }
+
+  fn write_byte(self, c: Int) -> Buffer { Buffer { buf: push(self.buf, c & 0xff), off: self.off } }
+
+  fn write_rune(self, r: Int) -> Buffer { self.write(utf8.encode_rune(r)) }
+
+  // 读最多 n 个字节
+  fn next(self, n: Int) -> (List<Int>, Buffer) {
+    let m = if n > self.len() { self.len() } else { n }
+    (self.buf[self.off..self.off + m], Buffer { off: self.off + m, ..self })
+  }
+
+  fn read_byte(self) -> Result<(Int, Buffer), Str> {
+    if self.len() == 0 { return Err("EOF") }
+    Ok((self.buf[self.off], Buffer { off: self.off + 1, ..self }))
+  }
+
+  // (码点, 字节数, 新 Buffer)
+  fn read_rune(self) -> Result<(Int, Int, Buffer), Str> {
+    if self.len() == 0 { return Err("EOF") }
+    let (r, w) = utf8.decode_rune_at(self.buf, self.off)
+    Ok((r, w, Buffer { off: self.off + w, ..self }))
+  }
+
+  // 读到 delim（含）；没遇到时返回剩下的全部和 "EOF"
+  fn read_bytes(self, delim: Int) -> (List<Int>, Buffer, Str) {
+    var i = self.off
+    while i < len(self.buf) {
+      if self.buf[i] == delim { return (self.buf[self.off..i + 1], Buffer { off: i + 1, ..self }, "") }
+      i += 1
+    }
+    (self.buf[self.off..], Buffer { off: len(self.buf), ..self }, "EOF")
+  }
+
+  fn read_string(self, delim: Int) -> (Str, Buffer, Str) {
+    let (bs, b, err) = self.read_bytes(delim)
+    (runes_str(bs), b, err)
+  }
+}

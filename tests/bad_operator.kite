@@ -1,0 +1,4 @@
+type P = { x: Int }
+fn main() {
+  print(P { x: 1 } * P { x: 2 })
+}

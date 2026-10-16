@@ -1,0 +1,127 @@
+// std.unicode.utf8：UTF-8 编解码（对齐 Go 的 unicode/utf8）。Kite 的 Str 总是合法的 UTF-8，len(s) 按字符计
+
+// 字符串的 UTF-8 字节
+pub fn bytes(s: Str) -> List<Int> { __bytes(s) }
+
+// 字节 → 字符串；不是合法 UTF-8 时为 None
+pub fn decode(bs: List<Int>) -> Option<Str> { __from_bytes(bs) }
+
+pub fn valid(bs: List<Int>) -> Bool { is_some(__from_bytes(bs)) }
+
+// UTF-8 字节数（Go 的 len(s)）
+pub fn byte_len(s: Str) -> Int { __byte_len(s) }
+
+// 字符数（Go 的 utf8.RuneCountInString）
+pub fn rune_count(s: Str) -> Int { len(s) }
+
+// 码点编码成 UTF-8 需要几个字节；无效码点为 -1
+pub fn rune_len(cp: Int) -> Int {
+  if cp < 0 || cp > 1114111 || (cp >= 55296 && cp <= 57343) { -1 } else if cp < 128 { 1 } else if cp < 2048 { 2 } else if cp < 65536 { 3 } else { 4 }
+}
+
+pub fn encode_rune(cp: Int) -> List<Int> {
+  let n = rune_len(cp)
+  if n == 1 { [cp] } else if n == 2 { [192 | (cp >> 6), 128 | (cp & 63)] } else if n == 3 { [224 | (cp >> 12), 128 | ((cp >> 6) & 63), 128 | (cp & 63)] } else if n == 4 { [240 | (cp >> 18), 128 | ((cp >> 12) & 63), 128 | ((cp >> 6) & 63), 128 | (cp & 63)] } else { [239, 191, 189] }
+}
+
+// 每个字符的码点
+pub fn runes(s: Str) -> List<Int> { map(chars(s), (c) => __ord(c)) }
+
+pub fn from_runes(cps: List<Int>) -> Str { join(map(cps, (c) => __chr(c)), "") }
+
+// ───────── 字节级（对齐 Go 的 DecodeRune / DecodeLastRune / FullRune / RuneCount / ValidRune / AppendRune） ─────────
+
+pub const RUNE_ERROR: Int = 0xfffd
+
+pub const RUNE_SELF: Int = 0x80
+
+pub const MAX_RUNE: Int = 0x10ffff
+
+pub const UTF_MAX: Int = 4
+
+pub fn valid_rune(r: Int) -> Bool { (0 <= r && r < 0xd800) || (0xdfff < r && r <= 0x10ffff) }
+
+pub fn valid_string(s: Str) -> Bool { true }
+
+pub fn append_rune(bs: List<Int>, r: Int) -> List<Int> { bs + encode_rune(r) }
+
+// 第二个字节的合法范围
+fn accept(b0: Int) -> (Int, Int, Int) {
+  if b0 >= 0xc2 && b0 <= 0xdf { (2, 0x80, 0xbf) } else if b0 == 0xe0 { (3, 0xa0, 0xbf) } else if b0 == 0xed { (3, 0x80, 0x9f) } else if b0 >= 0xe1 && b0 <= 0xef { (3, 0x80, 0xbf) } else if b0 == 0xf0 { (4, 0x90, 0xbf) } else if b0 == 0xf4 { (4, 0x80, 0x8f) } else if b0 >= 0xf1 && b0 <= 0xf3 { (4, 0x80, 0xbf) } else { (0, 0, 0) }
+}
+
+// 从第 i 个字节开始解一个码点：(码点, 字节数)；无效时 (RUNE_ERROR, 1)，到结尾时 (RUNE_ERROR, 0)
+pub fn decode_rune_at(p: List<Int>, i: Int) -> (Int, Int) {
+  let n = len(p) - i
+  if n < 1 { return (RUNE_ERROR, 0) }
+  let b0 = p[i]
+  if b0 < 0x80 { return (b0, 1) }
+  let (sz, lo, hi) = accept(b0)
+  if sz == 0 || n < sz { return (RUNE_ERROR, 1) }
+  let b1 = p[i + 1]
+  if b1 < lo || b1 > hi { return (RUNE_ERROR, 1) }
+  if sz == 2 { return (((b0 & 0x1f) << 6) | (b1 & 0x3f), 2) }
+  let b2 = p[i + 2]
+  if b2 < 0x80 || b2 > 0xbf { return (RUNE_ERROR, 1) }
+  if sz == 3 { return (((b0 & 0x0f) << 12) | ((b1 & 0x3f) << 6) | (b2 & 0x3f), 3) }
+  let b3 = p[i + 3]
+  if b3 < 0x80 || b3 > 0xbf { return (RUNE_ERROR, 1) }
+  (((b0 & 0x07) << 18) | ((b1 & 0x3f) << 12) | ((b2 & 0x3f) << 6) | (b3 & 0x3f), 4)
+}
+
+pub fn decode_rune(p: List<Int>) -> (Int, Int) { decode_rune_at(p, 0) }
+
+// 解最后一个码点
+pub fn decode_last_rune(p: List<Int>) -> (Int, Int) {
+  let end = len(p)
+  if end == 0 { return (RUNE_ERROR, 0) }
+  if p[end - 1] < 0x80 { return (p[end - 1], 1) }
+  var lim = end - 4
+  if lim < 0 { lim = 0 }
+  var start = end - 2
+  while start >= lim {
+    if (p[start] & 0xc0) != 0x80 { break }
+    start -= 1
+  }
+  if start < 0 { start = 0 }
+  let (r, size) = decode_rune_at(take(p, end), start)
+  if start + size != end { return (RUNE_ERROR, 1) }
+  (r, size)
+}
+
+// p 开头是否已经是一个完整的编码（无效编码也算完整）
+pub fn full_rune(p: List<Int>) -> Bool {
+  let n = len(p)
+  if n == 0 { return false }
+  let b0 = p[0]
+  if b0 < 0x80 { return true }
+  let (sz, lo, hi) = accept(b0)
+  if sz == 0 || n >= sz { return true }
+  if n > 1 && (p[1] < lo || p[1] > hi) { return true }
+  if n > 2 && (p[2] < 0x80 || p[2] > 0xbf) { return true }
+  false
+}
+
+// 字节列表里的码点个数（无效字节每个算一个）
+pub fn rune_count_bytes(p: List<Int>) -> Int {
+  var i = 0
+  var n = 0
+  while i < len(p) {
+    let (_, sz) = decode_rune_at(p, i)
+    i += sz
+    n += 1
+  }
+  n
+}
+
+pub fn valid_bytes(p: List<Int>) -> Bool {
+  var i = 0
+  while i < len(p) {
+    let (r, sz) = decode_rune_at(p, i)
+    if r == RUNE_ERROR && sz == 1 { return false }
+    i += sz
+  }
+  true
+}
+
+pub fn rune_start(b: Int) -> Bool { (b & 0xc0) != 0x80 }

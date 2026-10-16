@@ -1,0 +1,13 @@
+// std.process：进程
+
+// 立即退出（先刷新输出；不会执行 defer）
+pub fn exit(code: Int) -> Never { __exit(code) }
+
+// 用 sh -c 运行命令，返回 (退出码, 标准输出)；标准错误直接透传
+pub fn run(cmd: Str) -> (Int, Str) { __run(cmd) }
+
+// 运行命令，退出码为 0 时返回标准输出
+pub fn output(cmd: Str) -> Result<Str, Str> {
+  let (code, out) = __run(cmd)
+  if code == 0 { Ok(out) } else { Err("命令 {cmd} 失败，退出码 {code}") }
+}

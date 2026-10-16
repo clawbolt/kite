@@ -1,0 +1,207 @@
+// std.crypto.elliptic：对齐 Go 1.27 的 crypto/elliptic（已不推荐的旧接口）
+//   p224 / p256 / p384 / p521 走 std.crypto.internal.nistec；用 curve_params 自定义的曲线（a = -3）走通用的大整数运算。
+//   点用 (x, y) 表示，(0, 0) 是无穷远点。Go 里会 panic 的情形返回 Err，文字与 panic 信息相同
+
+use std.math.big
+use std.math.big.{ BigInt }
+use std.crypto.internal.nistec
+use std.crypto.internal.nistec.{ Jac }
+
+pub type CurveParams = { p: BigInt, n: BigInt, b: BigInt, gx: BigInt, gy: BigInt, bit_size: Int, name: Str }
+
+pub type Curve = { params: CurveParams, nist: Int }
+
+fn from_nist(c: nistec.Curve, bits: Int) -> Curve {
+  Curve { params: CurveParams { p: c.p, n: c.n, b: c.b, gx: c.gx, gy: c.gy, bit_size: bits, name: c.name }, nist: c.id }
+}
+
+pub fn p224() -> Curve { from_nist(nistec.p224(), 224) }
+pub fn p256() -> Curve { from_nist(nistec.p256(), 256) }
+pub fn p384() -> Curve { from_nist(nistec.p384(), 384) }
+pub fn p521() -> Curve { from_nist(nistec.p521(), 521) }
+
+// 自定义曲线：y² = x³ - 3x + b（mod p）
+pub fn curve_params(params: CurveParams) -> Curve { Curve { params: params, nist: -1 } }
+
+fn nc(c: Curve) -> nistec.Curve {
+  if c.nist == 0 { nistec.p256() } else if c.nist == 1 { nistec.p384() } else if c.nist == 2 { nistec.p521() } else { nistec.p224() }
+}
+
+fn byte_len(c: Curve) -> Int { (c.params.bit_size + 7) / 8 }
+
+fn is_zero_pt(x: BigInt, y: BigInt) -> Bool { x.sign() == 0 && y.sign() == 0 }
+
+fn poly(c: Curve, x: BigInt) -> BigInt { x.mul(x).mul(x).sub(x.lsh(1).add(x)).add(c.params.b).modulo(c.params.p) }
+
+fn on_curve_raw(c: Curve, x: BigInt, y: BigInt) -> Bool {
+  if x.sign() < 0 || x.cmp(c.params.p) >= 0 || y.sign() < 0 || y.cmp(c.params.p) >= 0 { return false }
+  poly(c, x).cmp(y.mul(y).modulo(c.params.p)) == 0
+}
+
+pub fn is_on_curve(c: Curve, x: BigInt, y: BigInt) -> Bool {
+  if c.nist >= 0 && is_zero_pt(x, y) { return false }
+  if c.nist >= 0 && (x.bit_len() > c.params.bit_size || y.bit_len() > c.params.bit_size) { return false }
+  on_curve_raw(c, x, y)
+}
+
+fn to_jac(c: Curve, x: BigInt, y: BigInt) -> Option<Jac> {
+  let n = nc(c)
+  if is_zero_pt(x, y) { return Some(nistec.infinity(n)) }
+  if !is_on_curve(c, x, y) { return None }
+  Some(nistec.from_affine(n, x, y))
+}
+
+fn from_jac(c: Curve, p: Jac) -> (BigInt, BigInt) {
+  match nistec.to_affine(nc(c), p) {
+    None => (big.zero(), big.zero()),
+    Some(xy) => xy,
+  }
+}
+
+// ── 通用曲线（仿射坐标） ──
+
+fn g_add(c: Curve, x1: BigInt, y1: BigInt, x2: BigInt, y2: BigInt) -> (BigInt, BigInt) {
+  let p = c.params.p
+  if is_zero_pt(x1, y1) { return (x2, y2) }
+  if is_zero_pt(x2, y2) { return (x1, y1) }
+  var l = big.zero()
+  if x1.cmp(x2) == 0 {
+    if y1.add(y2).modulo(p).sign() == 0 { return (big.zero(), big.zero()) }
+    l = x1.mul(x1).mul(big.new_int(3)).sub(big.new_int(3)).mul(unwrap(y1.lsh(1).mod_inverse(p))).modulo(p)
+  } else {
+    l = y2.sub(y1).mul(unwrap(x2.sub(x1).modulo(p).mod_inverse(p))).modulo(p)
+  }
+  let x3 = l.mul(l).sub(x1).sub(x2).modulo(p)
+  (x3, l.mul(x1.sub(x3)).sub(y1).modulo(p))
+}
+
+fn g_mult(c: Curve, x: BigInt, y: BigInt, k: List<Int>) -> (BigInt, BigInt) {
+  var rx = big.zero()
+  var ry = big.zero()
+  for b in k {
+    var i = 7
+    while i >= 0 {
+      let (dx, dy) = g_add(c, rx, ry, rx, ry)
+      rx = dx
+      ry = dy
+      if ((b >> i) & 1) == 1 {
+        let (ax, ay) = g_add(c, rx, ry, x, y)
+        rx = ax
+        ry = ay
+      }
+      i -= 1
+    }
+  }
+  (rx, ry)
+}
+
+const INVALID: Str = "crypto/elliptic: attempted operation on invalid point"
+
+fn check(c: Curve, x: BigInt, y: BigInt) -> Bool { is_zero_pt(x, y) || is_on_curve(c, x, y) }
+
+// ── 公开接口 ──
+
+pub fn add(c: Curve, x1: BigInt, y1: BigInt, x2: BigInt, y2: BigInt) -> Result<(BigInt, BigInt), Str> {
+  if c.nist >= 0 {
+    let Some(a) = to_jac(c, x1, y1) else { return Err("crypto/elliptic: Add was called on an invalid point") }
+    let Some(b) = to_jac(c, x2, y2) else { return Err("crypto/elliptic: Add was called on an invalid point") }
+    return Ok(from_jac(c, nistec.add(nc(c), a, b)))
+  }
+  if !check(c, x1, y1) || !check(c, x2, y2) { return Err(INVALID) }
+  Ok(g_add(c, x1, y1, x2, y2))
+}
+
+pub fn double(c: Curve, x: BigInt, y: BigInt) -> Result<(BigInt, BigInt), Str> {
+  if c.nist >= 0 {
+    let Some(a) = to_jac(c, x, y) else { return Err("crypto/elliptic: Double was called on an invalid point") }
+    return Ok(from_jac(c, nistec.dbl(nc(c), a)))
+  }
+  if !check(c, x, y) { return Err(INVALID) }
+  Ok(g_add(c, x, y, x, y))
+}
+
+fn normalize(c: Curve, k: List<Int>) -> List<Int> {
+  let size = (c.params.n.bit_len() + 7) / 8
+  if len(k) == size { return k }
+  var s = big.set_bytes(k)
+  if len(k) > size { s = s.modulo(c.params.n) }
+  nistec.be_bytes(s, size)
+}
+
+pub fn scalar_mult(c: Curve, x: BigInt, y: BigInt, k: List<Int>) -> Result<(BigInt, BigInt), Str> {
+  if c.nist >= 0 {
+    let Some(a) = to_jac(c, x, y) else { return Err("crypto/elliptic: ScalarMult was called on an invalid point") }
+    return Ok(from_jac(c, nistec.scalar_mult(nc(c), a, normalize(c, k))))
+  }
+  if !check(c, x, y) { return Err(INVALID) }
+  Ok(g_mult(c, x, y, k))
+}
+
+pub fn scalar_base_mult(c: Curve, k: List<Int>) -> (BigInt, BigInt) {
+  if c.nist >= 0 { return from_jac(c, nistec.scalar_mult(nc(c), nistec.generator(nc(c)), normalize(c, k))) }
+  g_mult(c, c.params.gx, c.params.gy, k)
+}
+
+pub fn marshal(c: Curve, x: BigInt, y: BigInt) -> Result<List<Int>, Str> {
+  if !check(c, x, y) { return Err(INVALID) }
+  let n = byte_len(c)
+  Ok([4] + nistec.be_bytes(x, n) + nistec.be_bytes(y, n))
+}
+
+pub fn marshal_compressed(c: Curve, x: BigInt, y: BigInt) -> Result<List<Int>, Str> {
+  if !check(c, x, y) { return Err(INVALID) }
+  Ok([y.bit(0) | 2] + nistec.be_bytes(x, byte_len(c)))
+}
+
+pub fn unmarshal(c: Curve, data: List<Int>) -> Option<(BigInt, BigInt)> {
+  let n = byte_len(c)
+  if c.nist >= 0 {
+    if len(data) == 0 || data[0] != 4 { return None }
+    if is_err(nistec.decode(nc(c), data)) { return None }
+    return Some((big.set_bytes(data[1..1 + n]), big.set_bytes(data[1 + n..])))
+  }
+  if len(data) != 1 + 2 * n || data[0] != 4 { return None }
+  let x = big.set_bytes(data[1..1 + n])
+  let y = big.set_bytes(data[1 + n..])
+  if x.cmp(c.params.p) >= 0 || y.cmp(c.params.p) >= 0 { return None }
+  if !is_on_curve(c, x, y) { return None }
+  Some((x, y))
+}
+
+pub fn unmarshal_compressed(c: Curve, data: List<Int>) -> Option<(BigInt, BigInt)> {
+  let n = byte_len(c)
+  if c.nist >= 0 {
+    if len(data) == 0 || (data[0] != 2 && data[0] != 3) { return None }
+    match nistec.decode(nc(c), data) {
+      Err(_) => { return None },
+      Ok(p) => { return Some(from_jac(c, p)) },
+    }
+  }
+  if len(data) != 1 + n || (data[0] != 2 && data[0] != 3) { return None }
+  let p = c.params.p
+  let x = big.set_bytes(data[1..])
+  if x.cmp(p) >= 0 { return None }
+  let Some(y0) = nistec.mod_sqrt(poly(c, x), p) else { return None }
+  var y = y0
+  if y.bit(0) != (data[0] & 1) { y = p.sub(y).modulo(p) }
+  if !is_on_curve(c, x, y) { return None }
+  Some((x, y))
+}
+
+// GenerateKey：随机字节从 rand 里按顺序取
+pub fn generate_key(c: Curve, rand: List<Int>) -> Result<(List<Int>, BigInt, BigInt), Str> {
+  let mask = [0xff, 0x1, 0x3, 0x7, 0xf, 0x1f, 0x3f, 0x7f]
+  let bits = c.params.n.bit_len()
+  let bl = (bits + 7) / 8
+  var pos = 0
+  loop {
+    if pos + bl > len(rand) { return Err(if pos >= len(rand) { "EOF" } else { "unexpected EOF" }) }
+    var priv = rand[pos..pos + bl]
+    pos += bl
+    priv = set(priv, 0, priv[0] & mask[bits % 8])
+    priv = set(priv, 1, priv[1] ^ 0x42)
+    if big.set_bytes(priv).cmp(c.params.n) >= 0 { continue }
+    let (x, y) = scalar_base_mult(c, priv)
+    return Ok((priv, x, y))
+  }
+}

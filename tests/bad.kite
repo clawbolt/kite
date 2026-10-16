@@ -1,0 +1,25 @@
+enum Shape {
+  Circle(r: Float)
+  Rect(w: Float, h: Float)
+  Tri(a: Float, b: Float, c: Float)
+}
+
+fn area(s: Shape) -> Float {
+  match s {
+    Circle(r)  => 3.14 * r * r
+    Rect(w, h) => w * h
+  }
+}
+
+fn half(n: Int) -> Int { n / 2.0 }
+
+fn main() {
+  let x = 1
+  x = 2
+  let name: Str = 42
+  let ys = [1, 2, "three"]
+  print(undefined_thing)
+  let r = parse_int("5")
+  let n = r + 1
+  print(Circle(1).r)
+}

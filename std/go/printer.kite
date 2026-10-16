@@ -1,0 +1,2391 @@
+// std.go.printer：对齐 Go 1.27 的 go/printer
+//   fprint(cfg, fset, node) -> Result<Str, Str>：node 可以是 File、表达式、语句、声明或 spec（Node 的对应变体）
+//   fprint_bytes(cfg, fset, node) -> Result<List<Int>, Str>
+//   Config { mode, tabwidth, indent }；模式 RAW_FORMAT、TAB_INDENT、USE_SPACES、SOURCE_POS，以及 format 用的 NORMALIZE_NUMBERS
+//   default_config() 等于 Go 的 printer.Fprint（Tabwidth 8，模式 0）
+//   与 Go 的差异：不支持 CommentedNode 和 []ast.Stmt / []ast.Decl；源码里的非法 UTF-8 已被扫描器换成 U+FFFD。
+//   nodeSize 的缓存按 (节点类型, pos, end) 识别节点，相当于 Go 按指针识别。
+
+use std.go.token as token
+use std.go.ast as ast
+use std.go.ast.{Node}
+use std.go.doc.comment as dc
+use std.go.build.constraint
+use std.text.tabwriter
+use std.strconv
+use std.unicode
+use std.unicode.utf8
+
+pub const RAW_FORMAT: Int = 1
+pub const TAB_INDENT: Int = 2
+pub const USE_SPACES: Int = 4
+pub const SOURCE_POS: Int = 8
+pub const NORMALIZE_NUMBERS: Int = 1073741824
+
+pub type Config = { mode: Int, tabwidth: Int, indent: Int }
+
+pub fn default_config() -> Config { Config { mode: 0, tabwidth: 8, indent: 0 } }
+
+const MAX_NEWLINES: Int = 2
+const INFINITY: Int = 1073741824
+const ESC: Int = 255
+
+// 空白（与 Go 的 whiteSpace 字节值相同）
+const IGNORE: Int = 0
+const BLANK: Int = 32
+const VTAB: Int = 11
+const NEWLINE: Int = 10
+const FORMFEED: Int = 12
+const INDENT: Int = 62
+const UNINDENT: Int = 60
+
+const NO_EXTRA_BLANK: Int = 1
+const NO_EXTRA_LINEBREAK: Int = 2
+
+const COMMA_TERM: Int = 1
+const NO_INDENT: Int = 2
+
+const FUNC_PARAM: Int = 0
+const FUNC_TPARAM: Int = 1
+const TYPE_TPARAM: Int = 2
+
+const FILTERED_MSG: Str = "contains filtered or unexported fields"
+
+type Position = token.Position
+
+// print 的参数
+enum A {
+  W(Int)
+  T(Int)
+  I(Str)
+  L(Str, Int)
+  S(Str)
+  M(Int)
+}
+
+type P = {
+  cfg: Config,
+  fset: token.FileSet,
+  out: Map<Int, List<Int>>,
+  nchunks: Int,
+  olen: Int,
+  indent: Int,
+  level: Int,
+  mode: Int,
+  end_alignment: Bool,
+  implied_semi: Bool,
+  last_tok: Int,
+  prev_open: Int,
+  wsbuf: List<Int>,
+  go_build: List<Int>,
+  plus_build: List<Int>,
+  pos: Position,
+  outp: Position,
+  last: Position,
+  line_ptr: Int,
+  lines: Map<Int, Int>,
+  nslot: Int,
+  source_pos_err: Str,
+  comments: List<Node>,
+  use_node_comments: Bool,
+  cindex: Int,
+  comment: Node,
+  comment_offset: Int,
+  comment_newline: Bool,
+  sizes: Map<Str, Int>,
+}
+
+fn npos(line: Int, column: Int) -> token.Position { token.Position { filename: "", offset: 0, line: line, column: column } }
+
+fn pos_for(p: P, x: Int) -> token.Position { p.fset.position_for(x, false) }
+fn line_for(p: P, x: Int) -> Int { p.fset.position_for(x, false).line }
+
+fn emit(p: P, bs: List<Int>) -> P {
+  if len(bs) == 0 { return p }
+  P { out: set(p.out, p.nchunks, bs), nchunks: p.nchunks + 1, olen: p.olen + len(bs), ..p }
+}
+
+fn output_bytes(p: P) -> List<Int> {
+  var out: List<Int> = []
+  var i = 0
+  while i < p.nchunks {
+    out = out + unwrap(get(p.out, i))
+    i += 1
+  }
+  out
+}
+
+fn new_slot(p: P) -> (P, Int) { (P { nslot: p.nslot + 1, lines: set(p.lines, p.nslot, 0), ..p }, p.nslot) }
+fn slot(p: P, s: Int) -> Int { unwrap(get(p.lines, s)) }
+
+// ── 注释 ──
+fn group_list(g: Node) -> List<Node> { match g { CommentGroup { list } => list, _ => [] } }
+fn ctext(c: Node) -> Str { match c { Comment { text, .. } => text, _ => "" } }
+fn byte_at(s: Str, i: Int) -> Int { let b = __bytes(s); if i < len(b) { b[i] } else { 0 } }
+
+fn comments_have_newline(p: P, list: List<Node>) -> Bool {
+  let line = line_for(p, ast.pos(list[0]))
+  var i = 0
+  for c in list {
+    if i > 0 && line_for(p, ast.pos(c)) != line { return true }
+    let t = ctext(c)
+    if __byte_len(t) >= 2 && (byte_at(t, 1) == 47 || __str_find(t, "\n", 0) >= 0) { return true }
+    i += 1
+  }
+  false
+}
+
+fn next_comment(p0: P) -> P {
+  var p = p0
+  while p.cindex < len(p.comments) {
+    let c = p.comments[p.cindex]
+    p = P { cindex: p.cindex + 1, ..p }
+    let list = group_list(c)
+    if len(list) > 0 {
+      return P { comment: c, comment_offset: pos_for(p, ast.pos(list[0])).offset, comment_newline: comments_have_newline(p, list), ..p }
+    }
+  }
+  P { comment_offset: INFINITY, ..p }
+}
+
+fn comment_before(p: P, next: Position) -> Bool {
+  p.comment_offset < next.offset && (!p.implied_semi || !p.comment_newline)
+}
+
+fn comment_size_before(p0: P, next: Position) -> Int {
+  var p = p0
+  var size = 0
+  while comment_before(p, next) {
+    for c in group_list(p.comment) { size += __byte_len(ctext(c)) }
+    p = next_comment(p)
+  }
+  size
+}
+
+fn record_line(p: P, s: Int) -> P { P { line_ptr: s, ..p } }
+
+fn lines_from(p: P, line: Int) -> Int { p.outp.line - line }
+
+fn write_line_directive(p0: P, pos: Position) -> P {
+  var p = p0
+  if pos.is_valid() && (p.outp.line != pos.line || p.outp.filename != pos.filename) {
+    if __str_find(pos.filename, "\r", 0) >= 0 || __str_find(pos.filename, "\n", 0) >= 0 {
+      if p.source_pos_err == "" {
+        p = P { source_pos_err: "go/printer: source filename contains unexpected newline character: " + strconv.quote_go(pos.filename), ..p }
+      }
+      return p
+    }
+    p = emit(p, [ESC] + __bytes("//line " + pos.filename + ":{pos.line}\n") + [ESC])
+    p = P { outp: token.Position { filename: pos.filename, line: pos.line, ..p.outp }, ..p }
+  }
+  p
+}
+
+fn write_indent(p0: P) -> P {
+  let n = p0.cfg.indent + p0.indent
+  var bs: List<Int> = []
+  var i = 0
+  while i < n { bs = push(bs, 9); i += 1 }
+  let p = emit(p0, bs)
+  P { pos: token.Position { offset: p.pos.offset + n, column: p.pos.column + n, ..p.pos }, outp: token.Position { column: p.outp.column + n, ..p.outp }, ..p }
+}
+
+fn write_byte(p0: P, ch0: Int, n: Int) -> P {
+  var p = p0
+  var ch = ch0
+  if p.end_alignment {
+    if ch == 9 || ch == 11 { ch = 32 }
+    else if ch == 10 || ch == 12 {
+      ch = 12
+      p = P { end_alignment: false, ..p }
+    }
+  }
+  if p.outp.column == 1 { p = write_indent(p) }
+  var bs: List<Int> = []
+  var i = 0
+  while i < n { bs = push(bs, ch); i += 1 }
+  p = emit(p, bs)
+  if ch == 10 || ch == 12 {
+    return P { pos: token.Position { offset: p.pos.offset + n, line: p.pos.line + n, column: 1, ..p.pos },
+      outp: token.Position { line: p.outp.line + n, column: 1, ..p.outp }, ..p }
+  }
+  P { pos: token.Position { offset: p.pos.offset + n, column: p.pos.column + n, ..p.pos }, outp: token.Position { column: p.outp.column + n, ..p.outp }, ..p }
+}
+
+fn write_string(p0: P, pos: Position, s: Str, is_lit: Bool) -> P {
+  var p = p0
+  if p.outp.column == 1 {
+    if p.cfg.mode & SOURCE_POS != 0 { p = write_line_directive(p, pos) }
+    p = write_indent(p)
+  }
+  if pos.is_valid() { p = P { pos: pos, ..p } }
+  let bs = __bytes(s)
+  if is_lit { p = emit(p, [ESC] + bs + [ESC]) } else { p = emit(p, bs) }
+  var nlines = 0
+  var li = 0
+  var i = 0
+  while i < len(bs) {
+    if bs[i] == 10 || bs[i] == 12 {
+      nlines += 1
+      li = i
+    }
+    i += 1
+  }
+  if nlines > 0 { p = P { end_alignment: true, ..p } }
+  let n = len(bs)
+  if nlines > 0 {
+    let c = n - li
+    p = P { pos: token.Position { offset: p.pos.offset + n, line: p.pos.line + nlines, column: c, ..p.pos },
+      outp: token.Position { line: p.outp.line + nlines, column: c, ..p.outp }, ..p }
+  } else {
+    p = P { pos: token.Position { offset: p.pos.offset + n, column: p.pos.column + n, ..p.pos }, outp: token.Position { column: p.outp.column + n, ..p.outp }, ..p }
+  }
+  P { last: p.pos, ..p }
+}
+
+fn write_comment_prefix(p0: P, pos: Position, next: Position, prev: Node, tok: Int) -> P {
+  var p = p0
+  if p.olen == 0 { return p }
+  if pos.is_valid() && pos.filename != p.last.filename { return write_byte(p, 12, MAX_NEWLINES) }
+  if pos.line == p.last.line && (prev == Nil || byte_at(ctext(prev), 1) != 47) {
+    var has_sep = false
+    if prev == Nil {
+      var j = 0
+      var ws = p.wsbuf
+      var i = 0
+      while i < len(ws) {
+        let ch = ws[i]
+        if ch == BLANK { ws = set(ws, i, IGNORE); i += 1; continue }
+        if ch == VTAB { has_sep = true; i += 1; continue }
+        if ch == INDENT { i += 1; continue }
+        j = i
+        break
+      }
+      p = write_whitespace(P { wsbuf: ws, ..p }, j)
+    }
+    if !has_sep {
+      let sep = if pos.line == next.line { 32 } else { 9 }
+      p = write_byte(p, sep, 1)
+    }
+  } else {
+    var dropped_linebreak = false
+    var j = 0
+    var ws = p.wsbuf
+    var i = 0
+    while i < len(ws) {
+      let ch = ws[i]
+      if ch == BLANK || ch == VTAB { ws = set(ws, i, IGNORE); i += 1; continue }
+      if ch == INDENT { i += 1; continue }
+      if ch == UNINDENT {
+        if i + 1 < len(ws) && ws[i + 1] == UNINDENT { i += 1; continue }
+        if tok != token.RBRACE && pos.column == next.column { i += 1; continue }
+      } else if ch == NEWLINE || ch == FORMFEED {
+        ws = set(ws, i, IGNORE)
+        dropped_linebreak = prev == Nil
+      }
+      j = i
+      break
+    }
+    p = write_whitespace(P { wsbuf: ws, ..p }, j)
+    var n = 0
+    if pos.is_valid() && p.last.is_valid() {
+      n = pos.line - p.last.line
+      if n < 0 { n = 0 }
+    }
+    if p.indent == 0 && dropped_linebreak { n += 1 }
+    if n == 0 && prev != Nil && byte_at(ctext(prev), 1) == 47 { n = 1 }
+    if n > 0 { p = write_byte(p, 12, nlimit(n)) }
+  }
+  p
+}
+
+fn is_blank_str(s: Str) -> Bool {
+  for b in __bytes(s) { if b > 32 { return false } }
+  true
+}
+
+fn common_prefix(a: Str, b: Str) -> Str {
+  let x = __bytes(a)
+  let y = __bytes(b)
+  var i = 0
+  while i < len(x) && i < len(y) && x[i] == y[i] && (x[i] <= 32 || x[i] == 42) { i += 1 }
+  bslice(x, 0, i)
+}
+
+fn bslice(bs: List<Int>, a: Int, b: Int) -> Str { utf8_str(bs[a..b]) }
+
+fn utf8_str(bs: List<Int>) -> Str {
+  match __from_bytes(bs) {
+    Some(s) => s,
+    None => {
+      var t = ""
+      var i = 0
+      while i < len(bs) {
+        let (r, k) = utf8.decode_rune_at(bs, i)
+        t = t + __chr(r)
+        i += k
+      }
+      t
+    },
+  }
+}
+
+fn trim_right(s: Str) -> Str {
+  let rs = __str_slice(s, 0, len(s))
+  var n = len(rs)
+  while n > 0 && unicode.is_space(__str_slice(rs, n - 1, n)) { n -= 1 }
+  __str_slice(rs, 0, n)
+}
+
+fn bstr_trim_suffix(s: Str, suf: Str) -> Str { if ends_with(s, suf) { __str_slice(s, 0, len(s) - len(suf)) } else { s } }
+
+fn strip_common_prefix(lines0: List<Str>) -> List<Str> {
+  var lines = lines0
+  if len(lines) <= 1 { return lines }
+  var prefix = ""
+  var prefix_set = false
+  if len(lines) > 2 {
+    var i = 1
+    while i < len(lines) - 1 {
+      let line = lines[i]
+      if is_blank_str(line) {
+        lines = set(lines, i, "")
+      } else {
+        if !prefix_set {
+          prefix = line
+          prefix_set = true
+        }
+        prefix = common_prefix(prefix, line)
+      }
+      i += 1
+    }
+  }
+  if !prefix_set {
+    let line = lines[len(lines) - 1]
+    prefix = common_prefix(line, line)
+  }
+  var line_of_stars = false
+  let star = __str_find(prefix, "*", 0)
+  if star >= 0 {
+    prefix = bstr_trim_suffix(__str_slice(prefix, 0, star), " ")
+    line_of_stars = true
+  } else {
+    let first = __bytes(lines[0])
+    if is_blank_str(bslice(first, 2, len(first))) {
+      let pb = __bytes(prefix)
+      var i = len(pb)
+      var n = 0
+      while n < 3 && i > 0 && pb[i - 1] == 32 { i -= 1; n += 1 }
+      if i == len(pb) && i > 0 && pb[i - 1] == 9 { i -= 1 }
+      prefix = bslice(pb, 0, i)
+    } else {
+      var suffix: List<Int> = []
+      var k = 0
+      while k < len(first) { suffix = push(suffix, 0); k += 1 }
+      var n = 2
+      while n < len(first) && first[n] <= 32 {
+        suffix = set(suffix, n, first[n])
+        n += 1
+      }
+      if n > 2 && suffix[2] == 9 {
+        suffix = suffix[2..n]
+      } else {
+        suffix = set(set(suffix, 0, 32), 1, 32)
+        suffix = suffix[0..n]
+      }
+      prefix = bstr_trim_suffix(prefix, utf8_str(suffix))
+    }
+  }
+  let last = lines[len(lines) - 1]
+  var closing = "*/"
+  let ci = __str_find(last, closing, 0)
+  let before = if ci >= 0 { __str_slice(last, 0, ci) } else { last }
+  if is_blank_str(before) {
+    if line_of_stars { closing = " */" }
+    lines = set(lines, len(lines) - 1, prefix + closing)
+  } else {
+    prefix = common_prefix(prefix, last)
+  }
+  let plen = __byte_len(prefix)
+  var i = 1
+  while i < len(lines) {
+    let line = lines[i]
+    if line != "" {
+      let lb = __bytes(line)
+      lines = set(lines, i, bslice(lb, plen, len(lb)))
+    }
+    i += 1
+  }
+  lines
+}
+
+fn write_comment(p0: P, c: Node) -> P {
+  var p = p0
+  let text = ctext(c)
+  var pos = pos_for(p, ast.pos(c))
+  let saved_indent = p.indent
+  var restore = false
+  if starts_with(text, "//line ") && (!pos.is_valid() || pos.column == 1) {
+    restore = true
+    p = P { indent: 0, ..p }
+  }
+  if byte_at(text, 1) == 47 {
+    if constraint.is_go_build(text) { p = P { go_build: push(p.go_build, p.olen), ..p } }
+    else if constraint.is_plus_build(text) { p = P { plus_build: push(p.plus_build, p.olen), ..p } }
+    p = write_string(p, pos, trim_right(text), true)
+    if restore { p = P { indent: saved_indent, ..p } }
+    return p
+  }
+  var lines = split(text, "\n")
+  if pos.is_valid() && pos.column == 1 && p.indent > 0 {
+    var i = 1
+    while i < len(lines) { lines = set(lines, i, "   " + lines[i]); i += 1 }
+  }
+  lines = strip_common_prefix(lines)
+  var i = 0
+  for line in lines {
+    if i > 0 {
+      p = write_byte(p, 12, 1)
+      pos = p.pos
+    }
+    if len(line) > 0 { p = write_string(p, pos, trim_right(line), true) }
+    i += 1
+  }
+  if restore { p = P { indent: saved_indent, ..p } }
+  p
+}
+
+fn write_comment_suffix(p0: P, needs_linebreak0: Bool) -> (P, Bool, Bool) {
+  var p = p0
+  var needs_linebreak = needs_linebreak0
+  var wrote_newline = false
+  var dropped_ff = false
+  var ws = p.wsbuf
+  var i = 0
+  while i < len(ws) {
+    let ch = ws[i]
+    if ch == BLANK || ch == VTAB {
+      ws = set(ws, i, IGNORE)
+    } else if ch == NEWLINE || ch == FORMFEED {
+      if needs_linebreak {
+        needs_linebreak = false
+        wrote_newline = true
+      } else {
+        if ch == FORMFEED { dropped_ff = true }
+        ws = set(ws, i, IGNORE)
+      }
+    }
+    i += 1
+  }
+  p = write_whitespace(P { wsbuf: ws, ..p }, len(ws))
+  if needs_linebreak {
+    p = write_byte(p, 10, 1)
+    wrote_newline = true
+  }
+  (p, wrote_newline, dropped_ff)
+}
+
+fn contains_linebreak(p: P) -> Bool {
+  for ch in p.wsbuf { if ch == NEWLINE || ch == FORMFEED { return true } }
+  false
+}
+
+// go/printer/comment.go
+fn is_directive(c: Str) -> Bool {
+  if starts_with(c, "line ") || starts_with(c, "extern ") || starts_with(c, "export ") { return true }
+  let bs = __bytes(c)
+  var colon = -1
+  var i = 0
+  while i < len(bs) { if bs[i] == 58 { colon = i; break }; i += 1 }
+  if colon <= 0 || colon + 1 >= len(bs) { return false }
+  i = 0
+  while i <= colon + 1 {
+    if i != colon {
+      let b = bs[i]
+      if !(b >= 97 && b <= 122 || b >= 48 && b <= 57) { return false }
+    }
+    i += 1
+  }
+  true
+}
+
+fn all_stars(text: Str) -> Bool {
+  let bs = __bytes(text)
+  var i = 0
+  while i < len(bs) {
+    if bs[i] == 10 {
+      var j = i + 1
+      while j < len(bs) && (bs[j] == 32 || bs[j] == 9) { j += 1 }
+      if j < len(bs) && bs[j] != 42 { return false }
+    }
+    i += 1
+  }
+  true
+}
+
+fn mk_comment(slash: Int, text: Str) -> Node { Node.Comment { slash: slash, text: text } }
+
+fn format_doc_comment(list: List<Node>) -> List<Node> {
+  var kind = ""
+  var text = ""
+  var directives: List<Node> = []
+  if len(list) == 1 && starts_with(ctext(list[0]), "/*") {
+    kind = "/*"
+    text = ctext(list[0])
+    if __str_find(text, "\n", 0) < 0 || all_stars(text) { return list }
+    text = __str_slice(text, 2, len(text) - 2)
+  } else if starts_with(ctext(list[0]), "//") {
+    kind = "//"
+    var parts: List<Str> = []
+    for c in list {
+      let t = ctext(c)
+      if !starts_with(t, "//") { return list }
+      let after = __str_slice(t, 2, len(t))
+      if is_directive(after) {
+        directives = push(directives, c)
+        continue
+      }
+      parts = push(parts, if starts_with(after, " ") { __str_slice(after, 1, len(after)) } else { after })
+      parts = push(parts, "\n")
+    }
+    text = join(parts, "")
+  } else {
+    return list
+  }
+  if text == "" { return list }
+  text = dc.comment(dc.parse(text))
+  let slash = ast.pos(list[0])
+  if kind == "/*" { return [mk_comment(slash, "/*\n" + text + "*/")] }
+  var out: List<Node> = []
+  var rest = text
+  while rest != "" {
+    let k = __str_find(rest, "\n", 0)
+    var line = rest
+    if k >= 0 {
+      line = __str_slice(rest, 0, k)
+      rest = __str_slice(rest, k + 1, len(rest))
+    } else {
+      rest = ""
+    }
+    if line == "" { line = "//" } else if starts_with(line, "\t") { line = "//" + line } else { line = "// " + line }
+    out = push(out, mk_comment(slash, line))
+  }
+  if len(directives) > 0 {
+    out = push(out, mk_comment(slash, "//"))
+    for c in directives { out = push(out, mk_comment(slash, ctext(c))) }
+  }
+  out
+}
+
+fn intersperse_comments(p0: P, next: Position, tok: Int) -> (P, Bool, Bool) {
+  var p = p0
+  var last: Node = Nil
+  while comment_before(p, next) {
+    let orig = group_list(p.comment)
+    var list = orig
+    var changed = false
+    if tok != token.IDENT && p.last_tok != token.IMPORT && pos_for(p, ast.pos(p.comment)).column == 1 &&
+       pos_for(p, ast.end(p.comment) + 1) == next {
+      list = format_doc_comment(list)
+      changed = true
+      if len(orig) > 0 && len(list) == 0 {
+        p = write_comment_prefix(p, pos_for(p, ast.pos(p.comment)), next, last, tok)
+        p = P { pos: next, last: next, ..p }
+        p = next_comment(p)
+        return write_comment_suffix(p, false)
+      }
+    }
+    for c in list {
+      p = write_comment_prefix(p, pos_for(p, ast.pos(c)), next, last, tok)
+      p = write_comment(p, c)
+      last = c
+    }
+    if len(orig) > 0 && changed {
+      last = orig[len(orig) - 1]
+      let lp = pos_for(p, ast.end(last))
+      p = P { pos: lp, last: lp, ..p }
+    }
+    p = next_comment(p)
+  }
+  if last != Nil {
+    var needs_linebreak = false
+    let lt = ctext(last)
+    if p.mode & NO_EXTRA_BLANK == 0 && byte_at(lt, 1) == 42 && line_for(p, ast.pos(last)) == next.line && tok != token.COMMA &&
+       (tok != token.RPAREN || p.prev_open == token.LPAREN) && (tok != token.RBRACK || p.prev_open == token.LBRACK) {
+      if contains_linebreak(p) && p.mode & NO_EXTRA_LINEBREAK == 0 && p.level == 0 {
+        needs_linebreak = true
+      } else {
+        p = write_byte(p, 32, 1)
+      }
+    }
+    if byte_at(lt, 1) == 47 || tok == token.EOF || tok == token.RBRACE && p.mode & NO_EXTRA_LINEBREAK == 0 { needs_linebreak = true }
+    return write_comment_suffix(p, needs_linebreak)
+  }
+  (p, false, false)
+}
+
+fn write_whitespace(p0: P, n: Int) -> P {
+  var p = p0
+  var ws = p.wsbuf
+  var i = 0
+  while i < n {
+    let ch = ws[i]
+    if ch == IGNORE {
+    } else if ch == INDENT {
+      p = P { indent: p.indent + 1, ..p }
+    } else if ch == UNINDENT {
+      p = P { indent: if p.indent - 1 < 0 { 0 } else { p.indent - 1 }, ..p }
+    } else if (ch == NEWLINE || ch == FORMFEED) && i + 1 < n && ws[i + 1] == UNINDENT {
+      ws = set(set(ws, i, UNINDENT), i + 1, FORMFEED)
+      continue
+    } else {
+      p = write_byte(p, ch, 1)
+    }
+    i += 1
+  }
+  P { wsbuf: ws[n..len(ws)], ..p }
+}
+
+fn nlimit(n: Int) -> Int { if n < MAX_NEWLINES { n } else { MAX_NEWLINES } }
+
+fn may_combine(prev: Int, next: Int) -> Bool {
+  if prev == token.INT { return next == 46 }
+  if prev == token.ADD { return next == 43 }
+  if prev == token.SUB { return next == 45 }
+  if prev == token.QUO { return next == 42 }
+  if prev == token.LSS { return next == 45 || next == 60 }
+  if prev == token.AND { return next == 38 || next == 94 }
+  false
+}
+
+fn set_pos(p: P, x: Int) -> P { if x != 0 { P { pos: pos_for(p, x), ..p } } else { p } }
+
+fn pr(p0: P, args: List<A>) -> P {
+  var p = p0
+  for arg in args {
+    var data = ""
+    var is_lit = false
+    var implied_semi = false
+    if p.last_tok == token.ILLEGAL {
+    } else if p.last_tok == token.LPAREN || p.last_tok == token.LBRACK {
+      p = P { prev_open: p.last_tok, ..p }
+    } else {
+      p = P { prev_open: token.ILLEGAL, ..p }
+    }
+    match arg {
+      M(x) => {
+        p = P { mode: p.mode ^ x, ..p }
+        continue
+      },
+      W(x) => {
+        if x == IGNORE { continue }
+        if len(p.wsbuf) == 16 { p = write_whitespace(p, 16) }
+        p = P { wsbuf: push(p.wsbuf, x), ..p }
+        if x == NEWLINE || x == FORMFEED { p = P { implied_semi: false, ..p } }
+        p = P { last_tok: token.ILLEGAL, ..p }
+        continue
+      },
+      I(name) => {
+        data = name
+        implied_semi = true
+        p = P { last_tok: token.IDENT, ..p }
+      },
+      L(v, kind) => {
+        data = v
+        is_lit = true
+        implied_semi = true
+        p = P { last_tok: kind, ..p }
+      },
+      T(x) => {
+        let s = token.token_string(x)
+        if may_combine(p.last_tok, byte_at(s, 0)) { p = P { wsbuf: [BLANK], ..p } }
+        data = s
+        if x == token.BREAK || x == token.CONTINUE || x == token.FALLTHROUGH || x == token.RETURN || x == token.INC || x == token.DEC ||
+           x == token.RPAREN || x == token.RBRACK || x == token.RBRACE { implied_semi = true }
+        p = P { last_tok: x, ..p }
+      },
+      S(s) => {
+        data = s
+        is_lit = true
+        implied_semi = true
+        p = P { last_tok: token.STRING, ..p }
+      },
+    }
+    let next = p.pos
+    let (p1, wrote_newline, dropped_ff) = flush(p, next, p.last_tok)
+    p = p1
+    if !p.implied_semi {
+      var n = nlimit(next.line - p.pos.line)
+      if wrote_newline && n == MAX_NEWLINES { n = MAX_NEWLINES - 1 }
+      if n > 0 {
+        p = write_byte(p, if dropped_ff { 12 } else { 10 }, n)
+        implied_semi = false
+      }
+    }
+    if p.line_ptr >= 0 { p = P { lines: set(p.lines, p.line_ptr, p.outp.line), line_ptr: -1, ..p } }
+    p = write_string(p, next, data, is_lit)
+    p = P { implied_semi: implied_semi, ..p }
+  }
+  p
+}
+
+fn flush(p: P, next: Position, tok: Int) -> (P, Bool, Bool) {
+  if comment_before(p, next) { return intersperse_comments(p, next, tok) }
+  (write_whitespace(p, len(p.wsbuf)), false, false)
+}
+
+fn w(p: P, x: Int) -> P { pr(p, [A.W(x)]) }
+fn t(p: P, x: Int) -> P { pr(p, [A.T(x)]) }
+
+// ── nodes.go ──
+fn linebreak(p0: P, line: Int, min: Int, ws: Int, new_section: Bool) -> (P, Int) {
+  var p = p0
+  var n = nlimit(line - p.pos.line)
+  if n < min { n = min }
+  var nbreaks = 0
+  if n > 0 {
+    p = w(p, ws)
+    if new_section {
+      p = w(p, FORMFEED)
+      n -= 1
+      nbreaks = 2
+    }
+    nbreaks += n
+    while n > 0 { p = w(p, NEWLINE); n -= 1 }
+  }
+  (p, nbreaks)
+}
+
+fn lb(p: P, line: Int, min: Int, ws: Int, new_section: Bool) -> P { let (p2, _) = linebreak(p, line, min, ws, new_section); p2 }
+
+fn set_comment(p0: P, g: Node) -> P {
+  var p = p0
+  if g == Nil || !p.use_node_comments { return p }
+  if len(p.comments) == 0 {
+    p = P { comments: [g], ..p }
+  } else if p.cindex < len(p.comments) {
+    let (p1, _, _) = flush(p, pos_for(p, ast.pos(group_list(g)[0])), token.ILLEGAL)
+    p = P { comments: [g], ..p1 }
+  } else {
+    p = P { comments: [g], ..p }
+  }
+  p = P { cindex: 0, ..p }
+  if p.comment_offset == INFINITY { p = next_comment(p) }
+  p
+}
+
+fn ident_list(p: P, list: List<Node>, indent: Bool) -> P {
+  expr_list(p, 0, list, 1, if indent { 0 } else { NO_INDENT }, 0, false)
+}
+
+fn log2ish(x0: Float) -> Float {
+  var x = x0
+  var e = 0
+  if x == 0.0 { return 0.0 }
+  while x >= 1.0 { x = x / 2.0; e += 1 }
+  while x < 0.5 { x = x * 2.0; e -= 1 }
+  float(e) + 2.0 * (x - 1.0)
+}
+
+fn exp2ish(x: Float) -> Float {
+  let n = int(x)
+  let f = x - float(n)
+  var r = 1.0 + f
+  var i = 0
+  while i < n { r = r * 2.0; i += 1 }
+  r
+}
+
+fn is_kv(x: Node) -> Bool { x is KeyValueExpr { .. } }
+
+fn expr_list(p0: P, prev0: Int, list: List<Node>, depth: Int, mode: Int, next0: Int, is_incomplete: Bool) -> P {
+  var p = p0
+  if len(list) == 0 {
+    if is_incomplete {
+      let prev = pos_for(p, prev0)
+      let next = pos_for(p, next0)
+      if prev.is_valid() && prev.line == next.line {
+        p = pr(p, [A.S("/* " + FILTERED_MSG + " */")])
+      } else {
+        p = w(p, NEWLINE)
+        p = pr(p, [A.W(INDENT), A.S("// " + FILTERED_MSG), A.W(UNINDENT), A.W(NEWLINE)])
+      }
+    }
+    return p
+  }
+  let prev = pos_for(p, prev0)
+  let next = pos_for(p, next0)
+  var line = line_for(p, ast.pos(list[0]))
+  let end_line = line_for(p, ast.end(list[len(list) - 1]))
+  if prev.is_valid() && prev.line == line && line == end_line {
+    var i = 0
+    for x in list {
+      if i > 0 {
+        p = set_pos(p, ast.pos(x))
+        p = pr(p, [A.T(token.COMMA), A.W(BLANK)])
+      }
+      p = expr0(p, x, depth)
+      i += 1
+    }
+    if is_incomplete { p = pr(p, [A.T(token.COMMA), A.W(BLANK), A.S("/* " + FILTERED_MSG + " */")]) }
+    return p
+  }
+  var ws = if mode & NO_INDENT == 0 { INDENT } else { IGNORE }
+  var prev_break = -1
+  if prev.is_valid() && prev.line < line {
+    let (p1, nb) = linebreak(p, line, 0, ws, true)
+    p = p1
+    if nb > 0 {
+      ws = IGNORE
+      prev_break = 0
+    }
+  }
+  var size = 0
+  var log2sum = 0.0
+  var count = 0
+  var prev_line = prev.line
+  var i = 0
+  for x in list {
+    line = line_for(p, ast.pos(x))
+    var use_ff = true
+    let prev_size = size
+    let inf = 1000000
+    let (p1, sz) = node_size(p, x, inf)
+    p = p1
+    size = sz
+    let is_pair = is_kv(x)
+    if size <= inf && prev.is_valid() && next.is_valid() {
+      if is_pair {
+        let key = match x { KeyValueExpr { key, .. } => key, _ => Nil }
+        let (p2, sz2) = node_size(p, key, inf)
+        p = p2
+        size = sz2
+      }
+    } else {
+      size = 0
+    }
+    if prev_size > 0 && size > 0 {
+      if count == 0 || prev_size <= 40 && size <= 40 {
+        use_ff = false
+      } else {
+        let geomean = exp2ish(log2sum / float(count))
+        let ratio = float(size) / geomean
+        use_ff = 2.5 * ratio <= 1.0 || 2.5 <= ratio
+      }
+    }
+    let needs_linebreak = 0 < prev_line && prev_line < line
+    if i > 0 {
+      if !needs_linebreak { p = set_pos(p, ast.pos(x)) }
+      p = t(p, token.COMMA)
+      var needs_blank = true
+      if needs_linebreak {
+        let (p3, nbreaks) = linebreak(p, line, 0, ws, use_ff || prev_break + 1 < i)
+        p = p3
+        if nbreaks > 0 {
+          ws = IGNORE
+          prev_break = i
+          needs_blank = false
+        }
+        if nbreaks > 1 {
+          log2sum = 0.0
+          count = 0
+        }
+      }
+      if needs_blank { p = w(p, BLANK) }
+    }
+    if len(list) > 1 && is_pair && size > 0 && needs_linebreak {
+      match x {
+        KeyValueExpr { key, colon, value } => {
+          p = expr(p, key)
+          p = set_pos(p, colon)
+          p = pr(p, [A.T(token.COLON), A.W(VTAB)])
+          p = expr(p, value)
+        },
+        _ => {},
+      }
+    } else {
+      p = expr0(p, x, depth)
+    }
+    if size > 0 {
+      log2sum = log2sum + log2ish(float(size))
+      count += 1
+    }
+    prev_line = line
+    i += 1
+  }
+  if mode & COMMA_TERM != 0 && next.is_valid() && p.pos.line < next.line {
+    p = t(p, token.COMMA)
+    if is_incomplete {
+      p = w(p, NEWLINE)
+      p = pr(p, [A.S("// " + FILTERED_MSG)])
+    }
+    if ws == IGNORE && mode & NO_INDENT == 0 { p = w(p, UNINDENT) }
+    return w(p, FORMFEED)
+  }
+  if is_incomplete {
+    p = pr(p, [A.T(token.COMMA), A.W(NEWLINE)])
+    p = pr(p, [A.S("// " + FILTERED_MSG), A.W(NEWLINE)])
+  }
+  if ws == IGNORE && mode & NO_INDENT == 0 { p = w(p, UNINDENT) }
+  p
+}
+
+fn fl_parts(fl: Node) -> (Int, List<Node>, Int) { match fl { FieldList { opening, list, closing } => (opening, list, closing), _ => (0, [], 0) } }
+fn f_names(f: Node) -> List<Node> { match f { Field { names, .. } => names, _ => [] } }
+fn f_type(f: Node) -> Node { match f { Field { typ, .. } => typ, _ => Nil } }
+
+fn parameters(p0: P, fields: Node, mode: Int) -> P {
+  var p = p0
+  let (opening, list, closing) = fl_parts(fields)
+  let open_tok = if mode != FUNC_PARAM { token.LBRACK } else { token.LPAREN }
+  let close_tok = if mode != FUNC_PARAM { token.RBRACK } else { token.RPAREN }
+  p = set_pos(p, opening)
+  p = t(p, open_tok)
+  if len(list) > 0 {
+    var prev_line = line_for(p, opening)
+    var ws = INDENT
+    var i = 0
+    for par in list {
+      let par_line_beg = line_for(p, ast.pos(par))
+      let par_line_end = line_for(p, ast.end(par))
+      let needs_linebreak = 0 < prev_line && prev_line < par_line_beg
+      if i > 0 {
+        if !needs_linebreak { p = set_pos(p, ast.pos(par)) }
+        p = t(p, token.COMMA)
+      }
+      var did_break = false
+      if needs_linebreak {
+        let (p1, nb) = linebreak(p, par_line_beg, 0, ws, true)
+        p = p1
+        if nb > 0 {
+          ws = IGNORE
+          did_break = true
+        }
+      }
+      if !did_break && i > 0 { p = w(p, BLANK) }
+      let names = f_names(par)
+      if len(names) > 0 {
+        p = ident_list(p, names, ws == INDENT)
+        p = w(p, BLANK)
+      }
+      p = expr(p, strip_parens_always(f_type(par)))
+      prev_line = par_line_end
+      i += 1
+    }
+    let cl = line_for(p, closing)
+    if 0 < prev_line && prev_line < cl {
+      p = t(p, token.COMMA)
+      p = lb(p, cl, 0, IGNORE, true)
+    } else if mode == TYPE_TPARAM && ast.num_fields(fields) == 1 && combines_with_name(strip_parens_always(f_type(list[0]))) {
+      p = t(p, token.COMMA)
+    }
+    if ws == IGNORE { p = w(p, UNINDENT) }
+  }
+  p = set_pos(p, closing)
+  t(p, close_tok)
+}
+
+fn combines_with_name(x: Node) -> Bool {
+  match x {
+    StarExpr { x: y, .. } => !is_type_elem(y),
+    BinaryExpr { x: a, y: b, .. } => combines_with_name(a) && !is_type_elem(b),
+    ParenExpr { x: y, .. } => !is_type_elem(y),
+    _ => false,
+  }
+}
+
+fn is_type_elem(x: Node) -> Bool {
+  match x {
+    ArrayType { .. } => true,
+    StructType { .. } => true,
+    FuncType { .. } => true,
+    InterfaceType { .. } => true,
+    MapType { .. } => true,
+    ChanType { .. } => true,
+    UnaryExpr { op, .. } => op == token.TILDE,
+    BinaryExpr { x: a, y: b, .. } => is_type_elem(a) || is_type_elem(b),
+    ParenExpr { x: y, .. } => is_type_elem(y),
+    _ => false,
+  }
+}
+
+fn signature(p0: P, sig: Node) -> P {
+  var p = p0
+  match sig {
+    FuncType { type_params, params, results, .. } => {
+      if type_params != Nil { p = parameters(p, type_params, FUNC_TPARAM) }
+      if params != Nil { p = parameters(p, params, FUNC_PARAM) } else { p = pr(p, [A.T(token.LPAREN), A.T(token.RPAREN)]) }
+      let n = ast.num_fields(results)
+      if n > 0 {
+        p = w(p, BLANK)
+        let (_, rl, _) = fl_parts(results)
+        if n == 1 && len(f_names(rl[0])) == 0 {
+          return expr(p, strip_parens_always(f_type(rl[0])))
+        }
+        p = parameters(p, results, FUNC_PARAM)
+      }
+    },
+    _ => {},
+  }
+  p
+}
+
+fn ident_list_size(list: List<Node>, max_size: Int) -> Int {
+  var size = 0
+  var i = 0
+  for x in list {
+    if i > 0 { size += 2 }
+    size += len(match x { Ident { name, .. } => name, _ => "" })
+    if size >= max_size { break }
+    i += 1
+  }
+  size
+}
+
+fn is_one_line_field_list(p0: P, list: List<Node>) -> (P, Bool) {
+  if len(list) != 1 { return (p0, false) }
+  let f = list[0]
+  match f {
+    Field { names, typ, tag, comment, .. } => {
+      if tag != Nil || comment != Nil { return (p0, false) }
+      var names_size = ident_list_size(names, 30)
+      if names_size > 0 { names_size = 1 }
+      let (p, type_size) = node_size(p0, typ, 30)
+      (p, names_size + type_size <= 30)
+    },
+    _ => (p0, false),
+  }
+}
+
+fn set_line_comment(p: P, text: Str) -> P { set_comment(p, Node.CommentGroup { list: [mk_comment(0, text)] }) }
+
+fn field_list(p0: P, fields: Node, is_struct: Bool, is_incomplete: Bool) -> P {
+  var p = p0
+  let (lbrace, list, rbrace) = fl_parts(fields)
+  let has_comments = is_incomplete || comment_before(p, pos_for(p, rbrace))
+  let src_is_one_line = lbrace != 0 && rbrace != 0 && line_for(p, lbrace) == line_for(p, rbrace)
+  if !has_comments && src_is_one_line {
+    if len(list) == 0 {
+      p = set_pos(p, lbrace)
+      p = t(p, token.LBRACE)
+      p = set_pos(p, rbrace)
+      return t(p, token.RBRACE)
+    }
+    let (p1, one) = is_one_line_field_list(p, list)
+    p = p1
+    if one {
+      p = set_pos(p, lbrace)
+      p = pr(p, [A.T(token.LBRACE), A.W(BLANK)])
+      let f = list[0]
+      let names = f_names(f)
+      if is_struct {
+        var i = 0
+        for x in names {
+          if i > 0 { p = pr(p, [A.T(token.COMMA), A.W(BLANK)]) }
+          p = expr(p, x)
+          i += 1
+        }
+        if len(names) > 0 { p = w(p, BLANK) }
+        p = expr(p, f_type(f))
+      } else {
+        if len(names) > 0 {
+          p = expr(p, names[0])
+          p = signature(p, f_type(f))
+        } else {
+          p = expr(p, f_type(f))
+        }
+      }
+      p = w(p, BLANK)
+      p = set_pos(p, rbrace)
+      return t(p, token.RBRACE)
+    }
+  }
+  p = w(p, BLANK)
+  p = set_pos(p, lbrace)
+  p = pr(p, [A.T(token.LBRACE), A.W(INDENT)])
+  if has_comments || len(list) > 0 { p = w(p, FORMFEED) }
+  if is_struct {
+    let sep = if len(list) == 1 { BLANK } else { VTAB }
+    let (p1, sl) = new_slot(p)
+    p = p1
+    var i = 0
+    for f in list {
+      match f {
+        Field { doc, names, typ, tag, comment } => {
+          if i > 0 { p = lb(p, line_for(p, ast.pos(f)), 1, IGNORE, lines_from(p, slot(p, sl)) > 0) }
+          var extra_tabs = 0
+          p = set_comment(p, doc)
+          p = record_line(p, sl)
+          if len(names) > 0 {
+            p = ident_list(p, names, false)
+            p = w(p, sep)
+            p = expr(p, typ)
+            extra_tabs = 1
+          } else {
+            p = expr(p, typ)
+            extra_tabs = 2
+          }
+          if tag != Nil {
+            if len(names) > 0 && sep == VTAB { p = w(p, sep) }
+            p = w(p, sep)
+            p = expr(p, tag)
+            extra_tabs = 0
+          }
+          if comment != Nil {
+            while extra_tabs > 0 { p = w(p, sep); extra_tabs -= 1 }
+            p = set_comment(p, comment)
+          }
+        },
+        _ => {},
+      }
+      i += 1
+    }
+    if is_incomplete {
+      if len(list) > 0 { p = w(p, FORMFEED) }
+      let (p2, _, _) = flush(p, pos_for(p, rbrace), token.RBRACE)
+      p = set_line_comment(p2, "// " + FILTERED_MSG)
+    }
+  } else {
+    let (p1, sl) = new_slot(p)
+    p = p1
+    var i = 0
+    for f in list {
+      let names = f_names(f)
+      let name = if len(names) > 0 { names[0] } else { Nil }
+      if i > 0 {
+        let min = 1
+        p = lb(p, line_for(p, ast.pos(f)), min, IGNORE, lines_from(p, slot(p, sl)) > 0)
+      }
+      match f {
+        Field { doc, typ, comment, .. } => {
+          p = set_comment(p, doc)
+          p = record_line(p, sl)
+          if name != Nil {
+            p = expr(p, name)
+            p = signature(p, typ)
+          } else {
+            p = expr(p, typ)
+          }
+          p = set_comment(p, comment)
+        },
+        _ => {},
+      }
+      i += 1
+    }
+    if is_incomplete {
+      if len(list) > 0 { p = w(p, FORMFEED) }
+      let (p2, _, _) = flush(p, pos_for(p, rbrace), token.RBRACE)
+      p = set_line_comment(p2, "// contains filtered or unexported methods")
+    }
+  }
+  p = pr(p, [A.W(UNINDENT), A.W(FORMFEED)])
+  p = set_pos(p, rbrace)
+  t(p, token.RBRACE)
+}
+
+fn bop(x: Node) -> Int { match x { BinaryExpr { op, .. } => op, _ => -1 } }
+
+fn walk_binary(e: Node) -> (Bool, Bool, Int) {
+  match e {
+    BinaryExpr { x, op, y, .. } => {
+      var has4 = false
+      var has5 = false
+      var max_problem = 0
+      let prec = token.precedence(op)
+      if prec == 4 { has4 = true }
+      if prec == 5 { has5 = true }
+      match x {
+        BinaryExpr { op: lop, .. } => {
+          if !(token.precedence(lop) < prec) {
+            let (h4, h5, mp) = walk_binary(x)
+            has4 = has4 || h4
+            has5 = has5 || h5
+            if mp > max_problem { max_problem = mp }
+          }
+        },
+        _ => {},
+      }
+      match y {
+        BinaryExpr { op: rop, .. } => {
+          if !(token.precedence(rop) <= prec) {
+            let (h4, h5, mp) = walk_binary(y)
+            has4 = has4 || h4
+            has5 = has5 || h5
+            if mp > max_problem { max_problem = mp }
+          }
+        },
+        StarExpr { .. } => { if op == token.QUO { max_problem = 5 } },
+        UnaryExpr { op: uop, .. } => {
+          let s = token.token_string(op) + token.token_string(uop)
+          if s == "/*" || s == "&&" || s == "&^" { max_problem = 5 }
+          else if s == "++" || s == "--" { if max_problem < 4 { max_problem = 4 } }
+        },
+        _ => {},
+      }
+      (has4, has5, max_problem)
+    },
+    _ => (false, false, 0),
+  }
+}
+
+fn cutoff(e: Node, depth: Int) -> Int {
+  let (has4, has5, max_problem) = walk_binary(e)
+  if max_problem > 0 { return max_problem + 1 }
+  if has4 && has5 { return if depth == 1 { 5 } else { 4 } }
+  if depth == 1 { 6 } else { 4 }
+}
+
+fn diff_prec(x: Node, prec: Int) -> Int {
+  match x { BinaryExpr { op, .. } => if prec != token.precedence(op) { 1 } else { 0 }, _ => 1 }
+}
+
+fn reduce_depth(depth: Int) -> Int { if depth - 1 < 1 { 1 } else { depth - 1 } }
+
+fn binary_expr(p0: P, e: Node, prec1: Int, cut: Int, depth: Int) -> P {
+  var p = p0
+  match e {
+    BinaryExpr { x, op_pos, op, y } => {
+      let prec = token.precedence(op)
+      if prec < prec1 {
+        p = t(p, token.LPAREN)
+        p = expr0(p, e, reduce_depth(depth))
+        return t(p, token.RPAREN)
+      }
+      var print_blank = prec < cut
+      var ws = INDENT
+      p = expr1(p, x, prec, depth + diff_prec(x, prec))
+      if print_blank { p = w(p, BLANK) }
+      let xline = p.pos.line
+      let yline = line_for(p, ast.pos(y))
+      p = set_pos(p, op_pos)
+      p = t(p, op)
+      if xline != yline && xline > 0 && yline > 0 {
+        let (p1, nb) = linebreak(p, yline, 1, ws, true)
+        p = p1
+        if nb > 0 {
+          ws = IGNORE
+          print_blank = false
+        }
+      }
+      if print_blank { p = w(p, BLANK) }
+      p = expr1(p, y, prec + 1, depth + 1)
+      if ws == IGNORE { p = w(p, UNINDENT) }
+    },
+    _ => {},
+  }
+  p
+}
+
+fn is_binary(x: Node) -> Bool { x is BinaryExpr { .. } }
+
+fn lit_arg(x: Node) -> A { match x { BasicLit { value, kind, .. } => A.L(value, kind), _ => A.S("") } }
+fn id_arg(x: Node) -> A { match x { Ident { name, .. } => A.I(name), _ => A.I("") } }
+
+fn expr1(p0: P, e: Node, prec1: Int, depth0: Int) -> P {
+  var p = set_pos(p0, ast.pos(e))
+  var depth = depth0
+  match e {
+    BadExpr { .. } => pr(p, [A.S("BadExpr")]),
+    Ident { .. } => pr(p, [id_arg(e)]),
+    BinaryExpr { .. } => binary_expr(p, e, prec1, cutoff(e, if depth < 1 { 1 } else { depth }), if depth < 1 { 1 } else { depth }),
+    KeyValueExpr { key, colon, value } => {
+      p = expr(p, key)
+      p = set_pos(p, colon)
+      p = pr(p, [A.T(token.COLON), A.W(BLANK)])
+      expr(p, value)
+    },
+    StarExpr { x, .. } => {
+      if token.UNARY_PREC < prec1 {
+        p = pr(p, [A.T(token.LPAREN), A.T(token.MUL)])
+        p = expr(p, x)
+        t(p, token.RPAREN)
+      } else {
+        p = t(p, token.MUL)
+        expr(p, x)
+      }
+    },
+    UnaryExpr { op, x, .. } => {
+      if token.UNARY_PREC < prec1 {
+        p = t(p, token.LPAREN)
+        p = expr(p, e)
+        t(p, token.RPAREN)
+      } else {
+        p = t(p, op)
+        if op == token.RANGE { p = w(p, BLANK) }
+        expr1(p, x, token.UNARY_PREC, depth)
+      }
+    },
+    BasicLit { .. } => {
+      let x = if p.cfg.mode & NORMALIZE_NUMBERS != 0 { normalized_number(e) } else { e }
+      pr(p, [lit_arg(x)])
+    },
+    FuncLit { typ, body } => {
+      p = set_pos(p, ast.pos(typ))
+      p = t(p, token.FUNC)
+      let start_col = p.outp.column - 4
+      p = signature(p, typ)
+      func_body(p, distance_from(p, ast.pos(typ), start_col), BLANK, body)
+    },
+    ParenExpr { x, rparen, .. } => {
+      if x is ParenExpr { .. } {
+        expr0(p, x, depth)
+      } else {
+        p = t(p, token.LPAREN)
+        p = expr0(p, x, reduce_depth(depth))
+        p = set_pos(p, rparen)
+        t(p, token.RPAREN)
+      }
+    },
+    SelectorExpr { .. } => { let (p1, _) = selector_expr(p, e, depth, false); p1 },
+    TypeAssertExpr { x, lparen, typ, rparen } => {
+      p = expr1(p, x, token.HIGHEST_PREC, depth)
+      p = t(p, token.PERIOD)
+      p = set_pos(p, lparen)
+      p = t(p, token.LPAREN)
+      if typ != Nil { p = expr(p, typ) } else { p = t(p, token.TYPE) }
+      p = set_pos(p, rparen)
+      t(p, token.RPAREN)
+    },
+    IndexExpr { x, lbrack, index, rbrack } => {
+      p = expr1(p, x, token.HIGHEST_PREC, 1)
+      p = set_pos(p, lbrack)
+      p = t(p, token.LBRACK)
+      p = expr0(p, index, depth + 1)
+      p = set_pos(p, rbrack)
+      t(p, token.RBRACK)
+    },
+    IndexListExpr { x, lbrack, indices, rbrack } => {
+      p = expr1(p, x, token.HIGHEST_PREC, 1)
+      p = set_pos(p, lbrack)
+      p = t(p, token.LBRACK)
+      p = expr_list(p, lbrack, indices, depth + 1, COMMA_TERM, rbrack, false)
+      p = set_pos(p, rbrack)
+      t(p, token.RBRACK)
+    },
+    SliceExpr { x, lbrack, low, high, max, rbrack, .. } => {
+      p = expr1(p, x, token.HIGHEST_PREC, 1)
+      p = set_pos(p, lbrack)
+      p = t(p, token.LBRACK)
+      var indices = [low, high]
+      if max != Nil { indices = push(indices, max) }
+      var needs_blanks = false
+      if depth <= 1 {
+        var index_count = 0
+        var has_binaries = false
+        for y in indices {
+          if y != Nil {
+            index_count += 1
+            if is_binary(y) { has_binaries = true }
+          }
+        }
+        if index_count > 1 && has_binaries { needs_blanks = true }
+      }
+      var i = 0
+      for y in indices {
+        if i > 0 {
+          if indices[i - 1] != Nil && needs_blanks { p = w(p, BLANK) }
+          p = t(p, token.COLON)
+          if y != Nil && needs_blanks { p = w(p, BLANK) }
+        }
+        if y != Nil { p = expr0(p, y, depth + 1) }
+        i += 1
+      }
+      p = set_pos(p, rbrack)
+      t(p, token.RBRACK)
+    },
+    CallExpr { fun, lparen, args, ellipsis, rparen } => {
+      if len(args) > 1 { depth += 1 }
+      let paren = match fun { FuncType { .. } => true, ChanType { dir, .. } => dir == ast.RECV, _ => false }
+      if paren { p = t(p, token.LPAREN) }
+      let (p1, was_indented) = possible_selector_expr(p, fun, token.HIGHEST_PREC, depth)
+      p = p1
+      if paren { p = t(p, token.RPAREN) }
+      p = set_pos(p, lparen)
+      p = t(p, token.LPAREN)
+      if ellipsis != 0 {
+        p = expr_list(p, lparen, args, depth, 0, ellipsis, false)
+        p = set_pos(p, ellipsis)
+        p = t(p, token.ELLIPSIS)
+        if rparen != 0 && line_for(p, ellipsis) < line_for(p, rparen) { p = pr(p, [A.T(token.COMMA), A.W(FORMFEED)]) }
+      } else {
+        p = expr_list(p, lparen, args, depth, COMMA_TERM, rparen, false)
+      }
+      p = set_pos(p, rparen)
+      p = t(p, token.RPAREN)
+      if was_indented { p = w(p, UNINDENT) }
+      p
+    },
+    CompositeLit { typ, lbrace, elts, rbrace, incomplete } => {
+      if typ != Nil { p = expr1(p, typ, token.HIGHEST_PREC, depth) }
+      p = P { level: p.level + 1, ..p }
+      p = set_pos(p, lbrace)
+      p = t(p, token.LBRACE)
+      p = expr_list(p, lbrace, elts, 1, COMMA_TERM, rbrace, incomplete)
+      var mode = NO_EXTRA_LINEBREAK
+      if len(elts) > 0 { mode = mode | NO_EXTRA_BLANK }
+      p = pr(p, [A.W(INDENT), A.W(UNINDENT), A.M(mode)])
+      p = set_pos(p, rbrace)
+      p = pr(p, [A.T(token.RBRACE), A.M(mode)])
+      P { level: p.level - 1, ..p }
+    },
+    Ellipsis { elt, .. } => {
+      p = t(p, token.ELLIPSIS)
+      if elt != Nil { p = expr(p, elt) }
+      p
+    },
+    ArrayType { length, elt, .. } => {
+      p = t(p, token.LBRACK)
+      if length != Nil { p = expr(p, length) }
+      p = t(p, token.RBRACK)
+      expr(p, elt)
+    },
+    StructType { fields, incomplete, .. } => {
+      p = t(p, token.STRUCT)
+      field_list(p, fields, true, incomplete)
+    },
+    FuncType { .. } => {
+      p = t(p, token.FUNC)
+      signature(p, e)
+    },
+    InterfaceType { methods, incomplete, .. } => {
+      p = t(p, token.INTERFACE)
+      field_list(p, methods, false, incomplete)
+    },
+    MapType { key, value, .. } => {
+      p = pr(p, [A.T(token.MAP), A.T(token.LBRACK)])
+      p = expr(p, key)
+      p = t(p, token.RBRACK)
+      expr(p, value)
+    },
+    ChanType { arrow, dir, value, .. } => {
+      if dir == ast.SEND | ast.RECV {
+        p = t(p, token.CHAN)
+      } else if dir == ast.RECV {
+        p = pr(p, [A.T(token.ARROW), A.T(token.CHAN)])
+      } else if dir == ast.SEND {
+        p = t(p, token.CHAN)
+        p = set_pos(p, arrow)
+        p = t(p, token.ARROW)
+      }
+      p = w(p, BLANK)
+      expr(p, value)
+    },
+    _ => p,
+  }
+}
+
+fn last_index_byte(bs: List<Int>, c: Int) -> Int {
+  var i = len(bs) - 1
+  while i >= 0 { if bs[i] == c { return i }; i -= 1 }
+  -1
+}
+
+fn normalized_number(lit: Node) -> Node {
+  match lit {
+    BasicLit { value_pos, kind, value, .. } => {
+      if kind != token.INT && kind != token.FLOAT && kind != token.IMAG { return lit }
+      let bs = __bytes(value)
+      if len(bs) < 2 { return lit }
+      var x = bs
+      let pre = bslice(bs, 0, 2)
+      if pre == "0X" {
+        x = __bytes("0x") + bs[2..len(bs)]
+        let i = last_index_byte(x, 80)
+        if i >= 0 { x = set(x, i, 112) }
+      } else if pre == "0x" {
+        let i = last_index_byte(x, 80)
+        if i == -1 { return lit }
+        x = set(x, i, 112)
+      } else if pre == "0O" {
+        x = __bytes("0o") + bs[2..len(bs)]
+      } else if pre == "0o" {
+        return lit
+      } else if pre == "0B" {
+        x = __bytes("0b") + bs[2..len(bs)]
+      } else if pre == "0b" {
+        return lit
+      } else {
+        let i = last_index_byte(x, 69)
+        if i >= 0 {
+          x = set(x, i, 101)
+        } else if x[len(x) - 1] == 105 && last_index_byte(x, 46) < 0 && last_index_byte(x, 101) < 0 {
+          var k = 0
+          while k < len(x) && (x[k] == 48 || x[k] == 95) { k += 1 }
+          x = x[k..len(x)]
+          if len(x) == 1 && x[0] == 105 { x = __bytes("0i") }
+        }
+      }
+      Node.BasicLit { value_pos: value_pos, value_end: 0, kind: kind, value: bslice(x, 0, len(x)) }
+    },
+    _ => lit,
+  }
+}
+
+fn possible_selector_expr(p: P, e: Node, prec1: Int, depth: Int) -> (P, Bool) {
+  if e is SelectorExpr { .. } { return selector_expr(p, e, depth, true) }
+  (expr1(p, e, prec1, depth), false)
+}
+
+fn selector_expr(p0: P, e: Node, depth: Int, is_method: Bool) -> (P, Bool) {
+  var p = p0
+  match e {
+    SelectorExpr { x, sel } => {
+      p = expr1(p, x, token.HIGHEST_PREC, depth)
+      p = t(p, token.PERIOD)
+      let line = line_for(p, ast.pos(sel))
+      if p.pos.is_valid() && p.pos.line < line {
+        p = pr(p, [A.W(INDENT), A.W(NEWLINE)])
+        p = set_pos(p, ast.pos(sel))
+        p = pr(p, [id_arg(sel)])
+        if !is_method { p = w(p, UNINDENT) }
+        return (p, true)
+      }
+      p = set_pos(p, ast.pos(sel))
+      (pr(p, [id_arg(sel)]), false)
+    },
+    _ => (p, false),
+  }
+}
+
+fn expr0(p: P, x: Node, depth: Int) -> P { expr1(p, x, token.LOWEST_PREC, depth) }
+fn expr(p: P, x: Node) -> P { expr1(p, x, token.LOWEST_PREC, 1) }
+
+fn stmt_list(p0: P, list: List<Node>, nindent: Int, next_is_rbrace: Bool) -> P {
+  var p = p0
+  if nindent > 0 { p = w(p, INDENT) }
+  let (p1, sl) = new_slot(p)
+  p = p1
+  var i = 0
+  var k = 0
+  for s in list {
+    if !(s is EmptyStmt { .. }) {
+      if p.olen > 0 { p = lb(p, line_for(p, ast.pos(s)), 1, IGNORE, i == 0 || nindent == 0 || lines_from(p, slot(p, sl)) > 0) }
+      p = record_line(p, sl)
+      p = stmt(p, s, next_is_rbrace && k == len(list) - 1)
+      var tt = s
+      loop {
+        match tt {
+          LabeledStmt { stmt: inner, .. } => {
+            p = P { lines: set(p.lines, sl, slot(p, sl) + 1), ..p }
+            tt = inner
+          },
+          _ => { break },
+        }
+      }
+      i += 1
+    }
+    k += 1
+  }
+  if nindent > 0 { p = w(p, UNINDENT) }
+  p
+}
+
+fn block(p0: P, b: Node, nindent: Int) -> P {
+  var p = p0
+  match b {
+    BlockStmt { lbrace, list, rbrace } => {
+      p = set_pos(p, lbrace)
+      p = t(p, token.LBRACE)
+      p = stmt_list(p, list, nindent, true)
+      p = lb(p, line_for(p, rbrace), 1, IGNORE, true)
+      p = set_pos(p, rbrace)
+      t(p, token.RBRACE)
+    },
+    _ => p,
+  }
+}
+
+fn is_type_name(x: Node) -> Bool {
+  match x { Ident { .. } => true, SelectorExpr { x: y, .. } => is_type_name(y), _ => false }
+}
+
+// stripParens：ast.Inspect 遇到 ParenExpr / CompositeLit 不再深入
+fn has_typename_complit(n: Node) -> Bool {
+  match n {
+    ParenExpr { .. } => false,
+    CompositeLit { typ, .. } => is_type_name(typ),
+    Nil => false,
+    _ => {
+      for c in ast.children(n) { if has_typename_complit(c) { return true } }
+      false
+    },
+  }
+}
+
+fn strip_parens(x: Node) -> Node {
+  match x {
+    ParenExpr { x: inner, .. } => {
+      // Go：Inspect 从 px.X 开始；根本身是 ParenExpr 也会返回 false（不深入）
+      let strip = !has_typename_complit(inner)
+      if strip { strip_parens(inner) } else { x }
+    },
+    _ => x,
+  }
+}
+
+fn strip_parens_always(x: Node) -> Node {
+  match x { ParenExpr { x: inner, .. } => strip_parens_always(inner), _ => x }
+}
+
+fn control_clause(p0: P, is_for: Bool, init: Node, e: Node, post: Node) -> P {
+  var p = w(p0, BLANK)
+  var needs_blank = false
+  if init == Nil && post == Nil {
+    if e != Nil {
+      p = expr(p, strip_parens(e))
+      needs_blank = true
+    }
+  } else {
+    if init != Nil { p = stmt(p, init, false) }
+    p = pr(p, [A.T(token.SEMICOLON), A.W(BLANK)])
+    if e != Nil {
+      p = expr(p, strip_parens(e))
+      needs_blank = true
+    }
+    if is_for {
+      p = pr(p, [A.T(token.SEMICOLON), A.W(BLANK)])
+      needs_blank = false
+      if post != Nil {
+        p = stmt(p, post, false)
+        needs_blank = true
+      }
+    }
+  }
+  if needs_blank { p = w(p, BLANK) }
+  p
+}
+
+fn is_composite_lit_like(x: Node) -> Bool {
+  match strip_parens_always(x) {
+    CompositeLit { .. } => true,
+    UnaryExpr { op, x: y, .. } => op == token.AND && strip_parens_always(y) is CompositeLit { .. },
+    _ => false,
+  }
+}
+
+fn indent_list(p: P, list: List<Node>) -> Bool {
+  if len(list) >= 2 {
+    let b = line_for(p, ast.pos(list[0]))
+    let e = line_for(p, ast.end(list[len(list) - 1]))
+    if 0 < b && b < e {
+      var n = 0
+      var line = b
+      for x in list {
+        let xb = line_for(p, ast.pos(x))
+        let xe = line_for(p, ast.end(x))
+        if line < xb { return true }
+        if xb < xe && !is_composite_lit_like(x) { n += 1 }
+        line = xe
+      }
+      return n > 1
+    }
+  }
+  false
+}
+
+fn stmt(p0: P, s: Node, next_is_rbrace: Bool) -> P {
+  var p = set_pos(p0, ast.pos(s))
+  match s {
+    BadStmt { .. } => pr(p, [A.S("BadStmt")]),
+    DeclStmt { decl } => decl_(p, decl),
+    EmptyStmt { .. } => p,
+    LabeledStmt { label, colon, stmt: inner } => {
+      p = w(p, UNINDENT)
+      p = expr(p, label)
+      p = set_pos(p, colon)
+      p = pr(p, [A.T(token.COLON), A.W(INDENT)])
+      match inner {
+        EmptyStmt { .. } => {
+          if !next_is_rbrace {
+            p = w(p, NEWLINE)
+            p = set_pos(p, ast.pos(inner))
+            return t(p, token.SEMICOLON)
+          }
+        },
+        _ => { p = lb(p, line_for(p, ast.pos(inner)), 1, IGNORE, true) },
+      }
+      stmt(p, inner, next_is_rbrace)
+    },
+    ExprStmt { x } => expr0(p, x, 1),
+    SendStmt { chan_x, arrow, value } => {
+      p = expr0(p, chan_x, 1)
+      p = w(p, BLANK)
+      p = set_pos(p, arrow)
+      p = pr(p, [A.T(token.ARROW), A.W(BLANK)])
+      expr0(p, value, 1)
+    },
+    IncDecStmt { x, tok_pos, tok } => {
+      p = expr0(p, x, 2)
+      p = set_pos(p, tok_pos)
+      t(p, tok)
+    },
+    AssignStmt { lhs, tok_pos, tok, rhs } => {
+      var depth = 1
+      if len(lhs) > 1 && len(rhs) > 1 { depth += 1 }
+      p = expr_list(p, ast.pos(s), lhs, depth, 0, tok_pos, false)
+      p = w(p, BLANK)
+      p = set_pos(p, tok_pos)
+      p = pr(p, [A.T(tok), A.W(BLANK)])
+      expr_list(p, tok_pos, rhs, depth, 0, 0, false)
+    },
+    GoStmt { call, .. } => {
+      p = pr(p, [A.T(token.GO), A.W(BLANK)])
+      expr(p, call)
+    },
+    DeferStmt { call, .. } => {
+      p = pr(p, [A.T(token.DEFER), A.W(BLANK)])
+      expr(p, call)
+    },
+    ReturnStmt { results, .. } => {
+      p = t(p, token.RETURN)
+      if len(results) > 0 {
+        p = w(p, BLANK)
+        if indent_list(p, results) {
+          p = w(p, INDENT)
+          p = expr_list(p, 0, results, 1, NO_INDENT, 0, false)
+          p = w(p, UNINDENT)
+        } else {
+          p = expr_list(p, 0, results, 1, 0, 0, false)
+        }
+      }
+      p
+    },
+    BranchStmt { tok, label, .. } => {
+      p = t(p, tok)
+      if label != Nil {
+        p = w(p, BLANK)
+        p = expr(p, label)
+      }
+      p
+    },
+    BlockStmt { .. } => block(p, s, 1),
+    IfStmt { init_s, cond, body, else_s, .. } => {
+      p = t(p, token.IF)
+      p = control_clause(p, false, init_s, cond, Nil)
+      p = block(p, body, 1)
+      if else_s != Nil {
+        p = pr(p, [A.W(BLANK), A.T(token.ELSE), A.W(BLANK)])
+        match else_s {
+          BlockStmt { .. } => { p = stmt(p, else_s, next_is_rbrace) },
+          IfStmt { .. } => { p = stmt(p, else_s, next_is_rbrace) },
+          _ => {
+            p = pr(p, [A.T(token.LBRACE), A.W(INDENT), A.W(FORMFEED)])
+            p = stmt(p, else_s, true)
+            p = pr(p, [A.W(UNINDENT), A.W(FORMFEED), A.T(token.RBRACE)])
+          },
+        }
+      }
+      p
+    },
+    CaseClause { list, colon, body, .. } => {
+      if len(list) > 0 {
+        p = pr(p, [A.T(token.CASE), A.W(BLANK)])
+        p = expr_list(p, ast.pos(s), list, 1, 0, colon, false)
+      } else {
+        p = t(p, token.DEFAULT)
+      }
+      p = set_pos(p, colon)
+      p = t(p, token.COLON)
+      stmt_list(p, body, 1, next_is_rbrace)
+    },
+    SwitchStmt { init_s, tag, body, .. } => {
+      p = t(p, token.SWITCH)
+      p = control_clause(p, false, init_s, tag, Nil)
+      block(p, body, 0)
+    },
+    TypeSwitchStmt { init_s, assign, body, .. } => {
+      p = t(p, token.SWITCH)
+      if init_s != Nil {
+        p = w(p, BLANK)
+        p = stmt(p, init_s, false)
+        p = t(p, token.SEMICOLON)
+      }
+      p = w(p, BLANK)
+      p = stmt(p, assign, false)
+      p = w(p, BLANK)
+      block(p, body, 0)
+    },
+    CommClause { comm, colon, body, .. } => {
+      if comm != Nil {
+        p = pr(p, [A.T(token.CASE), A.W(BLANK)])
+        p = stmt(p, comm, false)
+      } else {
+        p = t(p, token.DEFAULT)
+      }
+      p = set_pos(p, colon)
+      p = t(p, token.COLON)
+      stmt_list(p, body, 1, next_is_rbrace)
+    },
+    SelectStmt { body, .. } => {
+      p = pr(p, [A.T(token.SELECT), A.W(BLANK)])
+      match body {
+        BlockStmt { lbrace, list, rbrace } => {
+          if len(list) == 0 && !comment_before(p, pos_for(p, rbrace)) {
+            p = set_pos(p, lbrace)
+            p = t(p, token.LBRACE)
+            p = set_pos(p, rbrace)
+            t(p, token.RBRACE)
+          } else {
+            block(p, body, 0)
+          }
+        },
+        _ => p,
+      }
+    },
+    ForStmt { init_s, cond, post, body, .. } => {
+      p = t(p, token.FOR)
+      p = control_clause(p, true, init_s, cond, post)
+      block(p, body, 1)
+    },
+    RangeStmt { key, value, tok_pos, tok, x, body, .. } => {
+      p = pr(p, [A.T(token.FOR), A.W(BLANK)])
+      if key != Nil {
+        p = expr(p, key)
+        if value != Nil {
+          p = set_pos(p, ast.pos(value))
+          p = pr(p, [A.T(token.COMMA), A.W(BLANK)])
+          p = expr(p, value)
+        }
+        p = w(p, BLANK)
+        p = set_pos(p, tok_pos)
+        p = pr(p, [A.T(tok), A.W(BLANK)])
+      }
+      p = pr(p, [A.T(token.RANGE), A.W(BLANK)])
+      p = expr(p, strip_parens(x))
+      p = w(p, BLANK)
+      block(p, body, 1)
+    },
+    _ => p,
+  }
+}
+
+fn vs_values(s: Node) -> List<Node> { match s { ValueSpec { values, .. } => values, _ => [] } }
+fn vs_type(s: Node) -> Node { match s { ValueSpec { typ, .. } => typ, _ => Nil } }
+
+fn keep_type_column(specs: List<Node>) -> List<Bool> {
+  var m: List<Bool> = map(specs, (_) => false)
+  var i0 = -1
+  var keep_type = false
+  var i = 0
+  for s in specs {
+    if len(vs_values(s)) > 0 {
+      if i0 < 0 {
+        i0 = i
+        keep_type = false
+      }
+    } else {
+      if i0 >= 0 {
+        if keep_type { var k = i0; while k < i { m = set(m, k, true); k += 1 } }
+        i0 = -1
+      }
+    }
+    if vs_type(s) != Nil { keep_type = true }
+    i += 1
+  }
+  if i0 >= 0 && keep_type { var k = i0; while k < len(specs) { m = set(m, k, true); k += 1 } }
+  m
+}
+
+fn value_spec(p0: P, s: Node, keep_type: Bool) -> P {
+  var p = p0
+  match s {
+    ValueSpec { doc, names, typ, values, comment } => {
+      p = set_comment(p, doc)
+      p = ident_list(p, names, false)
+      var extra_tabs = 3
+      if typ != Nil || keep_type {
+        p = w(p, VTAB)
+        extra_tabs -= 1
+      }
+      if typ != Nil { p = expr(p, typ) }
+      if len(values) > 0 {
+        p = pr(p, [A.W(VTAB), A.T(token.ASSIGN), A.W(BLANK)])
+        p = expr_list(p, 0, values, 1, 0, 0, false)
+        extra_tabs -= 1
+      }
+      if comment != Nil {
+        while extra_tabs > 0 { p = w(p, VTAB); extra_tabs -= 1 }
+        p = set_comment(p, comment)
+      }
+    },
+    _ => {},
+  }
+  p
+}
+
+fn sanitize_import_path(lit: Node) -> Node {
+  match lit {
+    BasicLit { value_pos, kind, value, .. } => {
+      if kind != token.STRING { return lit }
+      let s = match strconv.unquote_go(value) { Ok(v) => v, Err(_) => { return lit } }
+      if s == "" { return lit }
+      let illegal = "!" + __chr(34) + "#$%&'()*,:;<=>?[\\]^{{|}}`" + __chr(65533)
+      for r in s {
+        if !unicode.is_graphic(r) || unicode.is_space(r) || __str_find(illegal, r, 0) >= 0 { return lit }
+      }
+      let q = strconv.quote_go(s)
+      if q == value { return lit }
+      Node.BasicLit { value_pos: value_pos, value_end: 0, kind: token.STRING, value: q }
+    },
+    _ => lit,
+  }
+}
+
+fn spec(p0: P, sp: Node, n: Int, do_indent: Bool) -> P {
+  var p = p0
+  match sp {
+    ImportSpec { doc, name, path, comment, end_pos } => {
+      p = set_comment(p, doc)
+      if name != Nil {
+        p = expr(p, name)
+        p = w(p, BLANK)
+      }
+      p = expr(p, sanitize_import_path(path))
+      p = set_comment(p, comment)
+      set_pos(p, end_pos)
+    },
+    ValueSpec { doc, names, typ, values, comment } => {
+      p = set_comment(p, doc)
+      p = ident_list(p, names, do_indent)
+      if typ != Nil {
+        p = w(p, BLANK)
+        p = expr(p, typ)
+      }
+      if len(values) > 0 {
+        p = pr(p, [A.W(BLANK), A.T(token.ASSIGN), A.W(BLANK)])
+        p = expr_list(p, 0, values, 1, 0, 0, false)
+      }
+      set_comment(p, comment)
+    },
+    TypeSpec { doc, name, type_params, assign, typ, comment } => {
+      p = set_comment(p, doc)
+      p = expr(p, name)
+      if type_params != Nil { p = parameters(p, type_params, TYPE_TPARAM) }
+      p = w(p, if n == 1 { BLANK } else { VTAB })
+      if assign != 0 { p = pr(p, [A.T(token.ASSIGN), A.W(BLANK)]) }
+      p = expr(p, typ)
+      set_comment(p, comment)
+    },
+    _ => p,
+  }
+}
+
+fn gen_decl(p0: P, d: Node) -> P {
+  var p = p0
+  match d {
+    GenDecl { doc, tok, lparen, specs, rparen, .. } => {
+      p = set_comment(p, doc)
+      p = set_pos(p, ast.pos(d))
+      p = pr(p, [A.T(tok), A.W(BLANK)])
+      if lparen != 0 || len(specs) != 1 {
+        p = set_pos(p, lparen)
+        p = t(p, token.LPAREN)
+        let n = len(specs)
+        if n > 0 {
+          p = pr(p, [A.W(INDENT), A.W(FORMFEED)])
+          let (p1, sl) = new_slot(p)
+          p = p1
+          if n > 1 && (tok == token.CONST || tok == token.VAR) {
+            let keep = keep_type_column(specs)
+            var i = 0
+            for s in specs {
+              if i > 0 { p = lb(p, line_for(p, ast.pos(s)), 1, IGNORE, lines_from(p, slot(p, sl)) > 0) }
+              p = record_line(p, sl)
+              p = value_spec(p, s, keep[i])
+              i += 1
+            }
+          } else {
+            var i = 0
+            for s in specs {
+              if i > 0 { p = lb(p, line_for(p, ast.pos(s)), 1, IGNORE, lines_from(p, slot(p, sl)) > 0) }
+              p = record_line(p, sl)
+              p = spec(p, s, n, false)
+              i += 1
+            }
+          }
+          p = pr(p, [A.W(UNINDENT), A.W(FORMFEED)])
+        }
+        p = set_pos(p, rparen)
+        p = t(p, token.RPAREN)
+      } else if len(specs) > 0 {
+        p = spec(p, specs[0], 1, true)
+      }
+    },
+    _ => {},
+  }
+  p
+}
+
+// nodeSize：用 RawFormat 打印一遍量长度（经过 trimmer），结果按节点缓存（Go 按指针）
+fn node_key(n: Node) -> Str { ast.type_name(n) + "@{ast.pos(n)}-{ast.end(n)}" }
+
+fn node_size(p: P, n: Node, max_size: Int) -> (P, Int) {
+  let key = node_key(n)
+  match get(p.sizes, key) { Some(s) => { return (p, s) }, None => {} }
+  var size = max_size + 1
+  let sizes0 = set(p.sizes, key, size)
+  let cfg = Config { mode: RAW_FORMAT, tabwidth: 0, indent: 0 }
+  match fprint_internal(cfg, p.fset, n, sizes0) {
+    Ok((bs, sizes1)) => {
+      var has_nl = false
+      for b in bs { if b == 10 || b == 12 { has_nl = true; break } }
+      var sizes = sizes1
+      if len(bs) <= max_size && !has_nl {
+        size = len(bs)
+        sizes = set(sizes, key, size)
+      }
+      (P { sizes: sizes, ..p }, size)
+    },
+    Err(_) => (P { sizes: sizes0, ..p }, size),
+  }
+}
+
+fn num_lines(p: P, n: Node) -> Int {
+  let from = ast.pos(n)
+  if from != 0 {
+    let to = ast.end(n)
+    if to != 0 { return line_for(p, to) - line_for(p, from) + 1 }
+  }
+  INFINITY
+}
+
+fn body_size(p0: P, b: Node, max_size: Int) -> (P, Int) {
+  var p = p0
+  match b {
+    BlockStmt { list, rbrace, .. } => {
+      let pos1 = ast.pos(b)
+      if pos1 != 0 && rbrace != 0 && line_for(p, pos1) != line_for(p, rbrace) { return (p, max_size + 1) }
+      if len(list) > 5 { return (p, max_size + 1) }
+      var bs = comment_size_before(p, pos_for(p, rbrace))
+      var i = 0
+      for s in list {
+        if bs > max_size { break }
+        if i > 0 { bs += 2 }
+        let (p1, sz) = node_size(p, s, max_size)
+        p = p1
+        bs += sz
+        i += 1
+      }
+      (p, bs)
+    },
+    _ => (p, 0),
+  }
+}
+
+fn func_body(p0: P, header_size: Int, sep: Int, b: Node) -> P {
+  var p = p0
+  if b == Nil { return p }
+  let saved_level = p.level
+  p = P { level: 0, ..p }
+  let (p1, bsz) = body_size(p, b, 100)
+  p = p1
+  if header_size + bsz <= 100 {
+    match b {
+      BlockStmt { lbrace, list, rbrace } => {
+        p = w(p, sep)
+        p = set_pos(p, lbrace)
+        p = t(p, token.LBRACE)
+        if len(list) > 0 {
+          p = w(p, BLANK)
+          var i = 0
+          for s in list {
+            if i > 0 { p = pr(p, [A.T(token.SEMICOLON), A.W(BLANK)]) }
+            p = stmt(p, s, i == len(list) - 1)
+            i += 1
+          }
+          p = w(p, BLANK)
+        }
+        p = pr(p, [A.M(NO_EXTRA_LINEBREAK)])
+        p = set_pos(p, rbrace)
+        p = pr(p, [A.T(token.RBRACE), A.M(NO_EXTRA_LINEBREAK)])
+      },
+      _ => {},
+    }
+    return P { level: saved_level, ..p }
+  }
+  if sep != IGNORE { p = w(p, BLANK) }
+  p = block(p, b, 1)
+  P { level: saved_level, ..p }
+}
+
+fn distance_from(p: P, start_pos: Int, start_out_col: Int) -> Int {
+  if start_pos != 0 && p.pos.is_valid() && pos_for(p, start_pos).line == p.pos.line { return p.outp.column - start_out_col }
+  INFINITY
+}
+
+fn func_decl(p0: P, d: Node) -> P {
+  var p = p0
+  match d {
+    FuncDecl { doc, recv, name, typ, body } => {
+      p = set_comment(p, doc)
+      p = set_pos(p, ast.pos(d))
+      p = pr(p, [A.T(token.FUNC), A.W(BLANK)])
+      let start_col = p.outp.column - 5
+      if recv != Nil {
+        p = parameters(p, recv, FUNC_PARAM)
+        p = w(p, BLANK)
+      }
+      p = expr(p, name)
+      p = signature(p, typ)
+      func_body(p, distance_from(p, ast.pos(d), start_col), VTAB, body)
+    },
+    _ => p,
+  }
+}
+
+fn decl_(p: P, d: Node) -> P {
+  match d {
+    BadDecl { .. } => pr(set_pos(p, ast.pos(d)), [A.S("BadDecl")]),
+    GenDecl { .. } => gen_decl(p, d),
+    FuncDecl { .. } => func_decl(p, d),
+    _ => p,
+  }
+}
+
+fn decl_token(d: Node) -> Int {
+  match d { GenDecl { tok, .. } => tok, FuncDecl { .. } => token.FUNC, _ => token.ILLEGAL }
+}
+
+fn get_doc(n: Node) -> Node {
+  match n {
+    Field { doc, .. } => doc,
+    ImportSpec { doc, .. } => doc,
+    ValueSpec { doc, .. } => doc,
+    TypeSpec { doc, .. } => doc,
+    GenDecl { doc, .. } => doc,
+    FuncDecl { doc, .. } => doc,
+    File { doc, .. } => doc,
+    _ => Nil,
+  }
+}
+
+fn decl_list(p0: P, list: List<Node>) -> P {
+  var p = p0
+  var tok = token.ILLEGAL
+  for d in list {
+    let prev = tok
+    tok = decl_token(d)
+    if p.olen > 0 {
+      let min = if prev != tok || get_doc(d) != Nil { 2 } else { 1 }
+      p = lb(p, line_for(p, ast.pos(d)), min, IGNORE, tok == token.FUNC && num_lines(p, d) > 1)
+    }
+    p = decl_(p, d)
+  }
+  p
+}
+
+fn file(p0: P, f: Node) -> P {
+  var p = p0
+  match f {
+    File { doc, name, decls, .. } => {
+      p = set_comment(p, doc)
+      p = set_pos(p, ast.pos(f))
+      p = pr(p, [A.T(token.PACKAGE), A.W(BLANK)])
+      p = expr(p, name)
+      p = decl_list(p, decls)
+      w(p, NEWLINE)
+    },
+    _ => p,
+  }
+}
+
+const EXPR_KINDS: List<Str> = ["BadExpr", "Ident", "Ellipsis", "BasicLit", "FuncLit", "CompositeLit", "ParenExpr", "SelectorExpr", "IndexExpr",
+  "IndexListExpr", "SliceExpr", "TypeAssertExpr", "CallExpr", "StarExpr", "UnaryExpr", "BinaryExpr", "KeyValueExpr", "ArrayType",
+  "StructType", "FuncType", "InterfaceType", "MapType", "ChanType"]
+const STMT_KINDS: List<Str> = ["BadStmt", "DeclStmt", "EmptyStmt", "LabeledStmt", "ExprStmt", "SendStmt", "IncDecStmt", "AssignStmt", "GoStmt",
+  "DeferStmt", "ReturnStmt", "BranchStmt", "BlockStmt", "IfStmt", "CaseClause", "SwitchStmt", "TypeSwitchStmt", "CommClause", "SelectStmt",
+  "ForStmt", "RangeStmt"]
+
+fn print_node(p0: P, node: Node) -> Result<P, Str> {
+  var p = p0
+  match node { File { comments, .. } => { p = P { comments: comments, ..p } }, _ => {} }
+  p = P { use_node_comments: len(p.comments) == 0, ..p }
+  p = next_comment(p)
+  p = pr(p, [A.M(0)])
+  let k = ast.type_name(node)
+  if contains(EXPR_KINDS, k) {
+    p = expr(p, node)
+  } else if contains(STMT_KINDS, k) {
+    if k == "LabeledStmt" { p = P { indent: 1, ..p } }
+    p = stmt(p, node, false)
+  } else if k == "BadDecl" || k == "GenDecl" || k == "FuncDecl" {
+    p = decl_(p, node)
+  } else if k == "ImportSpec" || k == "ValueSpec" || k == "TypeSpec" {
+    p = spec(p, node, 1, false)
+  } else if k == "File" {
+    p = file(p, node)
+  } else {
+    return Err("go/printer: unsupported node type *ast." + k)
+  }
+  if p.source_pos_err != "" { return Err(p.source_pos_err) }
+  Ok(p)
+}
+
+// trimmer：去掉行尾空白，去掉 tabwriter.Escape，\v 变 \t，\f 变 \n
+fn trim_bytes(data: List<Int>) -> List<Int> {
+  var out: List<Int> = []
+  var space: List<Int> = []
+  var state = 0   // 0 inSpace，1 inEscape，2 inText
+  var m = 0
+  var n = 0
+  while n < len(data) {
+    var b = data[n]
+    if b == 11 { b = 9 }
+    if state == 0 {
+      if b == 9 || b == 32 {
+        space = push(space, b)
+      } else if b == 10 || b == 12 {
+        space = []
+        out = push(out, 10)
+      } else if b == ESC {
+        out = out + space
+        state = 1
+        m = n + 1
+      } else {
+        out = out + space
+        state = 2
+        m = n
+      }
+    } else if state == 1 {
+      if b == ESC {
+        out = out + data[m..n]
+        state = 0
+        space = []
+      }
+    } else {
+      if b == 9 || b == 32 {
+        out = out + data[m..n]
+        state = 0
+        space = [b]
+      } else if b == 10 || b == 12 {
+        out = out + data[m..n]
+        state = 0
+        space = []
+        out = push(out, 10)
+      } else if b == ESC {
+        out = out + data[m..n]
+        state = 1
+        m = n + 1
+      }
+    }
+    n += 1
+  }
+  if state == 1 || state == 2 { out = out + data[m..len(data)] }
+  out
+}
+
+// go/printer/gobuild.go
+fn is_nl(b: Int) -> Bool { b == 10 || b == 12 }
+
+fn line_at(out: List<Int>, start: Int) -> List<Int> {
+  var pos = start
+  while pos < len(out) && !is_nl(out[pos]) { pos += 1 }
+  if pos < len(out) { pos += 1 }
+  out[start..pos]
+}
+
+fn comment_text_at(out: List<Int>, start0: Int) -> Str {
+  var start = start0
+  if start < len(out) && out[start] == ESC { start += 1 }
+  var pos = start
+  while pos < len(out) && out[pos] != ESC && !is_nl(out[pos]) { pos += 1 }
+  utf8_str(out[start..pos])
+}
+
+fn append_lines(x: List<Int>, y0: List<Int>) -> List<Int> {
+  var y = y0
+  if len(y) > 0 && is_nl(y[0]) && (len(x) == 0 || len(x) >= 2 && is_nl(x[len(x) - 1]) && is_nl(x[len(x) - 2])) { y = y[1..len(y)] }
+  x + y
+}
+
+fn fix_go_build_lines(out: List<Int>, go_build: List<Int>, plus_build: List<Int>) -> List<Int> {
+  if len(go_build) + len(plus_build) == 0 { return out }
+  var insert = 0
+  var pos = 0
+  loop {
+    var blank = true
+    while pos < len(out) && (out[pos] == 32 || out[pos] == 9) { pos += 1 }
+    if pos + 3 < len(out) && out[pos] == ESC && out[pos + 1] == 47 && out[pos + 2] == 47 {
+      blank = false
+      while pos < len(out) && !is_nl(out[pos]) { pos += 1 }
+    }
+    if pos >= len(out) || !is_nl(out[pos]) { break }
+    pos += 1
+    if blank { insert = pos }
+  }
+  if len(go_build) > 0 && go_build[0] < insert { insert = go_build[0] }
+  else if len(plus_build) > 0 && plus_build[0] < insert { insert = plus_build[0] }
+  var x: Option<constraint.Expr> = None
+  if len(go_build) == 0 {
+    for p in plus_build {
+      match constraint.parse(comment_text_at(out, p)) {
+        Ok(y) => { x = match x { None => Some(y), Some(a) => Some(constraint.Expr.And([a, y])) } },
+        Err(_) => { x = None; break },
+      }
+    }
+  } else if len(go_build) == 1 {
+    x = match constraint.parse(comment_text_at(out, go_build[0])) { Ok(y) => Some(y), Err(_) => None }
+  }
+  var blk: List<Int> = []
+  match x {
+    None => {
+      for p in go_build { blk = blk + line_at(out, p) }
+      for p in plus_build { blk = blk + line_at(out, p) }
+    },
+    Some(e) => {
+      blk = [ESC] + __bytes("//go:build " + constraint.string(e)) + [ESC, 10]
+      if len(plus_build) > 0 {
+        let lines = match constraint.plus_build_lines(e) { Ok(ls) => ls, Err(m) => ["// +build error: " + m] }
+        for l in lines { blk = blk + [ESC] + __bytes(l) + [ESC, 10] }
+      }
+    },
+  }
+  blk = push(blk, 10)
+  let to_delete = sort(go_build + plus_build)
+  var after: List<Int> = []
+  var start = insert
+  for e in to_delete {
+    if e < start { continue }
+    after = append_lines(after, out[start..e])
+    start = e + len(line_at(out, e))
+  }
+  after = append_lines(after, out[start..len(out)])
+  let n = len(after)
+  if n >= 2 && is_nl(after[n - 1]) && is_nl(after[n - 2]) { after = after[0..n - 1] }
+  out[0..insert] + blk + after
+}
+
+fn new_printer(cfg: Config, fset: token.FileSet, sizes: Map<Str, Int>) -> P {
+  P { cfg: cfg, fset: fset, out: Map(), nchunks: 0, olen: 0, indent: 0, level: 0, mode: 0, end_alignment: false, implied_semi: false,
+    last_tok: token.ILLEGAL, prev_open: token.ILLEGAL, wsbuf: [], go_build: [], plus_build: [], pos: npos(1, 1), outp: npos(1, 1),
+    last: npos(0, 0), line_ptr: -1, lines: Map(), nslot: 0, source_pos_err: "", comments: [], use_node_comments: false,
+    cindex: 0, comment: Nil, comment_offset: 0, comment_newline: false, sizes: sizes }
+}
+
+// 返回 (trimmer 之后、tabwriter 之前的字节；RawFormat 时就是最终结果, 节点长度缓存)
+fn fprint_internal(cfg: Config, fset: token.FileSet, node: Node, sizes: Map<Str, Int>) -> Result<(List<Int>, Map<Str, Int>), Str> {
+  let p0 = new_printer(cfg, fset, sizes)
+  let p1 = print_node(p0, node)?
+  let (p, _, _) = flush(P { implied_semi: false, ..p1 }, token.Position { filename: "", offset: INFINITY, line: INFINITY, column: 0 }, token.EOF)
+  let out = fix_go_build_lines(output_bytes(p), p.go_build, p.plus_build)
+  if cfg.mode & RAW_FORMAT != 0 { return Ok((trim_bytes(out), p.sizes)) }
+  var minwidth = cfg.tabwidth
+  let padchar = if cfg.mode & USE_SPACES != 0 { 32 } else { 9 }
+  var twmode = tabwriter.DISCARD_EMPTY_COLUMNS
+  if cfg.mode & TAB_INDENT != 0 {
+    minwidth = 0
+    twmode = twmode | tabwriter.TAB_INDENT
+  }
+  let tw = tabwriter.new_writer(minwidth, cfg.tabwidth, 1, padchar, twmode).write(out).flush()
+  Ok((trim_bytes(tw.output_bytes()), p.sizes))
+}
+
+pub fn fprint_bytes(cfg: Config, fset: token.FileSet, node: Node) -> Result<List<Int>, Str> {
+  let (bs, _) = fprint_internal(cfg, fset, node, Map())?
+  Ok(bs)
+}
+
+pub fn fprint(cfg: Config, fset: token.FileSet, node: Node) -> Result<Str, Str> {
+  let bs = fprint_bytes(cfg, fset, node)?
+  Ok(utf8_str(bs))
+}

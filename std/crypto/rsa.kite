@@ -1,0 +1,333 @@
+// std.crypto.rsa：对齐 Go 1.27 的 crypto/rsa
+//   密钥由各分量构造（new_private_key 相当于填好 PrivateKey 后 Precompute + Validate，校验与 Go 相同）；
+//   PKCS #1 v1.5 签名 / 验证 / 加密 / 解密，PSS 签名 / 验证，OAEP 加密 / 解密。
+//   需要随机数的地方（PSS 盐、OAEP 种子、v1.5 加密填充）由调用方给出字节串 rand，按 Go 读取 io.Reader 的顺序取用；
+//   哈希用 crypto.Hash 的编号：0 = 不哈希（只用于 v1.5 签名），SHA1 = 3，SHA224 = 4，SHA256 = 5，SHA384 = 6，SHA512 = 7。
+//   不提供 GenerateKey；不是常数时间实现
+
+use std.math.big
+use std.math.big.{ BigInt }
+use std.crypto.sha1
+use std.crypto.sha256
+use std.crypto.sha512
+
+pub const SHA1: Int = 3
+pub const SHA224: Int = 4
+pub const SHA256: Int = 5
+pub const SHA384: Int = 6
+pub const SHA512: Int = 7
+
+pub const PSS_SALT_LENGTH_AUTO: Int = 0
+pub const PSS_SALT_LENGTH_EQUALS_HASH: Int = -1
+
+pub const ERR_MESSAGE_TOO_LONG: Str = "crypto/rsa: message too long for RSA key size"
+pub const ERR_DECRYPTION: Str = "crypto/rsa: decryption error"
+pub const ERR_VERIFICATION: Str = "crypto/rsa: verification error"
+
+pub type PublicKey = { n: BigInt, e: Int }
+
+pub type PrivateKey = { pub_: PublicKey, d: BigInt, p: BigInt, q: BigInt, dp: BigInt, dq: BigInt, qinv: BigInt }
+
+fn hash_fn(h: Int) -> fn(List<Int>) -> List<Int> {
+  if h == SHA1 { sha1.digest } else if h == SHA224 { sha256.digest224 } else if h == SHA256 { sha256.digest } else if h == SHA384 { sha512.digest384 } else { sha512.digest }
+}
+
+pub fn hash_size(h: Int) -> Int { if h == SHA1 { 20 } else if h == SHA224 { 28 } else if h == SHA256 { 32 } else if h == SHA384 { 48 } else if h == SHA512 { 64 } else { 0 } }
+
+fn hash_name(h: Int) -> Str {
+  let names = ["unknown hash value 0", "MD4", "MD5", "SHA-1", "SHA-224", "SHA-256", "SHA-384", "SHA-512", "MD5+SHA1", "RIPEMD-160", "SHA3-224", "SHA3-256", "SHA3-384", "SHA3-512", "SHA-512/224", "SHA-512/256"]
+  if h >= 0 && h < len(names) { names[h] } else { "unknown hash value {h}" }
+}
+
+fn prefix(h: Int) -> List<Int> {
+  if h == SHA1 { return [0x30, 0x21, 0x30, 0x09, 0x06, 0x05, 0x2b, 0x0e, 0x03, 0x02, 0x1a, 0x05, 0x00, 0x04, 0x14] }
+  let last = if h == SHA224 { [0x04, 0x05, 0x00, 0x04, 0x1c] } else if h == SHA256 { [0x01, 0x05, 0x00, 0x04, 0x20] } else if h == SHA384 { [0x02, 0x05, 0x00, 0x04, 0x30] } else { [0x03, 0x05, 0x00, 0x04, 0x40] }
+  let l0 = if h == SHA224 { 0x2d } else if h == SHA256 { 0x31 } else if h == SHA384 { 0x41 } else { 0x51 }
+  [0x30, l0, 0x30, 0x0d, 0x06, 0x09, 0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x02] + last
+}
+
+pub fn size(pub_: PublicKey) -> Int { (pub_.n.bit_len() + 7) / 8 }
+
+fn be(x: BigInt, n: Int) -> List<Int> {
+  var b = x.bytes()
+  while len(b) < n { b = [0] + b }
+  b
+}
+
+// ── 密钥 ──
+
+fn check_public_key(pub_: PublicKey) -> Str {
+  if pub_.n.bit(0) == 0 { return "crypto/rsa: public modulus is even" }
+  if pub_.e < 2 { return "crypto/rsa: public exponent too small or negative" }
+  if pub_.e % 2 == 0 { return "crypto/rsa: public exponent is even" }
+  if pub_.e > 2147483647 { return "crypto/rsa: public exponent too large" }
+  ""
+}
+
+fn check_key_size(pub_: PublicKey) -> Str {
+  let b = pub_.n.bit_len()
+  if b >= 1024 { "" } else { "crypto/rsa: {b}-bit keys are insecure (see https://go.dev/pkg/crypto/rsa#hdr-Minimum_key_size)" }
+}
+
+// PrivateKey{N, E, D, Primes: {P, Q}}.Precompute() 之后的 Validate()
+pub fn new_private_key(n: BigInt, e: Int, d: BigInt, p: BigInt, q: BigInt) -> Result<PrivateKey, Str> {
+  if d.cmp(n) >= 0 { return Err("input overflows the modulus") }
+  let p1 = p.sub(big.one())
+  let q1 = q.sub(big.one())
+  let dp = d.modulo(p1)
+  let dq = d.modulo(q1)
+  if p.bit(0) == 0 { return Err("crypto/rsa: p is even") }
+  let qinv = unwrap(q.modulo(p).mod_inverse(p))
+  let pub_ = PublicKey { n: n, e: e }
+  let ce = check_public_key(pub_)
+  if ce != "" { return Err(ce) }
+  if p.cmp(n) >= 0 || q.cmp(n) >= 0 { return Err("crypto/rsa: invalid prime") }
+  if p.mul(q).modulo(n).sign() != 0 { return Err("crypto/rsa: p * q != n") }
+  let ee = big.new_int(e)
+  if ee.mul(dp).modulo(p1).cmp(big.one()) != 0 { return Err("crypto/rsa: invalid CRT exponent") }
+  if ee.mul(dq).modulo(q1).cmp(big.one()) != 0 { return Err("crypto/rsa: invalid CRT exponent") }
+  if q.mul(qinv).modulo(p).cmp(big.one()) != 0 { return Err("crypto/rsa: invalid CRT coefficient") }
+  var diff = big.zero()
+  if q.cmp(p) < 0 {
+    diff = p.sub(q)
+  } else if p.cmp(q) < 0 {
+    diff = q.sub(p)
+  } else {
+    return Err("crypto/rsa: p == q")
+  }
+  if diff.bit_len() <= n.bit_len() / 2 - 100 { return Err("crypto/rsa: |p - q| too small") }
+  if d.bit_len() <= n.bit_len() / 2 { return Err("crypto/rsa: d too small") }
+  Ok(PrivateKey { pub_: pub_, d: d, p: p, q: q, dp: dp, dq: dq, qinv: qinv })
+}
+
+pub fn public_key(k: PrivateKey) -> PublicKey { k.pub_ }
+
+// ── 原始运算 ──
+
+fn encrypt_raw(pub_: PublicKey, m: List<Int>) -> Result<List<Int>, Str> {
+  let k = size(pub_)
+  var mb = m
+  while len(mb) > k && mb[0] == 0 { mb = mb[1..] }
+  if len(mb) > k { return Err("input overflows the modulus size") }
+  let x = big.set_bytes(m)
+  if x.cmp(pub_.n) >= 0 { return Err("input overflows the modulus") }
+  Ok(be(unwrap(x.exp(big.new_int(pub_.e), pub_.n)), k))
+}
+
+fn decrypt_raw(k: PrivateKey, c: List<Int>, check: Bool) -> Result<List<Int>, Str> {
+  let n = k.pub_.n
+  let x = big.set_bytes(c)
+  if x.cmp(n) >= 0 { return Err(ERR_DECRYPTION) }
+  let m1 = unwrap(x.modulo(k.p).exp(k.dp, k.p))
+  let m2 = unwrap(x.modulo(k.q).exp(k.dq, k.q))
+  let h = m1.sub(m2.modulo(k.p)).modulo(k.p).mul(k.qinv).modulo(k.p)
+  let m = h.mul(k.q).add(m2).modulo(n)
+  if check {
+    if unwrap(m.exp(big.new_int(k.pub_.e), n)).cmp(x) != 0 { return Err(ERR_DECRYPTION) }
+  }
+  Ok(be(m, size(k.pub_)))
+}
+
+// ── PKCS #1 v1.5 签名 ──
+
+fn pkcs1v15_em(pub_: PublicKey, h: Int, hashed: List<Int>) -> Result<List<Int>, Str> {
+  let pre = if h == 0 { [] } else { prefix(h) }
+  let k = size(pub_)
+  if k < len(pre) + len(hashed) + 2 + 8 + 1 { return Err(ERR_MESSAGE_TOO_LONG) }
+  let ps = map(0..(k - len(pre) - len(hashed) - 3), (_) => 0xff)
+  Ok([0, 1] + ps + [0] + pre + hashed)
+}
+
+pub fn sign_pkcs1v15(priv: PrivateKey, h: Int, hashed: List<Int>) -> Result<List<Int>, Str> {
+  if h != 0 && len(hashed) != hash_size(h) { return Err("crypto/rsa: input must be hashed message") }
+  let ks = check_key_size(priv.pub_)
+  if ks != "" { return Err(ks) }
+  let em = pkcs1v15_em(priv.pub_, h, hashed)?
+  decrypt_raw(priv, em, true)
+}
+
+pub fn verify_pkcs1v15(pub_: PublicKey, h: Int, hashed: List<Int>, sig: List<Int>) -> Result<(), Str> {
+  if h != 0 && len(hashed) != hash_size(h) { return Err("crypto/rsa: input must be hashed message") }
+  let ks = check_key_size(pub_)
+  if ks != "" { return Err(ks) }
+  let ce = check_public_key(pub_)
+  if ce != "" { return Err(ce) }
+  if size(pub_) != len(sig) { return Err(ERR_VERIFICATION) }
+  let Ok(em) = encrypt_raw(pub_, sig) else { return Err(ERR_VERIFICATION) }
+  let Ok(expected) = pkcs1v15_em(pub_, h, hashed) else { return Err(ERR_VERIFICATION) }
+  if em != expected { return Err(ERR_VERIFICATION) }
+  Ok(())
+}
+
+// ── MGF1 / PSS / OAEP ──
+
+fn i2osp4(c: Int) -> List<Int> { [(c >> 24) & 255, (c >> 16) & 255, (c >> 8) & 255, c & 255] }
+
+fn mgf1_xor(out: List<Int>, h: Int, seed: List<Int>) -> List<Int> {
+  let f = hash_fn(h)
+  var mask: List<Int> = []
+  var c = 0
+  while len(mask) < len(out) {
+    mask = mask + f(seed + i2osp4(c))
+    c += 1
+  }
+  var r: List<Int> = []
+  for i in 0..len(out) { r = push(r, out[i] ^ mask[i]) }
+  r
+}
+
+fn take_rand(rand: List<Int>, n: Int) -> Result<List<Int>, Str> {
+  if len(rand) < n { return Err(if len(rand) == 0 && n > 0 { "EOF" } else { "unexpected EOF" }) }
+  Ok(rand[..n])
+}
+
+fn pss_encode(m_hash: List<Int>, em_bits: Int, salt: List<Int>, h: Int) -> Result<List<Int>, Str> {
+  let hlen = hash_size(h)
+  let slen = len(salt)
+  let em_len = (em_bits + 7) / 8
+  if len(m_hash) != hlen { return Err("crypto/rsa: input must be hashed with given hash") }
+  if em_len < hlen + slen + 2 { return Err(ERR_MESSAGE_TOO_LONG) }
+  let ps_len = em_len - slen - hlen - 2
+  let hh = hash_fn(h)([0, 0, 0, 0, 0, 0, 0, 0] + m_hash + salt)
+  var db = map(0..ps_len, (_) => 0) + [1] + salt
+  db = mgf1_xor(db, h, hh)
+  db = set(db, 0, db[0] & (0xff >> (8 * em_len - em_bits)))
+  Ok(db + hh + [0xbc])
+}
+
+fn pss_verify(m_hash: List<Int>, em: List<Int>, em_bits: Int, slen0: Int, h: Int) -> Result<(), Str> {
+  let hlen = hash_size(h)
+  let em_len = (em_bits + 7) / 8
+  if em_len != len(em) { return Err("rsa: internal error: inconsistent length") }
+  if hlen != len(m_hash) { return Err(ERR_VERIFICATION) }
+  var slen = slen0
+  if em_len < hlen + (if slen < 0 { 0 } else { slen }) + 2 { return Err(ERR_VERIFICATION) }
+  if em[em_len - 1] != 0xbc { return Err(ERR_VERIFICATION) }
+  let hh = em[em_len - hlen - 1..em_len - 1]
+  let mask = 0xff >> (8 * em_len - em_bits)
+  if (em[0] & (255 - mask)) != 0 { return Err(ERR_VERIFICATION) }
+  var db = mgf1_xor(em[..em_len - hlen - 1], h, hh)
+  db = set(db, 0, db[0] & mask)
+  if slen < 0 {
+    var i = 0
+    while i < len(db) && db[i] != 1 { i += 1 }
+    if i >= len(db) { return Err(ERR_VERIFICATION) }
+    slen = len(db) - i - 1
+  }
+  let ps_len = em_len - hlen - slen - 2
+  for i in 0..ps_len { if db[i] != 0 { return Err(ERR_VERIFICATION) } }
+  if db[ps_len] != 1 { return Err(ERR_VERIFICATION) }
+  let salt = db[len(db) - slen..]
+  if hash_fn(h)([0, 0, 0, 0, 0, 0, 0, 0] + m_hash + salt) != hh { return Err(ERR_VERIFICATION) }
+  Ok(())
+}
+
+// SignPSS(rand, priv, hash, digest, &PSSOptions{SaltLength: salt_len})
+pub fn sign_pss(rand: List<Int>, priv: PrivateKey, h: Int, digest: List<Int>, salt_len0: Int) -> Result<List<Int>, Str> {
+  let ks = check_key_size(priv.pub_)
+  if ks != "" { return Err(ks) }
+  if hash_size(h) == 0 { return Err("crypto/rsa: requested hash function unavailable: " + hash_name(h)) }
+  var salt_len = salt_len0
+  if salt_len == PSS_SALT_LENGTH_AUTO {
+    salt_len = (priv.pub_.n.bit_len() - 1 + 7) / 8 - 2 - hash_size(h)
+    if salt_len < 0 { return Err(ERR_MESSAGE_TOO_LONG) }
+  } else if salt_len == PSS_SALT_LENGTH_EQUALS_HASH {
+    salt_len = hash_size(h)
+  } else if salt_len <= 0 {
+    return Err("crypto/rsa: invalid PSS salt length")
+  }
+  let salt = take_rand(rand, salt_len)?
+  let em_bits = priv.pub_.n.bit_len() - 1
+  var em = pss_encode(digest, em_bits, salt, h)?
+  let k = size(priv.pub_)
+  while len(em) < k { em = [0] + em }
+  decrypt_raw(priv, em, true)
+}
+
+pub fn verify_pss(pub_: PublicKey, h: Int, digest: List<Int>, sig: List<Int>, salt_len: Int) -> Result<(), Str> {
+  let ks = check_key_size(pub_)
+  if ks != "" { return Err(ks) }
+  if hash_size(h) == 0 { return Err("crypto/rsa: requested hash function unavailable: " + hash_name(h)) }
+  let sl = if salt_len == PSS_SALT_LENGTH_AUTO { -1 } else if salt_len == PSS_SALT_LENGTH_EQUALS_HASH { hash_size(h) } else { salt_len }
+  if sl < -1 { return Err("crypto/rsa: salt length cannot be negative") }
+  let ce = check_public_key(pub_)
+  if ce != "" { return Err(ce) }
+  if len(sig) != size(pub_) { return Err(ERR_VERIFICATION) }
+  let em_bits = pub_.n.bit_len() - 1
+  let em_len = (em_bits + 7) / 8
+  let Ok(em0) = encrypt_raw(pub_, sig) else { return Err(ERR_VERIFICATION) }
+  var em = em0
+  while len(em) > em_len && len(em) > 0 {
+    if em[0] != 0 { return Err(ERR_VERIFICATION) }
+    em = em[1..]
+  }
+  pss_verify(digest, em, em_bits, sl, h)
+}
+
+pub fn encrypt_oaep(h: Int, rand: List<Int>, pub_: PublicKey, msg: List<Int>, label: List<Int>) -> Result<List<Int>, Str> {
+  let ks = check_key_size(pub_)
+  if ks != "" { return Err(ks) }
+  let ce = check_public_key(pub_)
+  if ce != "" { return Err(ce) }
+  let k = size(pub_)
+  let hl = hash_size(h)
+  if len(msg) > k - 2 * hl - 2 { return Err(ERR_MESSAGE_TOO_LONG) }
+  let lhash = hash_fn(h)(label)
+  var db = lhash + map(0..(k - hl - 1 - hl - len(msg) - 1), (_) => 0) + [1] + msg
+  var seed = take_rand(rand, hl)?
+  db = mgf1_xor(db, h, seed)
+  seed = mgf1_xor(seed, h, db)
+  encrypt_raw(pub_, [0] + seed + db)
+}
+
+pub fn decrypt_oaep(h: Int, priv: PrivateKey, ct: List<Int>, label: List<Int>) -> Result<List<Int>, Str> {
+  let ks = check_key_size(priv.pub_)
+  if ks != "" { return Err(ks) }
+  let k = size(priv.pub_)
+  let hl = hash_size(h)
+  if len(ct) > k || k < hl * 2 + 2 { return Err(ERR_DECRYPTION) }
+  let em = decrypt_raw(priv, ct, false)?
+  let lhash = hash_fn(h)(label)
+  let seed = mgf1_xor(em[1..hl + 1], h, em[hl + 1..])
+  let db = mgf1_xor(em[hl + 1..], h, seed)
+  if em[0] != 0 || db[..hl] != lhash { return Err(ERR_DECRYPTION) }
+  let rest = db[hl..]
+  var i = 0
+  while i < len(rest) && rest[i] == 0 { i += 1 }
+  if i >= len(rest) || rest[i] != 1 { return Err(ERR_DECRYPTION) }
+  Ok(rest[i + 1..])
+}
+
+// EncryptPKCS1v15：填充字节从 rand 里取，遇到 0 时再读一个字节并异或 0x42（与 Go 相同）
+pub fn encrypt_pkcs1v15(rand: List<Int>, pub_: PublicKey, msg: List<Int>) -> Result<List<Int>, Str> {
+  let ks = check_key_size(pub_)
+  if ks != "" { return Err(ks) }
+  let k = size(pub_)
+  if len(msg) > k - 11 { return Err(ERR_MESSAGE_TOO_LONG) }
+  let n = k - len(msg) - 3
+  var ps = take_rand(rand, n)?
+  var pos = n
+  for i in 0..n {
+    while ps[i] == 0 {
+      let b = take_rand(rand[pos..], 1)?
+      pos += 1
+      ps = set(ps, i, b[0] ^ 0x42)
+    }
+  }
+  let ce = check_public_key(pub_)
+  if ce != "" { return Err(ce) }
+  encrypt_raw(pub_, [0, 2] + ps + [0] + msg)
+}
+
+pub fn decrypt_pkcs1v15(priv: PrivateKey, ct: List<Int>) -> Result<List<Int>, Str> {
+  let ks = check_key_size(priv.pub_)
+  if ks != "" { return Err(ks) }
+  let k = size(priv.pub_)
+  if k < 11 { return Err(ERR_DECRYPTION) }
+  let Ok(em) = decrypt_raw(priv, ct, false) else { return Err(ERR_DECRYPTION) }
+  if em[0] != 0 || em[1] != 2 { return Err(ERR_DECRYPTION) }
+  var i = 2
+  while i < len(em) && em[i] != 0 { i += 1 }
+  if i >= len(em) || i < 10 { return Err(ERR_DECRYPTION) }
+  Ok(em[i + 1..])
+}

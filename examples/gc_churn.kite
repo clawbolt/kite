@@ -1,0 +1,21 @@
+// GC 压力：持续产生垃圾，同时保留一小部分存活数据
+type Order = { id: Int, tags: List<Str>, total: Float }
+
+fn make(i: Int) -> Order {
+  Order { id: i, tags: ["t{i % 10}", "批次{i / 1000}"], total: float(i) * 1.5 }
+}
+
+fn main() {
+  let big = 0..200000 |> map(x => x * 2)   // 大对象（约 3 MB），回收期间必须一直存活
+  var keep = []
+  var checksum = 0
+  var i = 0
+  while i < 1000000 {
+    let o = make(i)
+    let line = "{o.id}:{join(o.tags, ",")}:{o.total}"
+    checksum += len(line)
+    if i % 100000 == 0 { keep = push(keep, o) }
+    i += 1
+  }
+  print("checksum", checksum, "保留", len(keep), keep |> map(o => o.id), "big", sum(big))
+}

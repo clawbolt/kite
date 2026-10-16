@@ -1,0 +1,47 @@
+// 0.21：运算符重载（add/sub/mul/div/rem/neg/cmp 方法）、Unicode 大小写、Map 哈希索引
+
+type V2 = { x: Int, y: Int }
+
+impl V2 {
+  fn add(self, o: V2) -> V2 { V2 { x: self.x + o.x, y: self.y + o.y } }
+  fn sub(self, o: V2) -> V2 { V2 { x: self.x - o.x, y: self.y - o.y } }
+  fn mul(self, k: Int) -> V2 { V2 { x: self.x * k, y: self.y * k } }
+  fn neg(self) -> V2 { V2 { x: 0 - self.x, y: 0 - self.y } }
+  fn cmp(self, o: V2) -> Int { (self.x * self.x + self.y * self.y) - (o.x * o.x + o.y * o.y) }
+}
+
+fn total_of<T: Add>(xs: List<T>, zero: T) -> T {
+  var acc = zero
+  for x in xs {
+    acc += x
+  }
+  acc
+}
+
+fn biggest_of<T: Cmp>(xs: List<T>) -> Option<T> {
+  var best = first(xs)?
+  for x in xs {
+    if x > best { best = x }
+  }
+  Some(best)
+}
+
+fn flip<T: Neg>(x: T) -> T { -x }
+
+fn main() {
+  let a = V2 { x: 1, y: 2 }
+  let b = V2 { x: 3, y: 4 }
+  var c = a + b * 2 - a
+  c += a
+  print(c, -a, a < b, b <= a, [a, b] |> map(v => v + v))
+  print(upper("straße"), lower("ΟΔΥΣΣΕΥΣ"), upper("привет"))
+  var m: Map<Str, Int> = Map()
+  for w in split("a b c d e f g h i j a b c", " ") {
+    m = set(m, w, (get(m, w) |> unwrap_or(0)) + 1)
+  }
+  print(get(m, "a"), get(m, "j"), get(m, "z"), len(m))
+  // 泛型 + 运算符 trait（Add/Sub/Mul/Div/Rem/Neg/Cmp，Int/Float/Str 已在预导入里实现）
+  print(total_of([1, 2, 3], 0), total_of([1.5, 2.5], 0.0), total_of(["a", "b"], ""))
+  print(biggest_of([3, 9, 4]), biggest_of(["kite", "rust"]))
+  print(flip(3), flip(2.5))
+}

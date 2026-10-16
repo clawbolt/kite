@@ -1,0 +1,24 @@
+fn g(a: Bool, b: Option<Int>) -> Int {
+  match (a, b) {
+    (true, Some(_)) => 1
+    (false, _) => 2
+  }
+}
+fn h(o: Option<Option<Int>>) -> Int {
+  match o {
+    Some(Some(_)) => 1
+    None => 0
+  }
+}
+fn k(xs: List<Int>) -> Int {
+  match xs {
+    [] => 0
+    [x, y, ..r] => x
+  }
+}
+fn m(n: Int) -> Int {
+  match n {
+    0 => 1
+  }
+}
+fn main() { print(g(true, None), h(None), k([]), m(0)) }

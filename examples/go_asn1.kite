@@ -1,0 +1,215 @@
+// 对齐 Go 1.27 的 encoding/asn1：tests/go/asn1.go
+use std.encoding.asn1
+use std.encoding.asn1.{ Ty, Val, Field, BitString, RawValue, Time }
+use std.math.big
+use std.encoding.hex
+use std.strconv
+
+fn f(t: Ty, p: Str) -> Field { asn1.field(t, p) }
+
+fn s1() -> Ty { TStruct("S1", [f(TInt64, ""), f(TStr, ""), f(TBytes, "")]) }
+fn s2() -> Ty { TStruct("S2", [f(TInt, "optional,default:7"), f(TBool, "optional,explicit,tag:0"), f(TOid, "tag:1,optional"), f(TTime, "generalized")]) }
+fn int_set() -> Ty { TSlice("IntSET", [TInt]) }
+fn s3() -> Ty { TStruct("S3", [f(TRawContent, ""), f(int_set(), ""), f(TRaw, "")]) }
+fn s4() -> Ty { TStruct("S4", [f(TEnum, "explicit,tag:5"), f(TFlag, "optional,explicit,tag:2"), f(TSlice("", [TStr]), "omitempty"), f(TInt32, "application,tag:3,optional"), f(TBig, "private,tag:40")]) }
+
+fn tm(t: Time) -> Str { "T({t.unix},{t.nsec},{t.offset})" }
+fn bs(b: BitString) -> Str { "B(" + hex.encode_bytes(b.bytes) + "/{b.bit_length})" }
+fn rv(r: RawValue) -> Str { "R({r.class},{r.tag},{r.is_compound}," + hex.encode_bytes(r.bytes) + "," + hex.encode_bytes(r.full_bytes) + ")" }
+
+fn vs(v: Val) -> Str {
+  match v {
+    VInt(i) => "{i}",
+    VBig(None) => "nil",
+    VBig(Some(n)) => n.string(),
+    VBool(b) => "{b}",
+    VBits(b) => bs(b),
+    VOid(o) => asn1.oid_string(o),
+    VStr(s) => strconv.quote_go(s),
+    VBytes(b) => hex.encode_bytes(b),
+    VTime(t) => tm(t),
+    VRaw(r) => rv(r),
+    VList(xs) => "[" + join(map(xs, vs), " ") + "]",
+    VStruct(xs) => join(map(xs, vs), " "),
+    VNil => "nil",
+  }
+}
+
+fn any_s(v: Val) -> Str {
+  match v {
+    VNil => "nil",
+    VInt(i) => "int64:{i}",
+    VBool(b) => "bool:{b}",
+    VStr(s) => "string:" + strconv.quote_go(s),
+    VBytes(b) => "bytes:" + hex.encode_bytes(b),
+    VBits(b) => bs(b),
+    VOid(o) => "oid:" + asn1.oid_string(o),
+    VTime(t) => tm(t),
+    _ => "?",
+  }
+}
+
+fn show1(inp: List<Int>, tag: Str, ty: Ty) {
+  match asn1.unmarshal(inp, ty) {
+    Err(e) => print(" " + tag + " err " + e),
+    Ok((v, rest)) => {
+      let s = if tag == "any" { any_s(v) } else if tag == "s2" {
+        let VStruct(xs) = v else { return }
+        vs(xs[0]) + " " + vs(xs[1]) + " " + vs(xs[2]) + " " + vs(xs[3])
+      } else { vs(v) }
+      print(" " + tag + " " + s + " " + hex.encode_bytes(rest))
+    },
+  }
+}
+
+fn show(inp: List<Int>) {
+  print("IN " + hex.encode_bytes(inp))
+  show1(inp, "i64", TInt64)
+  show1(inp, "i32", TInt32)
+  show1(inp, "big", TBig)
+  show1(inp, "bool", TBool)
+  show1(inp, "enum", TEnum)
+  show1(inp, "bits", TBits)
+  show1(inp, "oid", TOid)
+  show1(inp, "str", TStr)
+  show1(inp, "bytes", TBytes)
+  show1(inp, "time", TTime)
+  show1(inp, "raw", TRaw)
+  show1(inp, "any", TAny)
+  show1(inp, "ints", TSlice("", [TInt]))
+  show1(inp, "s1", s1())
+  show1(inp, "s2", s2())
+  show1(inp, "s3", s3())
+  show1(inp, "s4", s4())
+}
+
+fn m(v: Val, ty: Ty, p: Str) -> List<Int> {
+  match asn1.marshal_with_params(v, ty, p) {
+    Err(e) => {
+      print("M err " + e)
+      []
+    },
+    Ok(b) => {
+      print("M " + hex.encode_bytes(b))
+      b
+    },
+  }
+}
+
+fn big_of(s: Str, base: Int) -> Val { VBig(big.parse(s, base)) }
+
+fn bigi(i: Int) -> Val { VBig(Some(big.new_int(i))) }
+
+fn ints(xs: List<Int>) -> Val { VList(map(xs, (x) => VInt(x))) }
+
+fn strs(xs: List<Str>) -> Val { VList(map(xs, (x) => VStr(x))) }
+
+fn raw(c: Int, t: Int, comp: Bool, b: List<Int>) -> Val { VRaw(RawValue { class: c, tag: t, is_compound: comp, bytes: b, full_bytes: [] }) }
+
+fn s(x: Str) -> List<Int> { __bytes(x) }
+
+fn main() {
+  let t1 = VTime(asn1.make_time(2024, 2, 29, 13, 4, 5, 0, 0))
+  let t2 = VTime(asn1.make_time(1949, 12, 31, 23, 59, 59, 0, -5 * 3600 - 30 * 60))
+  let t3 = VTime(asn1.make_time(2051, 1, 2, 3, 4, 5, 123000000, 3600))
+  var bases: List<List<Int>> = []
+  let cands = [
+    m(VInt(0), TInt64, ""),
+    m(VInt(-129), TInt64, ""),
+    m(VInt((1 << 40) + 5), TInt64, ""),
+    m(bigi(-1), TBig, ""),
+    m(big_of("-123456789012345678901234567890", 10), TBig, ""),
+    m(big_of("ff00000000000000000000", 16), TBig, ""),
+    m(VBool(true), TBool, ""),
+    m(VInt(3), TEnum, ""),
+    m(VBits(BitString { bytes: [0xa0, 0x80], bit_length: 9 }), TBits, ""),
+    m(VOid([1, 2, 840, 113549, 1, 1, 11]), TOid, ""),
+    m(VOid([2, 999, 3]), TOid, ""),
+    m(VStr("Hello World"), TStr, ""),
+    m(VStr("héllo"), TStr, ""),
+    m(VStr("a*b"), TStr, ""),
+    m(VStr("a&b"), TStr, ""),
+    m(VStr("abc"), TStr, "ia5"),
+    m(VStr("123 45"), TStr, "numeric"),
+    m(VStr("x"), TStr, "utf8"),
+    m(VBytes([1, 2, 3]), TBytes, ""),
+    m(t1, TTime, ""),
+    m(t2, TTime, ""),
+    m(t3, TTime, ""),
+    m(t1, TTime, "generalized"),
+    m(VTime(asn1.make_time(2024, 1, 2, 3, 4, 5, 500000000, 0)), TTime, "generalized"),
+    m(ints([1, -2, 300]), TSlice("", [TInt]), ""),
+    m(ints([300, 1, 2]), int_set(), ""),
+    m(strs(["a", "b"]), TSlice("", [TStr]), "set"),
+    m(VStruct([VInt(5), VStr("hi"), VBytes([9])]), s1(), ""),
+    m(VStruct([VInt(7), VBool(true), VOid([1, 3]), t1]), s2(), ""),
+    m(VStruct([VInt(8), VBool(false), VOid([]), t2]), s2(), ""),
+    m(VStruct([VBytes([]), ints([3, 1]), raw(2, 7, false, [1])]), s3(), ""),
+    m(VStruct([VInt(2), VBool(true), strs(["x"]), VInt(9), bigi(1000)]), s4(), ""),
+    m(VStruct([VInt(1), VBool(false), VList([]), VInt(0), bigi(-5)]), s4(), ""),
+    m(raw(0, 5, false, []), TRaw, ""),
+    m(raw(1, 100, true, [5, 0]), TRaw, ""),
+    m(VInt(5), TInt64, "explicit,tag:3"),
+    m(VInt(5), TInt64, "tag:31"),
+    m(VInt(5), TInt64, "application,tag:2"),
+    m(VInt(5), TInt64, "private,explicit,tag:200"),
+    m(VBool(true), TFlag, "explicit,tag:2"),
+    m(VBytes(map(0..200, (_) => 0)), TBytes, ""),
+  ]
+  for c in cands { if len(c) > 0 { bases = push(bases, c) } }
+  bases = bases + [
+    [0x30, 0x80, 0, 0],
+    [0x1f, 0x1e, 0],
+    [0x13, 0x02, 97, 39],
+    [0x14, 0x02, 0xe9, 97],
+    [0x1e, 0x04, 0, 97, 0xd8, 0],
+    [0x1e, 0x04, 0, 97, 0, 0],
+    [0x17, 0x0d] + s("990229123456Z"),
+    [0x17, 0x11] + s("5001010000+240000"),
+    [0x18, 0x0f] + s("20201301000000Z"),
+    [0x18, 0x13] + s("20200101000000.120Z"),
+    [0x17, 0x0b] + s("2001010000Z"),
+    [0x02, 0x84, 0x00, 0x00, 0x00, 0x01, 0x05],
+    [0x02, 0x81, 0x01, 0x05],
+    [0x06, 0x03, 0x80, 0x01, 0x02],
+    [0x06, 0x06, 0x8f, 0xff, 0xff, 0xff, 0x7f, 0x01],
+    [0x05, 0x00, 0x05, 0x00],
+  ]
+
+  m(VOid([3, 1]), TOid, "")
+  m(VOid([1]), TOid, "")
+  m(VStr("a&b"), TStr, "printable")
+  m(VStr("é"), TStr, "ia5")
+  m(VStr("1a"), TStr, "numeric")
+  m(VTime(asn1.make_time(10000, 1, 1, 0, 0, 0, 0, 0)), TTime, "")
+  m(VTime(asn1.make_time(2000, 1, 1, 0, 0, 0, 0, 0)), TTime, "utc,generalized")
+  m(VInt(1), TInt64, "utf8")
+  m(VInt(1), TInt64, "generalized")
+  m(VInt(1), TInt64, "set")
+  m(VList([]), TSlice("", [TInt]), "")
+  m(ints([5]), TSlice("", [TInt]), "set")
+  m(asn1.zero_value(s2()), s2(), "")
+  m(asn1.zero_value(s4()), s4(), "")
+  m(VBig(None), TBig, "")
+  m(VRaw(RawValue { class: 0, tag: 0, is_compound: false, bytes: [], full_bytes: [1, 2, 3] }), TRaw, "")
+  m(VInt(0), TInt64, "optional")
+  m(VInt(7), TInt64, "optional,default:7")
+  m(VInt(8), TInt64, "optional,default:7")
+  m(VStr(""), TStr, "optional")
+  m(VBits(BitString { bytes: [0xff], bit_length: 8 }), TBits, "")
+  m(VBits(BitString { bytes: [], bit_length: 0 }), TBits, "")
+  m(asn1.zero_value(TTime), TTime, "")
+  m(VInt(-1), TEnum, "tag:0")
+
+  let muts = [0x00, 0x01, 0x05, 0x13, 0x30, 0x7f, 0x80, 0x81, 0xff, 43, 90, 53]
+  for b in bases {
+    show(b)
+    var i = 0
+    while i < len(b) && i < 24 {
+      show(b[..i] + b[i + 1..])
+      for mm in muts { show(set(b, i, mm)) }
+      i += 1
+    }
+    show(b + [0x05, 0x00])
+  }
+}

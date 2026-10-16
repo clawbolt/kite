@@ -1,0 +1,81 @@
+// 对齐 Go 1.27 的 mime/multipart：tests/go/multipart.go
+use std.mime.multipart
+use std.mime.multipart.{ Writer }
+use std.net.textproto
+use std.net.textproto.{ MIMEHeader }
+use std.strconv
+
+fn q(s: Str) -> Str { strconv.quote_go(s) }
+fn qb(b: List<Int>) -> Str { strconv.quote_bytes_with(b, 34, false, false) }
+fn es(e: Str) -> Str { if e == "" { "<nil>" } else { e } }
+fn hdr(m: MIMEHeader) -> Str { join(map(m.sorted(), (kv) => kv.0 + "=" + join(map(kv.1, q), ",")), " ") }
+
+fn parts(name: Str, body: Str, boundary: Str, raw: Bool) {
+  print("CASE " + name + " " + q(body))
+  var r = multipart.new_reader(__bytes(body), boundary)
+  for _ in 0..10 {
+    let (r2, x) = if raw { r.next_raw_part() } else { r.next_part() }
+    r = r2
+    match x {
+      Err(e) => {
+        print("  END " + e)
+        return
+      },
+      Ok(p) => print("  PART " + hdr(p.header) + " | name=" + q(p.form_name()) + " file=" + q(p.file_name()) + " | " + qb(p.data) + " " + es(p.err)),
+    }
+  }
+}
+
+fn sb(w: Writer, b: Str) -> (Writer, Str) {
+  match w.set_boundary(b) {
+    Ok(w2) => (w2, "<nil>"),
+    Err(e) => (w, e),
+  }
+}
+
+fn main() {
+  let b = "MyBoundary"
+  parts("basic", "--MyBoundary\r\nContent-Disposition: form-data; name=\"a\"\r\n\r\nvalue a\r\n--MyBoundary\r\nContent-Disposition: form-data; name=\"f\"; filename=\"../dir/x.txt\"\r\nContent-Type: text/plain\r\n\r\nfile\r\ncontent\r\n--MyBoundary--\r\n", b, false)
+  parts("preamble", "This is a preamble\r\n\r\n--MyBoundary\r\nX: 1\r\n\r\nbody one\r\n--MyBoundary  \r\nX: 2\r\n\r\n--MyBoundary-not\r\nstill body\r\n--MyBoundary--   \r\nepilogue", b, false)
+  parts("lf", "--MyBoundary\nA: b\n\nline1\nline2\n--MyBoundary\n\nsecond\n--MyBoundary--\n", b, false)
+  parts("qp", "--MyBoundary\r\nContent-Transfer-Encoding: quoted-printable\r\n\r\ncaf=C3=A9 =\r\nsoft\r\n--MyBoundary--\r\n", b, false)
+  parts("qp-raw", "--MyBoundary\r\nContent-Transfer-Encoding: quoted-printable\r\n\r\ncaf=C3=A9 =\r\nsoft\r\n--MyBoundary--\r\n", b, true)
+  parts("unterminated", "--MyBoundary\r\nA: 1\r\n\r\nno end here", b, false)
+  parts("nofinal", "--MyBoundary\r\nA: 1\r\n\r\nx\r\n--MyBoundary\r\n", b, false)
+  parts("garbage", "--MyBoundary\r\nA: 1\r\n\r\nx\r\n--MyBoundary\r\nB: 2\r\n\r\ny\r\n--MyBoundary--\r\n", b, false)
+  parts("badheader", "--MyBoundary\r\nBad Header\r\n\r\nx\r\n--MyBoundary--\r\n", b, false)
+  parts("empty", "", b, false)
+  parts("onlyfinal", "--MyBoundary--", b, false)
+  parts("emptyboundary", "--\r\n", "", false)
+  parts("expect", "--MyBoundary\r\nA: 1\r\n\r\nx\r\n--MyBoundary--junk\r\n", b, false)
+  parts("disp", "--MyBoundary\r\nContent-Disposition: attachment; filename=\"a/b/c.bin\"\r\n\r\n1\r\n--MyBoundary\r\nContent-Disposition: form-data; name=\"x\"; filename=\"\"\r\n\r\n2\r\n--MyBoundary\r\nContent-Disposition: form-data; name=x;;\r\n\r\n3\r\n--MyBoundary--\r\n", b, false)
+
+  var w = multipart.new_writer()
+  var line = "SB"
+  for x in ["my boundary", "", "bad|char", "trail ", "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"] {
+    let (w2, e) = sb(w, x)
+    w = w2
+    line = line + " " + e
+  }
+  print(line)
+  w = unwrap(w.set_boundary("abc:def"))
+  print("CT " + w.form_data_content_type() + " " + w.boundary())
+  w = w.write_field("name", "Kite").write_field("we\"ird\r\nname", "v2")
+  w = w.create_form_file("upload", "dir/hello.txt").write(__bytes("hello\r\nworld"))
+  let h = textproto.new_header().set("X-Custom", "1").add("A-First", "z").add("A-First", "y")
+  w = w.create_part(h).write(__bytes("custom")).close()
+  print("OUT " + qb(w.bytes()))
+  let (_, e2) = sb(w, "again")
+  print("SB2 " + e2)
+  match multipart.new_reader(w.bytes(), "abc:def").read_form(1 << 20) {
+    Err(e) => print("FORM " + e),
+    Ok(f) => {
+      print("FORM <nil>")
+      for kv in sort_with(f.value, (a, c) => if a.0 < c.0 { -1 } else if a.0 > c.0 { 1 } else { 0 }) { print("  V " + q(kv.0) + " [" + join(map(kv.1, q), " ") + "]") }
+      for kv in f.file {
+        for fh in kv.1 { print("  F " + q(kv.0) + " " + q(fh.filename) + " {fh.size} " + qb(fh.content) + " " + hdr(fh.header)) }
+      }
+    },
+  }
+  print("FD " + multipart.file_content_disposition("a\\b", "c\"d"))
+}

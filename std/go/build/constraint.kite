@@ -1,0 +1,331 @@
+// std.go.build.constraint：对齐 Go 1.27 的 go/build/constraint
+//   parse 解析 "//go:build ..." 和旧式 "// +build ..." 行；Expr 的 string / eval；plus_build_lines；go_version。
+//   语法错误返回 SyntaxError（offset 是字节偏移，err 文字与 Go 相同）
+
+use std.strings
+use std.unicode
+use std.unicode.utf8
+use std.strconv
+
+pub enum Expr {
+  Tag(Str),
+  Not(List<Expr>),
+  And(List<Expr>),
+  Or(List<Expr>),
+}
+
+pub type SyntaxError = { offset: Int, err: Str }
+
+fn tag(t: Str) -> Expr { Tag(t) }
+fn not_(x: Expr) -> Expr { Not([x]) }
+fn and_(x: Expr, y: Expr) -> Expr { And([x, y]) }
+fn or_(x: Expr, y: Expr) -> Expr { Or([x, y]) }
+
+fn is_and(x: Expr) -> Bool { match x { And(_) => true, _ => false } }
+fn is_or(x: Expr) -> Bool { match x { Or(_) => true, _ => false } }
+
+pub fn string(x: Expr) -> Str {
+  match x {
+    Tag(t) => t,
+    Not(xs) => {
+      var s = string(xs[0])
+      if is_and(xs[0]) || is_or(xs[0]) { s = "(" + s + ")" }
+      "!" + s
+    },
+    And(xs) => and_arg(xs[0]) + " && " + and_arg(xs[1]),
+    Or(xs) => or_arg(xs[0]) + " || " + or_arg(xs[1]),
+  }
+}
+
+fn and_arg(x: Expr) -> Str { if is_or(x) { "(" + string(x) + ")" } else { string(x) } }
+fn or_arg(x: Expr) -> Str { if is_and(x) { "(" + string(x) + ")" } else { string(x) } }
+
+pub fn eval(x: Expr, ok: fn(Str) -> Bool) -> Bool {
+  match x {
+    Tag(t) => ok(t),
+    Not(xs) => !eval(xs[0], ok),
+    And(xs) => {
+      let a = eval(xs[0], ok)
+      let b = eval(xs[1], ok)
+      a && b
+    },
+    Or(xs) => {
+      let a = eval(xs[0], ok)
+      let b = eval(xs[1], ok)
+      a || b
+    },
+  }
+}
+
+fn trim_nl(line: Str) -> Str { if ends_with(line, "\n") { __str_slice(line, 0, len(line) - 1) } else { line } }
+
+fn split_go_build(line0: Str) -> Option<Str> {
+  var line = trim_nl(line0)
+  if __str_find(line, "\n", 0) >= 0 { return None }
+  if !starts_with(line, "//go:build") { return None }
+  line = strings.trim_space(line)
+  line = __str_slice(line, 10, len(line))
+  let trim = strings.trim_space(line)
+  if len(line) == len(trim) && line != "" { return None }
+  Some(trim)
+}
+
+fn split_plus_build(line0: Str) -> Option<Str> {
+  var line = trim_nl(line0)
+  if __str_find(line, "\n", 0) >= 0 { return None }
+  if !starts_with(line, "//") { return None }
+  line = strings.trim_space(__str_slice(line, 2, len(line)))
+  if !starts_with(line, "+build") { return None }
+  line = __str_slice(line, 6, len(line))
+  let trim = strings.trim_space(line)
+  if len(line) == len(trim) && line != "" { return None }
+  Some(trim)
+}
+
+pub fn is_go_build(line: Str) -> Bool { is_some(split_go_build(line)) }
+
+pub fn is_plus_build(line: Str) -> Bool { is_some(split_plus_build(line)) }
+
+// 解析器状态
+type P = { s: List<Int>, i: Int, tok: Str, is_tag: Bool, pos: Int, size: Int, err: Str, eoff: Int }
+
+fn fail(p: P, off: Int, msg: Str) -> P { if p.err != "" { p } else { P { err: msg, eoff: off, ..p } } }
+
+fn is_tag_rune(c: Int) -> Bool { unicode.is_letter(__chr(c)) || unicode.is_digit(__chr(c)) || c == 95 || c == 46 }
+
+fn lex(p0: P) -> P {
+  var p = P { is_tag: false, ..p0 }
+  var i = p.i
+  let s = p.s
+  while i < len(s) && (s[i] == 32 || s[i] == 9) { i += 1 }
+  if i >= len(s) { return P { i: i, tok: "", pos: i, ..p } }
+  let c = s[i]
+  if c == 40 || c == 41 || c == 33 { return P { pos: i, i: i + 1, tok: unwrap(__from_bytes([c])), ..p } }
+  if c == 38 || c == 124 {
+    if i + 1 >= len(s) || s[i + 1] != c { return fail(P { i: i, ..p }, i, "invalid syntax at " + unwrap(__from_bytes([c]))) }
+    return P { pos: i, i: i + 2, tok: unwrap(__from_bytes([c, c])), ..p }
+  }
+  var j = i
+  while j < len(s) {
+    let (r, w) = utf8.decode_rune_at(s, j)
+    if !is_tag_rune(r) { break }
+    j += w
+  }
+  if j == i {
+    let (r, _) = utf8.decode_rune_at(s, i)
+    return fail(P { i: i, ..p }, i, "invalid syntax at " + __chr(r))
+  }
+  P { pos: i, i: j, tok: unwrap(__from_bytes(s[i..j])), is_tag: true, ..p }
+}
+
+fn p_or(p0: P) -> (P, Expr) {
+  var (p, x) = p_and(p0)
+  while p.err == "" && p.tok == "||" {
+    let (p2, y) = p_and(p)
+    p = p2
+    x = or_(x, y)
+  }
+  (p, x)
+}
+
+fn p_and(p0: P) -> (P, Expr) {
+  var (p, x) = p_not(p0)
+  while p.err == "" && p.tok == "&&" {
+    let (p2, y) = p_not(p)
+    p = p2
+    x = and_(x, y)
+  }
+  (p, x)
+}
+
+fn p_not(p0: P) -> (P, Expr) {
+  var p = P { size: p0.size + 1, ..p0 }
+  if p.size > 1000 { return (fail(p, p.pos, "build expression too large"), tag("")) }
+  p = lex(p)
+  if p.err != "" { return (p, tag("")) }
+  if p.tok == "!" {
+    p = lex(p)
+    if p.err != "" { return (p, tag("")) }
+    if p.tok == "!" { return (fail(p, p.pos, "double negation not allowed"), tag("")) }
+    let (p2, x) = p_atom(p)
+    return (p2, not_(x))
+  }
+  p_atom(p)
+}
+
+fn p_atom(p: P) -> (P, Expr) {
+  if p.err != "" { return (p, tag("")) }
+  if p.tok == "(" {
+    let pos = p.pos
+    var (p2, x) = p_or(p)
+    if p2.err == "unexpected end of expression" { p2 = P { err: "missing close paren", ..p2 } }
+    if p2.err != "" { return (p2, x) }
+    if p2.tok != ")" { return (fail(p2, pos, "missing close paren"), x) }
+    return (lex(p2), x)
+  }
+  if !p.is_tag {
+    if p.tok == "" { return (fail(p, p.pos, "unexpected end of expression"), tag("")) }
+    return (fail(p, p.pos, "unexpected token " + p.tok), tag(""))
+  }
+  let t = p.tok
+  (lex(p), tag(t))
+}
+
+fn parse_expr(text: Str) -> Result<Expr, SyntaxError> {
+  let p = P { s: __bytes(text), i: 0, tok: "", is_tag: false, pos: 0, size: 0, err: "", eoff: 0 }
+  let (p2, x) = p_or(p)
+  if p2.err != "" { return Err(SyntaxError { offset: p2.eoff, err: p2.err }) }
+  if p2.tok != "" { return Err(SyntaxError { offset: p2.pos, err: "unexpected token " + p2.tok }) }
+  Ok(x)
+}
+
+fn is_valid_tag(w: Str) -> Bool {
+  if w == "" { return false }
+  let b = __bytes(w)
+  var i = 0
+  while i < len(b) {
+    let (r, n) = utf8.decode_rune_at(b, i)
+    if !is_tag_rune(r) { return false }
+    i += n
+  }
+  true
+}
+
+const ERR_COMPLEX: Str = "expression too complex for // +build lines"
+
+fn parse_plus_build(text: Str) -> Result<Expr, SyntaxError> {
+  var size = 0
+  var x: Option<Expr> = None
+  for clause in strings.fields(text) {
+    var y: Option<Expr> = None
+    for lit0 in strings.split(clause, ",") {
+      var lit = lit0
+      var z = tag("ignore")
+      if !(starts_with(lit, "!!") || lit == "!") {
+        var neg = false
+        if starts_with(lit, "!") {
+          neg = true
+          lit = __str_slice(lit, 1, len(lit))
+        }
+        z = if is_valid_tag(lit) { tag(lit) } else { tag("ignore") }
+        if neg { z = not_(z) }
+      }
+      match y {
+        None => { y = Some(z) },
+        Some(yy) => {
+          size += 1
+          if size > 100 { return Err(SyntaxError { offset: -1, err: ERR_COMPLEX }) }
+          y = Some(and_(yy, z))
+        },
+      }
+    }
+    match x {
+      None => { x = y },
+      Some(xx) => {
+        size += 1
+        if size > 100 { return Err(SyntaxError { offset: -1, err: ERR_COMPLEX }) }
+        x = Some(or_(xx, unwrap(y)))
+      },
+    }
+  }
+  Ok(match x { None => tag("ignore"), Some(e) => e })
+}
+
+// Parse；不是构建约束行时 err 为 "not a build constraint"、offset 为 -1
+pub fn parse(line: Str) -> Result<Expr, SyntaxError> {
+  if let Some(t) = split_go_build(line) { return parse_expr(t) }
+  if let Some(t) = split_plus_build(line) { return parse_plus_build(t) }
+  Err(SyntaxError { offset: -1, err: "not a build constraint" })
+}
+
+fn push_not(x: Expr, n: Bool) -> Expr {
+  match x {
+    Not(xs) => {
+      match xs[0] {
+        Tag(_) => if !n { x } else { push_not(xs[0], !n) },
+        _ => push_not(xs[0], !n),
+      }
+    },
+    Tag(_) => if n { not_(x) } else { x },
+    And(xs) => {
+      let x1 = push_not(xs[0], n)
+      let y1 = push_not(xs[1], n)
+      if n { or_(x1, y1) } else { and_(x1, y1) }
+    },
+    Or(xs) => {
+      let x1 = push_not(xs[0], n)
+      let y1 = push_not(xs[1], n)
+      if n { and_(x1, y1) } else { or_(x1, y1) }
+    },
+  }
+}
+
+fn split_and(x: Expr) -> List<Expr> { match x { And(xs) => split_and(xs[0]) + split_and(xs[1]), _ => [x] } }
+fn split_or(x: Expr) -> List<Expr> { match x { Or(xs) => split_or(xs[0]) + split_or(xs[1]), _ => [x] } }
+
+pub fn plus_build_lines(x0: Expr) -> Result<List<Str>, Str> {
+  let x = push_not(x0, false)
+  var split: List<List<List<Expr>>> = []
+  for o in split_and(x) {
+    var ands: List<List<Expr>> = []
+    for a in split_or(o) {
+      var lits: List<Expr> = []
+      for lit in split_and(a) {
+        match lit {
+          Tag(_) => { lits = push(lits, lit) },
+          Not(_) => { lits = push(lits, lit) },
+          _ => { return Err(ERR_COMPLEX) },
+        }
+      }
+      ands = push(ands, lits)
+    }
+    split = push(split, ands)
+  }
+  var max_or = 0
+  for o in split { if max_or < len(o) { max_or = len(o) } }
+  if max_or == 1 {
+    var lits: List<Expr> = []
+    for o in split { lits = lits + o[0] }
+    split = [[lits]]
+  }
+  var lines: List<Str> = []
+  for o in split {
+    var line = "// +build"
+    for a in o { line = line + " " + join(map(a, string), ",") }
+    lines = push(lines, line)
+  }
+  Ok(lines)
+}
+
+fn min_version(z: Expr, sign: Int) -> Int {
+  match z {
+    And(xs) => {
+      let a = min_version(xs[0], sign)
+      let b = min_version(xs[1], sign)
+      if sign < 0 { if a < b { a } else { b } } else { if a > b { a } else { b } }
+    },
+    Or(xs) => {
+      let a = min_version(xs[0], sign)
+      let b = min_version(xs[1], sign)
+      if sign < 0 { if a > b { a } else { b } } else { if a < b { a } else { b } }
+    },
+    Not(xs) => min_version(xs[0], -sign),
+    Tag(t) => {
+      if sign < 0 { return -1 }
+      if t == "go1" { return 0 }
+      let i = __str_find(t, "go1.", 0)
+      if i < 0 { return -1 }
+      match strconv.atoi(__str_slice(t, i + 4, len(t))) {
+        Ok(n) => n,
+        Err(_) => -1,
+      }
+    },
+  }
+}
+
+pub fn go_version(x: Expr) -> Str {
+  let v = min_version(x, 1)
+  if v < 0 { return "" }
+  if v == 0 { return "go1" }
+  "go1.{v}"
+}

@@ -1,0 +1,130 @@
+// std.os：操作系统接口（对齐 Go 的 os 包）。基础的读写文件在内建模块 fs 里，这里补充其余部分
+//   文件信息：stat / lstat -> FileInfo，read_dir 列出目录里每一项的信息
+//   目录树：walk（深度优先，结果按路径排序）、remove_all、mkdir_all、glob
+//   字节读写：read_bytes / write_bytes / append_bytes，copy_file 按字节复制
+//   进程环境：getwd、chdir、hostname、getpid、setenv、unsetenv、environ、temp_dir、home_dir
+
+use std.path
+use std.fs
+
+pub type FileInfo = { name: Str, path: Str, size: Int, mtime_ms: Int, is_dir: Bool, is_file: Bool, is_symlink: Bool, mode: Int }
+
+fn info(p: Str, follow: Bool) -> Result<FileInfo, Str> {
+  let (size, mt, kind, mode) = __fs_stat(p, follow)?
+  Ok(FileInfo { name: path.base(p), path: p, size: size, mtime_ms: mt, is_dir: kind == 1, is_file: kind == 0, is_symlink: kind == 2, mode: mode })
+}
+
+// 跟随符号链接
+pub fn stat(p: Str) -> Result<FileInfo, Str> { info(p, true) }
+
+// 不跟随符号链接
+pub fn lstat(p: Str) -> Result<FileInfo, Str> { info(p, false) }
+
+// 目录里每一项（按名字排序；符号链接不跟随）
+pub fn read_dir(dir: Str) -> Result<List<FileInfo>, Str> {
+  var out: List<FileInfo> = []
+  for n in fs.list(dir)? { out = push(out, lstat(path.join([dir, n]))?) }
+  Ok(out)
+}
+
+// root 下所有文件和目录的路径（含 root 本身），深度优先、按名字排序；不进入符号链接指向的目录
+pub fn walk(root: Str) -> Result<List<Str>, Str> {
+  let fi = lstat(root)?
+  var out = [root]
+  if fi.is_dir {
+    for n in fs.list(root)? { out = out + walk(path.join([root, n]))? }
+  }
+  Ok(out)
+}
+
+// 和 walk 一样，但只要满足 keep 的路径
+pub fn walk_filter(root: Str, keep: fn(FileInfo) -> Bool) -> Result<List<Str>, Str> {
+  var out: List<Str> = []
+  for p in walk(root)? {
+    if keep(lstat(p)?) { out = push(out, p) }
+  }
+  Ok(out)
+}
+
+// 递归删除；路径不存在不算错（同 Go 的 RemoveAll）
+pub fn remove_all(p: Str) -> Result<Unit, Str> {
+  let Ok(fi) = lstat(p) else { return Ok(()) }
+  if fi.is_dir {
+    for n in fs.list(p)? { remove_all(path.join([p, n]))? }
+  }
+  fs.remove(p)
+}
+
+pub fn mkdir_all(p: Str) -> Result<Unit, Str> { fs.mkdir(p) }
+
+// 按通配符查找文件：每一段都可以用 * ? [..]（同 Go 的 filepath.Glob），结果排序
+pub fn glob(pattern: Str) -> List<Str> {
+  let abs = starts_with(pattern, "/")
+  let segs = filter(split(pattern, "/"), (s) => s != "")
+  sort(glob_from(if abs { "/" } else { "." }, segs, 0, abs))
+}
+
+fn has_meta(s: Str) -> Bool { contains(s, "*") || contains(s, "?") || contains(s, "[") }
+
+fn glob_from(dir: Str, segs: List<Str>, i: Int, abs: Bool) -> List<Str> {
+  if i == len(segs) { return [dir] }
+  let seg = segs[i]
+  let names = if has_meta(seg) {
+    match fs.list(dir) {
+      Ok(ns) => filter(ns, (n) => path.match_glob(seg, n) && (starts_with(seg, ".") || !starts_with(n, "."))),
+      Err(_) => [],
+    }
+  } else {
+    [seg]
+  }
+  var out: List<Str> = []
+  for n in names {
+    let p = if dir == "." && !abs { n } else { path.join([dir, n]) }
+    if i + 1 == len(segs) {
+      if fs.exists(p) || is_ok(lstat(p)) { out = push(out, p) }
+    } else if fs.is_dir(p) {
+      out = out + glob_from(p, segs, i + 1, abs)
+    }
+  }
+  out
+}
+
+pub fn read_bytes(p: Str) -> Result<List<Int>, Str> { __read_bytes(p) }
+
+pub fn write_bytes(p: Str, bs: List<Int>) -> Result<Unit, Str> { __write_bytes(p, bs, false) }
+
+pub fn append_bytes(p: Str, bs: List<Int>) -> Result<Unit, Str> { __write_bytes(p, bs, true) }
+
+// 按字节复制（二进制文件也可以），保留权限位
+pub fn copy_file(src: Str, dst: Str) -> Result<Unit, Str> {
+  let fi = stat(src)?
+  __write_bytes(dst, __read_bytes(src)?, false)?
+  __chmod(dst, fi.mode)
+}
+
+pub fn chmod(p: Str, mode: Int) -> Result<Unit, Str> { __chmod(p, mode) }
+
+pub fn getwd() -> Str { __getcwd() }
+
+pub fn chdir(p: Str) -> Result<Unit, Str> { __chdir(p) }
+
+pub fn hostname() -> Str { __hostname() }
+
+pub fn getpid() -> Int { __getpid() }
+
+pub fn getenv(k: Str) -> Option<Str> { __env_get(k) }
+
+pub fn setenv(k: Str, v: Str) { __env_set(k, v) }
+
+pub fn unsetenv(k: Str) { __env_unset(k) }
+
+// 所有环境变量，"名字=值"，排序
+pub fn environ() -> List<Str> { __environ() }
+
+pub fn temp_dir() -> Str { unwrap_or(__env_get("TMPDIR"), "/tmp") }
+
+pub fn home_dir() -> Option<Str> { __env_get("HOME") }
+
+pub fn args() -> List<Str> { __args() }
+
+pub fn exit(code: Int) -> Never { __exit(code) }

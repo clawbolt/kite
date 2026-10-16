@@ -1,0 +1,75 @@
+// std.container.heap：优先队列（对应 Go 的 container/heap）。不可变的配对堆：push / pop 返回新堆，旧堆不变
+//   heap.min_heap() / max_heap()：按 < 排序；heap.new(less)：自定义比较
+//   heap.insert(h, x)、heap.peek(h)、heap.pop(h) -> Option<(最小值, 剩下的堆)>、heap.size(h)、heap.drain(h)
+// 插入、取最小值 O(1)，弹出均摊 O(log n)
+
+enum PNode<T> {
+  PEmpty
+  PTree(top: T, subs: List<PNode<T>>)
+}
+
+pub type Heap<T> = { root: PNode<T>, n: Int, less: fn(T, T) -> Bool }
+
+pub fn new<T>(less: fn(T, T) -> Bool) -> Heap<T> { Heap { root: PEmpty, n: 0, less: less } }
+
+pub fn min_heap<T: Ord>() -> Heap<T> { new((a, b) => a < b) }
+
+pub fn max_heap<T: Ord>() -> Heap<T> { new((a, b) => a > b) }
+
+fn meld<T>(less: fn(T, T) -> Bool, a: PNode<T>, b: PNode<T>) -> PNode<T> {
+  match (a, b) {
+    (PEmpty, _) => b,
+    (_, PEmpty) => a,
+    (PTree(x, xs), PTree(y, ys)) => if less(y, x) { PTree(y, [a] + ys) } else { PTree(x, [b] + xs) },
+  }
+}
+
+// 两两合并，再从右往左合并
+fn merge_pairs<T>(less: fn(T, T) -> Bool, subs: List<PNode<T>>) -> PNode<T> {
+  var pairs: List<PNode<T>> = []
+  var i = 0
+  while i < len(subs) {
+    pairs = pairs + [if i + 1 < len(subs) { meld(less, subs[i], subs[i + 1]) } else { subs[i] }]
+    i += 2
+  }
+  var acc: PNode<T> = PEmpty
+  var j = len(pairs) - 1
+  while j >= 0 {
+    acc = meld(less, pairs[j], acc)
+    j -= 1
+  }
+  acc
+}
+
+pub fn insert<T>(h: Heap<T>, x: T) -> Heap<T> { Heap { root: meld(h.less, PTree(x, []), h.root), n: h.n + 1, ..h } }
+
+pub fn from_list<T>(less: fn(T, T) -> Bool, xs: List<T>) -> Heap<T> { fold(xs, new(less), (h, x) => insert(h, x)) }
+
+pub fn peek<T>(h: Heap<T>) -> Option<T> {
+  match h.root {
+    PEmpty => None,
+    PTree(x, _) => Some(x),
+  }
+}
+
+pub fn pop<T>(h: Heap<T>) -> Option<(T, Heap<T>)> {
+  match h.root {
+    PEmpty => None,
+    PTree(x, subs) => Some((x, Heap { root: merge_pairs(h.less, subs), n: h.n - 1, ..h })),
+  }
+}
+
+pub fn size<T>(h: Heap<T>) -> Int { h.n }
+
+pub fn is_empty<T>(h: Heap<T>) -> Bool { h.n == 0 }
+
+// 按顺序取出全部元素
+pub fn drain<T>(h: Heap<T>) -> List<T> {
+  var out: List<T> = []
+  var cur = h
+  while let Some((x, rest)) = pop(cur) {
+    out = out + [x]
+    cur = rest
+  }
+  out
+}

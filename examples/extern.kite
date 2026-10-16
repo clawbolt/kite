@@ -1,0 +1,31 @@
+// 文法 v0.6 第三批（六）：extern "C" 块，调用处放在 unsafe { … } 里
+extern "C" {
+  fn strlen(s: Str) -> Int
+  fn labs(x: Int) -> Int
+  fn sqrt(x: Float) -> Float
+  fn pow(x: Float, y: Float) -> Float
+  fn atoi(s: Str) -> Int
+  fn getenv(name: Str) -> Str
+}
+
+@link("m")
+extern {
+  fn cbrt(x: Float) -> Float
+}
+
+fn c_len(s: Str) -> Int {
+  unsafe { strlen(s) }
+}
+
+fn main() {
+  print(c_len("hello"), c_len("风筝"))
+  let r = unsafe {
+    let a = labs(-42)
+    a + atoi("100")
+  }
+  print(r)
+  unsafe {
+    print(sqrt(2.0), pow(2.0, 10.0), cbrt(8.0))
+    print(getenv("KITE_NO_SUCH_VAR_X"))
+  }
+}

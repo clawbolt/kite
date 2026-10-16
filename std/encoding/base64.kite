@@ -1,0 +1,234 @@
+// std.encoding.base64：Base64 编码（对齐 Go 的 encoding/base64）。字符串按 UTF-8 字节编码
+//   encode / decode：标准字母表（+ /），带 = 填充
+//   url_encode / url_decode：URL 安全字母表（- _），带 = 填充
+//   raw_url_encode / raw_url_decode：URL 安全字母表，不填充（JWT 用的就是这种）
+// decode 系列返回字节列表，decode_str 系列再按 UTF-8 转成 Str
+
+fn std_abc() -> List<Str> { chars("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/") }
+
+fn url_abc() -> List<Str> { chars("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_") }
+
+fn enc(bs: List<Int>, abc: List<Str>, pad: Bool) -> Str {
+  var out = ""
+  var i = 0
+  let n = len(bs)
+  while i + 2 < n {
+    let v = (bs[i] << 16) | (bs[i + 1] << 8) | bs[i + 2]
+    out = out + abc[(v >> 18) & 63] + abc[(v >> 12) & 63] + abc[(v >> 6) & 63] + abc[v & 63]
+    i += 3
+  }
+  let rest = n - i
+  if rest == 1 {
+    let v = bs[i] << 16
+    out = out + abc[(v >> 18) & 63] + abc[(v >> 12) & 63] + if pad { "==" } else { "" }
+  } else if rest == 2 {
+    let v = (bs[i] << 16) | (bs[i + 1] << 8)
+    out = out + abc[(v >> 18) & 63] + abc[(v >> 12) & 63] + abc[(v >> 6) & 63] + if pad { "=" } else { "" }
+  }
+  out
+}
+
+fn val(c: Str, url: Bool) -> Int {
+  let o = __ord(c)
+  if o >= 65 && o <= 90 { o - 65 } else if o >= 97 && o <= 122 { o - 71 } else if o >= 48 && o <= 57 { o + 4 } else if (!url && c == "+") || (url && c == "-") { 62 } else if (!url && c == "/") || (url && c == "_") { 63 } else { -1 }
+}
+
+fn dec(s: Str, url: Bool, pad: Bool) -> Result<List<Int>, Str> {
+  var cs = filter(chars(s), (c) => c != "\n" && c != __chr(13))
+  if pad {
+    if len(cs) % 4 != 0 { return Err("base64: 长度必须是 4 的倍数") }
+    var k = 0
+    while len(cs) > 0 && cs[len(cs) - 1] == "=" && k < 2 {
+      cs = take(cs, len(cs) - 1)
+      k += 1
+    }
+  }
+  if len(cs) % 4 == 1 { return Err("base64: 长度不对") }
+  var out: List<Int> = []
+  var acc = 0
+  var bits = 0
+  var i = 0
+  while i < len(cs) {
+    let v = val(cs[i], url)
+    if v < 0 { return Err("base64: 第 {i} 个字符非法: {cs[i]}") }
+    acc = ((acc << 6) | v) & 16777215
+    bits += 6
+    if bits >= 8 {
+      bits -= 8
+      out = push(out, (acc >> bits) & 255)
+    }
+    i += 1
+  }
+  if (acc & ((1 << bits) - 1)) != 0 { return Err("base64: 末尾有多余的位") }
+  Ok(out)
+}
+
+fn to_str(r: Result<List<Int>, Str>) -> Result<Str, Str> {
+  let bs = r?
+  match __from_bytes(bs) {
+    Some(t) => Ok(t),
+    None => Err("base64: 解码结果不是合法的 UTF-8"),
+  }
+}
+
+pub fn encode_bytes(bs: List<Int>) -> Str { enc(bs, std_abc(), true) }
+
+pub fn encode(s: Str) -> Str { enc(__bytes(s), std_abc(), true) }
+
+pub fn decode(s: Str) -> Result<List<Int>, Str> { dec(s, false, true) }
+
+pub fn decode_str(s: Str) -> Result<Str, Str> { to_str(dec(s, false, true)) }
+
+pub fn url_encode(s: Str) -> Str { enc(__bytes(s), url_abc(), true) }
+
+pub fn url_decode(s: Str) -> Result<List<Int>, Str> { dec(s, true, true) }
+
+pub fn url_decode_str(s: Str) -> Result<Str, Str> { to_str(dec(s, true, true)) }
+
+pub fn raw_url_encode(s: Str) -> Str { enc(__bytes(s), url_abc(), false) }
+
+pub fn raw_url_encode_bytes(bs: List<Int>) -> Str { enc(bs, url_abc(), false) }
+
+pub fn raw_url_decode(s: Str) -> Result<List<Int>, Str> { dec(s, true, false) }
+
+pub fn raw_url_decode_str(s: Str) -> Result<Str, Str> { to_str(dec(s, true, false)) }
+
+// ───────── Encoding（对齐 Go 的 base64.Encoding：StdEncoding、URLEncoding、RawStdEncoding、RawURLEncoding） ─────────
+//   base64.std_encoding().encode_to_string(bs)、.decode_string(s)、.with_padding(c)、.strict()、
+//   .encoded_len(n)、.decoded_len(n)。解码规则和错误位置与 Go 完全相同（跳过 \r \n）
+
+pub const STD_PADDING: Int = 61
+
+pub const NO_PADDING: Int = -1
+
+pub type Encoding = { abc: List<Int>, dmap: List<Int>, pad: Int, is_strict: Bool }
+
+pub fn new_encoding(alphabet: Str) -> Encoding {
+  let abc = __bytes(alphabet)
+  if len(abc) != 64 { panic("encoding alphabet is not 64-bytes long") }
+  var dmap: List<Int> = []
+  for _ in 0..256 { dmap = push(dmap, 255) }
+  var i = 0
+  while i < 64 {
+    if abc[i] == 10 || abc[i] == 13 { panic("encoding alphabet contains newline character") }
+    if dmap[abc[i]] != 255 { panic("encoding alphabet includes duplicate symbols") }
+    dmap = set(dmap, abc[i], i)
+    i += 1
+  }
+  Encoding { abc: abc, dmap: dmap, pad: STD_PADDING, is_strict: false }
+}
+
+pub fn std_encoding() -> Encoding { new_encoding("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/") }
+
+pub fn url_encoding() -> Encoding { new_encoding("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_") }
+
+pub fn raw_std_encoding() -> Encoding { std_encoding().with_padding(NO_PADDING) }
+
+pub fn raw_url_encoding() -> Encoding { url_encoding().with_padding(NO_PADDING) }
+
+fn corrupt(n: Int) -> Str { "illegal base64 data at input byte {n}" }
+
+fn is_nl(c: Int) -> Bool { c == 10 || c == 13 }
+
+impl Encoding {
+  fn with_padding(self, pad: Int) -> Encoding {
+    if pad == 13 || pad == 10 || pad > 0xff { panic("invalid padding") }
+    if pad >= 0 && self.dmap[pad] != 255 { panic("padding contained in alphabet") }
+    Encoding { pad: pad, ..self }
+  }
+
+  fn strict(self) -> Encoding { Encoding { is_strict: true, ..self } }
+
+  fn encoded_len(self, n: Int) -> Int { if self.pad == NO_PADDING { n / 3 * 4 + (n % 3 * 8 + 5) / 6 } else { (n + 2) / 3 * 4 } }
+
+  fn decoded_len(self, n: Int) -> Int { if self.pad == NO_PADDING { n / 4 * 3 + n % 4 * 6 / 8 } else { n / 4 * 3 } }
+
+  fn encode(self, src: List<Int>) -> List<Int> {
+    var out: List<Int> = []
+    var i = 0
+    let n = len(src)
+    while i + 2 < n {
+      let v = (src[i] << 16) | (src[i + 1] << 8) | src[i + 2]
+      out = out + [self.abc[(v >> 18) & 63], self.abc[(v >> 12) & 63], self.abc[(v >> 6) & 63], self.abc[v & 63]]
+      i += 3
+    }
+    let rem = n - i
+    if rem > 0 {
+      var v = src[i] << 16
+      if rem == 2 { v = v | (src[i + 1] << 8) }
+      out = out + [self.abc[(v >> 18) & 63], self.abc[(v >> 12) & 63]]
+      if rem == 2 {
+        out = push(out, self.abc[(v >> 6) & 63])
+        if self.pad != NO_PADDING { out = push(out, self.pad) }
+      } else if self.pad != NO_PADDING {
+        out = out + [self.pad, self.pad]
+      }
+    }
+    out
+  }
+
+  fn encode_to_string(self, src: List<Int>) -> Str { unwrap(__from_bytes(self.encode(src))) }
+
+  // 返回 (新的 si, 解出的字节, 错误)
+  fn quantum(self, src: List<Int>, si0: Int) -> (Int, List<Int>, Str) {
+    var si = si0
+    var dbuf = [0, 0, 0, 0]
+    var dlen = 4
+    var err = ""
+    var j = 0
+    while j < 4 {
+      if len(src) == si {
+        if j == 0 { return (si, [], "") }
+        if j == 1 || self.pad != NO_PADDING { return (si, [], corrupt(si - j)) }
+        dlen = j
+        break
+      }
+      let c = src[si]
+      si += 1
+      let v = self.dmap[c]
+      if v != 255 {
+        dbuf = set(dbuf, j, v)
+        j += 1
+        continue
+      }
+      if is_nl(c) { continue }
+      if c != self.pad { return (si, [], corrupt(si - 1)) }
+      if j == 0 || j == 1 { return (si, [], corrupt(si - 1)) }
+      if j == 2 {
+        while si < len(src) && is_nl(src[si]) { si += 1 }
+        if si == len(src) { return (si, [], corrupt(len(src))) }
+        if src[si] != self.pad { return (si, [], corrupt(si - 1)) }
+        si += 1
+      }
+      while si < len(src) && is_nl(src[si]) { si += 1 }
+      if si < len(src) { err = corrupt(si) }
+      dlen = j
+      break
+    }
+    let val = (dbuf[0] << 18) | (dbuf[1] << 12) | (dbuf[2] << 6) | dbuf[3]
+    let b0 = (val >> 16) & 0xff
+    let b1 = (val >> 8) & 0xff
+    let b2 = val & 0xff
+    if dlen == 4 { return (si, [b0, b1, b2], err) }
+    if dlen == 3 {
+      if self.is_strict && b2 != 0 { return (si, [b0, b1], corrupt(si - 1)) }
+      return (si, [b0, b1], err)
+    }
+    if self.is_strict && (b1 != 0 || b2 != 0) { return (si, [b0], corrupt(si - 2)) }
+    (si, [b0], err)
+  }
+
+  fn decode(self, src: List<Int>) -> Result<List<Int>, Str> {
+    var out: List<Int> = []
+    var si = 0
+    while si < len(src) {
+      let (nsi, bs, err) = self.quantum(src, si)
+      si = nsi
+      if err != "" { return Err(err) }
+      out = out + bs
+    }
+    Ok(out)
+  }
+
+  fn decode_string(self, s: Str) -> Result<List<Int>, Str> { self.decode(__bytes(s)) }
+}

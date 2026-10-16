@@ -1,0 +1,27 @@
+trait Named {
+  fn name(self) -> Str
+}
+trait Greeter: Named {
+  fn greet(self) -> Str { "hello, {self.name()}" }
+}
+trait Loud: Greeter + Show {
+  fn shout(self) -> Str { self.greet() + "!" }
+}
+type Dog = { n: Str }
+impl Named for Dog { fn name(self) -> Str { self.n } }
+impl Greeter for Dog {}
+impl Loud for Dog {}
+fn intro<T: Greeter>(x: T) -> Str { x.name() + " / " + x.greet() }
+fn yell<T: Loud>(x: T) -> Str { "{x.name()} {x.shout()}" }
+fn need_named<T: Named>(x: T) -> Str { x.name() }
+fn pass_up<T: Loud>(x: T) -> Str { need_named(x) }
+fn main() {
+  let d = Dog { n: "rex" }
+  print(intro(d))
+  print(yell(d))
+  print(pass_up(d))
+  let g: dyn Greeter = d
+  print(g.name(), g.greet())
+  let xs: List<dyn Loud> = [d]
+  for x in xs { print(x.shout()) }
+}

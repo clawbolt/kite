@@ -1,0 +1,4 @@
+extern "C" {
+  fn qsort(base: Int, n: Int, size: Int, cmp: fn(Str) -> Int)
+}
+fn main() { print(1) }

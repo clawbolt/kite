@@ -1,0 +1,47 @@
+use std.math
+
+mod geom {
+  pub type Point = { x: Float, y: Float }
+
+  pub fn dist(a: Point, b: Point) -> Float {
+    let dx = a.x - b.x
+    let dy = a.y - b.y
+    math.sqrt(dx * dx + dy * dy)
+  }
+
+  fn secret() -> Int { 42 }
+
+  pub fn answer() -> Int { secret() }
+
+  pub mod units {
+    pub const CM_PER_INCH: Float = 2.54
+    pub fn to_cm(inch: Float) -> Float { inch * CM_PER_INCH }
+  }
+}
+
+mod shapes {
+  use std.math
+
+  pub enum Shape {
+    Circle(Float)
+    Square(Float)
+  }
+
+  pub fn area(s: Shape) -> Float {
+    match s {
+      Circle(r) => 3.0 * r * r
+      Square(a) => a * a
+    }
+  }
+}
+
+use geom.units.to_cm
+use shapes.{ Shape, area }
+
+fn main() {
+  let p = geom.Point { x: 0.0, y: 0.0 }
+  let q = geom.Point { x: 3.0, y: 4.0 }
+  print(geom.dist(p, q), geom.answer())
+  print(geom.units.to_cm(10.0), to_cm(1.0))
+  print(area(Shape.Square(3.0)))
+}

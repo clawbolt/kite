@@ -1,0 +1,79 @@
+// Actor：一个邮箱 + 一个独占状态的处理任务
+//   actor(初始状态, 处理函数, body) -> (body 的结果, 最终状态)
+//   tell(a, 消息)                    发消息（邮箱满了会等）
+//   ask(a, r => 消息(r))             带回复通道发消息，等回复
+// 处理函数一次只处理一条消息，状态不需要锁；body 结束后邮箱关闭，actor 处理完剩余消息才结束
+enum Account {
+  Deposit(Int),
+  Withdraw(Int, Chan<Bool>),
+  Balance(Chan<Int>),
+}
+
+fn bank(bal: Int, msg: Account) -> Int {
+  match msg {
+    Deposit(n)         => bal + n,
+    Withdraw(n, reply) => {
+      if n <= bal {
+        send(reply, true)
+        bal - n
+      } else {
+        send(reply, false)
+        bal
+      }
+    },
+    Balance(reply) => {
+      send(reply, bal)
+      bal
+    },
+  }
+}
+
+enum Log {
+  Line(Str),
+  Count(Chan<Int>),
+}
+
+fn logger(lines: List<Str>, msg: Log) -> List<Str> {
+  match msg {
+    Line(s)  => push(lines, s),
+    Count(r) => {
+      send(r, len(lines))
+      lines
+    },
+  }
+}
+
+fn main() {
+  // 1. 100 个并发客户各存 10 元，再查余额：不用锁，结果确定
+  let (seen, final) = actor(0, bank, acct => {
+    let _ = par_map(0..100, i => tell(acct, Deposit(10)))
+    ask(acct, r => Balance(r))
+  })
+  print("余额", seen, "最终", final)
+
+  // 2. 取款：余额不足时拒绝
+  let (oks, left) = actor(100, bank, acct => {
+    par_map(0..8, i => ask(acct, r => Withdraw(30, r)))
+  })
+  print("成功", len(filter(oks, x => x)), "笔，剩", left)
+
+  // 3. actor 之间协作：账户把每笔大额存款记到日志 actor（内层 actor 结束时已处理完所有存款）
+  let ((total, n), lines) = actor([], logger, log => {
+    let (_, total) = actor(0, (bal: Int, amt: Int) => {
+      if amt >= 100 { tell(log, Line("大额存款 {amt}")) }
+      bal + amt
+      }, acct => {
+        for x in [5, 120, 30, 300] { tell(acct, x) }
+    })
+    (total, ask(log, r => Count(r)))
+  })
+  print(total, n, lines)
+
+  // 4. 和取消配合：ask 超时
+  let (answer, handled) = actor(0, (s: Int, r: Chan<Int>) => {
+    sleep(200)
+    send(r, 1)
+    s + 1
+    }, a => timeout(10, () => ask(a, r => r)))
+  print("超时的 ask:", answer, "actor 仍处理了", handled, "条")
+}

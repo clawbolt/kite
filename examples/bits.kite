@@ -1,0 +1,52 @@
+// 0.42：Int 位运算。& | ^ 按位与 / 或 / 异或，! 按位取反，<< >> 移位（>> 是算术右移）
+// 优先级同 Rust：移位 > & > ^ > |，都高于比较；集合上的 | & 仍然是并 / 交
+use std.strings
+
+fn popcount(x: Int) -> Int {
+  var n = x
+  var c = 0
+  while n != 0 {
+    n &= n - 1
+    c += 1
+  }
+  c
+}
+
+fn hex(x: Int) -> Str {
+  let digits = "0123456789abcdef"
+  var s = ""
+  for i in 0..16 {
+    let d = x >> (60 - 4 * i) & 15
+    s = s + digits[d]
+  }
+  s
+}
+
+fn main() {
+  let a = 12
+  let b = 10
+  print(a & b, a | b, a ^ b, ~a, a << 2, a >> 2, -a >> 1)
+  print(1 << 63, (1 << 63) >> 63, 1 << 64 - 1)
+  print(popcount(255), popcount(1 << 40 | 7), hex(48879), hex(-2))
+  // 标志位
+  let read = 1
+  let write = 1 << 1
+  let exec = 1 << 2
+  var perm = read | write
+  perm |= exec
+  perm &= ~write
+  print(perm, perm & write != 0, perm & exec != 0)
+  var h = 2166136261
+  for c in "kite" {
+    h ^= strings.ord(c)
+    h = h * 16777619 & 4294967295
+  }
+  print(h)
+  var x = 1
+  x <<= 10
+  x >>= 3
+  x ^= 5
+  print(x)
+  let m: Map<Str, List<Int>> = Map([("k", [1, 2])])
+  print(m["k"], Set{1, 2} | Set{3}, Set{1, 2} & Set{2})
+}

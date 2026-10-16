@@ -1,0 +1,38 @@
+// 文法 v0.6 第三批（五）：async fn / .await（惰性 Future，spawn { … }.await 并行）
+fn slow_square(n: Int) -> Int {
+  sleep(50)
+  n * n
+}
+
+async fn fetch(n: Int) -> Int {
+  slow_square(n)
+}
+
+async fn total(xs: List<Int>) -> Int {
+  var s = 0
+  for x in xs {
+    s += fetch(x).await
+  }
+  s
+}
+
+async fn early(n: Int) -> Str {
+  if n < 0 { return "负数" }
+  "n = {n}"
+}
+
+type Svc = { base: Int }
+
+impl Svc {
+  async fn get(self, k: Int) -> Int { self.base + k }
+}
+
+async fn main() {
+  let f = fetch(3)        // 只是打包，还没执行
+  print(f.await)
+  let (a, b, c) = spawn { fetch(4), fetch(5), slow_square(6) }.await
+  print(a, b, c)
+  print(total([1, 2, 3]).await, early(-1).await, early(2).await)
+  let s = Svc { base: 100 }
+  print(s.get(1).await)
+}

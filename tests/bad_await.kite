@@ -1,0 +1,4 @@
+async fn ok() -> Int { 1 }
+fn main() {
+  print(ok().await)
+}

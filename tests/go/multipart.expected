@@ -1,0 +1,53 @@
+CASE basic "--MyBoundary\r\nContent-Disposition: form-data; name=\"a\"\r\n\r\nvalue a\r\n--MyBoundary\r\nContent-Disposition: form-data; name=\"f\"; filename=\"../dir/x.txt\"\r\nContent-Type: text/plain\r\n\r\nfile\r\ncontent\r\n--MyBoundary--\r\n"
+  PART Content-Disposition="form-data; name=\"a\"" | name="a" file="" | "value a" <nil>
+  PART Content-Disposition="form-data; name=\"f\"; filename=\"../dir/x.txt\"" Content-Type="text/plain" | name="f" file="x.txt" | "file\r\ncontent" <nil>
+  END EOF
+CASE preamble "This is a preamble\r\n\r\n--MyBoundary\r\nX: 1\r\n\r\nbody one\r\n--MyBoundary  \r\nX: 2\r\n\r\n--MyBoundary-not\r\nstill body\r\n--MyBoundary--   \r\nepilogue"
+  PART X="1" | name="" file="" | "body one" <nil>
+  PART X="2" | name="" file="" | "--MyBoundary-not\r\nstill body" <nil>
+  END EOF
+CASE lf "--MyBoundary\nA: b\n\nline1\nline2\n--MyBoundary\n\nsecond\n--MyBoundary--\n"
+  PART A="b" | name="" file="" | "line1\nline2" <nil>
+  PART  | name="" file="" | "second" <nil>
+  END EOF
+CASE qp "--MyBoundary\r\nContent-Transfer-Encoding: quoted-printable\r\n\r\ncaf=C3=A9 =\r\nsoft\r\n--MyBoundary--\r\n"
+  PART  | name="" file="" | "café soft" <nil>
+  END EOF
+CASE qp-raw "--MyBoundary\r\nContent-Transfer-Encoding: quoted-printable\r\n\r\ncaf=C3=A9 =\r\nsoft\r\n--MyBoundary--\r\n"
+  PART Content-Transfer-Encoding="quoted-printable" | name="" file="" | "caf=C3=A9 =\r\nsoft" <nil>
+  END EOF
+CASE unterminated "--MyBoundary\r\nA: 1\r\n\r\nno end here"
+  PART A="1" | name="" file="" | "no end here" unexpected EOF
+  END multipart: NextPart: EOF
+CASE nofinal "--MyBoundary\r\nA: 1\r\n\r\nx\r\n--MyBoundary\r\n"
+  PART A="1" | name="" file="" | "x" <nil>
+  END EOF
+CASE garbage "--MyBoundary\r\nA: 1\r\n\r\nx\r\n--MyBoundary\r\nB: 2\r\n\r\ny\r\n--MyBoundary--\r\n"
+  PART A="1" | name="" file="" | "x" <nil>
+  PART B="2" | name="" file="" | "y" <nil>
+  END EOF
+CASE badheader "--MyBoundary\r\nBad Header\r\n\r\nx\r\n--MyBoundary--\r\n"
+  END malformed MIME header: missing colon: "Bad Header"
+CASE empty ""
+  END multipart: NextPart: EOF
+CASE onlyfinal "--MyBoundary--"
+  END EOF
+CASE emptyboundary "--\r\n"
+  END multipart: boundary is empty
+CASE expect "--MyBoundary\r\nA: 1\r\n\r\nx\r\n--MyBoundary--junk\r\n"
+  PART A="1" | name="" file="" | "x" <nil>
+  END multipart: expecting a new Part; got line "--MyBoundary--junk\r\n"
+CASE disp "--MyBoundary\r\nContent-Disposition: attachment; filename=\"a/b/c.bin\"\r\n\r\n1\r\n--MyBoundary\r\nContent-Disposition: form-data; name=\"x\"; filename=\"\"\r\n\r\n2\r\n--MyBoundary\r\nContent-Disposition: form-data; name=x;;\r\n\r\n3\r\n--MyBoundary--\r\n"
+  PART Content-Disposition="attachment; filename=\"a/b/c.bin\"" | name="" file="c.bin" | "1" <nil>
+  PART Content-Disposition="form-data; name=\"x\"; filename=\"\"" | name="x" file="" | "2" <nil>
+  PART Content-Disposition="form-data; name=x;;" | name="" file="" | "3" <nil>
+  END EOF
+SB <nil> mime: invalid boundary length mime: invalid boundary character mime: invalid boundary character mime: invalid boundary length
+CT multipart/form-data; boundary="abc:def" abc:def
+OUT "--abc:def\r\nContent-Disposition: form-data; name=\"name\"\r\n\r\nKite\r\n--abc:def\r\nContent-Disposition: form-data; name=\"we\\\"ird%0D%0Aname\"\r\n\r\nv2\r\n--abc:def\r\nContent-Disposition: form-data; name=\"upload\"; filename=\"dir/hello.txt\"\r\nContent-Type: application/octet-stream\r\n\r\nhello\r\nworld\r\n--abc:def\r\nA-First: z\r\nA-First: y\r\nX-Custom: 1\r\n\r\ncustom\r\n--abc:def--\r\n"
+SB2 <nil>
+FORM <nil>
+  V "name" ["Kite"]
+  V "we\"ird%0D%0Aname" ["v2"]
+  F "upload" "hello.txt" 12 "hello\r\nworld" Content-Disposition="form-data; name=\"upload\"; filename=\"dir/hello.txt\"" Content-Type="application/octet-stream"
+FD form-data; name="a\\b"; filename="c\"d"

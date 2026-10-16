@@ -1,0 +1,7 @@
+pub mod text {
+  pub fn shout(s: Str) -> Str { s + "!" }
+}
+mod hidden {
+  pub fn f() -> Int { 1 }
+}
+pub fn uses_hidden() -> Int { hidden.f() + 1 }

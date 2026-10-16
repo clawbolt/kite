@@ -1,0 +1,72 @@
+// std.errors：错误值（对齐 Go 的 errors 包，以及 fmt.Errorf 的 %w 包装）
+//   new(text)；wrap(err, "上下文")（相当于 fmt.Errorf("上下文: %w", err)）；join(errs)
+//   unwrap(e)：只包装了一个错误时返回它；has(e, target)（Go 的 errors.Is；is 是 Kite 关键字）：沿着包装链（含 join 的每个分支）找 target
+//   和 Go 的差别：Go 的 errors.New 每次得到不同的指针，Kite 的错误是值，消息和包装链都相同就算同一个错误
+//   Kite 里常见的 Result<T, Str> 可以用 from_str / to_str 和 Error 互相转换
+
+pub type Error = { msg: Str, wrapped: List<Error>, kind: Int }
+
+// kind：0 = errors.New，1 = 包装了一个（%w），2 = join
+pub fn new(text: Str) -> Error { Error { msg: text, wrapped: [], kind: 0 } }
+
+pub fn from_str(text: Str) -> Error { new(text) }
+
+pub fn wrap(err: Error, context: Str) -> Error { Error { msg: context + ": " + err.msg, wrapped: [err], kind: 1 } }
+
+// fmt.Errorf(format, err) 的简化版：format 里的 %w 换成 err 的消息
+pub fn errorf(format: Str, err: Error) -> Error { Error { msg: replace(format, "%w", err.msg), wrapped: [err], kind: 1 } }
+
+// 去掉 None；全是 None 时返回 None；消息用换行连起来
+pub fn join(errs: List<Option<Error>>) -> Option<Error> {
+  var ws: List<Error> = []
+  for e in errs {
+    match e {
+      Some(x) => { ws = push(ws, x) },
+      None    => {},
+    }
+  }
+  if len(ws) == 0 { return None }
+  Some(Error { msg: concat_msgs(ws), wrapped: ws, kind: 2 })
+}
+
+fn concat_msgs(ws: List<Error>) -> Str {
+  var out = ""
+  var i = 0
+  while i < len(ws) {
+    if i > 0 { out = out + "\n" }
+    out = out + ws[i].msg
+    i += 1
+  }
+  out
+}
+
+pub fn error(e: Error) -> Str { e.msg }
+
+pub fn to_str(e: Error) -> Str { e.msg }
+
+pub fn unwrap(e: Error) -> Option<Error> { if e.kind == 1 { Some(e.wrapped[0]) } else { None } }
+
+// join 出来的错误的各个分支（Go 的 Unwrap() []error）
+pub fn unwrap_all(e: Error) -> List<Error> { if e.kind == 2 { e.wrapped } else { [] } }
+
+pub fn has(e: Error, target: Error) -> Bool {
+  if e == target { return true }
+  for w in e.wrapped { if has(w, target) { return true } }
+  false
+}
+
+// 在包装链里找第一个满足 pred 的错误（Go 的 errors.As 按类型找，这里按条件找）
+pub fn find(e: Error, pred: fn(Error) -> Bool) -> Option<Error> {
+  if pred(e) { return Some(e) }
+  for w in e.wrapped {
+    match find(w, pred) {
+      Some(x) => { return Some(x) },
+      None    => {},
+    }
+  }
+  None
+}
+
+pub const UNSUPPORTED_MSG: Str = "unsupported operation"
+
+pub fn err_unsupported() -> Error { new(UNSUPPORTED_MSG) }

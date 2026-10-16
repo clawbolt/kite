@@ -1,0 +1,47 @@
+// geom 的公开接口
+use std.math
+use mathx
+use shapes
+use shapes.Shape
+
+pub type Point = { x: Float, y: Float }
+
+impl Point {
+  fn norm(self) -> Float {
+    math.sqrt(mathx.sq(self.x) + mathx.sq(self.y))
+  }
+}
+
+pub fn dist(a: Point, b: Point) -> Float {
+  let d = Point { x: a.x - b.x, y: a.y - b.y }
+  d.norm()
+}
+
+pub fn area(s: Shape) -> Float {
+  match s {
+    Circle(r) => 3.14159 * mathx.sq(r),
+    Square(w) => mathx.sq(w),
+  }
+}
+
+pub fn describe(s: Shape) -> Str {
+  "{shapes.name(s)}，面积 {area(s)}"
+}
+
+// 与 app 里的同名私有函数互不冲突
+fn helper() -> Str {
+  "geom 内部"
+}
+
+// 单元测试：与被测代码在同一模块，可以测私有函数
+fn test_helper() {
+  assert_eq(helper(), "geom 内部")
+}
+
+fn test_norm() {
+  let p = Point { x: 6.0, y: 8.0 }
+  assert_eq(p.norm(), 10.0)
+}
+
+// 只在 geom 包内部可见
+pub(pkg) fn unit() -> Float { 1.0 }

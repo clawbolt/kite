@@ -1,0 +1,5 @@
+type Pair<A, B> = (A, B)
+fn main() {
+  let p: Pair<Int> = (1, 2)
+  print(p)
+}

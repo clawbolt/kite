@@ -1,0 +1,109 @@
+// 对齐 Go 1.27 的 crypto/ecdsa：tests/go/ecdsa.go
+use std.crypto.ecdsa
+use std.crypto.ecdsa.{ PrivateKey, PublicKey }
+use std.math.big
+use std.math.big.{ BigInt }
+use std.crypto.sha1
+use std.crypto.sha256
+use std.crypto.sha512
+use std.encoding.hex
+
+fn h(b: List<Int>) -> Str { hex.encode_bytes(b) }
+
+fn es<T>(r: Result<T, Str>) -> Str {
+  match r {
+    Ok(_) => "ok",
+    Err(e) => e,
+  }
+}
+
+fn digest(hf: Int, m: List<Int>) -> List<Int> {
+  if hf == 3 { sha1.digest(m) } else if hf == 4 { sha256.digest224(m) } else if hf == 5 { sha256.digest(m) } else if hf == 6 { sha512.digest384(m) } else { sha512.digest(m) }
+}
+
+fn parse_rs(sig: List<Int>) -> (BigInt, BigInt) {
+  let i = if (sig[1] & 0x80) != 0 { 3 } else { 2 }
+  let rl = sig[i + 1]
+  let r = big.set_bytes(sig[i + 2..i + 2 + rl])
+  let j = i + 2 + rl
+  let sl = sig[j + 1]
+  (r, big.set_bytes(sig[j + 2..j + 2 + sl]))
+}
+
+fn asn1_int(x: BigInt) -> List<Int> {
+  var b = x.bytes()
+  if len(b) == 0 || (b[0] & 0x80) != 0 { b = [0] + b }
+  [2, len(b)] + b
+}
+
+fn encode(r: BigInt, s: BigInt) -> List<Int> {
+  let body = asn1_int(r) + asn1_int(s)
+  if len(body) < 128 { [0x30, len(body)] + body } else { [0x30, 0x81, len(body)] + body }
+}
+
+fn fill(x: BigInt, n: Int) -> List<Int> {
+  var b = x.bytes()
+  while len(b) < n { b = [0] + b }
+  b
+}
+
+fn main() {
+  let names = ["P-256", "P-384", "P-521"]
+  let sizes = [32, 48, 66]
+  let ns = ["ffffffff00000000ffffffffffffffffbce6faada7179e84f3b9cac2fc632551", "ffffffffffffffffffffffffffffffffffffffffffffffffc7634d81f4372ddf581a0db248b0a77aecec196accc52973", "01fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffa51868783bf2f966b7fcc0148f709a5d03bb5c9b8899c47aebb6fb71e91386409"]
+  let hashes = [[5, 3, 7], [6, 4, 5], [7, 6, 3]]
+  for ci in 0..3 {
+    let c = ci + 1
+    print("CURVE " + names[ci])
+    let size = sizes[ci]
+    let n = unwrap(big.parse(ns[ci], 16))
+    var keys: List<PrivateKey> = []
+    for i in 0..2 {
+      let s = sha512.digest([ci, i, 7])
+      var b = (s + s)[..size]
+      if ci == 2 { b = set(b, 0, b[0] & 1) }
+      let k = unwrap(ecdsa.parse_raw_private_key(c, b))
+      print("PRIV " + h(b) + " ok")
+      print("PUB " + h(k.q))
+      keys = push(keys, k)
+    }
+    for i in 0..3 {
+      let hf = hashes[ci][i]
+      let k = keys[i % 2]
+      let pk = ecdsa.public_key(k)
+      let d = digest(hf, __bytes("message {i}"))
+      let sig = unwrap(ecdsa.sign(k, d, hf))
+      print("SIG " + h(sig) + " ok")
+      print("V {ecdsa.verify_asn1(pk, d, sig)}")
+      if i == 0 {
+        print("VO {ecdsa.verify_asn1(ecdsa.public_key(keys[1]), d, sig)}")
+        let d2 = set(d, 0, d[0] ^ 1)
+        print("VH {ecdsa.verify_asn1(pk, d2, sig)}")
+        print("VE {ecdsa.verify_asn1(pk, [], sig)}")
+        let (r, s) = parse_rs(sig)
+        let hs = encode(r, n.sub(s))
+        print("HS " + h(hs) + " {ecdsa.verify_asn1(pk, d, hs)}")
+        print("RN {ecdsa.verify_asn1(pk, d, encode(r.add(n), s))}")
+        print("R0 {ecdsa.verify_asn1(pk, d, encode(big.zero(), s))}")
+        print("TR {ecdsa.verify_asn1(pk, d, sig + [0])}")
+        print("BL {ecdsa.verify_asn1(pk, d, set(sig, 1, sig[1] + 1))}")
+        let nz = [0x30, sig[1] + 1, 2, sig[3] + 1, 0] + sig[4..]
+        print("NZ {ecdsa.verify_asn1(pk, d, nz)}")
+      }
+    }
+    let k = keys[0]
+    print("E0 " + es(ecdsa.sign(k, map(0..32, (_) => 0), 0)))
+    print("E1 " + es(ecdsa.sign(k, map(0..31, (_) => 0), 5)))
+    let zero = map(0..size, (_) => 0)
+    for b in [zero, fill(n, size), fill(n.add(big.one()), size), zero[..size - 1]] {
+      print("RAW " + h(b) + " " + es(ecdsa.parse_raw_private_key(c, b)))
+    }
+    let pb = keys[1].q
+    let x = set(pb, len(pb) - 1, pb[len(pb) - 1] ^ 1)
+    for b in [[], [0], [2, 1], pb[..len(pb) - 1], x] {
+      print("UPK " + h(b) + " " + es(ecdsa.parse_uncompressed_public_key(c, b)))
+    }
+    let p = unwrap(ecdsa.parse_uncompressed_public_key(c, pb))
+    print("UPK2 ok {p.q == keys[1].q}")
+  }
+}

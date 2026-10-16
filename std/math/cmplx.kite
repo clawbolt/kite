@@ -1,0 +1,529 @@
+// std.math.cmplx：复数运算（对齐 Go 的 math/cmplx，加上 Go 内建 complex128 的四则运算）
+//   类型 Complex { re: Float, im: Float }（对应 complex128；real(z) / imag(z) 就是 z.re / z.im）
+//   构造：complex(re, im)；四则运算 add sub mul div（自由函数）以及同名方法 z.add(w) …，另有 neg、equal
+//     div 是 Go runtime complex128div 的移植（Smith 算法 + C99 G.5.1 的 Inf/NaN 修正）
+//   Go 的导出函数（Go 名字转成小写下划线）：abs phase polar rect conj sqrt exp log log10 pow
+//     sin cos tan cot sinh cosh tanh asin acos atan asinh acosh atanh inf nan is_inf is_nan
+//   string(z) / z.string()：和 fmt.Sprint(complex128) 相同的 "(1+2i)" 形式（实部、虚部都是 %g 最短表示，
+//     Inf 总带符号，实部的 NaN 不带符号，虚部的 NaN 写成 "+NaN"）
+//   reduce_pi / tan_series 是 Go 内部函数 reducePi（含 Payne-Hanek 表）和 tanSeries 的移植，导出只是为了测试
+//   和 Go 的差别：
+//     - 算法逐行照搬 Go，但实数基本函数（sin cos exp log hypot atan2 pow sinh …）用的是 C libm，
+//       而 Go 用自己的纯 Go 实现，并且 Go 在 aarch64 上会把 a*b+c 融合成 FMA；所以结果和 Go 可能差最后一两位
+//       （测试里按 12 位有效数字比较）。特殊值（0、±0、Inf、NaN）的处理和 Go 相同。
+//     - Kite 的浮点除以零会 panic，这里统一用 IEEE 语义的 fdiv（x/0 得到带符号的 Inf，0/0、NaN/0 得到 NaN）。
+//     - Go 的复数乘法 x*y 不做 C99 的 Inf 修正，这里的 mul 也一样（(a*c-b*d) + (a*d+b*c)i）。
+//       Go 在 aarch64 上把 a*c-b*d 融合成 FMA，所以 x*x、x/x 这类会抵消的情况结果可能不同：
+//       例如 (1e300+1e300i)*(1e300+1e300i) Go(arm64) 得到 (+Inf+Infi)，这里（和 Go amd64 一样）得到 (NaN+Infi)；
+//       (-3.5+0.25i)/(-3.5+0.25i) Go(arm64) 虚部是 -3.9e-18，这里是精确的 -0。
+//     - Go 的 NaN 位模式无法区分，is_nan 等只看是否为 NaN。
+
+use std.math
+use std.math.bits
+use std.math.big.rat
+use std.strconv
+
+pub type Complex = { re: Float, im: Float }
+
+pub fn complex(re: Float, im: Float) -> Complex { Complex { re: re, im: im } }
+
+fn fabs(x: Float) -> Float { if x < 0.0 || (x == 0.0 && math.signbit(x)) { -x } else { x } }
+
+fn fisinf(x: Float) -> Bool { math.is_inf(x) }
+
+fn fisnan(x: Float) -> Bool { math.is_nan(x) }
+
+fn fisfinite(x: Float) -> Bool { !math.is_inf(x) && !math.is_nan(x) }
+
+fn copysign(x: Float, y: Float) -> Float { math.copysign(x, y) }
+
+// IEEE 754 除法：除数为 ±0 时不 panic
+fn fdiv(a: Float, b: Float) -> Float {
+  if b == 0.0 {
+    if fisnan(a) || a == 0.0 { return math.nan }
+    let neg = math.signbit(a) != math.signbit(b)
+    return if neg { -math.inf } else { math.inf }
+  }
+  a / b
+}
+
+// ───────── 四则运算 ─────────
+
+pub fn add(x: Complex, y: Complex) -> Complex { complex(x.re + y.re, x.im + y.im) }
+
+pub fn sub(x: Complex, y: Complex) -> Complex { complex(x.re - y.re, x.im - y.im) }
+
+pub fn mul(x: Complex, y: Complex) -> Complex { complex(x.re * y.re - x.im * y.im, x.re * y.im + x.im * y.re) }
+
+pub fn neg(x: Complex) -> Complex { complex(-x.re, -x.im) }
+
+// Go 的 x == y（NaN 不等于自身，+0 == -0）
+pub fn equal(x: Complex, y: Complex) -> Bool { x.re == y.re && x.im == y.im }
+
+fn inf2one(f: Float) -> Float {
+  let g = if fisinf(f) { 1.0 } else { 0.0 }
+  copysign(g, f)
+}
+
+// runtime.complex128div
+pub fn div(n: Complex, m: Complex) -> Complex {
+  var e = 0.0
+  var f = 0.0
+  if fabs(m.re) >= fabs(m.im) {
+    let ratio = fdiv(m.im, m.re)
+    let denom = m.re + ratio * m.im
+    e = fdiv(n.re + n.im * ratio, denom)
+    f = fdiv(n.im - n.re * ratio, denom)
+  } else {
+    let ratio = fdiv(m.re, m.im)
+    let denom = m.im + ratio * m.re
+    e = fdiv(n.re * ratio + n.im, denom)
+    f = fdiv(n.im * ratio - n.re, denom)
+  }
+  if fisnan(e) && fisnan(f) {
+    var a = n.re
+    var b = n.im
+    var c = m.re
+    var d = m.im
+    if c == 0.0 && d == 0.0 && (!fisnan(a) || !fisnan(b)) {
+      e = copysign(math.inf, c) * a
+      f = copysign(math.inf, c) * b
+    } else if (fisinf(a) || fisinf(b)) && fisfinite(c) && fisfinite(d) {
+      a = inf2one(a)
+      b = inf2one(b)
+      e = math.inf * (a * c + b * d)
+      f = math.inf * (b * c - a * d)
+    } else if (fisinf(c) || fisinf(d)) && fisfinite(a) && fisfinite(b) {
+      c = inf2one(c)
+      d = inf2one(d)
+      e = 0.0 * (a * c + b * d)
+      f = 0.0 * (b * c - a * d)
+    }
+  }
+  complex(e, f)
+}
+
+impl Complex {
+  pub fn add(self, y: Complex) -> Complex { add(self, y) }
+  pub fn sub(self, y: Complex) -> Complex { sub(self, y) }
+  pub fn mul(self, y: Complex) -> Complex { mul(self, y) }
+  pub fn div(self, y: Complex) -> Complex { div(self, y) }
+  pub fn neg(self) -> Complex { neg(self) }
+  pub fn equal(self, y: Complex) -> Bool { equal(self, y) }
+  pub fn string(self) -> Str { string(self) }
+}
+
+// ───────── 格式化 ─────────
+
+// fmt.Sprint(complex128)
+pub fn string(z: Complex) -> Str {
+  var r = strconv.format_float_go(z.re, "g", -1, 64)
+  if r == "+NaN" { r = "NaN" }
+  var i = strconv.format_float_go(z.im, "g", -1, 64)
+  let c = __str_slice(i, 0, 1)
+  if c != "-" && c != "+" { i = "+" + i }
+  "(" + r + i + "i)"
+}
+
+// ───────── 基本函数 ─────────
+
+pub fn abs(x: Complex) -> Float { math.hypot(x.re, x.im) }
+
+pub fn phase(x: Complex) -> Float { math.atan2(x.im, x.re) }
+
+pub fn polar(x: Complex) -> (Float, Float) { (abs(x), phase(x)) }
+
+pub fn rect(r: Float, theta: Float) -> Complex { complex(r * math.cos(theta), r * math.sin(theta)) }
+
+pub fn conj(x: Complex) -> Complex { complex(x.re, -x.im) }
+
+pub fn is_inf(x: Complex) -> Bool { fisinf(x.re) || fisinf(x.im) }
+
+pub fn inf() -> Complex { complex(math.inf, math.inf) }
+
+pub fn is_nan(x: Complex) -> Bool {
+  if fisinf(x.re) || fisinf(x.im) { return false }
+  fisnan(x.re) || fisnan(x.im)
+}
+
+pub fn nan() -> Complex { complex(math.nan, math.nan) }
+
+pub fn sqrt(x: Complex) -> Complex {
+  if x.im == 0.0 {
+    if x.re == 0.0 { return complex(0.0, x.im) }
+    if x.re < 0.0 { return complex(0.0, copysign(math.sqrt(-x.re), x.im)) }
+    return complex(math.sqrt(x.re), x.im)
+  } else if fisinf(x.im) {
+    return complex(math.inf, x.im)
+  }
+  if x.re == 0.0 {
+    if x.im < 0.0 {
+      let r = math.sqrt(-0.5 * x.im)
+      return complex(r, -r)
+    }
+    let r = math.sqrt(0.5 * x.im)
+    return complex(r, r)
+  }
+  var a = x.re
+  var b = x.im
+  var scale = 0.0
+  if fabs(a) > 4.0 || fabs(b) > 4.0 {
+    a = a * 0.25
+    b = b * 0.25
+    scale = 2.0
+  } else {
+    a = a * 1.8014398509481984e16
+    b = b * 1.8014398509481984e16
+    scale = 7.450580596923828125e-9
+  }
+  var r = math.hypot(a, b)
+  var t = 0.0
+  if a > 0.0 {
+    t = math.sqrt(0.5 * r + 0.5 * a)
+    r = scale * fabs(fdiv(0.5 * b, t))
+    t = t * scale
+  } else {
+    r = math.sqrt(0.5 * r - 0.5 * a)
+    t = scale * fabs(fdiv(0.5 * b, r))
+    r = r * scale
+  }
+  if b < 0.0 { return complex(t, -r) }
+  complex(t, r)
+}
+
+pub fn exp(x: Complex) -> Complex {
+  let re = x.re
+  let im = x.im
+  if fisinf(re) {
+    if re > 0.0 && im == 0.0 { return x }
+    if fisinf(im) || fisnan(im) {
+      if re < 0.0 { return complex(0.0, copysign(0.0, im)) }
+      return complex(math.inf, math.nan)
+    }
+  } else if fisnan(re) {
+    if im == 0.0 { return complex(math.nan, im) }
+  }
+  let r = math.exp(re)
+  complex(r * math.cos(im), r * math.sin(im))
+}
+
+pub fn log(x: Complex) -> Complex { complex(math.log(abs(x)), phase(x)) }
+
+const LOG10E: Float = 0.4342944819032518
+
+pub fn log10(x: Complex) -> Complex {
+  let z = log(x)
+  complex(LOG10E * z.re, LOG10E * z.im)
+}
+
+pub fn pow(x: Complex, y: Complex) -> Complex {
+  if x.re == 0.0 && x.im == 0.0 {
+    if is_nan(y) { return nan() }
+    let r = y.re
+    let i = y.im
+    if r == 0.0 { return complex(1.0, 0.0) }
+    if r < 0.0 {
+      if i == 0.0 { return complex(math.inf, 0.0) }
+      return inf()
+    }
+    if r > 0.0 { return complex(0.0, 0.0) }
+    panic("not reached")
+  }
+  let modulus = abs(x)
+  if modulus == 0.0 { return complex(0.0, 0.0) }
+  var r = math.pow(modulus, y.re)
+  let arg = phase(x)
+  var theta = y.re * arg
+  if y.im != 0.0 {
+    r = r * math.exp(-y.im * arg)
+    theta = theta + y.im * math.log(modulus)
+  }
+  complex(r * math.cos(theta), r * math.sin(theta))
+}
+
+// ───────── 三角 / 双曲 ─────────
+
+fn sinhcosh(x: Float) -> (Float, Float) {
+  if fabs(x) <= 0.5 { return (math.sinh(x), math.cosh(x)) }
+  var e = math.exp(x)
+  let ei = fdiv(0.5, e)
+  e = e * 0.5
+  (e - ei, e + ei)
+}
+
+pub fn sin(x: Complex) -> Complex {
+  let re = x.re
+  let im = x.im
+  if im == 0.0 && (fisinf(re) || fisnan(re)) {
+    return complex(math.nan, im)
+  } else if fisinf(im) {
+    if re == 0.0 { return x }
+    if fisinf(re) || fisnan(re) { return complex(math.nan, im) }
+  } else if re == 0.0 && fisnan(im) {
+    return x
+  }
+  let (sh, ch) = sinhcosh(im)
+  complex(math.sin(re) * ch, math.cos(re) * sh)
+}
+
+pub fn sinh(x: Complex) -> Complex {
+  let re = x.re
+  let im = x.im
+  if re == 0.0 && (fisinf(im) || fisnan(im)) {
+    return complex(re, math.nan)
+  } else if fisinf(re) {
+    if im == 0.0 { return complex(re, im) }
+    if fisinf(im) || fisnan(im) { return complex(re, math.nan) }
+  } else if im == 0.0 && fisnan(re) {
+    return complex(math.nan, im)
+  }
+  let (sh, ch) = sinhcosh(re)
+  complex(math.cos(im) * sh, math.sin(im) * ch)
+}
+
+pub fn cos(x: Complex) -> Complex {
+  let re = x.re
+  let im = x.im
+  if im == 0.0 && (fisinf(re) || fisnan(re)) {
+    return complex(math.nan, -im * copysign(0.0, re))
+  } else if fisinf(im) {
+    if re == 0.0 { return complex(math.inf, -re * copysign(0.0, im)) }
+    if fisinf(re) || fisnan(re) { return complex(math.inf, math.nan) }
+  } else if re == 0.0 && fisnan(im) {
+    return complex(math.nan, 0.0)
+  }
+  let (sh, ch) = sinhcosh(im)
+  complex(math.cos(re) * ch, -math.sin(re) * sh)
+}
+
+pub fn cosh(x: Complex) -> Complex {
+  let re = x.re
+  let im = x.im
+  if re == 0.0 && (fisinf(im) || fisnan(im)) {
+    return complex(math.nan, re * copysign(0.0, im))
+  } else if fisinf(re) {
+    if im == 0.0 { return complex(math.inf, im * copysign(0.0, re)) }
+    if fisinf(im) || fisnan(im) { return complex(math.inf, math.nan) }
+  } else if im == 0.0 && fisnan(re) {
+    return complex(math.nan, im)
+  }
+  let (sh, ch) = sinhcosh(re)
+  complex(math.cos(im) * ch, math.sin(im) * sh)
+}
+
+pub fn tan(x: Complex) -> Complex {
+  let re = x.re
+  let im = x.im
+  if fisinf(im) {
+    if fisinf(re) || fisnan(re) { return complex(copysign(0.0, re), copysign(1.0, im)) }
+    return complex(copysign(0.0, math.sin(2.0 * re)), copysign(1.0, im))
+  } else if re == 0.0 && fisnan(im) {
+    return x
+  }
+  var d = math.cos(2.0 * re) + math.cosh(2.0 * im)
+  if fabs(d) < 0.25 { d = tan_series(x) }
+  if d == 0.0 { return inf() }
+  complex(fdiv(math.sin(2.0 * re), d), fdiv(math.sinh(2.0 * im), d))
+}
+
+pub fn tanh(x: Complex) -> Complex {
+  let re = x.re
+  let im = x.im
+  if fisinf(re) {
+    if fisinf(im) || fisnan(im) { return complex(copysign(1.0, re), copysign(0.0, im)) }
+    return complex(copysign(1.0, re), copysign(0.0, math.sin(2.0 * im)))
+  } else if im == 0.0 && fisnan(re) {
+    return x
+  }
+  let d = math.cosh(2.0 * re) + math.cos(2.0 * im)
+  if d == 0.0 { return inf() }
+  complex(fdiv(math.sinh(2.0 * re), d), fdiv(math.sin(2.0 * im), d))
+}
+
+pub fn cot(x: Complex) -> Complex {
+  var d = math.cosh(2.0 * x.im) - math.cos(2.0 * x.re)
+  if fabs(d) < 0.25 { d = tan_series(x) }
+  if d == 0.0 { return inf() }
+  complex(fdiv(math.sin(2.0 * x.re), d), -fdiv(math.sinh(2.0 * x.im), d))
+}
+
+// 逻辑左移 / 右移，n >= 64 时得到 0（Go 的语义）
+fn ushl(x: Int, n: Int) -> Int { if n >= 64 { 0 } else { x << n } }
+
+fn ushr(x: Int, n: Int) -> Int { if n >= 64 { 0 } else { bits.shr(x, n) } }
+
+// 2/π 的二进制展开（Go 的 mPi，超过 2^63 的写成负数）
+const M_PI: List<Int> = [0, 5871781006564002452, -138578146393166112, 7904181063698728992, -60603062567443792,
+  -2624975034553800336, 226472410124699918, 9155525084211106719, 8377006445469475394, 8416726409370648352,
+  -7149205899709932294, 5639122210317440029, -8071492869556089849, -605865242265307505, -5288563623321041701,
+  -6367210593183599338, -5002411339680646979, -7024598388609300107, 3890458997777936004, 3098925296816862677]
+
+// Go cmplx 的 reducePi：把 x 约化到 (-π/2, π/2]
+pub fn reduce_pi(x: Float) -> Float {
+  if fabs(x) < 1073741824.0 {
+    let pi1 = 3.141592502593994
+    let pi2 = 1.5099578831723193e-07
+    let pi3 = 1.0780605716316238e-14
+    var t = x / math.pi
+    t = t + 0.5
+    t = float(int(t))
+    return ((x - t * pi1) - t * pi2) - t * pi3
+  }
+  let shift = 52
+  let bias = 1023
+  var ix = rat.float64_bits(x)
+  let ex = ((ix >> shift) & 2047) - bias - shift
+  ix = ix & ((1 << shift) - 1)
+  ix = ix | (1 << shift)
+  let digit = (ex + 64) / 64
+  let bitshift = (ex + 64) % 64
+  let mp = M_PI
+  let z0 = ushl(mp[digit], bitshift) | ushr(mp[digit + 1], 64 - bitshift)
+  let z1 = ushl(mp[digit + 1], bitshift) | ushr(mp[digit + 2], 64 - bitshift)
+  let z2 = ushl(mp[digit + 2], bitshift) | ushr(mp[digit + 3], 64 - bitshift)
+  let (z2hi, _) = bits.mul64(z2, ix)
+  let (z1hi, z1lo) = bits.mul64(z1, ix)
+  let z0lo = bits.wmul(z0, ix)
+  let (lo, c) = bits.add64(z1lo, z2hi, 0)
+  let (hi0, _) = bits.add64(z0lo, z1hi, c)
+  var hi = hi0
+  let lz = bits.leading_zeros64(hi)
+  let e = bias - (lz + 1)
+  hi = ushl(hi, lz + 1) | ushr(lo, 64 - (lz + 1))
+  hi = bits.shr(hi, 64 - shift)
+  hi = hi | (e << shift)
+  var r = rat.float64_frombits(hi)
+  if r > 0.5 { r = r - 1.0 }
+  math.pi * r
+}
+
+// Go cmplx 的 tanSeries：cosh(2y) - cos(2x) 的泰勒级数
+pub fn tan_series(z: Complex) -> Float {
+  let machep = 1.1102230246251565e-16
+  var x = fabs(2.0 * z.re)
+  var y = fabs(2.0 * z.im)
+  x = reduce_pi(x)
+  x = x * x
+  y = y * y
+  var x2 = 1.0
+  var y2 = 1.0
+  var f = 1.0
+  var rn = 0.0
+  var d = 0.0
+  loop {
+    rn = rn + 1.0
+    f = f * rn
+    rn = rn + 1.0
+    f = f * rn
+    x2 = x2 * x
+    y2 = y2 * y
+    var t = y2 + x2
+    t = fdiv(t, f)
+    d = d + t
+    rn = rn + 1.0
+    f = f * rn
+    rn = rn + 1.0
+    f = f * rn
+    x2 = x2 * x
+    y2 = y2 * y
+    t = y2 - x2
+    t = fdiv(t, f)
+    d = d + t
+    if !(fabs(fdiv(t, d)) > machep) { break }
+  }
+  d
+}
+
+// ───────── 反三角 / 反双曲 ─────────
+
+pub fn asin(x: Complex) -> Complex {
+  let re = x.re
+  let im = x.im
+  if im == 0.0 && fabs(re) <= 1.0 {
+    return complex(math.asin(re), im)
+  } else if re == 0.0 && fabs(im) <= 1.0 {
+    return complex(re, math.asinh(im))
+  } else if fisnan(im) {
+    if re == 0.0 { return complex(re, math.nan) }
+    if fisinf(re) { return complex(math.nan, re) }
+    return nan()
+  } else if fisinf(im) {
+    if fisnan(re) { return x }
+    if fisinf(re) { return complex(copysign(math.pi / 4.0, re), im) }
+    return complex(copysign(0.0, re), im)
+  } else if fisinf(re) {
+    return complex(copysign(math.pi / 2.0, re), copysign(re, im))
+  }
+  let ct = complex(-im, re)
+  let xx = mul(x, x)
+  let x1 = complex(1.0 - xx.re, -xx.im)
+  let x2 = sqrt(x1)
+  let w = log(add(ct, x2))
+  complex(w.im, -w.re)
+}
+
+pub fn asinh(x: Complex) -> Complex {
+  let re = x.re
+  let im = x.im
+  if im == 0.0 && fabs(re) <= 1.0 {
+    return complex(math.asinh(re), im)
+  } else if re == 0.0 && fabs(im) <= 1.0 {
+    return complex(re, math.asin(im))
+  } else if fisinf(re) {
+    if fisinf(im) { return complex(re, copysign(math.pi / 4.0, im)) }
+    if fisnan(im) { return x }
+    return complex(re, copysign(0.0, im))
+  } else if fisnan(re) {
+    if im == 0.0 { return x }
+    if fisinf(im) { return complex(im, re) }
+    return nan()
+  } else if fisinf(im) {
+    return complex(copysign(im, re), copysign(math.pi / 2.0, im))
+  }
+  let xx = mul(x, x)
+  let x1 = complex(1.0 + xx.re, xx.im)
+  log(add(x, sqrt(x1)))
+}
+
+pub fn acos(x: Complex) -> Complex {
+  let w = asin(x)
+  complex(math.pi / 2.0 - w.re, -w.im)
+}
+
+pub fn acosh(x: Complex) -> Complex {
+  if x.re == 0.0 && x.im == 0.0 { return complex(0.0, copysign(math.pi / 2.0, x.im)) }
+  let w = acos(x)
+  if w.im <= 0.0 { return complex(-w.im, w.re) }
+  complex(w.im, -w.re)
+}
+
+pub fn atan(x: Complex) -> Complex {
+  let re = x.re
+  let im = x.im
+  if im == 0.0 {
+    return complex(math.atan(re), im)
+  } else if re == 0.0 && fabs(im) <= 1.0 {
+    return complex(re, math.atanh(im))
+  } else if fisinf(im) || fisinf(re) {
+    if fisnan(re) { return complex(math.nan, copysign(0.0, im)) }
+    return complex(copysign(math.pi / 2.0, re), copysign(0.0, im))
+  } else if fisnan(re) || fisnan(im) {
+    return nan()
+  }
+  let x2 = re * re
+  let a = 1.0 - x2 - im * im
+  if a == 0.0 { return nan() }
+  var t = 0.5 * math.atan2(2.0 * re, a)
+  let w = reduce_pi(t)
+  t = im - 1.0
+  let b = x2 + t * t
+  if b == 0.0 { return nan() }
+  t = im + 1.0
+  let c = (x2 + t * t) / b
+  complex(w, 0.25 * math.log(c))
+}
+
+pub fn atanh(x: Complex) -> Complex {
+  let z = atan(complex(-x.im, x.re))
+  complex(z.im, -z.re)
+}

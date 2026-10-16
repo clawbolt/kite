@@ -1,0 +1,54 @@
+// std.compress.zlib：zlib 格式（RFC 1950，对齐 Go 的 compress/zlib 和 hash/adler32）
+//   compress(bs) / compress_level(bs, level) / compress_str(s)
+//   decompress(bs) / decompress_str(bs)：校验头部和 Adler-32
+//   adler32(bs) / adler32_str(s)
+
+use std.compress.flate
+
+pub fn adler32(bs: List<Int>) -> Int {
+  var a = 1
+  var b = 0
+  for x in bs {
+    a = (a + x) % 65521
+    b = (b + a) % 65521
+  }
+  (b << 16) | a
+}
+
+pub fn adler32_str(s: Str) -> Int { adler32(__bytes(s)) }
+
+fn be32(x: Int) -> List<Int> { [(x >> 24) & 255, (x >> 16) & 255, (x >> 8) & 255, x & 255] }
+
+pub fn compress_level(bs: List<Int>, level: Int) -> List<Int> {
+  let lv = if level <= 1 { 0 } else if level < 6 { 1 } else if level == 6 { 2 } else { 3 }
+  let cmf = 120
+  var flg = lv << 6
+  flg = flg + (31 - (cmf * 256 + flg) % 31) % 31
+  [cmf, flg] + flate.compress(bs, level) + be32(adler32(bs))
+}
+
+pub fn compress(bs: List<Int>) -> List<Int> { compress_level(bs, 6) }
+
+pub fn compress_str(s: Str) -> List<Int> { compress(__bytes(s)) }
+
+pub fn decompress(bs: List<Int>) -> Result<List<Int>, Str> {
+  if len(bs) < 6 { return Err("zlib: 数据太短") }
+  let cmf = bs[0]
+  let flg = bs[1]
+  if cmf & 15 != 8 || (cmf >> 4) > 7 { return Err("zlib: 不支持的压缩方法") }
+  if (cmf * 256 + flg) % 31 != 0 { return Err("zlib: 头部校验失败") }
+  if flg & 32 != 0 { return Err("zlib: 不支持预设字典") }
+  let (data, end) = flate.inflate_at(bs, 2)?
+  if end + 4 > len(bs) { return Err("zlib: 缺少 Adler-32 校验") }
+  let want = (bs[end] << 24) | (bs[end + 1] << 16) | (bs[end + 2] << 8) | bs[end + 3]
+  if want != adler32(data) { return Err("zlib: Adler-32 校验失败") }
+  Ok(data)
+}
+
+pub fn decompress_str(bs: List<Int>) -> Result<Str, Str> {
+  let out = decompress(bs)?
+  match __from_bytes(out) {
+    Some(s) => Ok(s),
+    None => Err("zlib: 解压结果不是合法的 UTF-8"),
+  }
+}

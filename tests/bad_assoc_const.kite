@@ -1,0 +1,14 @@
+trait Shape {
+  const SIDES: Int
+  fn area(self) -> Float
+}
+type Tri = { a: Float }
+impl Shape for Tri { fn area(self) -> Float { 1.0 } }
+type Sq = { a: Float }
+impl Shape for Sq {
+  const SIDES: Str = "four"
+  fn area(self) -> Float { 1.0 }
+}
+type Pt = { x: Int }
+impl Pt { const ORIGIN: Int = "zero" }
+fn main() { print(Pt.NOPE) }

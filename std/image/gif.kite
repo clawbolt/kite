@@ -1,0 +1,498 @@
+// std.image.gif：GIF 编解码（对齐 Go 1.27 的 image/gif）
+//   decode(bs) -> Result<Image, Str>（第一帧，Paletted）；decode_all(bs) -> Result<Gif, Str>；decode_config(bs) -> Result<Config, Str>
+//   encode(img, opts) / encode_all(g) -> Result<List<Int>, Str>；Options { num_colors }，量化用 Plan9 调色板加 Floyd–Steinberg（Go 的默认）
+//   错误信息与 Go 相同；LZW 解码按 Go 的流式读取顺序判定 "not enough / too much image data"。
+//   和 Go 的差别：不支持自定义 Quantizer / Drawer；Go 用指针判断帧调色板是否就是全局调色板，这里比较内容（输出相同）。
+
+use std.image.color
+use std.image.color.{ Color }
+use std.image
+use std.image.{ Image, Rectangle }
+use std.image.draw
+use std.compress.lzw
+
+pub const DISPOSAL_NONE: Int = 1
+pub const DISPOSAL_BACKGROUND: Int = 2
+pub const DISPOSAL_PREVIOUS: Int = 3
+
+pub type Config = { palette: List<Color>, width: Int, height: Int }
+
+pub type Gif = { images: List<Image>, delay: List<Int>, loop_count: Int, disposal: List<Int>, config: Config, background_index: Int }
+
+pub type Options = { num_colors: Int }
+
+const UEOF: Str = "unexpected EOF"
+const ERR_NOT_ENOUGH: Str = "gif: not enough image data"
+const ERR_TOO_MUCH: Str = "gif: too much image data"
+
+type Dec = {
+  bs: List<Int>, pos: Int, width: Int, height: Int, loop_count: Int, delay_time: Int, background_index: Int, disposal_method: Int,
+  image_fields: Int, transparent_index: Int, has_transparent: Bool, global: Option<List<Color>>,
+  delay: List<Int>, disposal: List<Int>, images: List<Image>,
+}
+
+fn hex2(c: Int) -> Str {
+  let d = "0123456789abcdef"
+  d[c >> 4] + d[c & 15]
+}
+
+fn quote(bs: List<Int>) -> Str {
+  // Go %q of the 6 header bytes
+  var s = "\""
+  for b in bs {
+    if b == 34 { s += "\\\"" } else if b == 92 { s += "\\\\" } else if b >= 32 && b < 127 { s += __chr(b) }
+    else if b == 7 { s += "\\a" } else if b == 8 { s += "\\b" } else if b == 12 { s += "\\f" } else if b == 10 { s += "\\n" }
+    else if b == 13 { s += "\\r" } else if b == 9 { s += "\\t" } else if b == 11 { s += "\\v" }
+    else if b < 128 { s += "\\x" + hex2(b) }
+    else { s += "\\x" + hex2(b) }
+  }
+  s + "\""
+}
+
+fn read_n(d: Dec, n: Int) -> Result<(Dec, List<Int>), Str> {
+  if d.pos + n > len(d.bs) { return Err(UEOF) }
+  Ok((Dec { pos: d.pos + n, ..d }, d.bs[d.pos..d.pos + n]))
+}
+
+fn read_color_table(d: Dec, fields: Int) -> Result<(Dec, List<Color>), Str> {
+  let n = 1 << (1 + (fields & 7))
+  match read_n(d, 3 * n) {
+    Err(e) => Err("gif: reading color table: " + e),
+    Ok((d2, t)) => Ok((d2, map(0..n, (i) => Color.RGBA(t[3 * i], t[3 * i + 1], t[3 * i + 2], 0xff)))),
+  }
+}
+
+// readBlock：返回 (dec, 块长度, 块内容)
+fn read_block(d: Dec) -> Result<(Dec, Int, List<Int>), Str> {
+  if d.pos >= len(d.bs) { return Err(UEOF) }
+  let n = d.bs[d.pos]
+  let d1 = Dec { pos: d.pos + 1, ..d }
+  if n == 0 { return Ok((d1, 0, [])) }
+  let (d2, b) = read_n(d1, n)?
+  Ok((d2, n, b))
+}
+
+fn decode_header(bs: List<Int>) -> Result<Dec, Str> {
+  var d = Dec {
+    bs: bs, pos: 0, width: 0, height: 0, loop_count: -1, delay_time: 0, background_index: 0, disposal_method: 0,
+    image_fields: 0, transparent_index: 0, has_transparent: false, global: None, delay: [], disposal: [], images: [],
+  }
+  let h = match read_n(d, 13) { Ok(x) => x, Err(e) => { return Err("gif: reading header: " + e) } }
+  d = h.0
+  let t = h.1
+  let vers = t[0..6]
+  if vers != [71, 73, 70, 56, 55, 97] && vers != [71, 73, 70, 56, 57, 97] { return Err("gif: can't recognize format " + quote(vers)) }
+  d = Dec { width: t[6] + (t[7] << 8), height: t[8] + (t[9] << 8), ..d }
+  if t[10] & 0x80 != 0 {
+    let (d2, p) = read_color_table(Dec { background_index: t[11], ..d }, t[10])?
+    d = Dec { global: Some(p), ..d2 }
+  }
+  Ok(d)
+}
+
+fn read_extension(d0: Dec) -> Result<Dec, Str> {
+  if d0.pos >= len(d0.bs) { return Err("gif: reading extension: " + UEOF) }
+  let ext = d0.bs[d0.pos]
+  var d = Dec { pos: d0.pos + 1, ..d0 }
+  var size = 0
+  if ext == 0x01 { size = 13 }
+  else if ext == 0xF9 {
+    let (d2, t) = match read_n(d, 6) { Ok(x) => x, Err(e) => { return Err("gif: can't read graphic control: " + e) } }
+    if t[0] != 4 { return Err("gif: invalid graphic control extension block size: {t[0]}") }
+    var d3 = Dec { disposal_method: (t[1] & 0x1c) >> 2, delay_time: t[2] | (t[3] << 8), ..d2 }
+    if t[1] & 1 != 0 { d3 = Dec { transparent_index: t[4], has_transparent: true, ..d3 } }
+    if t[5] != 0 { return Err("gif: invalid graphic control extension block terminator: {t[5]}") }
+    return Ok(d3)
+  }
+  else if ext == 0xFE { size = 0 }
+  else if ext == 0xFF {
+    if d.pos >= len(d.bs) { return Err("gif: reading extension: " + UEOF) }
+    size = d.bs[d.pos]
+    d = Dec { pos: d.pos + 1, ..d }
+  } else { return Err("gif: unknown extension 0x" + hex2(ext)) }
+  var data: List<Int> = []
+  if size > 0 {
+    match read_n(d, size) {
+      Ok((d2, t)) => { d = d2; data = t },
+      Err(e) => { return Err("gif: reading extension: " + e) },
+    }
+  }
+  if ext == 0xFF && data == __bytes("NETSCAPE2.0") {
+    let (d2, n, b) = match read_block(d) { Ok(x) => x, Err(e) => { return Err("gif: reading extension: " + e) } }
+    d = d2
+    if n == 0 { return Ok(d) }
+    if n == 3 && b[0] == 1 { d = Dec { loop_count: b[1] | (b[2] << 8), ..d } }
+  }
+  loop {
+    let (d2, n, _) = match read_block(d) { Ok(x) => x, Err(e) => { return Err("gif: reading extension: " + e) } }
+    d = d2
+    if n == 0 { return Ok(d) }
+  }
+  Ok(d)
+}
+
+// GIF 的 LZW 解码，按 Go 的 blockReader + lzw.Reader 的读取顺序。返回 (输出, 错误, 结束时的位置与块状态)
+type BR = { pos: Int, i: Int, j: Int, err: Str }
+
+fn br_fill(bs: List<Int>, b: BR) -> BR {
+  if b.err != "" { return b }
+  let lp = b.pos + b.j
+  if lp >= len(bs) { return BR { err: UEOF, ..b } }
+  let j = bs[lp]
+  if j == 0 { return BR { pos: lp + 1, i: 0, j: 0, err: "EOF" } }
+  if lp + 1 + j > len(bs) { return BR { pos: len(bs), i: 0, j: 0, err: UEOF } }
+  BR { pos: lp + 1, i: 0, j: j, err: "" }
+}
+
+fn lzw_decode(bs: List<Int>, start: Int, lit: Int, limit: Int) -> (List<Int>, Str, BR) {
+  var b = BR { pos: start, i: 0, j: 0, err: "" }
+  var out: List<Int> = []
+  let clear = 1 << lit
+  let eof = clear + 1
+  var width = lit + 1
+  var hi = eof
+  var overflow = 1 << width
+  var last = -1
+  var bits = 0
+  var nbits = 0
+  var prefix = map(0..4096, (_) => 0)
+  var suffix = map(0..4096, (_) => 0)
+  var err = ""
+  loop {
+    // readLSB
+    var rerr = ""
+    while nbits < width {
+      if b.i == b.j {
+        b = br_fill(bs, b)
+        if b.err != "" { rerr = b.err; break }
+      }
+      let x = bs[b.pos + b.i]
+      b = BR { i: b.i + 1, ..b }
+      bits = bits | (x << nbits)
+      nbits += 8
+    }
+    if rerr != "" {
+      err = UEOF
+      break
+    }
+    let code = bits & ((1 << width) - 1)
+    bits = bits >> width
+    nbits -= width
+    if code < clear {
+      out = push(out, code)
+      if last != -1 {
+        suffix[hi] = code
+        prefix[hi] = last
+      }
+    } else if code == clear {
+      width = 1 + lit
+      hi = eof
+      overflow = 1 << width
+      last = -1
+      continue
+    } else if code == eof {
+      err = "EOF"
+      break
+    } else if code <= hi {
+      var tmp: List<Int> = []
+      var c = code
+      if code == hi && last != -1 {
+        c = last
+        while c >= clear { c = prefix[c] }
+        tmp = push(tmp, c)
+        c = last
+      }
+      while c >= clear {
+        tmp = push(tmp, suffix[c])
+        c = prefix[c]
+      }
+      tmp = push(tmp, c)
+      var k = len(tmp) - 1
+      while k >= 0 {
+        out = push(out, tmp[k])
+        k -= 1
+      }
+      if last != -1 {
+        suffix[hi] = c
+        prefix[hi] = last
+      }
+    } else {
+      err = "lzw: invalid code"
+      break
+    }
+    last = code
+    hi += 1
+    if hi >= overflow {
+      if width == 12 {
+        last = -1
+        hi -= 1
+      } else {
+        width += 1
+        overflow = 1 << width
+      }
+    }
+    if len(out) > limit { break }
+  }
+  (out, err, b)
+}
+
+// blockReader.close：返回错误和最终状态
+fn br_close(bs: List<Int>, b0: BR) -> (Str, BR) {
+  var b = b0
+  if b.err == "EOF" { return ("", b) }
+  if b.err != "" { return (b.err, b) }
+  if b.i == b.j {
+    b = br_fill(bs, b)
+    if b.err == "EOF" { return ("", b) }
+    if b.err != "" { return (b.err, b) }
+    if b.j > 1 { return (ERR_TOO_MUCH, b) }
+  }
+  b = br_fill(bs, b)
+  if b.err == "EOF" { return ("", b) }
+  if b.err != "" { return (b.err, b) }
+  (ERR_TOO_MUCH, b)
+}
+
+fn uninterlace(m: Image) -> Image {
+  let dx = m.rect.dx()
+  let dy = m.rect.dy()
+  var npix = map(0..dx * dy, (_) => 0)
+  var offset = 0
+  for pass in [(8, 0), (8, 4), (4, 2), (2, 1)] {
+    let (skip, st) = pass
+    var y = st
+    while y < dy {
+      for k in 0..dx { npix[y * dx + k] = m.pix[offset + k] }
+      offset += dx
+      y += skip
+    }
+  }
+  Image { pix: npix, ..m }
+}
+
+fn read_image_descriptor(d0: Dec, keep_all: Bool) -> Result<Dec, Str> {
+  var d = d0
+  let (d1, t) = match read_n(d, 9) { Ok(x) => x, Err(e) => { return Err("gif: can't read image descriptor: " + e) } }
+  let left = t[0] + (t[1] << 8)
+  let top = t[2] + (t[3] << 8)
+  let w = t[4] + (t[5] << 8)
+  let h = t[6] + (t[7] << 8)
+  d = Dec { image_fields: t[8], ..d1 }
+  if left + w > d.width || top + h > d.height { return Err("gif: frame bounds larger than image bounds") }
+  var m = unwrap(image.new_paletted(image.rect(left, top, left + w, top + h), []))
+  let use_local = d.image_fields & 0x80 != 0
+  var pal: List<Color> = []
+  if use_local {
+    let (d2, p) = read_color_table(d, d.image_fields)?
+    d = d2
+    pal = p
+  } else {
+    match d.global {
+      None => { return Err("gif: no color table") },
+      Some(p) => { pal = p },
+    }
+  }
+  if d.has_transparent {
+    let ti = d.transparent_index
+    if ti < len(pal) { pal[ti] = Color.RGBA(0, 0, 0, 0) }
+    else {
+      while len(pal) < ti + 1 { pal = push(pal, Color.RGBA(0, 0, 0, 0)) }
+    }
+  }
+  if d.pos >= len(d.bs) { return Err("gif: reading image data: " + UEOF) }
+  let lit = d.bs[d.pos]
+  d = Dec { pos: d.pos + 1, ..d }
+  if lit < 2 || lit > 8 { return Err("gif: pixel size in decode out of range: {lit}") }
+  let npix = w * h
+  let (out, lerr, br) = lzw_decode(d.bs, d.pos, lit, npix)
+  if len(out) < npix {
+    if lerr == UEOF || lerr == "EOF" { return Err(ERR_NOT_ENOUGH) }
+    return Err("gif: reading image data: " + lerr)
+  }
+  if len(out) > npix { return Err(ERR_TOO_MUCH) }
+  if lerr != "EOF" && lerr != UEOF { return Err("gif: reading image data: " + lerr) }
+  let (cerr, br2) = br_close(d.bs, br)
+  if cerr == ERR_TOO_MUCH { return Err(ERR_TOO_MUCH) }
+  if cerr != "" { return Err("gif: reading image data: " + cerr) }
+  d = Dec { pos: br2.pos, ..d }
+  if len(pal) < 256 {
+    for px in out { if px >= len(pal) { return Err("gif: invalid pixel value") } }
+  }
+  m = Image { pix: out, palette: pal, ..m }
+  if d.image_fields & 0x40 != 0 { m = uninterlace(m) }
+  if keep_all || len(d.images) == 0 {
+    d = Dec { images: push(d.images, m), delay: push(d.delay, d.delay_time), disposal: push(d.disposal, d.disposal_method), ..d }
+  }
+  Ok(Dec { delay_time: 0, has_transparent: false, ..d })
+}
+
+fn run(bs: List<Int>, config_only: Bool, keep_all: Bool) -> Result<Dec, Str> {
+  var d = decode_header(bs)?
+  if config_only { return Ok(d) }
+  loop {
+    if d.pos >= len(d.bs) { return Err("gif: reading frames: " + UEOF) }
+    let c = d.bs[d.pos]
+    d = Dec { pos: d.pos + 1, ..d }
+    if c == 0x21 { d = read_extension(d)? }
+    else if c == 0x2C {
+      d = read_image_descriptor(d, keep_all)?
+      if !keep_all && len(d.images) == 1 { return Ok(d) }
+    } else if c == 0x3B {
+      if len(d.images) == 0 { return Err("gif: missing image data") }
+      return Ok(d)
+    } else { return Err("gif: unknown block type: 0x" + hex2(c)) }
+  }
+  Ok(d)
+}
+
+pub fn decode(bs: List<Int>) -> Result<Image, Str> {
+  let d = run(bs, false, false)?
+  Ok(d.images[0])
+}
+
+pub fn decode_all(bs: List<Int>) -> Result<Gif, Str> {
+  let d = run(bs, false, true)?
+  let pal = match d.global { Some(p) => p, None => [] }
+  Ok(Gif { images: d.images, delay: d.delay, loop_count: d.loop_count, disposal: d.disposal, config: Config { palette: pal, width: d.width, height: d.height }, background_index: d.background_index })
+}
+
+pub fn decode_config(bs: List<Int>) -> Result<Config, Str> {
+  let d = run(bs, true, false)?
+  let pal = match d.global { Some(p) => p, None => [] }
+  Ok(Config { palette: pal, width: d.width, height: d.height })
+}
+
+// ───────── 编码 ─────────
+
+fn log2(x: Int) -> Int {
+  if x < 2 { return 0 }
+  var n = 0
+  var v = x - 1
+  while v > 0 {
+    n += 1
+    v = v >> 1
+  }
+  n - 1
+}
+
+fn le16(v: Int) -> List<Int> { [v & 255, (v >> 8) & 255] }
+
+fn encode_color_table(p: List<Color>, size: Int) -> Result<List<Int>, Str> {
+  if size >= 8 { return Err("gif: cannot encode color table with more than 256 entries") }
+  var out: List<Int> = []
+  for c in p {
+    match c {
+      Color.RGBA(r, g, b, _) => { out = out + [r, g, b] },
+      _ => {
+        let (r, g, b, _) = color.rgba(c)
+        out = out + [r >> 8, g >> 8, b >> 8]
+      },
+    }
+  }
+  let n = 1 << (size + 1)
+  while len(out) < 3 * n { out = push(out, 0) }
+  Ok(out)
+}
+
+fn sub_blocks(data: List<Int>) -> List<Int> {
+  var out: List<Int> = []
+  var i = 0
+  while i < len(data) {
+    let n = if len(data) - i > 255 { 255 } else { len(data) - i }
+    out = push(out, n)
+    out = out + data[i..i + n]
+    i += n
+  }
+  push(out, 0)
+}
+
+pub fn encode_all(g: Gif) -> Result<List<Int>, Str> {
+  if len(g.images) == 0 { return Err("gif: must provide at least one image") }
+  if len(g.images) != len(g.delay) { return Err("gif: mismatched image and delay lengths") }
+  if len(g.disposal) != 0 && len(g.images) != len(g.disposal) { return Err("gif: mismatched image and disposal lengths") }
+  var cw = g.config.width
+  var ch = g.config.height
+  if cw == 0 && ch == 0 && len(g.config.palette) == 0 {
+    cw = g.images[0].rect.max.x
+    ch = g.images[0].rect.max.y
+  }
+  var out: List<Int> = [71, 73, 70, 56, 57, 97] + le16(cw) + le16(ch)
+  var global_ct: List<Int> = []
+  let gp = g.config.palette
+  if len(gp) > 0 {
+    let ps = log2(len(gp))
+    out = out + [0x80 | ps, g.background_index, 0]
+    global_ct = encode_color_table(gp, ps)?
+    out = out + global_ct
+  } else {
+    out = out + [0, 0, 0]
+  }
+  if len(g.images) > 1 && g.loop_count >= 0 {
+    out = out + [0x21, 0xff, 0x0b] + __bytes("NETSCAPE2.0") + [3, 1] + le16(g.loop_count) + [0]
+  }
+  for i in 0..len(g.images) {
+    let pm = g.images[i]
+    let disposal = if len(g.disposal) == 0 { 0 } else { g.disposal[i] }
+    let delay = g.delay[i]
+    if len(pm.palette) == 0 { return Err("gif: cannot encode image block with empty palette") }
+    let b = pm.rect
+    if b.min.x < 0 || b.max.x >= 65536 || b.min.y < 0 || b.max.y >= 65536 { return Err("gif: image block is too large to encode") }
+    if !b.in_(image.rect(0, 0, cw, ch)) { return Err("gif: image block is out of bounds") }
+    var ti = -1
+    for k in 0..len(pm.palette) {
+      let (_, _, _, a) = color.rgba(pm.palette[k])
+      if a == 0 {
+        ti = k
+        break
+      }
+    }
+    if delay > 0 || disposal != 0 || ti != -1 {
+      out = out + [0x21, 0xF9, 4, (if ti != -1 { 1 } else { 0 }) | ((disposal << 2) & 255)] + le16(delay) + [if ti != -1 { ti } else { 0 }, 0]
+    }
+    out = out + [0x2C] + le16(b.min.x) + le16(b.min.y) + le16(b.dx()) + le16(b.dy())
+    let ps = log2(len(pm.palette))
+    let ct = encode_color_table(pm.palette, ps)?
+    var matches = len(ct) <= len(global_ct)
+    if matches {
+      let ls = 3 * len(pm.palette)
+      if ti >= 0 {
+        let tr = 3 * ti
+        matches = global_ct[0..tr] == ct[0..tr] && global_ct[tr + 3..ls] == ct[tr + 3..ls]
+      } else {
+        matches = global_ct[0..ls] == ct[0..ls]
+      }
+    }
+    if matches { out = push(out, 0) } else { out = out + [0x80 | ps] + ct }
+    let lit = if ps + 1 < 2 { 2 } else { ps + 1 }
+    out = push(out, lit)
+    var px: List<Int> = []
+    let dx = b.dx()
+    if dx == pm.stride { px = pm.pix[0..dx * b.dy()] } else {
+      var k = 0
+      for _ in b.min.y..b.max.y {
+        px = px + pm.pix[k..k + dx]
+        k += pm.stride
+      }
+    }
+    let comp = lzw.compress(px, lzw.LSB, lit)?
+    out = out + sub_blocks(comp)
+  }
+  Ok(push(out, 0x3B))
+}
+
+pub fn default_options() -> Options { Options { num_colors: 256 } }
+
+pub fn encode(m: Image, o: Options) -> Result<List<Int>, Str> {
+  let b = m.bounds()
+  if b.dx() >= 65536 || b.dy() >= 65536 { return Err("gif: image is too large to encode") }
+  let nc = if o.num_colors < 1 || o.num_colors > 256 { 256 } else { o.num_colors }
+  var pm = m
+  var have = m.kind == image.PALETTED
+  if have && len(pm.palette) > nc { have = false }
+  if !have {
+    pm = unwrap(image.new_paletted(b, color.plan9()[0..nc]))
+    pm = draw.floyd_steinberg(pm, b, m, b.min)
+  }
+  if pm.rect.min.x != 0 || pm.rect.min.y != 0 { pm = Image { rect: pm.rect.sub(pm.rect.min), ..pm } }
+  encode_all(Gif { images: [pm], delay: [0], loop_count: 0, disposal: [], config: Config { palette: pm.palette, width: b.dx(), height: b.dy() }, background_index: 0 })
+}

@@ -1,0 +1,309 @@
+// std.mime.multipart：对齐 Go 1.27 的 mime/multipart
+//   Reader：next_part / next_raw_part 返回 (新的 Reader, Result<Part, Str>)；读到结尾时错误是 "EOF"。
+//     Part 的内容在 next_part 时就整块读出（Go 里 NextPart 也会先读完上一部分），读内容时遇到的错误记在 part.err；
+//     quoted-printable 编码的部分会自动解码（next_raw_part 不解码）。read_form 把文件也放在内存里。
+//   Writer：不可变值，create_part / write / write_field / create_form_file / create_form_field / close，bytes() 取输出。
+//   错误文字与 Go 相同
+
+use std.net.textproto
+use std.net.textproto.{ MIMEHeader }
+use std.mime
+use std.mime.quotedprintable
+use std.path
+use std.strconv
+use std.strings
+use std.crypto.rand as crand
+use std.encoding.hex
+
+pub type Part = { header: MIMEHeader, data: List<Int>, err: Str }
+
+impl Part {
+  fn disposition(self) -> (Str, Map<Str, Str>, Bool) {
+    let (d, params, err) = mime.parse_media_type(self.header.get("Content-Disposition"))
+    (d, params, err == "")
+  }
+
+  pub fn form_name(self) -> Str {
+    let (d, params, ok) = self.disposition()
+    if d != "form-data" || !ok { return "" }
+    match get(params, "name") { Some(v) => v, None => "" }
+  }
+
+  pub fn file_name(self) -> Str {
+    let (_, params, ok) = self.disposition()
+    if !ok { return "" }
+    let f = match get(params, "filename") { Some(v) => v, None => "" }
+    if f == "" { return "" }
+    path.base(f)
+  }
+}
+
+pub type Reader = { data: List<Int>, pos: Int, nl: List<Int>, nl_dash: List<Int>, dash_dash: List<Int>, dash: List<Int>, parts_read: Int }
+
+pub fn new_reader(data: List<Int>, boundary: Str) -> Reader {
+  let b = __bytes("\r\n--" + boundary + "--")
+  Reader { data: data, pos: 0, nl: b[..2], nl_dash: b[..len(b) - 2], dash_dash: b[2..], dash: b[2..len(b) - 2], parts_read: 0 }
+}
+
+fn has_prefix(b: List<Int>, p: List<Int>) -> Bool { len(b) >= len(p) && b[..len(p)] == p }
+
+fn index_of(b: List<Int>, sub: List<Int>) -> Int {
+  if len(sub) == 0 { return 0 }
+  var i = 0
+  while i + len(sub) <= len(b) {
+    if b[i] == sub[0] && b[i..i + len(sub)] == sub { return i }
+    i += 1
+  }
+  -1
+}
+
+fn match_after_prefix(buf: List<Int>, prefix: List<Int>, read_err: Str) -> Int {
+  if len(buf) == len(prefix) { return if read_err != "" { 1 } else { 0 } }
+  let c = buf[len(prefix)]
+  if c == 32 || c == 9 || c == 13 || c == 10 { return 1 }
+  if c == 45 {
+    if len(buf) == len(prefix) + 1 { return if read_err != "" { -1 } else { 0 } }
+    if buf[len(prefix) + 1] == 45 { return 1 }
+  }
+  -1
+}
+
+fn scan_until_boundary(buf: List<Int>, dash: List<Int>, nl_dash: List<Int>, total: Int, read_err: Str) -> (Int, Str) {
+  if total == 0 {
+    if has_prefix(buf, dash) {
+      let m = match_after_prefix(buf, dash, read_err)
+      if m == -1 { return (len(dash), "") }
+      if m == 0 { return (0, "") }
+      return (0, "EOF")
+    }
+    if has_prefix(dash, buf) { return (0, read_err) }
+  }
+  let i = index_of(buf, nl_dash)
+  if i >= 0 {
+    let m = match_after_prefix(buf[i..], nl_dash, read_err)
+    if m == -1 { return (i + len(nl_dash), "") }
+    if m == 0 { return (i, "") }
+    return (i, "EOF")
+  }
+  if has_prefix(nl_dash, buf) { return (0, read_err) }
+  var k = len(buf) - 1
+  while k >= 0 && buf[k] != nl_dash[0] { k -= 1 }
+  if k >= 0 && has_prefix(nl_dash, buf[k..]) { return (k, "") }
+  (len(buf), read_err)
+}
+
+fn skip_lwsp(b: List<Int>) -> List<Int> {
+  var i = 0
+  while i < len(b) && (b[i] == 32 || b[i] == 9) { i += 1 }
+  b[i..]
+}
+
+impl Reader {
+  // partReader 读到底：(新位置, 内容, 错误；正常结束为 "")
+  fn read_part_body(self, start: Int) -> (Int, List<Int>, Str) {
+    var p = start
+    var total = 0
+    var read_err = ""
+    var out: List<Int> = []
+    loop {
+      let buf = self.data[p..]
+      let (n, err) = scan_until_boundary(buf, self.dash, self.nl_dash, total, read_err)
+      if n == 0 && err == "" {
+        read_err = "unexpected EOF"
+        continue
+      }
+      out = out + buf[..n]
+      p += n
+      total += n
+      if err != "" { return (p, out, if err == "EOF" { "" } else { err }) }
+    }
+  }
+
+  fn is_final(self, line: List<Int>) -> Bool {
+    if !has_prefix(line, self.dash_dash) { return false }
+    let rest = skip_lwsp(line[len(self.dash_dash)..])
+    len(rest) == 0 || rest == self.nl
+  }
+
+  fn next_part_impl(self, raw: Bool) -> (Reader, Result<Part, Str>) {
+    if self.dash == __bytes("--") { return (self, Err("multipart: boundary is empty")) }
+    var r = self
+    var expect_new = false
+    loop {
+      let d = r.data
+      var j = r.pos
+      while j < len(d) && d[j] != 10 { j += 1 }
+      let eof = j >= len(d)
+      let line = if eof { d[r.pos..] } else { d[r.pos..j + 1] }
+      r = Reader { pos: if eof { len(d) } else { j + 1 }, ..r }
+      if eof && r.is_final(line) { return (r, Err("EOF")) }
+      if eof { return (r, Err("multipart: NextPart: EOF")) }
+      // isBoundaryDelimiterLine
+      if has_prefix(line, r.dash) {
+        let rest = skip_lwsp(line[len(r.dash)..])
+        if r.parts_read == 0 && rest == [10] { r = Reader { nl: r.nl[1..], nl_dash: r.nl_dash[1..], ..r } }
+        if rest == r.nl {
+          r = Reader { parts_read: r.parts_read + 1, ..r }
+          let tr = textproto.Reader { data: r.data, pos: r.pos }
+          let (tr2, h, herr) = tr.read_mime_header()
+          if herr != "" { return (Reader { pos: tr2.pos, ..r }, Err(herr)) }
+          let (p2, body, berr) = r.read_part_body(tr2.pos)
+          r = Reader { pos: p2, ..r }
+          var hh = h
+          var data = body
+          var err = berr
+          if !raw && strings.equal_fold(h.get("Content-Transfer-Encoding"), "quoted-printable") {
+            hh = h.del("Content-Transfer-Encoding")
+            let (dec, qerr) = quotedprintable.decode(body)
+            data = dec
+            if err == "" { err = qerr }
+          }
+          return (r, Ok(Part { header: hh, data: data, err: err }))
+        }
+      }
+      if r.is_final(line) { return (r, Err("EOF")) }
+      if expect_new { return (r, Err("multipart: expecting a new Part; got line " + strconv.quote_bytes_with(line, 34, false, false))) }
+      if r.parts_read == 0 { continue }
+      if line == r.nl {
+        expect_new = true
+        continue
+      }
+      return (r, Err("multipart: unexpected line in Next(): " + strconv.quote_bytes_with(line, 34, false, false)))
+    }
+  }
+
+  pub fn next_part(self) -> (Reader, Result<Part, Str>) { self.next_part_impl(false) }
+
+  pub fn next_raw_part(self) -> (Reader, Result<Part, Str>) { self.next_part_impl(true) }
+}
+
+// ── ReadForm（文件放在内存里） ──
+
+pub type FileHeader = { filename: Str, header: MIMEHeader, size: Int, content: List<Int> }
+
+pub type Form = { value: List<(Str, List<Str>)>, file: List<(Str, List<FileHeader>)> }
+
+fn add_kv<T>(xs: List<(Str, List<T>)>, k: Str, v: T) -> List<(Str, List<T>)> {
+  for i in 0..len(xs) {
+    if xs[i].0 == k { return set(xs, i, (k, push(xs[i].1, v))) }
+  }
+  push(xs, (k, [v]))
+}
+
+fn mime_header_size(h: MIMEHeader) -> Int {
+  var size = 400
+  for i in 0..len(h.keys) {
+    size += len(__bytes(h.keys[i])) + 200
+    for v in h.vals[i] { size += len(__bytes(v)) }
+  }
+  size
+}
+
+impl Reader {
+  pub fn read_form(self, max_memory: Int) -> Result<Form, Str> {
+    var form = Form { value: [], file: [] }
+    var max_bytes = max_memory + (10 << 20)
+    if max_bytes <= 0 { max_bytes = if max_memory < 0 { 0 } else { 9223372036854775807 } }
+    var parts_left = 1000
+    var r = self
+    loop {
+      let (r2, x) = r.next_part()
+      r = r2
+      let p = match x {
+        Err(e) => { if e == "EOF" { break } else { return Err(e) } },
+        Ok(p) => p,
+      }
+      if parts_left <= 0 { return Err("multipart: message too large") }
+      parts_left -= 1
+      let name = p.form_name()
+      if name == "" { continue }
+      let filename = p.file_name()
+      max_bytes -= len(__bytes(name)) + 200
+      if max_bytes < 0 { return Err("multipart: message too large") }
+      if p.err != "" { return Err(p.err) }
+      if filename == "" {
+        let n = if len(p.data) > max_bytes + 1 { max_bytes + 1 } else { len(p.data) }
+        max_bytes -= n
+        if max_bytes < 0 { return Err("multipart: message too large") }
+        form = Form { value: add_kv(form.value, name, unwrap(__from_bytes(p.data[..n]))), ..form }
+        continue
+      }
+      max_bytes -= mime_header_size(p.header) + 200 + 100
+      if max_bytes < 0 { return Err("multipart: message too large") }
+      form = Form { file: add_kv(form.file, name, FileHeader { filename: filename, header: p.header, size: len(p.data), content: p.data }), ..form }
+    }
+    Ok(form)
+  }
+}
+
+// ── Writer ──
+
+pub type Writer = { out: List<Int>, boundary: Str, has_part: Bool }
+
+pub fn new_writer() -> Writer { Writer { out: [], boundary: hex.encode_bytes(crand.read(30)), has_part: false } }
+
+fn escape_quotes(s: Str) -> Str {
+  var o = ""
+  for c in __bytes(s) {
+    o = o + (if c == 92 { "\\\\" } else if c == 34 { "\\\"" } else if c == 13 { "%0D" } else if c == 10 { "%0A" } else { "" })
+    if c != 92 && c != 34 && c != 13 && c != 10 { o = o + unwrap(__from_bytes([c])) }
+  }
+  o
+}
+
+pub fn file_content_disposition(fieldname: Str, filename: Str) -> Str {
+  "form-data; name=\"" + escape_quotes(fieldname) + "\"; filename=\"" + escape_quotes(filename) + "\""
+}
+
+impl Writer {
+  pub fn boundary(self) -> Str { self.boundary }
+
+  pub fn bytes(self) -> List<Int> { self.out }
+
+  pub fn set_boundary(self, b: Str) -> Result<Writer, Str> {
+    if self.has_part { return Err("mime: SetBoundary called after write") }
+    let bs = __bytes(b)
+    if len(bs) < 1 || len(bs) > 70 { return Err("mime: invalid boundary length") }
+    let end = len(bs) - 1
+    for i in 0..len(bs) {
+      let c = bs[i]
+      if (c >= 65 && c <= 90) || (c >= 97 && c <= 122) || (c >= 48 && c <= 57) { continue }
+      if c == 39 || c == 40 || c == 41 || c == 43 || c == 95 || c == 44 || c == 45 || c == 46 || c == 47 || c == 58 || c == 61 || c == 63 { continue }
+      if c == 32 && i != end { continue }
+      return Err("mime: invalid boundary character")
+    }
+    Ok(Writer { boundary: b, ..self })
+  }
+
+  pub fn form_data_content_type(self) -> Str {
+    var b = self.boundary
+    for c in __bytes("()<>@,;:\\\"/[]?= ") {
+      if contains(__bytes(b), c) {
+        b = "\"" + b + "\""
+        break
+      }
+    }
+    "multipart/form-data; boundary=" + b
+  }
+
+  pub fn create_part(self, h: MIMEHeader) -> Writer {
+    var s = if self.has_part { "\r\n--" + self.boundary + "\r\n" } else { "--" + self.boundary + "\r\n" }
+    for kv in h.sorted() { for v in kv.1 { s = s + kv.0 + ": " + v + "\r\n" } }
+    s = s + "\r\n"
+    Writer { out: self.out + __bytes(s), has_part: true, ..self }
+  }
+
+  pub fn write(self, d: List<Int>) -> Writer { Writer { out: self.out + d, ..self } }
+
+  pub fn create_form_file(self, fieldname: Str, filename: Str) -> Writer {
+    self.create_part(textproto.new_header().set("Content-Disposition", file_content_disposition(fieldname, filename)).set("Content-Type", "application/octet-stream"))
+  }
+
+  pub fn create_form_field(self, fieldname: Str) -> Writer {
+    self.create_part(textproto.new_header().set("Content-Disposition", "form-data; name=\"" + escape_quotes(fieldname) + "\""))
+  }
+
+  pub fn write_field(self, fieldname: Str, value: Str) -> Writer { self.create_form_field(fieldname).write(__bytes(value)) }
+
+  pub fn close(self) -> Writer { Writer { out: self.out + __bytes("\r\n--" + self.boundary + "--\r\n"), has_part: false, ..self } }
+}

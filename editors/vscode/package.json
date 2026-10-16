@@ -1,0 +1,37 @@
+{
+  "name": "kite-lang",
+  "displayName": "Kite",
+  "description": "Kite 语言支持：语法高亮、实时类型诊断、悬停、跳转定义、大纲、补全、格式化",
+  "version": "1.0.0",
+  "publisher": "kite-lang",
+  "license": "MIT",
+  "engines": { "vscode": "^1.75.0" },
+  "categories": ["Programming Languages", "Formatters", "Linters"],
+  "activationEvents": ["onLanguage:kite"],
+  "main": "./extension.js",
+  "contributes": {
+    "languages": [{
+      "id": "kite",
+      "aliases": ["Kite", "kite"],
+      "extensions": [".kite"],
+      "configuration": "./language-configuration.json"
+    }],
+    "grammars": [{
+      "language": "kite",
+      "scopeName": "source.kite",
+      "path": "./syntaxes/kite.tmLanguage.json"
+    }],
+    "configuration": {
+      "title": "Kite",
+      "properties": {
+        "kite.pythonPath": { "type": "string", "default": "python3", "description": "运行语言服务器的 Python 解释器" },
+        "kite.serverPath": { "type": "string", "default": "", "description": "kite/lsp.py 的绝对路径（留空则用扩展自带的服务器）" },
+        "kite.formatOnSave": { "type": "boolean", "default": true, "description": "保存时自动格式化" }
+      }
+    },
+    "configurationDefaults": {
+      "[kite]": { "editor.tabSize": 2, "editor.insertSpaces": true }
+    }
+  },
+  "dependencies": { "vscode-languageclient": "^9.0.1" }
+}

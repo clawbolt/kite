@@ -1,0 +1,4 @@
+pub type Point = { x: Int, y: Int }
+pub fn origin() -> Point { Point { x: 0, y: 0 } }
+pub fn dist2(p: Point) -> Int { p.x * p.x + p.y * p.y }
+fn hidden() -> Int { 1 }

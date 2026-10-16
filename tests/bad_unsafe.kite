@@ -1,0 +1,17 @@
+unsafe fn danger() -> Int { 1 }
+type Buf = { n: Int }
+impl Buf {
+  unsafe fn raw(self) -> Int { self.n }
+  unsafe fn make() -> Buf { Buf { n: 0 } }
+}
+trait Raw {
+  unsafe fn peek(self) -> Int
+}
+impl Raw for Buf {
+  fn peek(self) -> Int { 1 }
+}
+fn main() {
+  let a = danger()
+  let b = Buf { n: 1 }.raw()
+  let c = Buf.make()
+}

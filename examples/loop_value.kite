@@ -1,0 +1,62 @@
+// 0.41：loop 是表达式，break 可以带值；配合标签可以从内层直接带值跳出
+fn first_square_over(n: Int) -> Int {
+  var i = 1
+  loop {
+    if i * i > n { break i * i }
+    i += 1
+  }
+}
+
+fn find(grid: List<List<Int>>, target: Int) -> Option<(Int, Int)> {
+  var r = 0
+  'search: loop {
+    if r >= len(grid) { break None }
+    for c in 0..len(grid[r]) {
+      if grid[r][c] == target { break 'search Some((r, c)) }
+    }
+    r += 1
+  }
+}
+
+fn main() {
+  print(first_square_over(50), first_square_over(1000))
+  let g = [[1, 2], [3, 4], [5, 6]]
+  print(find(g, 4), find(g, 9))
+  // 表达式位置的 loop
+  var tries = 0
+  let code = loop {
+    tries += 1
+    if tries == 3 { break 200 }
+  }
+  print(code, tries)
+  // 嵌套 loop：内层 break 的值作为外层的计算结果
+  let total = 1 + loop {
+    let x = loop { break 10 }
+    break x * 2
+  }
+  print(total)
+  // 带值 break 经过 defer
+  let s = loop {
+    defer { print("defer 执行") }
+    break "完成"
+  }
+  print(s)
+  // 闭包里的 loop
+  let collatz = (n0) => {
+    var n = n0
+    var steps = 0
+    loop {
+      if n == 1 { break steps }
+      n = if n % 2 == 0 { n / 2 } else { 3 * n + 1 }
+      steps += 1
+    }
+  }
+  print([1, 6, 27] |> map(collatz))
+  // 不带值的 break：loop 的值是 ()
+  var k = 0
+  loop {
+    k += 1
+    if k > 2 { break }
+  }
+  print(k)
+}

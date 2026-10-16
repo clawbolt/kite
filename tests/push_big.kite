@@ -1,0 +1,16 @@
+// 原生后端：100 万次 push + 20 万次列表拼接 + 50 万次字符串拼接，累计分配必须保持在 256 MB 以内（逐次复制约需 8 TB）
+fn main() {
+  var xs: List<Int> = []
+  for i in 0..1000000 {
+    xs = push(xs, i)
+  }
+  var ys: List<Int> = []
+  for i in 0..200000 {
+    ys = ys + [i, i]
+  }
+  var s = ""
+  for i in 0..500000 {
+    s = s + "ab"
+  }
+  print(xs.len(), xs[999999], ys.len(), ys[399999], s.len())
+}

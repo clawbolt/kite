@@ -1,0 +1,5 @@
+use std.ptr
+fn main() {
+  let p = ptr.alloc(8)
+  print(ptr.addr(p))
+}

@@ -1,0 +1,44 @@
+// 对齐 Go 1.27 的 crypto/mlkem：tests/go/mlkem.go
+use std.crypto.mlkem
+use std.crypto.sha256
+use std.encoding.hex
+
+fn h(b: List<Int>) -> Str { hex.encode_bytes(sha256.digest(b)[..12]) }
+
+fn es<T>(r: Result<T, Str>) -> Str { match r { Ok(_) => "<nil>", Err(e) => e } }
+
+fn main() {
+  for i in 0..2 {
+    let seed = map(0..64, (j) => (j * 7 + i * 13) & 255)
+    let r = map(0..32, (j) => (j * 3 + i) & 255)
+    {
+      let dk = unwrap(mlkem.new_decapsulation_key(3, seed))
+      let ek = dk.encapsulation_key()
+      print("768 <nil> " + h(ek.bytes()) + " {len(ek.bytes())} " + hex.encode_bytes(dk.bytes()[..8]))
+      let (k, ct) = unwrap(mlkem.encapsulate_with(ek, r))
+      print(" ENC " + hex.encode_bytes(k) + " " + h(ct) + " {len(ct)} <nil>")
+      print(" DEC " + hex.encode_bytes(unwrap(dk.decapsulate(ct))) + " <nil>")
+      let ct2 = set(ct, 5, ct[5] ^ 1)
+      print(" REJ " + hex.encode_bytes(unwrap(dk.decapsulate(ct2))))
+      print(" E " + es(dk.decapsulate(ct2[1..])))
+      let ek2 = mlkem.new_encapsulation_key(3, ek.bytes())
+      print(" EK " + es(ek2) + " " + h(unwrap(ek2).bytes()))
+      let b = set(set(ek.bytes(), 0, 0xff), 1, 0xff)
+      print(" EKBAD " + es(mlkem.new_encapsulation_key(3, b)))
+      print(" EKLEN " + es(mlkem.new_encapsulation_key(3, b[..100])))
+      print(" RLEN " + es(mlkem.encapsulate_with(ek, r[..31])))
+    }
+    {
+      let dk = unwrap(mlkem.new_decapsulation_key(4, seed))
+      let ek = dk.encapsulation_key()
+      print("1024 <nil> " + h(ek.bytes()) + " {len(ek.bytes())}")
+      let (k, ct) = unwrap(mlkem.encapsulate_with(ek, r))
+      print(" ENC " + hex.encode_bytes(k) + " " + h(ct) + " {len(ct)} <nil>")
+      print(" DEC " + hex.encode_bytes(unwrap(dk.decapsulate(ct))) + " <nil>")
+      let ct2 = set(ct, len(ct) - 1, ct[len(ct) - 1] ^ 0x80)
+      print(" REJ " + hex.encode_bytes(unwrap(dk.decapsulate(ct2))))
+      print(" RLEN " + es(mlkem.encapsulate_with(ek, r[..31])))
+    }
+  }
+  print("SEED " + es(mlkem.new_decapsulation_key(3, map(0..63, (_) => 0))))
+}

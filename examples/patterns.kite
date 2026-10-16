@@ -1,0 +1,76 @@
+// if let / while let / let-else，以及精确的穷尽性检查（嵌套、元组、列表、结构体）
+enum Shape {
+  Circle(Float)
+  Rect(Float, Float)
+}
+
+fn area(s: Shape) -> Float {
+  if let Circle(r) = s {
+    return 3.0 * r * r
+  }
+  let Rect(w, h) = s else { return 0.0 }
+  w * h
+}
+
+fn first_even(xs: List<Int>) -> Str {
+  let Some(x) = find(xs, n => n % 2 == 0) else { return "没有" }
+  "第一个偶数 {x}"
+}
+
+fn f1(o: Option<Shape>) -> Int {
+  match o {
+    Some(Circle(_))  => 1
+    Some(Rect(_, _)) => 2
+    None             => 0
+  }
+}
+
+fn f2(a: Bool, b: Option<Int>) -> Int {
+  match (a, b) {
+    (true, Some(_)) => 1
+    (false, _)      => 2
+    (_, None)       => 3
+  }
+}
+
+fn f3(xs: List<Int>) -> Int {
+  match xs {
+    []             => 0
+    [x]            => x
+    [x, y, ..rest] => x + y + len(rest)
+  }
+}
+
+type P = { x: Int, ok: Bool }
+
+fn f4(p: P) -> Int {
+  match p {
+    P { x, ok: true }   => x
+    P { ok: false, .. } => 0
+  }
+}
+
+fn main() {
+  print("穷尽", f1(Some(Circle(1.0))), f1(None), f2(true, None), f3([1, 2, 3]), f4(P { x: 5, ok: true }))
+  let o = Some(3)
+  if let Some(x) = o { print("有", x) } else { print("无") }
+  let label = if let Some(x) = o { x * 10 } else if let None = o { 0 } else { -1 }
+  print(label)
+  if let None = o { print("不会") }
+  print(area(Circle(1.0)), area(Rect(2.0, 3.0)))
+  print(first_even([1, 3, 4]), first_even([1]))
+  let ch = chan(10)
+  for i in 0..3 { send(ch, i) }
+  close(ch)
+  var total = 0
+  while let Some(v) = recv(ch) {
+    if v == 1 { continue }
+    total += v
+  }
+  print("total", total)
+  var stack = [1, 2, 3]
+  while let [x, ..rest] = stack {
+    print(x)
+    stack = rest
+  }
+}

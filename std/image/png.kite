@@ -1,0 +1,1186 @@
+// std.image.png：PNG 图像编解码（对齐 Go 的 image/png，附带最小化的 image / image/color 类型）
+//
+// 图像表示：Image { kind, width, height, stride, pix, palette }，矩形总是从 (0, 0) 开始。
+//   kind 取 GRAY / GRAY16 / NRGBA / NRGBA64 / RGBA / RGBA64 / PALETTED，pix 的布局和 Go 的 Pix 完全相同
+//   （16 位通道按大端存两个字节；RGBA / RGBA64 是预乘 alpha 的）。
+//   palette 只对 PALETTED 有意义，元素是非预乘的 Color { r, g, b, a }（8 位，相当于 color.NRGBA）。
+//   new_image(kind, w, h) / new_paletted(w, h, palette)；方法 pix_offset(x, y)、rgba_at(x, y)（等同 Go 的 At(x, y).RGBA()）、
+//   opaque()、bytes_per_pixel()；kind_name(kind) 返回 "Gray"、"NRGBA" 等。
+//
+// 解码：decode(bs) -> Result<Image, Str>，decode_config(bs) -> Result<Config, Str>
+//   支持全部颜色类型和位深、PLTE、tRNS、Adam7 隔行、CRC 校验、多个 IDAT、忽略未知辅助块；
+//   返回的图像类型和 Go 一样（例如带 tRNS 的灰度图解成 NRGBA，16 位真彩色解成 RGBA64）。
+//   错误信息和 Go 相同："png: invalid format: ..."（FormatError）、"png: unsupported feature: ..."（UnsupportedError）、
+//   "unexpected EOF"、"zlib: invalid header"、"zlib: invalid checksum" 等，连 Go 里错误被套两层前缀的情况也照搬。
+//   用模块内置的 inflate（能在数据截断时返回已解出的部分），以便还原 Go 流式读取时的报错顺序。
+// 编码：encode(img) / encode_level(img, level) -> Result<List<Int>, Str>
+//   level：DEFAULT_COMPRESSION / NO_COMPRESSION / BEST_SPEED / BEST_COMPRESSION（和 Go 的 CompressionLevel 取值相同）。
+//   颜色类型选择（含不透明检测）、调色板位深、PLTE/tRNS、逐行滤波器选择启发式、块的写法都照 Go 移植；
+//   IDAT 的切分模拟 Go 的 bufio.Writer（32 KiB 缓冲）以及 zlib/flate 写入的顺序。
+//   NO_COMPRESSION 时 zlib 流按 Go 的 compress/flate 存储块写法自己生成（每块最多 65535 字节，最后补一个固定 Huffman 的空终结块），
+//   输出和 Go 逐字节相同；其他级别用 std.compress.zlib 压缩，滤波后的数据和 Go 相同，但压缩字节不同（可以解码比较）。
+// 和 Go 的差别：
+//   - 没有 image.Image 接口，只支持上面 7 种具体类型；矩形原点固定为 (0, 0)；调色板元素统一用 NRGBA 表示。
+//   - flate 数据损坏时报 "flate: corrupt input before offset N"，N 是近似值，可能和 Go 不同。
+//   - Go 在 IDAT 块很大（> 4 KiB）且 zlib 流后面还有多余数据时会报 "too much pixel data"；这里总是忽略 zlib 流后面的多余数据。
+//   - 默认压缩级别下压缩出的字节和 Go 不同（滤波结果相同）。
+
+use std.compress.zlib
+
+pub const GRAY: Int = 0
+pub const GRAY16: Int = 1
+pub const NRGBA: Int = 2
+pub const NRGBA64: Int = 3
+pub const RGBA: Int = 4
+pub const RGBA64: Int = 5
+pub const PALETTED: Int = 6
+
+pub const DEFAULT_COMPRESSION: Int = 0
+pub const NO_COMPRESSION: Int = -1
+pub const BEST_SPEED: Int = -2
+pub const BEST_COMPRESSION: Int = -3
+
+pub type Color = { r: Int, g: Int, b: Int, a: Int }
+
+pub type Image = { kind: Int, width: Int, height: Int, stride: Int, pix: List<Int>, palette: List<Color> }
+
+pub type Config = { model: Int, width: Int, height: Int, palette: List<Color> }
+
+pub fn kind_name(kind: Int) -> Str { ["Gray", "Gray16", "NRGBA", "NRGBA64", "RGBA", "RGBA64", "Paletted"][kind] }
+
+fn kind_bpp(kind: Int) -> Int { [1, 2, 4, 8, 4, 8, 1][kind] }
+
+fn zeros(n: Int) -> List<Int> {
+  var out: List<Int> = []
+  for _ in 0..n { out = push(out, 0) }
+  out
+}
+
+fn push_all(xs: List<Int>, ys: List<Int>) -> List<Int> {
+  var out = xs
+  for y in ys { out = push(out, y) }
+  out
+}
+
+pub fn new_image(kind: Int, w: Int, h: Int) -> Image {
+  let s = w * kind_bpp(kind)
+  Image { kind: kind, width: w, height: h, stride: s, pix: zeros(s * h), palette: [] }
+}
+
+pub fn new_paletted(w: Int, h: Int, palette: List<Color>) -> Image { Image { palette: palette, ..new_image(PALETTED, w, h) } }
+
+fn nrgba_rgba(c: Color) -> (Int, Int, Int, Int) {
+  let a = c.a
+  ((c.r * 0x101) * a / 0xff, (c.g * 0x101) * a / 0xff, (c.b * 0x101) * a / 0xff, a * 0x101)
+}
+
+impl Image {
+  fn bytes_per_pixel(self) -> Int { kind_bpp(self.kind) }
+
+  fn pix_offset(self, x: Int, y: Int) -> Int { y * self.stride + x * kind_bpp(self.kind) }
+
+  // 等同 Go 的 m.At(x, y).RGBA()：16 位预乘的 (r, g, b, a)
+  fn rgba_at(self, x: Int, y: Int) -> (Int, Int, Int, Int) {
+    let i = self.pix_offset(x, y)
+    let p = self.pix
+    let k = self.kind
+    if k == GRAY {
+      let v = p[i] * 0x101
+      return (v, v, v, 0xffff)
+    }
+    if k == GRAY16 {
+      let v = (p[i] << 8) | p[i + 1]
+      return (v, v, v, 0xffff)
+    }
+    if k == RGBA { return (p[i] * 0x101, p[i + 1] * 0x101, p[i + 2] * 0x101, p[i + 3] * 0x101) }
+    if k == NRGBA { return nrgba_rgba(Color { r: p[i], g: p[i + 1], b: p[i + 2], a: p[i + 3] }) }
+    if k == PALETTED { return nrgba_rgba(self.palette[p[i]]) }
+    let r = (p[i] << 8) | p[i + 1]
+    let g = (p[i + 2] << 8) | p[i + 3]
+    let b = (p[i + 4] << 8) | p[i + 5]
+    let a = (p[i + 6] << 8) | p[i + 7]
+    if k == RGBA64 { return (r, g, b, a) }
+    (r * a / 0xffff, g * a / 0xffff, b * a / 0xffff, a)
+  }
+
+  // 等同 Go 各具体类型的 Opaque()
+  fn opaque(self) -> Bool {
+    let k = self.kind
+    if k == GRAY || k == GRAY16 { return true }
+    if k == PALETTED {
+      for v in self.pix {
+        let (_, _, _, a) = nrgba_rgba(self.palette[v])
+        if a != 0xffff { return false }
+      }
+      return true
+    }
+    let bpp = kind_bpp(k)
+    var y = 0
+    while y < self.height {
+      var i = y * self.stride
+      let end = i + self.width * bpp
+      while i < end {
+        if bpp == 4 {
+          if self.pix[i + 3] != 0xff { return false }
+        } else if self.pix[i + 6] != 0xff || self.pix[i + 7] != 0xff {
+          return false
+        }
+        i += bpp
+      }
+      y += 1
+    }
+    true
+  }
+}
+
+const SIG: List<Int> = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]
+
+fn fmt_err(s: Str) -> Str { "png: invalid format: " + s }
+
+fn unsup_err(s: Str) -> Str { "png: unsupported feature: " + s }
+
+const EOF_ERR: Str = "unexpected EOF"
+
+fn crc_table() -> List<Int> {
+  var t: List<Int> = []
+  for n in 0..256 {
+    var c = n
+    for _ in 0..8 { c = if (c & 1) != 0 { 0xedb88320 ^ (c >> 1) } else { c >> 1 } }
+    t = push(t, c)
+  }
+  t
+}
+
+const CRC_TABLE: List<Int> = crc_table()
+
+// CRC-32（IEEE），表只算一次
+fn crc32(bs: List<Int>) -> Int {
+  let t = CRC_TABLE
+  var c = 0xffffffff
+  for b in bs { c = t[(c ^ b) & 255] ^ (c >> 8) }
+  c ^ 0xffffffff
+}
+
+fn be32_at(bs: List<Int>, i: Int) -> Int { (bs[i] << 24) | (bs[i + 1] << 16) | (bs[i + 2] << 8) | bs[i + 3] }
+
+fn be32(x: Int) -> List<Int> { [(x >> 24) & 255, (x >> 16) & 255, (x >> 8) & 255, x & 255] }
+
+// ───────────── 内置 inflate（截断时保留已解出的数据）─────────────
+
+const LEN_BASE: List<Int> = [3, 4, 5, 6, 7, 8, 9, 10, 11, 13, 15, 17, 19, 23, 27, 31, 35, 43, 51, 59, 67, 83, 99, 115, 131, 163, 195, 227, 258]
+const LEN_EXTRA: List<Int> = [0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 2, 2, 2, 2, 3, 3, 3, 3, 4, 4, 4, 4, 5, 5, 5, 5, 0]
+const DIST_BASE: List<Int> = [1, 2, 3, 4, 5, 7, 9, 13, 17, 25, 33, 49, 65, 97, 129, 193, 257, 385, 513, 769, 1025, 1537, 2049, 3073, 4097, 6145, 8193, 12289, 16385, 24577]
+const DIST_EXTRA: List<Int> = [0, 0, 0, 0, 1, 1, 2, 2, 3, 3, 4, 4, 5, 5, 6, 6, 7, 7, 8, 8, 9, 9, 10, 10, 11, 11, 12, 12, 13, 13]
+const CL_ORDER: List<Int> = [16, 17, 18, 0, 8, 7, 9, 6, 10, 5, 11, 4, 12, 3, 13, 2, 14, 1, 15]
+
+// 规范 Huffman 表：每种码长的个数 + 按码排序的符号
+type Huff = { counts: List<Int>, syms: List<Int> }
+
+// 解压结果：status 0 = 正常结束，1 = 输入不够（截断），2 = 数据损坏
+type Inf = { out: List<Int>, status: Int, end: Int, msg: Str }
+
+fn huff(lens: List<Int>) -> Option<Huff> {
+  var counts = zeros(16)
+  for l in lens { counts = set(counts, l, counts[l] + 1) }
+  var left = 1
+  for l in 1..16 {
+    left = left * 2 - counts[l]
+    if left < 0 { return None }
+  }
+  // 按 (码长, 符号) 排序的符号表：先按码长分桶
+  var buckets: List<List<Int>> = []
+  for _ in 0..16 { buckets = push(buckets, []) }
+  var i = 0
+  for x in lens {
+    if x > 0 { buckets = set(buckets, x, push(buckets[x], i)) }
+    i += 1
+  }
+  var syms: List<Int> = []
+  for l in 1..16 { syms = syms + buckets[l] }
+  Some(Huff { counts: set(counts, 0, 0), syms: syms })
+}
+
+fn fixed_tables() -> (Huff, Huff) {
+  var fl: List<Int> = []
+  for i in 0..288 { fl = push(fl, if i < 144 { 8 } else if i < 256 { 9 } else if i < 280 { 7 } else { 8 }) }
+  var fd: List<Int> = []
+  for _ in 0..30 { fd = push(fd, 5) }
+  (unwrap(huff(fl)), unwrap(huff(fd)))
+}
+
+const FIXED: (Huff, Huff) = fixed_tables()
+
+type BitR = { bs: List<Int>, pos: Int }
+
+// 读 n 位；越过末尾返回 -1
+fn getbits(r: BitR, n: Int) -> Int {
+  if r.pos + n > len(r.bs) * 8 { return -1 }
+  var v = 0
+  var k = 0
+  while k < n {
+    let p = r.pos + k
+    v = v | (((r.bs[p >> 3] >> (p & 7)) & 1) << k)
+    k += 1
+  }
+  v
+}
+
+// 解一个符号：返回 (符号, 新位置)；符号 -1 表示截断，-2 表示无效码
+fn decsym(bs: List<Int>, pos: Int, h: Huff) -> (Int, Int) {
+  var code = 0
+  var first = 0
+  var index = 0
+  var p = pos
+  let nbits = len(bs) * 8
+  for l in 1..16 {
+    if p >= nbits { return (-1, p) }
+    code = code | ((bs[p >> 3] >> (p & 7)) & 1)
+    p += 1
+    let count = h.counts[l]
+    if code - count < first { return (h.syms[index + code - first], p) }
+    index += count
+    first = (first + count) << 1
+    code = code << 1
+  }
+  (-2, p)
+}
+
+fn inf_done(out: List<Int>, status: Int, pos: Int, start: Int) -> Inf {
+  let off = (pos + 7) / 8 - start
+  Inf { out: out, status: status, end: (pos + 7) / 8, msg: if status == 2 { "flate: corrupt input before offset {off}" } else { "" } }
+}
+
+fn inflate(bs: List<Int>, start: Int) -> Inf {
+  var out: List<Int> = []
+  var p = start * 8
+  var last = 0
+  let (fixed_l, fixed_d) = FIXED
+  while last == 0 {
+    let hd = getbits(BitR { bs: bs, pos: p }, 3)
+    if hd < 0 { return inf_done(out, 1, p, start) }
+    last = hd & 1
+    let typ = hd >> 1
+    p += 3
+    if typ == 0 {
+      let i = (p + 7) >> 3
+      if i + 4 > len(bs) { return inf_done(out, 1, len(bs) * 8, start) }
+      let n = bs[i] | (bs[i + 1] << 8)
+      let nn = bs[i + 2] | (bs[i + 3] << 8)
+      if n != (~nn & 65535) { return inf_done(out, 2, (i + 4) * 8, start) }
+      let avail = min(n, len(bs) - (i + 4))
+      out = out + bs[i + 4..i + 4 + avail]
+      if avail < n { return inf_done(out, 1, len(bs) * 8, start) }
+      p = (i + 4 + n) * 8
+    } else if typ == 3 {
+      return inf_done(out, 2, p, start)
+    } else {
+      var lit = fixed_l
+      var dist = fixed_d
+      if typ == 2 {
+        let r = BitR { bs: bs, pos: p }
+        let hl = getbits(r, 14)
+        if hl < 0 { return inf_done(out, 1, p, start) }
+        let hlit = (hl & 31) + 257
+        let hdist = ((hl >> 5) & 31) + 1
+        let hclen = (hl >> 10) + 4
+        p += 14
+        var cl = zeros(19)
+        for i in 0..hclen {
+          let v = getbits(BitR { bs: bs, pos: p }, 3)
+          if v < 0 { return inf_done(out, 1, p, start) }
+          cl = set(cl, CL_ORDER[i], v)
+          p += 3
+        }
+        let Some(ch) = huff(cl) else { return inf_done(out, 2, p, start) }
+        var lens: List<Int> = []
+        while len(lens) < hlit + hdist {
+          let (sym, p2) = decsym(bs, p, ch)
+          if sym == -1 { return inf_done(out, 1, p2, start) }
+          if sym == -2 { return inf_done(out, 2, p2, start) }
+          p = p2
+          if sym < 16 {
+            lens = push(lens, sym)
+          } else {
+            var rep = 0
+            var v = 0
+            var nb = 0
+            var base = 0
+            if sym == 16 {
+              if len(lens) == 0 { return inf_done(out, 2, p, start) }
+              v = lens[len(lens) - 1]
+              nb = 2
+              base = 3
+            } else if sym == 17 {
+              nb = 3
+              base = 3
+            } else {
+              nb = 7
+              base = 11
+            }
+            let e = getbits(BitR { bs: bs, pos: p }, nb)
+            if e < 0 { return inf_done(out, 1, p, start) }
+            p += nb
+            rep = base + e
+            if len(lens) + rep > hlit + hdist { return inf_done(out, 2, p, start) }
+            for _ in 0..rep { lens = push(lens, v) }
+          }
+        }
+        if lens[256] == 0 { return inf_done(out, 2, p, start) }
+        let Some(a) = huff(lens[0..hlit]) else { return inf_done(out, 2, p, start) }
+        let Some(b) = huff(lens[hlit..hlit + hdist]) else { return inf_done(out, 2, p, start) }
+        lit = a
+        dist = b
+      }
+      var done = false
+      while !done {
+        let (sym, p2) = decsym(bs, p, lit)
+        if sym == -1 { return inf_done(out, 1, p2, start) }
+        if sym == -2 { return inf_done(out, 2, p2, start) }
+        p = p2
+        if sym < 256 {
+          out = push(out, sym)
+        } else if sym == 256 {
+          done = true
+        } else {
+          let li = sym - 257
+          if li >= 29 { return inf_done(out, 2, p, start) }
+          let ex = getbits(BitR { bs: bs, pos: p }, LEN_EXTRA[li])
+          if ex < 0 { return inf_done(out, 1, p, start) }
+          let n = LEN_BASE[li] + ex
+          p += LEN_EXTRA[li]
+          let (ds, p3) = decsym(bs, p, dist)
+          if ds == -1 { return inf_done(out, 1, p3, start) }
+          if ds == -2 || ds >= 30 { return inf_done(out, 2, p3, start) }
+          p = p3
+          let dx = getbits(BitR { bs: bs, pos: p }, DIST_EXTRA[ds])
+          if dx < 0 { return inf_done(out, 1, p, start) }
+          let d = DIST_BASE[ds] + dx
+          p += DIST_EXTRA[ds]
+          if d > len(out) { return inf_done(out, 2, p, start) }
+          for _ in 0..n { out = push(out, out[len(out) - d]) }
+        }
+      }
+    }
+  }
+  inf_done(out, 0, p, start)
+}
+
+// ───────────── 解码 ─────────────
+
+const CB_INVALID: Int = 0
+const CB_G1: Int = 1
+const CB_G2: Int = 2
+const CB_G4: Int = 3
+const CB_G8: Int = 4
+const CB_GA8: Int = 5
+const CB_TC8: Int = 6
+const CB_P1: Int = 7
+const CB_P2: Int = 8
+const CB_P4: Int = 9
+const CB_P8: Int = 10
+const CB_TCA8: Int = 11
+const CB_G16: Int = 12
+const CB_GA16: Int = 13
+const CB_TC16: Int = 14
+const CB_TCA16: Int = 15
+
+const DS_START: Int = 0
+const DS_IHDR: Int = 1
+const DS_PLTE: Int = 2
+const DS_TRNS: Int = 3
+const DS_IDAT: Int = 4
+const DS_IEND: Int = 5
+
+// Adam7：(xFactor, yFactor, xOffset, yOffset)
+const PASSES: List<(Int, Int, Int, Int)> = [(8, 8, 0, 0), (8, 8, 4, 0), (4, 8, 0, 4), (4, 4, 2, 0), (2, 4, 0, 2), (2, 2, 1, 0), (1, 2, 0, 1)]
+
+fn is_paletted(cb: Int) -> Bool { cb >= CB_P1 && cb <= CB_P8 }
+
+fn is_truecolor(cb: Int) -> Bool { cb == CB_TC8 || cb == CB_TC16 }
+
+type Dec = {
+  bs: List<Int>,
+  pos: Int,
+  width: Int,
+  height: Int,
+  depth: Int,
+  cb: Int,
+  stage: Int,
+  interlace: Int,
+  pal: List<Color>,
+  pal_len: Int,
+  use_trans: Bool,
+  trans: List<Int>,
+  img: Option<Image>,
+}
+
+fn new_dec(bs: List<Int>) -> Dec {
+  Dec { bs: bs, pos: 0, width: 0, height: 0, depth: 0, cb: CB_INVALID, stage: DS_START, interlace: 0, pal: [], pal_len: 0, use_trans: false, trans: [0, 0, 0, 0, 0, 0], img: None }
+}
+
+// 校验从 t0（块类型的位置）到 end（数据结束）的 CRC，CRC 本身在 end 处
+fn verify(d: Dec, t0: Int, end: Int) -> Result<Dec, Str> {
+  if end + 4 > len(d.bs) { return Err(EOF_ERR) }
+  if be32_at(d.bs, end) != crc32(d.bs[t0..end]) { return Err(fmt_err("invalid checksum")) }
+  Ok(Dec { pos: end + 4, ..d })
+}
+
+fn need(d: Dec, start: Int, n: Int) -> Result<(), Str> {
+  if start + n > len(d.bs) { return Err(EOF_ERR) }
+  Ok(())
+}
+
+fn parse_ihdr(d: Dec, length: Int) -> Result<Dec, Str> {
+  if length != 13 { return Err(fmt_err("bad IHDR length")) }
+  let s = d.pos
+  need(d, s, 13)?
+  let bs = d.bs
+  if bs[s + 10] != 0 { return Err(unsup_err("compression method")) }
+  if bs[s + 11] != 0 { return Err(unsup_err("filter method")) }
+  if bs[s + 12] != 0 && bs[s + 12] != 1 { return Err(fmt_err("invalid interlace method")) }
+  let w = be32_at(bs, s)
+  let h = be32_at(bs, s + 4)
+  // int32 解释：最高位为 1 是负数
+  if w == 0 || h == 0 || w >= 0x80000000 || h >= 0x80000000 { return Err(fmt_err("non-positive dimension")) }
+  let depth = bs[s + 8]
+  let ct = bs[s + 9]
+  var cb = CB_INVALID
+  if depth == 1 {
+    if ct == 0 { cb = CB_G1 } else if ct == 3 { cb = CB_P1 }
+  } else if depth == 2 {
+    if ct == 0 { cb = CB_G2 } else if ct == 3 { cb = CB_P2 }
+  } else if depth == 4 {
+    if ct == 0 { cb = CB_G4 } else if ct == 3 { cb = CB_P4 }
+  } else if depth == 8 {
+    if ct == 0 { cb = CB_G8 } else if ct == 2 { cb = CB_TC8 } else if ct == 3 { cb = CB_P8 } else if ct == 4 { cb = CB_GA8 } else if ct == 6 { cb = CB_TCA8 }
+  } else if depth == 16 {
+    if ct == 0 { cb = CB_G16 } else if ct == 2 { cb = CB_TC16 } else if ct == 4 { cb = CB_GA16 } else if ct == 6 { cb = CB_TCA16 }
+  }
+  if cb == CB_INVALID { return Err(unsup_err("bit depth {depth}, color type {ct}")) }
+  let d2 = Dec { width: w, height: h, depth: depth, cb: cb, interlace: bs[s + 12], ..d }
+  verify(d2, s - 4, s + 13)
+}
+
+fn parse_plte(d: Dec, length: Int) -> Result<Dec, Str> {
+  let np = length / 3
+  if length % 3 != 0 || np <= 0 || np > 256 || np > (1 << d.depth) { return Err(fmt_err("bad PLTE length")) }
+  let s = d.pos
+  need(d, s, 3 * np)?
+  let cb = d.cb
+  var d2 = d
+  if is_paletted(cb) {
+    var pal: List<Color> = []
+    for i in 0..256 {
+      if i < np {
+        pal = push(pal, Color { r: d.bs[s + 3 * i], g: d.bs[s + 3 * i + 1], b: d.bs[s + 3 * i + 2], a: 0xff })
+      } else {
+        pal = push(pal, Color { r: 0, g: 0, b: 0, a: 0xff })
+      }
+    }
+    d2 = Dec { pal: pal, pal_len: np, ..d }
+  } else if cb == CB_TC8 || cb == CB_TCA8 || cb == CB_TC16 || cb == CB_TCA16 {
+    d2 = d
+  } else {
+    return Err(fmt_err("PLTE, color type mismatch"))
+  }
+  verify(d2, s - 4, s + 3 * np)
+}
+
+fn parse_trns(d: Dec, length: Int) -> Result<Dec, Str> {
+  let cb = d.cb
+  let s = d.pos
+  let bs = d.bs
+  if cb == CB_G1 || cb == CB_G2 || cb == CB_G4 || cb == CB_G8 || cb == CB_G16 {
+    if length != 2 { return Err(fmt_err("bad tRNS length")) }
+    need(d, s, 2)?
+    var t1 = bs[s + 1]
+    if cb == CB_G1 { t1 = (t1 * 0xff) & 255 } else if cb == CB_G2 { t1 = (t1 * 0x55) & 255 } else if cb == CB_G4 { t1 = (t1 * 0x11) & 255 }
+    let d2 = Dec { trans: [bs[s], t1, d.trans[2], d.trans[3], d.trans[4], d.trans[5]], use_trans: true, ..d }
+    return verify(d2, s - 4, s + 2)
+  }
+  if cb == CB_TC8 || cb == CB_TC16 {
+    if length != 6 { return Err(fmt_err("bad tRNS length")) }
+    need(d, s, 6)?
+    let d2 = Dec { trans: bs[s..s + 6], use_trans: true, ..d }
+    return verify(d2, s - 4, s + 6)
+  }
+  if is_paletted(cb) {
+    if length > 256 { return Err(fmt_err("bad tRNS length")) }
+    need(d, s, length)?
+    var pal: List<Color> = []
+    var i = 0
+    for c in d.pal {
+      pal = push(pal, if i < length { Color { a: bs[s + i], ..c } } else { c })
+      i += 1
+    }
+    let d2 = Dec { pal: pal, pal_len: max(d.pal_len, length), ..d }
+    return verify(d2, s - 4, s + length)
+  }
+  Err(fmt_err("tRNS, color type mismatch"))
+}
+
+// 收集到的 IDAT 块
+type Chunk = { cstart: Int, clen: Int, crc_ok: Bool, after: Int }
+
+// 一遍（或不隔行时整张图）的输出尺寸
+fn pass_dims(d: Dec, pass: Int) -> (Int, Int) {
+  if d.interlace == 0 { return (d.width, d.height) }
+  let (xf, yf, xo, yo) = PASSES[pass]
+  ((d.width - xo + xf - 1) / xf, (d.height - yo + yf - 1) / yf)
+}
+
+fn bits_per_pixel(cb: Int, depth: Int) -> Int {
+  if cb == CB_GA8 || cb == CB_G16 { return 16 }
+  if cb == CB_TC8 { return 24 }
+  if cb == CB_TCA8 || cb == CB_GA16 { return 32 }
+  if cb == CB_TC16 { return 48 }
+  if cb == CB_TCA16 { return 64 }
+  depth
+}
+
+fn out_kind(d: Dec) -> Int {
+  let cb = d.cb
+  if cb <= CB_G8 { return if d.use_trans { NRGBA } else { GRAY } }
+  if cb == CB_GA8 || cb == CB_TCA8 { return NRGBA }
+  if cb == CB_TC8 { return if d.use_trans { NRGBA } else { RGBA } }
+  if is_paletted(cb) { return PALETTED }
+  if cb == CB_G16 { return if d.use_trans { NRGBA64 } else { GRAY16 } }
+  if cb == CB_TC16 { return if d.use_trans { NRGBA64 } else { RGBA64 } }
+  NRGBA64
+}
+
+fn paeth(a: Int, b: Int, c: Int) -> Int {
+  let pa0 = b - c
+  let pb0 = a - c
+  let pc = if pa0 + pb0 < 0 { -(pa0 + pb0) } else { pa0 + pb0 }
+  let pa = if pa0 < 0 { -pa0 } else { pa0 }
+  let pb = if pb0 < 0 { -pb0 } else { pb0 }
+  if pa <= pb && pa <= pc { a } else if pb <= pc { b } else { c }
+}
+
+// 去掉滤波：raw 是不含滤波类型字节的一行
+fn unfilter(ft: Int, raw: List<Int>, prev: List<Int>, bpp: Int) -> List<Int> {
+  if ft == 0 { return raw }
+  var out: List<Int> = []
+  let n = len(raw)
+  var i = 0
+  while i < n {
+    let a = if i >= bpp { out[i - bpp] } else { 0 }
+    var v = raw[i]
+    if ft == 1 {
+      v = v + a
+    } else if ft == 2 {
+      v = v + prev[i]
+    } else if ft == 3 {
+      v = v + (a + prev[i]) / 2
+    } else {
+      let c = if i >= bpp { prev[i - bpp] } else { 0 }
+      v = v + paeth(a, prev[i], c)
+    }
+    out = push(out, v & 255)
+    i += 1
+  }
+  out
+}
+
+// 把一行解滤波后的字节转换成目标图像的像素字节，追加到 pix；返回 (pix, 调色板长度)
+fn convert_row(d: Dec, cdat: List<Int>, width: Int, pix0: List<Int>, plen0: Int) -> (List<Int>, Int) {
+  var pix = pix0
+  var plen = plen0
+  let cb = d.cb
+  let tr = d.trans
+  if cb == CB_G1 || cb == CB_G2 || cb == CB_G4 {
+    let bits = d.depth
+    let ppb = 8 / bits
+    let mul = if bits == 1 { 0xff } else if bits == 2 { 0x55 } else { 0x11 }
+    let mask = (1 << bits) - 1
+    for x in 0..width {
+      let v = ((cdat[x / ppb] >> (8 - bits - (x % ppb) * bits)) & mask) * mul
+      if d.use_trans {
+        pix = push_all(pix, [v, v, v, if v == tr[1] { 0 } else { 0xff }])
+      } else {
+        pix = push(pix, v)
+      }
+    }
+  } else if cb == CB_G8 {
+    if d.use_trans {
+      for x in 0..width {
+        let v = cdat[x]
+        pix = push_all(pix, [v, v, v, if v == tr[1] { 0 } else { 0xff }])
+      }
+    } else {
+      pix = push_all(pix, cdat)
+    }
+  } else if cb == CB_GA8 {
+    for x in 0..width {
+      let v = cdat[2 * x]
+      pix = push_all(pix, [v, v, v, cdat[2 * x + 1]])
+    }
+  } else if cb == CB_TC8 {
+    for x in 0..width {
+      let r = cdat[3 * x]
+      let g = cdat[3 * x + 1]
+      let b = cdat[3 * x + 2]
+      let a = if d.use_trans && r == tr[1] && g == tr[3] && b == tr[5] { 0 } else { 0xff }
+      pix = push_all(pix, [r, g, b, a])
+    }
+  } else if is_paletted(cb) {
+    let bits = d.depth
+    let ppb = 8 / bits
+    let mask = (1 << bits) - 1
+    for x in 0..width {
+      let idx = (cdat[x / ppb] >> (8 - bits - (x % ppb) * bits)) & mask
+      // P8 且调色板已满 256 时 Go 不调整长度，结果相同
+      if idx >= plen { plen = idx + 1 }
+      pix = push(pix, idx)
+    }
+  } else if cb == CB_TCA8 {
+    pix = push_all(pix, cdat)
+  } else if cb == CB_G16 {
+    for x in 0..width {
+      let hi = cdat[2 * x]
+      let lo = cdat[2 * x + 1]
+      if d.use_trans {
+        let a = if hi == tr[0] && lo == tr[1] { 0 } else { 0xff }
+        pix = push_all(pix, [hi, lo, hi, lo, hi, lo, a, a])
+      } else {
+        pix = push_all(pix, [hi, lo])
+      }
+    }
+  } else if cb == CB_GA16 {
+    for x in 0..width {
+      let hi = cdat[4 * x]
+      let lo = cdat[4 * x + 1]
+      pix = push_all(pix, [hi, lo, hi, lo, hi, lo, cdat[4 * x + 2], cdat[4 * x + 3]])
+    }
+  } else if cb == CB_TC16 {
+    for x in 0..width {
+      let c = cdat[6 * x..6 * x + 6]
+      if d.use_trans {
+        let a = if c == tr { 0 } else { 0xff }
+        pix = push_all(push_all(pix, c), [a, a])
+      } else {
+        pix = push_all(push_all(pix, c), [0xff, 0xff])
+      }
+    }
+  } else {
+    pix = push_all(pix, cdat[0..8 * width])
+  }
+  (pix, plen)
+}
+
+// 读取结束（数据不够）时的错误：end_err 为 "" 表示底层是 EOF
+fn short_err(end_err: Str) -> Str { if end_err == "" { fmt_err("not enough pixel data") } else { end_err } }
+
+fn final_err(end_err: Str) -> Str { if end_err == "" { fmt_err(EOF_ERR) } else { fmt_err(end_err) } }
+
+// 解码 IDAT 数据。返回 (图像, 下一个块的位置)
+fn parse_idat(d: Dec, length0: Int) -> Result<(Image, Int), Str> {
+  let bs = d.bs
+  let n = len(bs)
+  // 收集连续的 IDAT 块（Go 是按需读取，这里一次读完，但记录每块的位置以还原报错）
+  var chunks: List<Chunk> = []
+  var data: List<Int> = []
+  var p = d.pos
+  var length = length0
+  var end_err = ""
+  loop {
+    if length >= 0x80000000 {
+      end_err = unsup_err("IDAT chunk length overflow")
+      break
+    }
+    let avail = min(length, n - p)
+    let cstart = len(data)
+    data = data + bs[p..p + avail]
+    if avail < length {
+      chunks = push(chunks, Chunk { cstart: cstart, clen: avail, crc_ok: false, after: -1 })
+      break
+    }
+    let t0 = p - 4
+    p += length
+    if p + 4 > n {
+      chunks = push(chunks, Chunk { cstart: cstart, clen: avail, crc_ok: false, after: -1 })
+      break
+    }
+    let ok = be32_at(bs, p) == crc32(bs[t0..p])
+    chunks = push(chunks, Chunk { cstart: cstart, clen: avail, crc_ok: ok, after: p + 4 })
+    if !ok {
+      end_err = fmt_err("invalid checksum")
+      break
+    }
+    p += 4
+    if p + 8 > n { break }
+    if bs[p + 4..p + 8] != [73, 68, 65, 84] {
+      end_err = fmt_err("not enough pixel data")
+      break
+    }
+    length = be32_at(bs, p)
+    p += 8
+  }
+  // zlib 头
+  if len(data) < 2 { return Err(if end_err == "" { EOF_ERR } else { end_err }) }
+  let h0 = data[0]
+  let h1 = data[1]
+  if h0 & 15 != 8 || (h0 >> 4) > 7 || ((h0 << 8) | h1) % 31 != 0 { return Err("zlib: invalid header") }
+  if h1 & 0x20 != 0 {
+    if len(data) < 6 { return Err(if end_err == "" { EOF_ERR } else { end_err }) }
+    return Err("zlib: invalid dictionary")
+  }
+  let inf = inflate(data, 2)
+  let out = inf.out
+  // 0 = 校验和正确，1 = 校验和缺失，2 = 校验和错误
+  var adler = 0
+  if inf.status == 0 {
+    if inf.end + 4 > len(data) {
+      adler = 1
+    } else if be32_at(data, inf.end) != zlib.adler32(out) {
+      adler = 2
+    }
+  }
+  // 数据提前结束时 io.ReadFull 得到的错误
+  let row_err = if inf.status == 0 {
+    if adler == 1 { short_err(end_err) } else if adler == 2 { "zlib: invalid checksum" } else { fmt_err("not enough pixel data") }
+  } else if inf.status == 1 {
+    short_err(end_err)
+  } else {
+    inf.msg
+  }
+  let kind = out_kind(d)
+  let bitspp = bits_per_pixel(d.cb, d.depth)
+  let bpp = (bitspp + 7) / 8
+  let kbpp = kind_bpp(kind)
+  var off = 0
+  var pass_pix: List<List<Int>> = []
+  var plen = d.pal_len
+  let npass = if d.interlace == 0 { 1 } else { 7 }
+  for pass in 0..npass {
+    let (w, h) = pass_dims(d, pass)
+    var pix: List<Int> = []
+    if w > 0 && h > 0 {
+      let row_size = (bitspp * w + 7) / 8
+      var prev = zeros(row_size)
+      var pplen = d.pal_len
+      for _ in 0..h {
+        if off + row_size + 1 > len(out) { return Err(row_err) }
+        let ft = out[off]
+        let raw = out[off + 1..off + 1 + row_size]
+        off += row_size + 1
+        if ft > 4 { return Err(fmt_err("bad filter type")) }
+        let cdat = unfilter(ft, raw, prev, bpp)
+        let (np, pl) = convert_row(d, cdat, w, pix, pplen)
+        pix = np
+        pplen = pl
+        prev = cdat
+      }
+      if pplen > plen { plen = pplen }
+    }
+    pass_pix = push(pass_pix, pix)
+  }
+  // 读完所有行之后，再读一个字节确认 zlib 流结束
+  if len(out) > off { return Err(fmt_err("too much pixel data")) }
+  if inf.status == 0 {
+    if adler == 1 { return Err(final_err(end_err)) }
+    if adler == 2 { return Err(fmt_err("zlib: invalid checksum")) }
+  } else if inf.status == 1 {
+    return Err(final_err(end_err))
+  } else {
+    return Err(fmt_err(inf.msg))
+  }
+  // 合并
+  let w = d.width
+  let hgt = d.height
+  var full: List<Int> = []
+  if d.interlace == 0 {
+    full = pass_pix[0]
+  } else {
+    for y in 0..hgt {
+      for x in 0..w {
+        var pi = 0
+        while pi < 7 {
+          let (xf, yf, xo, yo) = PASSES[pi]
+          if x >= xo && y >= yo && (x - xo) % xf == 0 && (y - yo) % yf == 0 { break }
+          pi += 1
+        }
+        let (xf, yf, xo, yo) = PASSES[pi]
+        let (pw, _) = pass_dims(d, pi)
+        let si = (((y - yo) / yf) * pw + (x - xo) / xf) * kbpp
+        let src = pass_pix[pi]
+        for q in si..si + kbpp { full = push(full, src[q]) }
+      }
+    }
+  }
+  let img = Image { kind: kind, width: w, height: hgt, stride: w * kbpp, pix: full, palette: if kind == PALETTED { d.pal[0..plen] } else { [] } }
+  // zlib 流结束于哪个块：Go 读到那个块为止，然后校验它的 CRC
+  let last = inf.end + 4 - 1
+  var k = 0
+  while k + 1 < len(chunks) && !(last >= chunks[k].cstart && last < chunks[k].cstart + chunks[k].clen) { k += 1 }
+  let c = chunks[k]
+  if c.after < 0 { return Err(EOF_ERR) }
+  if !c.crc_ok { return Err(fmt_err("invalid checksum")) }
+  Ok((img, c.after))
+}
+
+fn parse_chunk(d: Dec, config_only: Bool) -> Result<Dec, Str> {
+  let s = d.pos
+  need(d, s, 8)?
+  let bs = d.bs
+  let length = be32_at(bs, s)
+  let name = bs[s + 4..s + 8]
+  let d1 = Dec { pos: s + 8, ..d }
+  let order = fmt_err("chunk out of order")
+  if name == [73, 72, 68, 82] {
+    if d.stage != DS_START { return Err(order) }
+    return parse_ihdr(Dec { stage: DS_IHDR, ..d1 }, length)
+  }
+  if name == [80, 76, 84, 69] {
+    if d.stage != DS_IHDR { return Err(order) }
+    return parse_plte(Dec { stage: DS_PLTE, ..d1 }, length)
+  }
+  if name == [116, 82, 78, 83] {
+    if is_paletted(d.cb) {
+      if d.stage != DS_PLTE { return Err(order) }
+    } else if is_truecolor(d.cb) {
+      if d.stage != DS_IHDR && d.stage != DS_PLTE { return Err(order) }
+    } else if d.stage != DS_IHDR {
+      return Err(order)
+    }
+    return parse_trns(Dec { stage: DS_TRNS, ..d1 }, length)
+  }
+  var ignore = true
+  if name == [73, 68, 65, 84] {
+    if d.stage < DS_IHDR || d.stage > DS_IDAT || (d.stage == DS_IHDR && is_paletted(d.cb)) { return Err(order) }
+    if d.stage != DS_IDAT {
+      let d2 = Dec { stage: DS_IDAT, ..d1 }
+      if config_only { return Ok(d2) }
+      let (img, after) = parse_idat(d2, length)?
+      return Ok(Dec { img: Some(img), pos: after, ..d2 })
+    }
+  } else if name == [73, 69, 78, 68] {
+    if d.stage != DS_IDAT { return Err(order) }
+    if length != 0 { return Err(fmt_err("bad IEND length")) }
+    return verify(Dec { stage: DS_IEND, ..d1 }, s + 4, s + 8)
+  }
+  if length > 0x7fffffff { return Err(fmt_err("Bad chunk length: {length}")) }
+  need(d1, s + 8, length)?
+  verify(d1, s + 4, s + 8 + length)
+}
+
+fn check_header(bs: List<Int>) -> Result<(), Str> {
+  if len(bs) < 8 { return Err(EOF_ERR) }
+  if bs[0..8] != SIG { return Err(fmt_err("not a PNG file")) }
+  Ok(())
+}
+
+pub fn decode(bs: List<Int>) -> Result<Image, Str> {
+  check_header(bs)?
+  var d = Dec { pos: 8, ..new_dec(bs) }
+  while d.stage != DS_IEND { d = parse_chunk(d, false)? }
+  match d.img {
+    Some(img) => Ok(img),
+    None      => Err(fmt_err("missing image")),
+  }
+}
+
+pub fn decode_config(bs: List<Int>) -> Result<Config, Str> {
+  check_header(bs)?
+  var d = Dec { pos: 8, ..new_dec(bs) }
+  loop {
+    d = parse_chunk(d, true)?
+    if is_paletted(d.cb) {
+      if d.stage >= DS_TRNS { break }
+    } else if d.stage >= DS_IHDR {
+      break
+    }
+  }
+  let cb = d.cb
+  let model = if cb <= CB_G8 { GRAY } else if cb == CB_GA8 || cb == CB_TCA8 { NRGBA } else if cb == CB_TC8 { RGBA } else if is_paletted(cb) { PALETTED } else if cb == CB_G16 { GRAY16 } else if cb == CB_TC16 { RGBA64 } else { NRGBA64 }
+  Ok(Config { model: model, width: d.width, height: d.height, palette: if is_paletted(cb) { d.pal[0..d.pal_len] } else { [] } })
+}
+
+// ───────────── 编码 ─────────────
+
+const E_G8: Int = 1
+const E_TC8: Int = 2
+const E_P8: Int = 3
+const E_P4: Int = 4
+const E_P2: Int = 5
+const E_P1: Int = 6
+const E_TCA8: Int = 7
+const E_G16: Int = 8
+const E_TC16: Int = 9
+const E_TCA16: Int = 10
+
+fn chunk(name: Str, data: List<Int>) -> List<Int> {
+  let nb = __bytes(name)
+  be32(len(data)) + nb + data + be32(crc32(nb + data))
+}
+
+fn abs8(d: Int) -> Int { if d < 128 { d } else { 256 - d } }
+
+// Go 的 filter()：返回选中的滤波类型和滤波后的行（不含类型字节）
+fn choose_filter(cdat0: List<Int>, pdat: List<Int>, bpp: Int) -> (Int, List<Int>) {
+  let n = len(cdat0)
+  // Up
+  var up: List<Int> = []
+  var sum = 0
+  for i in 0..n {
+    let v = (cdat0[i] - pdat[i]) & 255
+    up = push(up, v)
+    sum += abs8(v)
+  }
+  var best = sum
+  var filter = 2
+  var row = up
+  // Paeth
+  var pa: List<Int> = []
+  sum = 0
+  var i = 0
+  while i < n {
+    let v = if i < bpp { (cdat0[i] - pdat[i]) & 255 } else { (cdat0[i] - paeth(cdat0[i - bpp], pdat[i], pdat[i - bpp])) & 255 }
+    pa = push(pa, v)
+    sum += abs8(v)
+    i += 1
+    if i > bpp && sum >= best { break }
+  }
+  if sum < best {
+    best = sum
+    filter = 4
+    row = pa
+  }
+  // None
+  sum = 0
+  i = 0
+  while i < n {
+    sum += abs8(cdat0[i])
+    i += 1
+    if sum >= best { break }
+  }
+  if sum < best {
+    best = sum
+    filter = 0
+    row = cdat0
+  }
+  // Sub
+  var sb: List<Int> = []
+  sum = 0
+  i = 0
+  while i < n {
+    let v = if i < bpp { cdat0[i] } else { (cdat0[i] - cdat0[i - bpp]) & 255 }
+    sb = push(sb, v)
+    sum += abs8(v)
+    i += 1
+    if i > bpp && sum >= best { break }
+  }
+  if sum < best {
+    best = sum
+    filter = 1
+    row = sb
+  }
+  // Average
+  var av: List<Int> = []
+  sum = 0
+  i = 0
+  while i < n {
+    let v = if i < bpp { (cdat0[i] - pdat[i] / 2) & 255 } else { (cdat0[i] - (cdat0[i - bpp] + pdat[i]) / 2) & 255 }
+    av = push(av, v)
+    sum += abs8(v)
+    i += 1
+    if i > bpp && sum >= best { break }
+  }
+  if sum < best {
+    filter = 3
+    row = av
+  }
+  (filter, row)
+}
+
+// 第 y 行转换成 PNG 的原始字节（不含滤波类型）
+fn row_bytes(m: Image, cb: Int, y: Int) -> List<Int> {
+  let w = m.width
+  let o = y * m.stride
+  let p = m.pix
+  if cb == E_G8 || cb == E_P8 { return p[o..o + w] }
+  if cb == E_G16 { return p[o..o + 2 * w] }
+  if cb == E_P4 || cb == E_P2 || cb == E_P1 {
+    let bits = if cb == E_P4 { 4 } else if cb == E_P2 { 2 } else { 1 }
+    let ppb = 8 / bits
+    var out: List<Int> = []
+    var a = 0
+    var c = 0
+    for x in 0..w {
+      a = ((a << bits) | p[o + x]) & 255
+      c += 1
+      if c == ppb {
+        out = push(out, a)
+        a = 0
+        c = 0
+      }
+    }
+    if c != 0 {
+      while c != ppb {
+        a = (a << bits) & 255
+        c += 1
+      }
+      out = push(out, a)
+    }
+    return out
+  }
+  var out: List<Int> = []
+  if cb == E_TC8 {
+    for x in 0..w {
+      let j = o + 4 * x
+      out = push_all(out, [p[j], p[j + 1], p[j + 2]])
+    }
+    return out
+  }
+  if cb == E_TCA8 {
+    if m.kind == NRGBA { return p[o..o + 4 * w] }
+    for x in 0..w {
+      let j = o + 4 * x
+      let a8 = p[j + 3]
+      if a8 == 0 {
+        out = push_all(out, [0, 0, 0, 0])
+      } else if a8 == 0xff {
+        out = push_all(out, p[j..j + 4])
+      } else {
+        let mm = 0x101 * 0xffff
+        let a = a8 * 0x101
+        out = push_all(out, [((p[j] * mm / a) >> 8) & 255, ((p[j + 1] * mm / a) >> 8) & 255, ((p[j + 2] * mm / a) >> 8) & 255, a8])
+      }
+    }
+    return out
+  }
+  if cb == E_TC16 {
+    for x in 0..w {
+      let j = o + 8 * x
+      out = push_all(out, p[j..j + 6])
+    }
+    return out
+  }
+  // E_TCA16
+  if m.kind == NRGBA64 { return p[o..o + 8 * w] }
+  for x in 0..w {
+    let j = o + 8 * x
+    let a = (p[j + 6] << 8) | p[j + 7]
+    if a == 0xffff {
+      out = push_all(out, p[j..j + 8])
+    } else if a == 0 {
+      out = push_all(out, [0, 0, 0, 0, 0, 0, 0, 0])
+    } else {
+      for c in 0..3 {
+        let v = ((((p[j + 2 * c] << 8) | p[j + 2 * c + 1]) * 0xffff) / a) & 0xffff
+        out = push_all(out, [v >> 8, v & 255])
+      }
+      out = push_all(out, [p[j + 6], p[j + 7]])
+    }
+  }
+  out
+}
+
+// Go 的 compress/flate NoCompression 写法 + zlib 头尾，返回依次写给 bufio 的各段
+fn stored_writes(data: List<Int>) -> List<List<Int>> {
+  var ws: List<List<Int>> = [[0x78, 0x01]]
+  var i = 0
+  let n = len(data)
+  while i < n {
+    let k = min(65535, n - i)
+    ws = push(ws, [0])
+    ws = push(ws, [k & 255, k >> 8, ~k & 255, (~k >> 8) & 255])
+    ws = push(ws, data[i..i + k])
+    i += k
+  }
+  // Go 1.27 的 compress/flate 用固定 Huffman 的空块结束（10 位，[3, 0]），不再是空存储块
+  ws = push(ws, [3, 0])
+  ws = push(ws, be32(zlib.adler32(data)))
+  ws
+}
+
+// 模拟 bufio.Writer（32 KiB）：每次 Flush 或直接写都产生一个 IDAT 块
+fn idat_chunks(ws: List<List<Int>>) -> List<Int> {
+  let size = 32768
+  var out: List<Int> = []
+  var buf: List<Int> = []
+  for w in ws {
+    var p = w
+    while len(p) > size - len(buf) {
+      if len(buf) == 0 {
+        out = out + chunk("IDAT", p)
+        p = []
+      } else {
+        let k = size - len(buf)
+        buf = buf + p[0..k]
+        p = p[k..len(p)]
+        out = out + chunk("IDAT", buf)
+        buf = []
+      }
+    }
+    buf = buf + p
+  }
+  if len(buf) > 0 { out = out + chunk("IDAT", buf) }
+  out
+}
+
+pub fn encode(m: Image) -> Result<List<Int>, Str> { encode_level(m, DEFAULT_COMPRESSION) }
+
+pub fn encode_level(m: Image, level: Int) -> Result<List<Int>, Str> {
+  let w = m.width
+  let h = m.height
+  if w <= 0 || h <= 0 || w >= 0x100000000 || h >= 0x100000000 { return Err(fmt_err("invalid image size: {w}x{h}")) }
+  let k = m.kind
+  var cb = 0
+  if k == PALETTED {
+    let np = len(m.palette)
+    cb = if np <= 2 { E_P1 } else if np <= 4 { E_P2 } else if np <= 16 { E_P4 } else { E_P8 }
+  } else if k == GRAY {
+    cb = E_G8
+  } else if k == GRAY16 {
+    cb = E_G16
+  } else if k == RGBA || k == NRGBA {
+    cb = if m.opaque() { E_TC8 } else { E_TCA8 }
+  } else {
+    cb = if m.opaque() { E_TC16 } else { E_TCA16 }
+  }
+  let depth = [0, 8, 8, 8, 4, 2, 1, 8, 16, 16, 16][cb]
+  let ct = [0, 0, 2, 3, 3, 3, 3, 6, 0, 2, 6][cb]
+  var out = SIG + chunk("IHDR", be32(w) + be32(h) + [depth, ct, 0, 0, 0])
+  if k == PALETTED {
+    let np = len(m.palette)
+    if np < 1 || np > 256 { return Err(fmt_err("bad palette length: {np}")) }
+    var plte: List<Int> = []
+    var trns: List<Int> = []
+    var last = -1
+    var i = 0
+    for c in m.palette {
+      plte = plte + [c.r, c.g, c.b]
+      trns = push(trns, c.a)
+      if c.a != 0xff { last = i }
+      i += 1
+    }
+    out = out + chunk("PLTE", plte)
+    if last != -1 { out = out + chunk("tRNS", trns[0..last + 1]) }
+  }
+  let bitspp = [0, 8, 24, 8, 4, 2, 1, 32, 16, 48, 64][cb]
+  let bpp = bitspp / 8
+  let sz = (bitspp * w + 7) / 8
+  var pr = zeros(sz)
+  var raw: List<Int> = []
+  let use_filter = level != NO_COMPRESSION && cb != E_P8 && cb != E_P4 && cb != E_P2 && cb != E_P1
+  for y in 0..h {
+    let cr = row_bytes(m, cb, y)
+    if use_filter {
+      let (f, row) = choose_filter(cr, pr, bpp)
+      raw = push_all(push(raw, f), row)
+    } else {
+      raw = push_all(push(raw, 0), cr)
+    }
+    pr = cr
+  }
+  let ws = if level == NO_COMPRESSION {
+    stored_writes(raw)
+  } else {
+    let zl = if level == BEST_SPEED { 1 } else if level == BEST_COMPRESSION { 9 } else { 6 }
+    [zlib.compress_level(raw, zl)]
+  }
+  out = out + idat_chunks(ws)
+  Ok(out + chunk("IEND", []))
+}

@@ -1,0 +1,41 @@
+// std.crypto.rand：密码学安全随机数（对齐 Go 的 crypto/rand）
+//   read(n) -> List<Int>：n 个来自操作系统 CSPRNG 的字节（Go 的 rand.Read；Go 1.24 起 Read 不会失败）
+//   text() -> Str：26 个字符的 base32 随机串（至少 128 位熵，Go 1.24 的 rand.Text）
+//   int(max) -> BigInt：[0, max) 里均匀分布的随机数，max <= 0 时 panic（Go：crypto/rand: argument to Int is <= 0）
+//   int_n(n) -> Int：[0, n) 里均匀分布的随机 Int（Kite 扩展，n > 0）
+//   和 Go 的差别：没有 Reader（io.Reader）和 Prime。
+
+use std.math.big
+
+const BASE32_ALPHABET: Str = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567"
+
+pub fn read(n: Int) -> List<Int> { __random_bytes(n) }
+
+pub fn text() -> Str {
+  let cs = chars(BASE32_ALPHABET)
+  var out = ""
+  for b in read(26) { out = out + cs[b % 32] }
+  out
+}
+
+// 和 Go 一样：取 max-1 的位数，随机生成这么多位，把最高字节多余的位清掉，超出范围就重来
+pub fn int(max: big.BigInt) -> big.BigInt {
+  if max.sign() <= 0 { panic("crypto/rand: argument to Int is <= 0") }
+  let n = max.sub(big.one())
+  let bit_len = n.bit_len()
+  if bit_len == 0 { return big.zero() }
+  let k = (bit_len + 7) / 8
+  var b = bit_len % 8
+  if b == 0 { b = 8 }
+  loop {
+    var bs = read(k)
+    bs = set(bs, 0, bs[0] & ((1 << b) - 1))
+    let x = big.set_bytes(bs)
+    if x.cmp(max) < 0 { return x }
+  }
+}
+
+pub fn int_n(n: Int) -> Int {
+  if n <= 0 { panic("crypto/rand: argument to Int is <= 0") }
+  int(big.new_int(n)).int64()
+}

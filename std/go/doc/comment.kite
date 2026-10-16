@@ -1,0 +1,893 @@
+// std.go.doc.comment：对齐 Go 1.27 的 go/doc/comment
+//   parse(text) -> Doc：零值 Parser 的 Parse（Words 为 nil，LookupPackage 为 nil 即用 DefaultLookupPackage，LookupSym 为 nil）
+//   comment(d) -> Str：零值 Printer 的 Comment（gofmt 的文档注释格式，不带注释符号）
+//   Doc / Block / Text / ListItem / LinkDef 对应 Go 的同名类型；LinkDef.used 由 parse 设置。
+//   另外导出 default_lookup_package、is_std_pkg、list_blank_before、list_blank_between、doc_link_default_url。
+//   内部按字节处理（同 Go 的字节下标），切出的片段都落在 ASCII 边界上，转回 Str 不会产生非法 UTF-8。
+
+use std.unicode
+use std.unicode.utf8
+
+pub type LinkDef = { text: Str, url: Str, used: Bool }
+
+pub enum Text {
+  Plain(Str)
+  Italic(Str)
+  Link { auto: Bool, text: List<Text>, url: Str }
+  DocLink { text: List<Text>, import_path: Str, recv: Str, name: Str }
+}
+
+pub type ListItem = { number: Str, content: List<Block> }
+
+pub enum Block {
+  Paragraph { text: List<Text> }
+  Heading { text: List<Text> }
+  List { items: List<ListItem>, force_blank_before: Bool, force_blank_between: Bool }
+  Code { text: Str }
+}
+
+pub type Doc = { content: List<Block>, links: List<LinkDef> }
+
+// std.go 里单段导入路径的标准库包（已排序）
+const STD_PKGS: List<Str> = ["bufio", "bytes", "cmp", "context", "crypto", "embed", "encoding", "errors", "expvar", "flag", "fmt",
+  "hash", "html", "image", "io", "iter", "log", "maps", "math", "mime", "net", "os", "path", "plugin", "reflect", "regexp",
+  "runtime", "slices", "sort", "strconv", "strings", "structs", "sync", "syscall", "testing", "time", "unicode", "unique",
+  "unsafe", "uuid", "weak"]
+
+pub fn is_std_pkg(path: Str) -> Bool {
+  var lo = 0
+  var hi = len(STD_PKGS)
+  while lo < hi {
+    let m = (lo + hi) / 2
+    if STD_PKGS[m] < path { lo = m + 1 } else { hi = m }
+  }
+  lo < len(STD_PKGS) && STD_PKGS[lo] == path
+}
+
+pub fn default_lookup_package(name: Str) -> Option<Str> {
+  if is_std_pkg(name) { return Some(name) }
+  None
+}
+
+// ---- 字节工具 ----
+
+fn bstr(b: List<Int>) -> Str {
+  match __from_bytes(b) {
+    Some(s) => s,
+    None => panic("go_doc_comment: invalid UTF-8 slice"),
+  }
+}
+
+fn join_lines(lines: List<List<Int>>) -> List<Int> {
+  var out: List<Int> = []
+  var k = 0
+  for l in lines {
+    if k > 0 { out = push(out, 10) }
+    out = out + l
+    k += 1
+  }
+  out
+}
+
+fn split_lines(b: List<Int>) -> List<List<Int>> {
+  var out: List<List<Int>> = []
+  var st = 0
+  var i = 0
+  while i < len(b) {
+    if b[i] == 10 {
+      out = push(out, b[st..i])
+      st = i + 1
+    }
+    i += 1
+  }
+  push(out, b[st..len(b)])
+}
+
+fn is_space_rune(r: Int) -> Bool {
+  if r < 128 { return r == 32 || (r >= 9 && r <= 13) }
+  unicode.is_space(__chr(r))
+}
+
+// strings.TrimSpace
+fn trim_space(b: List<Int>) -> List<Int> {
+  var a = 0
+  while a < len(b) {
+    let (r, n) = utf8.decode_rune_at(b, a)
+    if !is_space_rune(r) { break }
+    a += n
+  }
+  var e = len(b)
+  while e > a {
+    var st = e - 1
+    if b[st] >= 128 {
+      let (r, n) = last_rune(b, e)
+      if !is_space_rune(r) { break }
+      e -= n
+    } else {
+      if !is_space_rune(b[st]) { break }
+      e -= 1
+    }
+  }
+  b[a..e]
+}
+
+// utf8.DecodeLastRune(b[:end])
+fn last_rune(b: List<Int>, end: Int) -> (Int, Int) {
+  var lo = end - 4
+  if lo < 0 { lo = 0 }
+  utf8.decode_last_rune(b[lo..end])
+}
+
+fn is_empty_trim(b: List<Int>) -> Bool { len(trim_space(b)) == 0 }
+
+fn has_prefix(b: List<Int>, p: List<Int>) -> Bool {
+  if len(p) > len(b) { return false }
+  var i = 0
+  while i < len(p) {
+    if b[i] != p[i] { return false }
+    i += 1
+  }
+  true
+}
+
+fn index_of(b: List<Int>, p: List<Int>) -> Int {
+  var i = 0
+  while i + len(p) <= len(b) {
+    var j = 0
+    while j < len(p) && b[i + j] == p[j] { j += 1 }
+    if j == len(p) { return i }
+    i += 1
+  }
+  -1
+}
+
+fn index_byte(b: List<Int>, c: Int) -> Int {
+  var i = 0
+  while i < len(b) {
+    if b[i] == c { return i }
+    i += 1
+  }
+  -1
+}
+
+fn last_index_byte(b: List<Int>, c: Int) -> Int {
+  var i = len(b) - 1
+  while i >= 0 {
+    if b[i] == c { return i }
+    i -= 1
+  }
+  -1
+}
+
+// ---- 段落划分 ----
+
+const SPAN_CODE: Int = 1
+const SPAN_HEADING: Int = 2
+const SPAN_LIST: Int = 3
+const SPAN_OLD_HEADING: Int = 4
+const SPAN_PARA: Int = 5
+
+type Span = { start: Int, end: Int, kind: Int }
+
+fn indented(line: List<Int>) -> Bool { len(line) > 0 && (line[0] == 32 || line[0] == 9) }
+
+fn is_blank(s: List<Int>) -> Bool { len(s) == 0 || (len(s) == 1 && s[0] == 10) }
+
+fn leading_space(s: List<Int>) -> Int {
+  var i = 0
+  while i < len(s) && (s[i] == 32 || s[i] == 9) { i += 1 }
+  i
+}
+
+fn common_prefix(a: List<Int>, b: List<Int>) -> List<Int> {
+  var i = 0
+  while i < len(a) && i < len(b) && a[i] == b[i] { i += 1 }
+  a[0..i]
+}
+
+fn unindent(lines0: List<List<Int>>) -> List<List<Int>> {
+  var a = 0
+  var e = len(lines0)
+  while a < e && is_blank(lines0[a]) { a += 1 }
+  while e > a && is_blank(lines0[e - 1]) { e -= 1 }
+  if a == e { return [] }
+  var prefix = lines0[a][0..leading_space(lines0[a])]
+  var k = a + 1
+  while k < e {
+    let line = lines0[k]
+    if !is_blank(line) { prefix = common_prefix(prefix, line[0..leading_space(line)]) }
+    k += 1
+  }
+  var out: List<List<Int>> = []
+  k = a
+  while k < e {
+    var line = lines0[k]
+    if has_prefix(line, prefix) { line = line[len(prefix)..len(line)] }
+    if is_empty_trim(line) { line = [] }
+    out = push(out, line)
+    k += 1
+  }
+  var s = 0
+  var t = len(out)
+  while s < t && len(out[s]) == 0 { s += 1 }
+  while t > s && len(out[t - 1]) == 0 { t -= 1 }
+  out[s..t]
+}
+
+// listMarker：(编号，"" 表示项目符号；其余部分；是否成功)
+fn list_marker(line0: List<Int>) -> (Str, List<Int>, Bool) {
+  let line = trim_space(line0)
+  if len(line) == 0 { return ("", [], false) }
+  let (r, n) = utf8.decode_rune_at(line, 0)
+  var num = ""
+  var rest: List<Int> = []
+  if r == 0x2022 || r == 42 || r == 43 || r == 45 {
+    rest = line[n..len(line)]
+  } else if line[0] >= 48 && line[0] <= 57 {
+    var m = 1
+    while m < len(line) && line[m] >= 48 && line[m] <= 57 { m += 1 }
+    if m >= len(line) || (line[m] != 46 && line[m] != 41) { return ("", [], false) }
+    num = bstr(line[0..m])
+    rest = line[m + 1..len(line)]
+  } else {
+    return ("", [], false)
+  }
+  if !indented(rest) || is_empty_trim(rest) { return ("", [], false) }
+  (num, rest, true)
+}
+
+fn is_list(line: List<Int>) -> Bool {
+  let (_, _, ok) = list_marker(line)
+  ok
+}
+
+fn ends_with_byte(b: List<Int>, c: Int) -> Bool { len(b) > 0 && b[len(b) - 1] == c }
+
+const OLD_HEADING_BAD: List<Int> = [59, 58, 33, 63, 43, 42, 47, 61, 91, 93, 123, 125, 95, 94, 0xB0, 38, 0xA7, 126, 37, 35, 64, 60, 34, 62, 92]
+
+fn is_old_heading(line0: List<Int>, all: List<List<Int>>, off: Int) -> Bool {
+  if off <= 0 || len(all[off - 1]) != 0 || off + 2 >= len(all) || len(all[off + 1]) != 0 || leading_space(all[off + 2]) != 0 {
+    return false
+  }
+  let line = trim_space(line0)
+  let (r0, _) = utf8.decode_rune_at(line, 0)
+  if !unicode.is_letter(__chr(r0)) || !unicode.is_upper(__chr(r0)) { return false }
+  let (r1, _) = last_rune(line, len(line))
+  if !unicode.is_letter(__chr(r1)) && !unicode.is_digit(__chr(r1)) { return false }
+  var i = 0
+  while i < len(line) {
+    let (r, n) = utf8.decode_rune_at(line, i)
+    for c in OLD_HEADING_BAD { if c == r { return false } }
+    i += n
+  }
+  // "'" 只能用于所有格 "'s"
+  i = 0
+  while i < len(line) {
+    if line[i] == 39 {
+      let rest = line[i + 1..len(line)]
+      if !(len(rest) == 1 && rest[0] == 115) && !(len(rest) >= 2 && rest[0] == 115 && rest[1] == 32) { return false }
+    }
+    i += 1
+  }
+  // "." 后面必须是非空格
+  i = 0
+  while i < len(line) {
+    if line[i] == 46 {
+      if i + 1 == len(line) || line[i + 1] == 32 { return false }
+    }
+    i += 1
+  }
+  true
+}
+
+fn is_heading(line: List<Int>) -> Bool {
+  if len(line) < 2 || line[0] != 35 || (line[1] != 32 && line[1] != 9) { return false }
+  let t = trim_space(line)
+  !(len(t) == 1 && t[0] == 35)
+}
+
+fn parse_spans(lines: List<List<Int>>) -> List<Span> {
+  var spans: List<Span> = []
+  var watchdog = 2 * len(lines)
+  var i = 0
+  var force_indent = 0
+  let nl = len(lines)
+  loop {
+    while i < nl && len(lines[i]) == 0 { i += 1 }
+    if i >= nl { break }
+    watchdog -= 1
+    if watchdog < 0 { panic("go/doc/comment: internal error: not making progress") }
+    var kind = 0
+    let start = i
+    var end = i
+    if i < force_indent || indented(lines[i]) {
+      var unindented_list_ok = is_list(lines[i]) && i < force_indent
+      i += 1
+      while i < nl && (len(lines[i]) == 0 || i < force_indent || indented(lines[i]) || (unindented_list_ok && is_list(lines[i]))) {
+        if len(lines[i]) == 0 { unindented_list_ok = false }
+        i += 1
+      }
+      end = i
+      while end > start && len(lines[end - 1]) == 0 { end -= 1 }
+      if end < nl && len(lines[end]) > 0 && lines[end][0] == 125 { end += 1 }
+      if is_list(lines[start]) { kind = SPAN_LIST } else { kind = SPAN_CODE }
+    } else {
+      i += 1
+      while i < nl && len(lines[i]) != 0 && !indented(lines[i]) { i += 1 }
+      end = i
+      if i < nl && len(lines[i]) != 0 && !is_list(lines[i]) {
+        if is_list(lines[i - 1]) {
+          force_indent = end
+          end -= 1
+          while end > start && is_list(lines[end - 1]) { end -= 1 }
+        } else if ends_with_byte(lines[i - 1], 123) || ends_with_byte(lines[i - 1], 92) {
+          force_indent = end
+          end -= 1
+        }
+        if start == end && force_indent > start {
+          i = start
+          continue
+        }
+      }
+      if end - start == 1 && is_heading(lines[start]) {
+        kind = SPAN_HEADING
+      } else if end - start == 1 && is_old_heading(lines[start], lines, start) {
+        kind = SPAN_OLD_HEADING
+      } else {
+        kind = SPAN_PARA
+      }
+    }
+    spans = push(spans, Span { start: start, end: end, kind: kind })
+    i = end
+  }
+  spans
+}
+
+// ---- 解析状态 ----
+
+type PState = { links: List<LinkDef>, index: Map<Str, Int> }
+
+fn is_scheme(s: List<Int>) -> Bool {
+  let t = bstr(s)
+  t == "file" || t == "ftp" || t == "gopher" || t == "http" || t == "https" || t == "mailto" || t == "nntp"
+}
+
+fn parse_link(line: List<Int>) -> Option<LinkDef> {
+  if len(line) == 0 || line[0] != 91 { return None }
+  let i = index_of(line, [93, 58])
+  if i < 0 || i + 3 >= len(line) || (line[i + 2] != 32 && line[i + 2] != 9) { return None }
+  let text = line[1..i]
+  let url = trim_space(line[i + 3..len(line)])
+  let j = index_of(url, [58, 47, 47])
+  if j < 0 || !is_scheme(url[0..j]) { return None }
+  Some(LinkDef { text: bstr(text), url: bstr(url), used: false })
+}
+
+// paragraph：整段都是链接定义时记下定义并返回 None
+fn paragraph(p0: PState, lines: List<List<Int>>) -> (PState, Option<Block>) {
+  var defs: List<LinkDef> = []
+  for line in lines {
+    match parse_link(line) {
+      Some(d) => { defs = push(defs, d) },
+      None => { return (p0, Some(Block.Paragraph { text: [Text.Plain(bstr(join_lines(lines)))] })) },
+    }
+  }
+  var p = p0
+  for d in defs {
+    let k = len(p.links)
+    var idx = p.index
+    if is_none(get(idx, d.text)) { idx = set(idx, d.text, k) }
+    p = PState { links: push(p.links, d), index: idx }
+  }
+  (p, None)
+}
+
+fn code_block(lines: List<List<Int>>) -> Block {
+  var out: List<Int> = []
+  for l in unindent(lines) { out = push(out + l, 10) }
+  Block.Code { text: bstr(out) }
+}
+
+fn make_list(p0: PState, lines: List<List<Int>>, force_blank_before: Bool) -> (PState, Block) {
+  let (num, _, _) = list_marker(lines[0])
+  var p = p0
+  var items: List<ListItem> = []
+  var have_item = false
+  var text: List<List<Int>> = []
+  var between = false
+  for line0 in lines {
+    var line = line0
+    let (n, after, ok) = list_marker(line)
+    if ok && (n != "") == (num != "") {
+      if have_item {
+        let (p2, para) = paragraph(p, text)
+        p = p2
+        match para {
+          Some(b) => {
+            let it = items[len(items) - 1]
+            items = set(items, len(items) - 1, ListItem { content: push(it.content, b), ..it })
+          },
+          None => {},
+        }
+      }
+      text = []
+      have_item = true
+      items = push(items, ListItem { number: n, content: [] })
+      line = after
+    }
+    line = trim_space(line)
+    if len(line) == 0 {
+      between = true
+      if have_item {
+        let (p2, para) = paragraph(p, text)
+        p = p2
+        match para {
+          Some(b) => {
+            let it = items[len(items) - 1]
+            items = set(items, len(items) - 1, ListItem { content: push(it.content, b), ..it })
+          },
+          None => {},
+        }
+      }
+      text = []
+      continue
+    }
+    text = push(text, trim_space(line))
+  }
+  if have_item {
+    let (p2, para) = paragraph(p, text)
+    p = p2
+    match para {
+      Some(b) => {
+        let it = items[len(items) - 1]
+        items = set(items, len(items) - 1, ListItem { content: push(it.content, b), ..it })
+      },
+      None => {},
+    }
+  }
+  (p, Block.List { items: items, force_blank_before: force_blank_before, force_blank_between: between })
+}
+
+// ---- 行内文本 ----
+
+fn bit_in(c: Int, set: List<Int>) -> Bool {
+  for x in set { if x == c { return true } }
+  false
+}
+
+fn is_alnum_ascii(c: Int) -> Bool { (c >= 65 && c <= 90) || (c >= 97 && c <= 122) || (c >= 48 && c <= 57) }
+
+fn is_host(c: Int) -> Bool { is_alnum_ascii(c) || c == 95 || c == 64 || c == 45 || c == 46 || c == 91 || c == 93 || c == 58 }
+
+fn is_punct_byte(c: Int) -> Bool { c == 46 || c == 44 || c == 58 || c == 59 || c == 63 || c == 33 }
+
+const PATH_EXTRA: List<Int> = [36, 39, 40, 41, 42, 43, 38, 35, 61, 64, 126, 95, 47, 45, 91, 93, 123, 125, 37]
+
+fn is_path(c: Int) -> Bool { is_alnum_ascii(c) || bit_in(c, PATH_EXTRA) }
+
+fn is_ident_ascii(c: Int) -> Bool { is_alnum_ascii(c) || c == 95 }
+
+fn import_path_ok(c: Int) -> Bool { is_alnum_ascii(c) || c == 45 || c == 46 || c == 126 || c == 95 || c == 43 }
+
+// autoURL(s[off:])：返回 URL 的字节长度，0 表示不是 URL
+fn auto_url(s: List<Int>, off: Int) -> Int {
+  let n = len(s) - off
+  if n < 7 { return 0 }
+  var i = 0
+  if s[off + 3] == 58 { i = 3 } else if s[off + 4] == 58 { i = 4 } else if s[off + 5] == 58 { i = 5 } else if s[off + 6] == 58 { i = 6 } else { return 0 }
+  if i + 3 > n || s[off + i] != 58 || s[off + i + 1] != 47 || s[off + i + 2] != 47 { return 0 }
+  if !is_scheme(s[off..off + i]) { return 0 }
+  i += 3
+  if i >= n || !is_host(s[off + i]) || is_punct_byte(s[off + i]) { return 0 }
+  i += 1
+  var end = i
+  while i < n && is_host(s[off + i]) {
+    if !is_punct_byte(s[off + i]) { end = i + 1 }
+    i += 1
+  }
+  i = end
+  var stk: List<Int> = []
+  end = i
+  while i < n {
+    let c = s[off + i]
+    if is_punct_byte(c) {
+      i += 1
+      continue
+    }
+    if !is_path(c) { break }
+    if c == 40 { stk = push(stk, 41) } else if c == 123 { stk = push(stk, 125) } else if c == 91 { stk = push(stk, 93) } else if c == 41 || c == 125 || c == 93 {
+      if len(stk) == 0 || stk[len(stk) - 1] != c { break }
+      stk = stk[0..len(stk) - 1]
+    }
+    if len(stk) == 0 { end = i + 1 }
+    i += 1
+  }
+  end
+}
+
+// ident(s[off:])：标识符的字节长度
+fn ident(s: List<Int>, off: Int) -> Int {
+  var n = 0
+  while off + n < len(s) {
+    let c = s[off + n]
+    if c < 128 {
+      if is_ident_ascii(c) && (n > 0 || c < 48 || c > 57) {
+        n += 1
+        continue
+      }
+      break
+    }
+    let (r, nr) = utf8.decode_rune_at(s, off + n)
+    if unicode.is_letter(__chr(r)) {
+      n += nr
+      continue
+    }
+    break
+  }
+  n
+}
+
+fn is_name(s: List<Int>) -> Bool {
+  let n = ident(s, 0)
+  if n == 0 || n != len(s) { return false }
+  let (r, _) = utf8.decode_rune_at(s, 0)
+  unicode.is_upper(__chr(r))
+}
+
+fn valid_import_path_elem(e: List<Int>) -> Bool {
+  if len(e) == 0 || e[0] == 46 || e[len(e) - 1] == 46 { return false }
+  for c in e { if !import_path_ok(c) { return false } }
+  true
+}
+
+fn valid_import_path(path: List<Int>) -> Bool {
+  if !utf8.valid_bytes(path) { return false }
+  if len(path) == 0 { return false }
+  if path[0] == 45 { return false }
+  if index_of(path, [47, 47]) >= 0 { return false }
+  if path[len(path) - 1] == 47 { return false }
+  var st = 0
+  var i = 0
+  while i < len(path) {
+    if path[i] == 47 {
+      if !valid_import_path_elem(path[st..i]) { return false }
+      st = i + 1
+    }
+    i += 1
+  }
+  valid_import_path_elem(path[st..len(path)])
+}
+
+fn lookup_pkg(pkg: List<Int>) -> Option<Str> {
+  if index_byte(pkg, 47) >= 0 {
+    if valid_import_path(pkg) { return Some(bstr(pkg)) }
+    return None
+  }
+  default_lookup_package(bstr(pkg))
+}
+
+fn split_doc_name(text: List<Int>) -> (List<Int>, List<Int>, Bool) {
+  let i = last_index_byte(text, 46)
+  let name = text[i + 1..len(text)]
+  if !is_name(name) { return (text, [], false) }
+  var before: List<Int> = []
+  if i >= 0 { before = text[0..i] }
+  (before, name, true)
+}
+
+// docLink：all[a:b] 是方括号里的文字，all[:a-1] 在 [ 之前，all[b+1:] 在 ] 之后
+fn doc_link(all: List<Int>, a: Int, b: Int) -> Option<(Str, Str, Str)> {
+  if a - 1 > 0 {
+    let (r, _) = last_rune(all, a - 1)
+    if !unicode.is_punct(__chr(r)) && r != 32 && r != 9 && r != 10 { return None }
+  }
+  if b + 1 < len(all) {
+    let (r, _) = utf8.decode_rune_at(all, b + 1)
+    if !unicode.is_punct(__chr(r)) && r != 32 && r != 9 && r != 10 { return None }
+  }
+  var text = all[a..b]
+  if len(text) > 0 && text[0] == 42 { text = text[1..len(text)] }
+  let (pkg0, name, ok) = split_doc_name(text)
+  var pkg = pkg0
+  var recv: List<Int> = []
+  if ok {
+    let (p2, r2, _) = split_doc_name(pkg)
+    pkg = p2
+    recv = r2
+  }
+  if len(pkg) != 0 {
+    match lookup_pkg(pkg) {
+      Some(path) => { return Some((path, bstr(recv), bstr(name))) },
+      None => { return None },
+    }
+  }
+  // LookupSym 为 nil：总是 false
+  None
+}
+
+fn parse_text(out0: List<Text>, s: List<Int>, auto_link: Bool) -> List<Text> {
+  var out = out0
+  var w: List<Int> = []
+  var wrote = 0
+  var i = 0
+  let n = len(s)
+  while i < n {
+    if auto_link {
+      let un = auto_url(s, i)
+      if un > 0 {
+        w = w + s[wrote..i]
+        if len(w) > 0 { out = push(out, Text.Plain(bstr(w))) }
+        w = []
+        let u = bstr(s[i..i + un])
+        out = push(out, Text.Link { auto: true, text: [Text.Plain(u)], url: u })
+        i += un
+        wrote = i
+        continue
+      }
+      let idn = ident(s, i)
+      if idn > 0 {
+        // Words 为 nil：不加斜体
+        i += idn
+        continue
+      }
+    }
+    if i + 1 < n && s[i] == 96 && s[i + 1] == 96 {
+      if i + 2 < n && s[i + 2] == 96 {
+        // 同 Go：t := s[i:] 之后用新的 i 下标 t
+        let base = i
+        i += 3
+        while i < n - base && s[base + i] == 96 { i += 1 }
+      } else {
+        w = w + s[wrote..i] + [0xE2, 0x80, 0x9C]
+        i += 2
+        wrote = i
+      }
+    } else if i + 1 < n && s[i] == 39 && s[i + 1] == 39 {
+      w = w + s[wrote..i] + [0xE2, 0x80, 0x9D]
+      i += 2
+      wrote = i
+    } else {
+      i += 1
+    }
+  }
+  w = w + s[wrote..n]
+  if len(w) > 0 { out = push(out, Text.Plain(bstr(w))) }
+  out
+}
+
+fn parse_linked_text(p0: PState, text: List<Int>) -> (PState, List<Text>) {
+  var p = p0
+  var out: List<Text> = []
+  var wrote = 0
+  var start = -1
+  var buf: List<Int> = []
+  var i = 0
+  while i < len(text) {
+    var c = text[i]
+    if c == 10 || c == 9 { c = 32 }
+    if c == 91 {
+      start = i
+    } else if c == 93 {
+      if start >= 0 {
+        match get(p.index, bstr(buf)) {
+          Some(k) => {
+            let d = p.links[k]
+            p = PState { links: set(p.links, k, LinkDef { used: true, ..d }), ..p }
+            if wrote < start { out = parse_text(out, text[wrote..start], true) }
+            out = push(out, Text.Link { auto: false, text: parse_text([], text[start + 1..i], false), url: d.url })
+            wrote = i + 1
+          },
+          None => {
+            match doc_link(text, start + 1, i) {
+              Some((ip, recv, name)) => {
+                if wrote < start { out = parse_text(out, text[wrote..start], true) }
+                out = push(out, Text.DocLink { text: parse_text([], text[start + 1..i], false), import_path: ip, recv: recv, name: name })
+                wrote = i + 1
+              },
+              None => {},
+            }
+          },
+        }
+      }
+      start = -1
+      buf = []
+    }
+    if start >= 0 && i != start { buf = push(buf, c) }
+    i += 1
+  }
+  if wrote < len(text) { out = parse_text(out, text[wrote..len(text)], true) }
+  (p, out)
+}
+
+fn plain_bytes(ts: List<Text>) -> List<Int> {
+  match ts[0] {
+    Plain(s) => __bytes(s),
+    _ => [],
+  }
+}
+
+// ---- Parse ----
+
+pub fn parse(text: Str) -> Doc {
+  let lines = unindent(split_lines(__bytes(text)))
+  var p = PState { links: [], index: Map() }
+  var content: List<Block> = []
+  var prev_end = 0
+  for s in parse_spans(lines) {
+    let ls = lines[s.start..s.end]
+    if s.kind == SPAN_LIST {
+      let (p2, b) = make_list(p, ls, prev_end < s.start)
+      p = p2
+      content = push(content, b)
+    } else if s.kind == SPAN_CODE {
+      content = push(content, code_block(ls))
+    } else if s.kind == SPAN_OLD_HEADING {
+      content = push(content, Block.Heading { text: [Text.Plain(bstr(trim_space(lines[s.start])))] })
+    } else if s.kind == SPAN_HEADING {
+      let l = lines[s.start]
+      content = push(content, Block.Heading { text: [Text.Plain(bstr(trim_space(l[1..len(l)])))] })
+    } else {
+      let (p2, b) = paragraph(p, ls)
+      p = p2
+      match b {
+        Some(x) => { content = push(content, x) },
+        None => {},
+      }
+    }
+    prev_end = s.end
+  }
+  // 第二遍：知道全部链接定义后再解析文字
+  var out: List<Block> = []
+  for b in content {
+    match b {
+      Paragraph { text } => {
+        let (p2, t) = parse_linked_text(p, plain_bytes(text))
+        p = p2
+        out = push(out, Block.Paragraph { text: t })
+      },
+      List { items, force_blank_before, force_blank_between } => {
+        var its: List<ListItem> = []
+        for it in items {
+          var cs: List<Block> = []
+          for c in it.content {
+            match c {
+              Paragraph { text } => {
+                let (p2, t) = parse_linked_text(p, plain_bytes(text))
+                p = p2
+                cs = push(cs, Block.Paragraph { text: t })
+              },
+              _ => { cs = push(cs, c) },
+            }
+          }
+          its = push(its, ListItem { content: cs, ..it })
+        }
+        out = push(out, Block.List { items: its, force_blank_before: force_blank_before, force_blank_between: force_blank_between })
+      },
+      _ => { out = push(out, b) },
+    }
+  }
+  Doc { content: out, links: p.links }
+}
+
+// ---- Printer ----
+
+pub fn list_blank_between(b: Block) -> Bool {
+  match b {
+    List { items, force_blank_between, .. } => {
+      if force_blank_between { return true }
+      for it in items { if len(it.content) != 1 { return true } }
+      false
+    },
+    _ => false,
+  }
+}
+
+pub fn list_blank_before(b: Block) -> Bool {
+  match b {
+    List { force_blank_before, .. } => force_blank_before || list_blank_between(b),
+    _ => false,
+  }
+}
+
+fn blank_before(b: Block) -> Bool {
+  match b {
+    List { .. } => list_blank_before(b),
+    _ => true,
+  }
+}
+
+// DocLink.DefaultURL
+pub fn doc_link_default_url(import_path: Str, recv: Str, name: Str, base_url0: Str) -> Str {
+  var base_url = base_url0
+  if import_path != "" {
+    var slash = ""
+    if ends_with(base_url, "/") { slash = "/" } else { base_url = base_url + "/" }
+    if name == "" { return base_url + import_path + slash }
+    if recv != "" { return base_url + import_path + slash + "#" + recv + "." + name }
+    return base_url + import_path + slash + "#" + name
+  }
+  if recv != "" { return "#" + recv + "." + name }
+  "#" + name
+}
+
+fn indent_str(s: Str, ind: Str) -> Str { join(split(s, "\n"), "\n" + ind) }
+
+fn text_str(ind: Str, xs: List<Text>) -> Str {
+  var out: List<Str> = []
+  for t in xs {
+    match t {
+      Plain(s) => { out = push(out, indent_str(s, ind)) },
+      Italic(s) => { out = push(out, indent_str(s, ind)) },
+      Link { auto, text, .. } => {
+        if auto { out = push(out, text_str(ind, text)) } else { out = push(out, "[" + text_str(ind, text) + "]") }
+      },
+      DocLink { text, .. } => { out = push(out, "[" + text_str(ind, text) + "]") },
+    }
+  }
+  join(out, "")
+}
+
+fn block_str(x: Block) -> Str {
+  match x {
+    Paragraph { text } => text_str("", text) + "\n",
+    Heading { text } => "# " + text_str("", text) + "\n",
+    Code { text } => {
+      var out: List<Str> = []
+      if text != "" {
+        var parts = split(text, "\n")
+        if parts[len(parts) - 1] == "" { parts = parts[0..len(parts) - 1] }
+        for line in parts {
+          if line != "" { out = push(out, "\t" + line) }
+          out = push(out, "\n")
+        }
+      }
+      join(out, "")
+    },
+    List { items, .. } => {
+      let loose = list_blank_between(x)
+      var out: List<Str> = []
+      var i = 0
+      for item in items {
+        if i > 0 && loose { out = push(out, "\n") }
+        out = push(out, " ")
+        if item.number == "" { out = push(out, " - ") } else { out = push(out, item.number + ". ") }
+        var j = 0
+        for blk in item.content {
+          if j > 0 { out = push(out, "\n    ") }
+          match blk {
+            Paragraph { text } => { out = push(out, text_str("    ", text)) },
+            _ => {},
+          }
+          out = push(out, "\n")
+          j += 1
+        }
+        i += 1
+      }
+      join(out, "")
+    },
+  }
+}
+
+// Printer{}.Comment(d)
+pub fn comment(d: Doc) -> Str {
+  var out: List<Str> = []
+  var i = 0
+  for x in d.content {
+    if i > 0 && blank_before(x) { out = push(out, "\n") }
+    out = push(out, block_str(x))
+    i += 1
+  }
+  for used in [true, false] {
+    var first = true
+    for def in d.links {
+      if def.used == used {
+        if first {
+          out = push(out, "\n")
+          first = false
+        }
+        out = push(out, "[" + def.text + "]: " + def.url + "\n")
+      }
+    }
+  }
+  join(out, "")
+}

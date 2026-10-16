@@ -1,0 +1,332 @@
+// std.compress.lzw：Lempel-Ziv-Welch 压缩（对齐 Go 的 compress/lzw，GIF / TIFF / PDF 用的那种）
+//   字节序 LSB（GIF）/ MSB（TIFF、PDF）；字面量位宽 lit_width 2..8；码宽最多 12 位
+//   Writer：new_writer(order, lit_width)；w.write(bs) -> (Writer, Result<Int, Str>)；w.close() -> (Writer, Option<Str>)；
+//           w.bytes() 取已写出的全部字节。输出和 Go 的 Writer 逐字节相同（包括哈希表、清表码的时机）
+//   compress(bs, order, lit_width) -> Result<List<Int>, Str>：一次写完并关闭
+//   read_all(bs, order, lit_width) -> (List<Int>, Str)：和 Go 的 io.ReadAll(NewReader(...)) 相同，
+//           返回出错前解出的数据和错误（"" 表示没有错误）；decompress(...) -> Result<List<Int>, Str>
+//   错误信息和 Go 相同：lzw: invalid code / unexpected EOF / lzw: unknown order / lzw: litWidth N out of range /
+//           lzw: input byte too large for the litWidth / lzw: reader/writer is closed
+//   和 Go 的差别：没有流式 io.Reader，输入一次给全；Writer 不经过 bufio，bytes() 随时能取到已写出的字节
+
+pub const LSB: Int = 0
+
+pub const MSB: Int = 1
+
+const MAX_WIDTH: Int = 12
+
+const INVALID: Int = 0xffff
+
+const MAX_CODE: Int = 4095
+
+const INVALID_CODE: Int = 4294967295
+
+const TABLE_SIZE: Int = 16384
+
+const TABLE_MASK: Int = 16383
+
+const ERR_CLOSED: Str = "lzw: reader/writer is closed"
+
+fn zeros(n: Int) -> List<Int> {
+  var out: List<Int> = []
+  for _ in 0..n { out = push(out, 0) }
+  out
+}
+
+fn init_err(order: Int, lit_width: Int) -> Str {
+  if order != LSB && order != MSB { return "lzw: unknown order" }
+  if lit_width < 2 || 8 < lit_width { return "lzw: litWidth {lit_width} out of range" }
+  ""
+}
+
+// ───────── 解压 ─────────
+
+pub fn read_all(src: List<Int>, order: Int, lit_width: Int) -> (List<Int>, Str) {
+  let e0 = init_err(order, lit_width)
+  if e0 != "" { return ([], e0) }
+  let msb = order == MSB
+  var bits = 0
+  var n_bits = 0
+  var width = 1 + lit_width
+  let clear = 1 << lit_width
+  let eof = clear + 1
+  var hi = clear + 1
+  var overflow = 1 << width
+  var last = INVALID
+  var suffix = zeros(4096)
+  var prefix = zeros(4096)
+  var out: List<Int> = []
+  var pos = 0
+  let n = len(src)
+  var err = ""
+  loop {
+    // 读一个码
+    var short = false
+    while n_bits < width {
+      if pos >= n {
+        short = true
+        break
+      }
+      let x = src[pos]
+      pos += 1
+      if msb { bits = bits | (x << (24 - n_bits)) } else { bits = bits | (x << n_bits) }
+      n_bits += 8
+    }
+    if short {
+      err = "unexpected EOF"
+      break
+    }
+    var code = 0
+    if msb {
+      code = (bits >> (32 - width)) & 0xffff
+      bits = (bits << width) & 0xffffffff
+    } else {
+      code = bits & ((1 << width) - 1)
+      bits = bits >> width
+    }
+    n_bits -= width
+    if code < clear {
+      out = push(out, code)
+      if last != INVALID {
+        suffix = set(suffix, hi, code)
+        prefix = set(prefix, hi, last)
+      }
+    } else if code == clear {
+      width = 1 + lit_width
+      hi = eof
+      overflow = 1 << width
+      last = INVALID
+      continue
+    } else if code == eof {
+      break
+    } else if code <= hi {
+      // 倒着收集这个码代表的字节串
+      var rev: List<Int> = []
+      var c = code
+      if code == hi && last != INVALID {
+        c = last
+        while c >= clear { c = prefix[c] }
+        rev = push(rev, c)
+        c = last
+      }
+      while c >= clear {
+        rev = push(rev, suffix[c])
+        c = prefix[c]
+      }
+      rev = push(rev, c)
+      var k = len(rev) - 1
+      while k >= 0 {
+        out = push(out, rev[k])
+        k -= 1
+      }
+      if last != INVALID {
+        suffix = set(suffix, hi, c)
+        prefix = set(prefix, hi, last)
+      }
+    } else {
+      err = "lzw: invalid code"
+      break
+    }
+    last = code
+    hi += 1
+    if hi >= overflow {
+      if width == MAX_WIDTH {
+        last = INVALID
+        hi -= 1
+      } else {
+        width += 1
+        overflow = 1 << width
+      }
+    }
+  }
+  (out, err)
+}
+
+pub fn decompress(src: List<Int>, order: Int, lit_width: Int) -> Result<List<Int>, Str> {
+  let (out, err) = read_all(src, order, lit_width)
+  if err != "" { Err(err) } else { Ok(out) }
+}
+
+// ───────── 压缩 ─────────
+
+pub type Writer = {
+  order: Int,
+  lit_width: Int,
+  n_bits: Int,
+  width: Int,
+  bits: Int,
+  hi: Int,
+  overflow: Int,
+  saved: Int,
+  err: Str,
+  table: List<Int>,
+  out: List<Int>,
+}
+
+pub fn new_writer(order: Int, lit_width: Int) -> Writer {
+  let e = init_err(order, lit_width)
+  Writer {
+    order: order,
+    lit_width: lit_width,
+    n_bits: 0,
+    width: 1 + lit_width,
+    bits: 0,
+    hi: (1 << lit_width) + 1,
+    overflow: 1 << (lit_width + 1),
+    saved: INVALID_CODE,
+    err: e,
+    table: if e == "" { zeros(TABLE_SIZE) } else { [] },
+    out: [],
+  }
+}
+
+// 位缓冲的可变状态，热循环里用局部变量操作
+type St = { n_bits: Int, width: Int, bits: Int, hi: Int, overflow: Int, out: List<Int> }
+
+fn put(s: St, c: Int, msb: Bool) -> St {
+  var bits = s.bits
+  var n_bits = s.n_bits
+  var out = s.out
+  if msb {
+    bits = bits | ((c << (32 - s.width - n_bits)) & 0xffffffff)
+    n_bits += s.width
+    while n_bits >= 8 {
+      out = push(out, (bits >> 24) & 255)
+      bits = (bits << 8) & 0xffffffff
+      n_bits -= 8
+    }
+  } else {
+    bits = bits | (c << n_bits)
+    n_bits += s.width
+    while n_bits >= 8 {
+      out = push(out, bits & 255)
+      bits = bits >> 8
+      n_bits -= 8
+    }
+  }
+  St { bits: bits, n_bits: n_bits, out: out, ..s }
+}
+
+impl Writer {
+  fn st(self) -> St { St { n_bits: self.n_bits, width: self.width, bits: self.bits, hi: self.hi, overflow: self.overflow, out: self.out } }
+
+  fn with_st(self, s: St) -> Writer { Writer { n_bits: s.n_bits, width: s.width, bits: s.bits, hi: s.hi, overflow: s.overflow, out: s.out, ..self } }
+
+  fn bytes(self) -> List<Int> { self.out }
+
+  fn write(self, p: List<Int>) -> (Writer, Result<Int, Str>) {
+    if self.err != "" { return (self, Err(self.err)) }
+    if len(p) == 0 { return (self, Ok(0)) }
+    let max_lit = (1 << self.lit_width) - 1
+    if max_lit != 255 {
+      for x in p {
+        if x > max_lit {
+          let e = "lzw: input byte too large for the litWidth"
+          return (Writer { err: e, ..self }, Err(e))
+        }
+      }
+    }
+    let msb = self.order == MSB
+    let lw = self.lit_width
+    var s = self.st()
+    var table = self.table
+    var code = self.saved
+    var start = 0
+    if code == INVALID_CODE {
+      s = put(s, 1 << lw, msb)
+      code = p[0]
+      start = 1
+    }
+    var i = start
+    let n = len(p)
+    'outer: while i < n {
+      let literal = p[i]
+      i += 1
+      let key = (code << 8) | literal
+      var hash = ((key >> 12) ^ key) & TABLE_MASK
+      var h = hash
+      var t = table[hash]
+      while t != 0 {
+        if key == (t >> 12) {
+          code = t & MAX_CODE
+          continue 'outer
+        }
+        h = (h + 1) & TABLE_MASK
+        t = table[h]
+      }
+      s = put(s, code, msb)
+      code = literal
+      // incHi
+      var hi = s.hi + 1
+      var width = s.width
+      var overflow = s.overflow
+      if hi == overflow {
+        width += 1
+        overflow = overflow << 1
+      }
+      s = St { hi: hi, width: width, overflow: overflow, ..s }
+      if hi == MAX_CODE {
+        let clear = 1 << lw
+        s = put(s, clear, msb)
+        s = St { width: lw + 1, hi: clear + 1, overflow: clear << 1, ..s }
+        table = zeros(TABLE_SIZE)
+        continue
+      }
+      while true {
+        if table[hash] == 0 {
+          table = set(table, hash, (key << 12) | hi)
+          break
+        }
+        hash = (hash + 1) & TABLE_MASK
+      }
+    }
+    (Writer { saved: code, table: table, ..self.with_st(s) }, Ok(n))
+  }
+
+  fn close(self) -> (Writer, Option<Str>) {
+    if self.err != "" {
+      if self.err == ERR_CLOSED { return (self, None) }
+      return (self, Some(self.err))
+    }
+    let msb = self.order == MSB
+    let lw = self.lit_width
+    var s = self.st()
+    if self.saved != INVALID_CODE {
+      s = put(s, self.saved, msb)
+      var hi = s.hi + 1
+      var width = s.width
+      var overflow = s.overflow
+      if hi == overflow {
+        width += 1
+        overflow = overflow << 1
+      }
+      s = St { hi: hi, width: width, overflow: overflow, ..s }
+      if hi == MAX_CODE {
+        let clear = 1 << lw
+        s = put(s, clear, msb)
+        s = St { width: lw + 1, hi: clear + 1, overflow: clear << 1, ..s }
+      }
+    } else {
+      s = put(s, 1 << lw, msb)
+    }
+    s = put(s, (1 << lw) + 1, msb)
+    if s.n_bits > 0 {
+      let b = if msb { (s.bits >> 24) & 255 } else { s.bits & 255 }
+      s = St { out: push(s.out, b), ..s }
+    }
+    (Writer { err: ERR_CLOSED, table: [], ..self.with_st(s) }, None)
+  }
+}
+
+pub fn compress(src: List<Int>, order: Int, lit_width: Int) -> Result<List<Int>, Str> {
+  let (w, r) = new_writer(order, lit_width).write(src)
+  match r {
+    Err(e) => { return Err(e) },
+    Ok(_)  => {},
+  }
+  let (w2, e2) = w.close()
+  match e2 {
+    Some(e) => Err(e),
+    None    => Ok(w2.bytes()),
+  }
+}

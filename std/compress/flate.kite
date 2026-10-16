@@ -1,0 +1,553 @@
+// std.compress.flate：DEFLATE 压缩格式（RFC 1951，对齐 Go 的 compress/flate）
+//   decompress(bs)：支持存储块、固定 Huffman 块、动态 Huffman 块
+//   compress(bs, level)：level 0 只用存储块；1..9 用 LZ77（哈希链，level 越高找得越远，4 以上惰性匹配），
+//     再在固定 Huffman、动态 Huffman、存储三种编码里取最短的（整个输入一个块）
+//   inflate_at(bs, start)：从 start 开始解一个 DEFLATE 流，返回 (数据, 流结束后的下一个字节位置)，供 gzip / zlib 使用
+
+const LEN_BASE: List<Int> = [3, 4, 5, 6, 7, 8, 9, 10, 11, 13, 15, 17, 19, 23, 27, 31, 35, 43, 51, 59, 67, 83, 99, 115, 131, 163, 195, 227, 258]
+const LEN_EXTRA: List<Int> = [0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 2, 2, 2, 2, 3, 3, 3, 3, 4, 4, 4, 4, 5, 5, 5, 5, 0]
+const DIST_BASE: List<Int> = [1, 2, 3, 4, 5, 7, 9, 13, 17, 25, 33, 49, 65, 97, 129, 193, 257, 385, 513, 769, 1025, 1537, 2049, 3073, 4097, 6145, 8193, 12289, 16385, 24577]
+const DIST_EXTRA: List<Int> = [0, 0, 0, 0, 1, 1, 2, 2, 3, 3, 4, 4, 5, 5, 6, 6, 7, 7, 8, 8, 9, 9, 10, 10, 11, 11, 12, 12, 13, 13]
+const CL_ORDER: List<Int> = [16, 17, 18, 0, 8, 7, 9, 6, 10, 5, 11, 4, 12, 3, 13, 2, 14, 1, 15]
+
+// ── 解压 ──
+
+// 规范 Huffman 表：(每种长度的码数, 按码排好的符号, 9 位快查表)
+// fast[低 9 位] = 符号 * 16 + 码长；码长超过 9 的为 -1，走逐位解码
+type Huff = { counts: List<Int>, syms: List<Int>, fast: List<Int> }
+
+fn fill(n: Int, v: Int) -> List<Int> {
+  var out: List<Int> = []
+  for _ in 0..n { out = push(out, v) }
+  out
+}
+
+fn build(lens: List<Int>) -> Result<Huff, Str> {
+  var counts = fill(16, 0)
+  for l in lens { counts = set(counts, l, counts[l] + 1) }
+  // 检查是否超额（码长集合不合法）
+  var left = 1
+  for l in 1..16 {
+    left = left * 2 - counts[l]
+    if left < 0 { return Err("flate: Huffman 码长不合法") }
+  }
+  var offs = fill(16, 0)
+  for l in 1..15 { offs = set(offs, l + 1, offs[l] + counts[l]) }
+  var syms = fill(len(lens), 0)
+  var i = 0
+  for l in lens {
+    if l != 0 {
+      syms = set(syms, offs[l], i)
+      offs = set(offs, l, offs[l] + 1)
+    }
+    i += 1
+  }
+  // (码长, 反转后的码) → 符号
+  let rc = codes(lens)
+  var by: Map<Int, Int> = Map()
+  var si = 0
+  for l in lens {
+    if l > 0 && l <= 9 { by = set(by, l * 1024 + rc[si], si) }
+    si += 1
+  }
+  var fast: List<Int> = []
+  for idx in 0..512 {
+    var e = -1
+    var l = 1
+    while e < 0 && l <= 9 {
+      match get(by, l * 1024 + (idx & ((1 << l) - 1))) {
+        Some(sym) => { e = sym * 16 + l },
+        None      => {},
+      }
+      l += 1
+    }
+    fast = push(fast, e)
+  }
+  Ok(Huff { counts: set(counts, 0, 0), syms: syms, fast: fast })
+}
+
+// 从位位置 pos 起至少 17 位（超出末尾的部分读成 0；调用方每个符号后检查是否越界）
+fn peek(bs: List<Int>, pos: Int) -> Int {
+  let i = pos >> 3
+  let n = len(bs)
+  let b0 = if i < n { bs[i] } else { 0 }
+  let b1 = if i + 1 < n { bs[i + 1] } else { 0 }
+  let b2 = if i + 2 < n { bs[i + 2] } else { 0 }
+  (b0 | (b1 << 8) | (b2 << 16)) >> (pos & 7)
+}
+
+fn bit(bs: List<Int>, pos: Int) -> Result<Int, Str> { Ok(peek(bs, pos) & 1) }
+
+fn bits(bs: List<Int>, pos: Int, n: Int) -> Result<Int, Str> { Ok(peek(bs, pos) & ((1 << n) - 1)) }
+
+fn decode(bs: List<Int>, pos: Int, h: Huff) -> Result<(Int, Int), Str> {
+  if pos > len(bs) * 8 { return Err("flate: 数据意外结束") }
+  let e = h.fast[peek(bs, pos) & 511]
+  if e >= 0 { return Ok((e >> 4, pos + (e & 15))) }
+  var code = 0
+  var first = 0
+  var index = 0
+  var p = pos
+  for l in 1..16 {
+    code = code | bit(bs, p)?
+    p += 1
+    let count = h.counts[l]
+    if code - count < first { return Ok((h.syms[index + code - first], p)) }
+    index += count
+    first = (first + count) << 1
+    code = code << 1
+  }
+  Err("flate: 无效的 Huffman 码")
+}
+
+fn fixed_tables() -> (Huff, Huff) {
+  var ll: List<Int> = []
+  for i in 0..288 { ll = push(ll, if i < 144 { 8 } else if i < 256 { 9 } else if i < 280 { 7 } else { 8 }) }
+  (unwrap(build(ll)), unwrap(build(fill(30, 5))))
+}
+
+const FIXED: (Huff, Huff) = fixed_tables()
+
+fn dynamic_tables(bs: List<Int>, pos: Int) -> Result<(Huff, Huff, Int), Str> {
+  var p = pos
+  let hlit = bits(bs, p, 5)? + 257
+  let hdist = bits(bs, p + 5, 5)? + 1
+  let hclen = bits(bs, p + 10, 4)? + 4
+  p += 14
+  var cl = fill(19, 0)
+  for i in 0..hclen {
+    cl = set(cl, CL_ORDER[i], bits(bs, p, 3)?)
+    p += 3
+  }
+  let ch = build(cl)?
+  var lens: List<Int> = []
+  while len(lens) < hlit + hdist {
+    let (sym, p2) = decode(bs, p, ch)?
+    p = p2
+    if sym < 16 {
+      lens = push(lens, sym)
+    } else {
+      var rep = 0
+      var v = 0
+      if sym == 16 {
+        if len(lens) == 0 { return Err("flate: 重复码前面没有码长") }
+        v = lens[len(lens) - 1]
+        rep = 3 + bits(bs, p, 2)?
+        p += 2
+      } else if sym == 17 {
+        rep = 3 + bits(bs, p, 3)?
+        p += 3
+      } else {
+        rep = 11 + bits(bs, p, 7)?
+        p += 7
+      }
+      if len(lens) + rep > hlit + hdist { return Err("flate: 码长数量超出") }
+      for _ in 0..rep { lens = push(lens, v) }
+    }
+  }
+  if lens[256] == 0 { return Err("flate: 缺少块结束符") }
+  Ok((build(lens[0..hlit])?, build(lens[hlit..hlit + hdist])?, p))
+}
+
+pub fn inflate_at(bs: List<Int>, start: Int) -> Result<(List<Int>, Int), Str> {
+  var out: List<Int> = []
+  var p = start * 8
+  var last = 0
+  while last == 0 {
+    last = bit(bs, p)?
+    let typ = bits(bs, p + 1, 2)?
+    p += 3
+    if typ == 0 {
+      // 存储块：跳到字节边界，读 LEN 和 NLEN
+      let i = (p + 7) >> 3
+      if i + 4 > len(bs) { return Err("flate: 数据意外结束") }
+      let n = bs[i] | (bs[i + 1] << 8)
+      let nn = bs[i + 2] | (bs[i + 3] << 8)
+      if n != (~nn & 65535) { return Err("flate: 存储块长度校验失败") }
+      if i + 4 + n > len(bs) { return Err("flate: 数据意外结束") }
+      out = out + bs[i + 4..i + 4 + n]
+      p = (i + 4 + n) * 8
+    } else if typ == 3 {
+      return Err("flate: 无效的块类型")
+    } else {
+      var lit = FIXED.0
+      var dist = FIXED.1
+      if typ == 2 {
+        let (a, b, p2) = dynamic_tables(bs, p)?
+        lit = a
+        dist = b
+        p = p2
+      }
+      var done = false
+      while !done {
+        let (sym, p2) = decode(bs, p, lit)?
+        p = p2
+        if sym < 256 {
+          out = push(out, sym)
+        } else if sym == 256 {
+          done = true
+        } else {
+          let li = sym - 257
+          if li >= 29 { return Err("flate: 无效的长度码") }
+          let n = LEN_BASE[li] + bits(bs, p, LEN_EXTRA[li])?
+          p += LEN_EXTRA[li]
+          let (ds, p3) = decode(bs, p, dist)?
+          p = p3
+          if ds >= 30 { return Err("flate: 无效的距离码") }
+          let d = DIST_BASE[ds] + bits(bs, p, DIST_EXTRA[ds])?
+          p += DIST_EXTRA[ds]
+          if d > len(out) { return Err("flate: 距离超出已输出的数据") }
+          for _ in 0..n { out = push(out, out[len(out) - d]) }
+        }
+      }
+    }
+  }
+  if p > len(bs) * 8 { return Err("flate: 数据意外结束") }
+  Ok((out, (p + 7) >> 3))
+}
+
+pub fn decompress(bs: List<Int>) -> Result<List<Int>, Str> {
+  let (out, _) = inflate_at(bs, 0)?
+  Ok(out)
+}
+
+// ── 压缩 ──
+// 先用 LZ77 生成记号，再分别算出固定 Huffman、动态 Huffman 和存储三种编码的位数，取最短的
+
+fn stored(bs: List<Int>) -> List<Int> {
+  var out: List<Int> = []
+  var i = 0
+  while true {
+    let n = min(65535, len(bs) - i)
+    let last = i + n >= len(bs)
+    out = out + [if last { 1 } else { 0 }, n & 255, n >> 8, ~n & 255, (~n >> 8) & 255] + bs[i..i + n]
+    i += n
+    if last { break }
+  }
+  out
+}
+
+fn key(bs: List<Int>, i: Int) -> Int { (bs[i] << 16) | (bs[i + 1] << 8) | bs[i + 2] }
+
+fn find_code(base: List<Int>, v: Int) -> Int {
+  var i = len(base) - 1
+  while base[i] > v { i -= 1 }
+  i
+}
+
+// 记号：(长度, 值)；长度为 0 表示字面量（值是字节），否则值是距离
+fn tokens(bs: List<Int>, level: Int) -> List<(Int, Int)> {
+  let chain = if level >= 9 { 128 } else { level * 8 }
+  let lazy = level >= 4
+  // head：3 字节前缀最后出现的位置；prev：同一前缀的上一个位置
+  var head: Map<Int, Int> = Map()
+  var prev: Map<Int, Int> = Map()
+  var out: List<(Int, Int)> = []
+  var i = 0
+  var next_reg = 0
+  let n = len(bs)
+  // 先登记位置 j（只登记一次）
+  while i < n {
+    while next_reg <= i && next_reg + 3 <= n {
+      let k = key(bs, next_reg)
+      match get(head, k) {
+        Some(old) => { prev = set(prev, next_reg, old) },
+        None      => {},
+      }
+      head = set(head, k, next_reg)
+      next_reg += 1
+    }
+    let (best, bestd) = longest(bs, i, head, prev, chain)
+    var take = best >= 3
+    if take && lazy && best < 32 && i + 1 < n {
+      // 惰性匹配：下一个位置的匹配更长时，这里先输出字面量
+      if next_reg <= i + 1 && i + 4 <= n {
+        let k = key(bs, i + 1)
+        match get(head, k) {
+          Some(old) => { prev = set(prev, i + 1, old) },
+          None      => {},
+        }
+        head = set(head, k, i + 1)
+        next_reg = i + 2
+      }
+      let (b2, _) = longest(bs, i + 1, head, prev, chain)
+      if b2 > best { take = false }
+    }
+    if take {
+      out = push(out, (best, bestd))
+      i += best
+    } else {
+      out = push(out, (0, bs[i]))
+      i += 1
+    }
+  }
+  out
+}
+
+fn longest(bs: List<Int>, i: Int, head: Map<Int, Int>, prev: Map<Int, Int>, chain: Int) -> (Int, Int) {
+  let n = len(bs)
+  if i + 3 > n { return (0, 0) }
+  var best = 0
+  var bestd = 0
+  var cand = unwrap_or(get(head, key(bs, i)), -1)
+  // head 里可能就是 i 自己
+  if cand == i { cand = unwrap_or(get(prev, i), -1) }
+  var tries = 0
+  while cand >= 0 && i - cand <= 32768 && tries < chain {
+    if i + best < n && bs[cand + best] == bs[i + best] {
+      var l = 0
+      while l < 258 && i + l < n && bs[cand + l] == bs[i + l] { l += 1 }
+      if l > best {
+        best = l
+        bestd = i - cand
+        if l == 258 { break }
+      }
+    }
+    cand = unwrap_or(get(prev, cand), -1)
+    tries += 1
+  }
+  (best, bestd)
+}
+
+// 带长度上限的 Huffman 码长：超过上限就把频率减半重算
+fn code_lengths(freq0: List<Int>, limit: Int) -> List<Int> {
+  var freq = freq0
+  while true {
+    let lens = huffman(freq)
+    if all(lens, (l) => l <= limit) { return lens }
+    freq = map(freq, (f) => if f == 0 { 0 } else { (f + 1) / 2 })
+  }
+  []
+}
+
+fn huffman(freq: List<Int>) -> List<Int> {
+  let n = len(freq)
+  var lens = fill(n, 0)
+  // 节点：0..n-1 是叶子，之后是内部节点；parent 记录父节点
+  var parent: List<Int> = []
+  var weight: List<Int> = []
+  var active: List<(Int, Int)> = []
+  for i in 0..n {
+    parent = push(parent, -1)
+    weight = push(weight, freq[i])
+    if freq[i] > 0 { active = push(active, (freq[i], i)) }
+  }
+  if len(active) == 0 { return lens }
+  if len(active) == 1 { return set(lens, active[0].1, 1) }
+  active = sort(active)
+  while len(active) > 1 {
+    let (w1, a) = active[0]
+    let (w2, b) = active[1]
+    let id = len(parent)
+    parent = push(parent, -1)
+    weight = push(weight, w1 + w2)
+    parent = set(parent, a, id)
+    parent = set(parent, b, id)
+    // 插入到有序位置
+    let rest = active[2..len(active)]
+    var k = 0
+    while k < len(rest) && rest[k].0 <= w1 + w2 { k += 1 }
+    active = rest[0..k] + [(w1 + w2, id)] + rest[k..len(rest)]
+  }
+  for i in 0..n {
+    if freq[i] > 0 {
+      var d = 0
+      var p = i
+      while parent[p] >= 0 {
+        p = parent[p]
+        d += 1
+      }
+      lens = set(lens, i, d)
+    }
+  }
+  lens
+}
+
+// 规范 Huffman 码
+fn codes(lens: List<Int>) -> List<Int> {
+  var count = fill(16, 0)
+  for l in lens { if l > 0 { count = set(count, l, count[l] + 1) } }
+  var next = fill(16, 0)
+  var c = 0
+  for b in 1..16 {
+    c = (c + count[b - 1]) << 1
+    next = set(next, b, c)
+  }
+  var out: List<Int> = []
+  for l in lens {
+    if l > 0 {
+      out = push(out, rev_bits(next[l], l))
+      next = set(next, l, next[l] + 1)
+    } else {
+      out = push(out, 0)
+    }
+  }
+  out
+}
+
+fn rev_bits(v: Int, n: Int) -> Int {
+  var r = 0
+  for k in 0..n { r = r | (((v >> k) & 1) << (n - 1 - k)) }
+  r
+}
+
+fn fixed_lens() -> List<Int> {
+  var ll: List<Int> = []
+  for i in 0..288 { ll = push(ll, if i < 144 { 8 } else if i < 256 { 9 } else if i < 280 { 7 } else { 8 }) }
+  ll
+}
+
+const FIXED_LL: List<Int> = fixed_lens()
+const FIXED_LL_CODES: List<Int> = codes(FIXED_LL)
+const FIXED_D_CODES: List<Int> = codes(fill(30, 5))
+
+// 码长序列的游程编码：(符号 0..18, 额外位的值)
+fn rle(lens: List<Int>) -> List<(Int, Int)> {
+  var out: List<(Int, Int)> = []
+  var i = 0
+  while i < len(lens) {
+    let v = lens[i]
+    var run = 1
+    while i + run < len(lens) && lens[i + run] == v { run += 1 }
+    if v == 0 && run >= 3 {
+      let r = min(run, 138)
+      out = push(out, if r >= 11 { (18, r - 11) } else { (17, r - 3) })
+      i += r
+    } else if v != 0 && run >= 4 {
+      out = push(out, (v, 0))
+      let r = min(run - 1, 6)
+      out = push(out, (16, r - 3))
+      i += 1 + r
+    } else {
+      out = push(out, (v, 0))
+      i += 1
+    }
+  }
+  out
+}
+
+fn trim_zeros(lens: List<Int>, keep: Int) -> List<Int> {
+  var n = len(lens)
+  while n > keep && lens[n - 1] == 0 { n -= 1 }
+  lens[0..n]
+}
+
+// level：0 只存储，1..9 越大压缩越好、越慢（4 以上启用惰性匹配）
+pub fn compress(bs: List<Int>, level: Int) -> List<Int> {
+  if level <= 0 { return stored(bs) }
+  let toks = tokens(bs, level)
+  // 统计频率
+  var lf = fill(286, 0)
+  var df = fill(30, 0)
+  var extra_bits = 0
+  for (l, v) in toks {
+    if l == 0 {
+      lf = set(lf, v, lf[v] + 1)
+    } else {
+      let li = if l == 258 { 28 } else { find_code(LEN_BASE, l) }
+      let di = find_code(DIST_BASE, v)
+      lf = set(lf, 257 + li, lf[257 + li] + 1)
+      df = set(df, di, df[di] + 1)
+      extra_bits += LEN_EXTRA[li] + DIST_EXTRA[di]
+    }
+  }
+  lf = set(lf, 256, 1)
+  // 保证两张表都至少有两个码（有些解码器不接受只有一个码的表）
+  if count(lf, (f) => f > 0) < 2 { lf = set(lf, 0, max(lf[0], 1)) }
+  var used_d = count(df, (f) => f > 0)
+  if used_d < 2 {
+    df = set(df, 0, max(df[0], 1))
+    df = set(df, 1, max(df[1], 1))
+  }
+  let ll = trim_zeros(code_lengths(lf, 15), 257)
+  let dl = trim_zeros(code_lengths(df, 15), 1)
+  let seq = rle(ll + dl)
+  var cf = fill(19, 0)
+  for (sym, _) in seq { cf = set(cf, sym, cf[sym] + 1) }
+  let cl = code_lengths(cf, 7)
+  var hclen = 19
+  while hclen > 4 && cl[CL_ORDER[hclen - 1]] == 0 { hclen -= 1 }
+  // 位数比较
+  var dbits = 3 + 5 + 5 + 4 + 3 * hclen + extra_bits
+  for (sym, _) in seq { dbits += cl[sym] + (if sym == 16 { 2 } else if sym == 17 { 3 } else if sym == 18 { 7 } else { 0 }) }
+  var fbits = 3 + extra_bits
+  for i in 0..286 {
+    if i < len(ll) { dbits += lf[i] * ll[i] }
+    fbits += lf[i] * FIXED_LL[i]
+  }
+  for i in 0..30 {
+    if i < len(dl) { dbits += df[i] * dl[i] }
+    fbits += df[i] * 5
+  }
+  if len(bs) * 8 + 40 * (len(bs) / 65535 + 1) < min(dbits, fbits) { return stored(bs) }
+  let use_dyn = dbits < fbits
+  let lc = if use_dyn { codes(ll) } else { FIXED_LL_CODES }
+  let lb = if use_dyn { ll } else { FIXED_LL }
+  let dc = if use_dyn { codes(dl) } else { FIXED_D_CODES }
+  let db = if use_dyn { dl } else { fill(30, 5) }
+  // 写位：acc 里攒着还没凑满一个字节的位
+  var out: List<Int> = []
+  var acc = 0
+  var nb = 0
+  var hdr: List<(Int, Int)> = [(1, 1), (if use_dyn { 2 } else { 1 }, 2)]
+  if use_dyn {
+    let cc = codes(cl)
+    hdr = hdr + [(len(ll) - 257, 5), (len(dl) - 1, 5), (hclen - 4, 4)]
+    for k in 0..hclen { hdr = push(hdr, (cl[CL_ORDER[k]], 3)) }
+    for (sym, ex) in seq {
+      hdr = push(hdr, (cc[sym], cl[sym]))
+      if sym == 16 { hdr = push(hdr, (ex, 2)) }
+      if sym == 17 { hdr = push(hdr, (ex, 3)) }
+      if sym == 18 { hdr = push(hdr, (ex, 7)) }
+    }
+  }
+  for (v, w) in hdr {
+    acc = acc | (v << nb)
+    nb += w
+    while nb >= 8 {
+      out = push(out, acc & 255)
+      acc = acc >> 8
+      nb -= 8
+    }
+  }
+  for (l, v) in push(toks, (-1, 256)) {
+    if l <= 0 {
+      acc = acc | (lc[v] << nb)
+      nb += lb[v]
+    } else {
+      let li = if l == 258 { 28 } else { find_code(LEN_BASE, l) }
+      let s = 257 + li
+      acc = acc | (lc[s] << nb)
+      nb += lb[s]
+      acc = acc | ((l - LEN_BASE[li]) << nb)
+      nb += LEN_EXTRA[li]
+      while nb >= 8 {
+        out = push(out, acc & 255)
+        acc = acc >> 8
+        nb -= 8
+      }
+      let di = find_code(DIST_BASE, v)
+      acc = acc | (dc[di] << nb)
+      nb += db[di]
+      acc = acc | ((v - DIST_BASE[di]) << nb)
+      nb += DIST_EXTRA[di]
+    }
+    while nb >= 8 {
+      out = push(out, acc & 255)
+      acc = acc >> 8
+      nb -= 8
+    }
+  }
+  if nb > 0 { out = push(out, acc & 255) }
+  out
+}
+
+pub fn compress_str(s: Str, level: Int) -> List<Int> { compress(__bytes(s), level) }
+
+pub fn decompress_str(bs: List<Int>) -> Result<Str, Str> {
+  let out = decompress(bs)?
+  match __from_bytes(out) {
+    Some(s) => Ok(s),
+    None    => Err("flate: 解压结果不是合法的 UTF-8"),
+  }
+}

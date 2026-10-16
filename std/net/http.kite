@@ -1,0 +1,406 @@
+// std.net.http：HTTP/1.1 客户端与服务器（http:// 与 https://）
+//   http.get(url) / http.post(url, body, content_type) / http.request(method, url, headers, body)
+//   let l = http.listen(8080)?;  http.serve(l, handler)      handler: fn(http.Request) -> http.Response
+//   http.text(200, "hi")、http.json(200, "\{\}")、http.html(...)、with_header(resp, k, v)
+//   let c = http.client(url)?;  c.get("/a"); c.get("/b"); c.close()   复用同一个连接（keep-alive）
+// 头部名一律转成小写。服务器支持 keep-alive：HTTP/1.1 默认保持连接，空闲 5 秒或处理满 100 个请求后关闭
+
+use std.net
+use std.strings
+
+pub type Request = { method: Str, path: Str, query: Str, headers: Map<Str, Str>, body: Str }
+
+pub type Response = { status: Int, headers: Map<Str, Str>, body: Str }
+
+fn lookup(h: Map<Str, Str>, k: Str) -> Option<Str> {
+  if contains(h, k) { Some(h[k]) } else { None }
+}
+
+impl Request {
+  fn header(self, name: Str) -> Option<Str> { lookup(self.headers, lower(name)) }
+}
+
+impl Response {
+  fn header(self, name: Str) -> Option<Str> { lookup(self.headers, lower(name)) }
+}
+
+pub fn response(status: Int, content_type: Str, body: Str) -> Response {
+  Response { status: status, headers: Map([("content-type", content_type)]), body: body }
+}
+
+pub fn text(status: Int, body: Str) -> Response { response(status, "text/plain; charset=utf-8", body) }
+
+pub fn html(status: Int, body: Str) -> Response { response(status, "text/html; charset=utf-8", body) }
+
+pub fn json(status: Int, body: Str) -> Response { response(status, "application/json", body) }
+
+pub fn with_header(r: Response, name: Str, value: Str) -> Response {
+  Response { status: r.status, headers: set(r.headers, lower(name), value), body: r.body }
+}
+
+pub fn reason(status: Int) -> Str {
+  match status {
+    200 => "OK",
+    201 => "Created",
+    202 => "Accepted",
+    204 => "No Content",
+    301 => "Moved Permanently",
+    302 => "Found",
+    304 => "Not Modified",
+    400 => "Bad Request",
+    401 => "Unauthorized",
+    403 => "Forbidden",
+    404 => "Not Found",
+    405 => "Method Not Allowed",
+    409 => "Conflict",
+    413 => "Payload Too Large",
+    500 => "Internal Server Error",
+    502 => "Bad Gateway",
+    503 => "Service Unavailable",
+    _   => "Unknown",
+  }
+}
+
+// ── 报文读写 ──
+fn read_headers(c: net.Conn) -> Result<Map<Str, Str>, Str> {
+  var h = Map()
+  while true {
+    let line = c.read_line()?
+    if line == "" { return Ok(h) }
+    match strings.find(line, ":") {
+      Some(i) => { h = set(h, lower(trim(strings.slice(line, 0, i))), trim(strings.slice(line, i + 1, len(line)))) },
+      None    => { return Err("无效的头部：{line}") },
+    }
+  }
+  Ok(h)
+}
+
+fn hex_num(s: Str) -> Int {
+  if s == "" { return -1 }
+  var n = 0
+  for c in chars(lower(s)) {
+    let o = strings.ord(c)
+    let v = if o >= 48 && o <= 57 { o - 48 } else if o >= 97 && o <= 102 { o - 87 } else { -1 }
+    if v < 0 { return -1 }
+    n = n * 16 + v
+  }
+  n
+}
+
+// to_eof：没有长度信息时一直读到连接关闭（响应），否则当作空（请求）
+fn read_body(c: net.Conn, h: Map<Str, Str>, to_eof: Bool) -> Result<Str, Str> {
+  if contains(lower(unwrap_or(lookup(h, "transfer-encoding"), "")), "chunked") {
+    var out = ""
+    while true {
+      let line = c.read_line()?
+      let size = hex_num(trim(split(line, ";")[0]))
+      if size < 0 { return Err("无效的分块长度：{line}") }
+      if size == 0 {
+        while c.read_line()? != "" {}
+        return Ok(out)
+      }
+      out = out + c.read_bytes(size)?
+      c.read_line()?
+    }
+  }
+  match lookup(h, "content-length") {
+    Some(n) => match parse_int(n) {
+      Ok(k)  => c.read_bytes(k),
+      Err(_) => Err("无效的 Content-Length：{n}"),
+    },
+    None => if to_eof { c.read_all() } else { Ok("") },
+  }
+}
+
+fn head_lines(h: Map<Str, Str>, skip: List<Str>) -> Str {
+  var out = ""
+  for (k, v) in h {
+    if !contains(skip, k) { out = out + "{k}: {v}\r\n" }
+  }
+  out
+}
+
+// ── 客户端 ──
+type Url = { host: Str, port: Int, hostport: Str, path: Str, tls: Bool }
+
+fn parse_url(url: Str) -> Result<Url, Str> {
+  let (rest, tls) = match strings.strip_prefix(url, "http://") {
+    Some(r) => (r, false),
+    None    => match strings.strip_prefix(url, "https://") {
+      Some(r) => (r, true),
+      None    => { return Err("无效的 URL：{url}") },
+    },
+  }
+  let slash = strings.find(rest, "/")
+  let hostport = match slash {
+    Some(i) => strings.slice(rest, 0, i),
+    None    => rest,
+  }
+  let path = match slash {
+    Some(i) => strings.slice(rest, i, len(rest)),
+    None    => "/",
+  }
+  match strings.find(hostport, ":") {
+    Some(i) => match parse_int(strings.slice(hostport, i + 1, len(hostport))) {
+      Ok(p)  => Ok(Url { host: strings.slice(hostport, 0, i), port: p, hostport: hostport, path: path, tls: tls }),
+      Err(_) => Err("无效的 URL：{url}"),
+    },
+    None => Ok(Url { host: hostport, port: if tls { 443 } else { 80 }, hostport: hostport, path: path, tls: tls }),
+  }
+}
+
+fn dial(host: Str, port: Int, tls: Bool, cfg: net.TlsConfig) -> Result<net.Conn, Str> {
+  if tls { net.connect_tls_with(host, port, cfg) } else { net.connect(host, port) }
+}
+
+fn wants_close(h: Map<Str, Str>) -> Bool { contains(lower(unwrap_or(lookup(h, "connection"), "")), "close") }
+
+// 在 c 上发一个请求并读完响应；返回 (响应, 这个连接还能不能继续用)
+fn exchange(c: net.Conn, method: Str, hostport: Str, path: Str, headers: Map<Str, Str>, body: Str, keep: Bool) -> Result<(Response, Bool), Str> {
+  var lower_h = Map()
+  for (k, v) in headers { lower_h = set(lower_h, lower(k), v) }
+  let conn = if keep { "keep-alive" } else { "close" }
+  let head = "{method} {path} HTTP/1.1\r\nHost: {hostport}\r\nConnection: {conn}\r\nContent-Length: {__byte_len(body)}\r\n"
+  c.write(head + head_lines(lower_h, ["host", "connection", "content-length"]) + "\r\n" + body)?
+  let status_line = c.read_line()?
+  let parts = split(status_line, " ")
+  if len(parts) < 2 || !starts_with(parts[0], "HTTP/") { return Err("无效的响应：{status_line}") }
+  let status = match parse_int(parts[1]) {
+    Ok(s)  => s,
+    Err(_) => { return Err("无效的响应：{status_line}") },
+  }
+  let h = read_headers(c)?
+  let framed = method == "HEAD" || status == 204 || status == 304 || contains(h, "content-length")
+    || contains(lower(unwrap_or(lookup(h, "transfer-encoding"), "")), "chunked")
+  let b = if method == "HEAD" || status == 204 || status == 304 { "" } else { read_body(c, h, true)? }
+  Ok((Response { status: status, headers: h, body: b }, keep && framed && !wants_close(h) && parts[0] == "HTTP/1.1"))
+}
+
+// 一次性请求：新建连接，用完关闭
+pub fn request(method: Str, url: Str, headers: Map<Str, Str>, body: Str) -> Result<Response, Str> {
+  request_with(method, url, headers, body, net.tls_config())
+}
+
+// 同 request，但 https 用给定的 TLS 选项（自定义 CA、关闭校验）
+pub fn request_with(method: Str, url: Str, headers: Map<Str, Str>, body: Str, tls: net.TlsConfig) -> Result<Response, Str> {
+  let u = parse_url(url)?
+  let c = dial(u.host, u.port, u.tls, tls)?
+  defer { c.close() }
+  let (resp, _) = exchange(c, method, u.hostport, u.path, headers, body, false)?
+  Ok(resp)
+}
+
+pub fn get(url: Str) -> Result<Response, Str> { request("GET", url, Map(), "") }
+
+pub fn post(url: Str, body: Str, content_type: Str) -> Result<Response, Str> {
+  request("POST", url, Map([("content-type", content_type)]), body)
+}
+
+// 复用连接的客户端。slot 是容量为 1 的通道，当作可变的连接槽：取出连接 → 用 → 放回，
+// 所以多个任务共用一个 Client 也是安全的（请求会排队）
+pub type Client = { host: Str, port: Int, hostport: Str, tls: Bool, cfg: net.TlsConfig, slot: Chan<Option<net.Conn>> }
+
+// url 只取 http(s)://主机:端口 部分；连接在第一次请求时才建立
+pub fn client(url: Str) -> Result<Client, Str> { client_with(url, net.tls_config()) }
+
+pub fn client_with(url: Str, tls: net.TlsConfig) -> Result<Client, Str> {
+  let u = parse_url(url)?
+  let slot = chan(1)
+  send(slot, None)
+  Ok(Client { host: u.host, port: u.port, hostport: u.hostport, tls: u.tls, cfg: tls, slot: slot })
+}
+
+fn take_conn(cl: Client) -> Result<(net.Conn, Bool), Str> {
+  match recv(cl.slot) {
+    Some(Some(c)) => Ok((c, true)),
+    _             => match dial(cl.host, cl.port, cl.tls, cl.cfg) {
+      Ok(c)  => Ok((c, false)),
+      Err(e) => {
+        send(cl.slot, None)
+        Err(e)
+      },
+    },
+  }
+}
+
+impl Client {
+  fn request(self, method: Str, path: Str, headers: Map<Str, Str>, body: Str) -> Result<Response, Str> {
+    let (c, reused) = take_conn(self)?
+    match exchange(c, method, self.hostport, path, headers, body, true) {
+      Ok((resp, alive)) => {
+        if alive { send(self.slot, Some(c)) } else {
+          c.close()
+          send(self.slot, None)
+        }
+        Ok(resp)
+      },
+      Err(e) => {
+        c.close()
+        if !reused {
+          send(self.slot, None)
+          return Err(e)
+        }
+        // 复用的连接可能已被服务器关掉：换一个新连接重试一次
+        match dial(self.host, self.port, self.tls, self.cfg) {
+          Ok(c2) => match exchange(c2, method, self.hostport, path, headers, body, true) {
+            Ok((resp, alive)) => {
+              if alive { send(self.slot, Some(c2)) } else {
+                c2.close()
+                send(self.slot, None)
+              }
+              Ok(resp)
+            },
+            Err(e2) => {
+              c2.close()
+              send(self.slot, None)
+              Err(e2)
+            },
+          },
+          Err(e2) => {
+            send(self.slot, None)
+            Err(e2)
+          },
+        }
+      },
+    }
+  }
+
+  fn get(self, path: Str) -> Result<Response, Str> { self.request("GET", path, Map(), "") }
+
+  fn post(self, path: Str, body: Str, content_type: Str) -> Result<Response, Str> {
+    self.request("POST", path, Map([("content-type", content_type)]), body)
+  }
+
+  fn close(self) {
+    match recv(self.slot) {
+      Some(Some(c)) => c.close(),
+      _             => {},
+    }
+    send(self.slot, None)
+  }
+}
+
+// ── 服务器 ──
+// 监听所有地址；port 为 0 时由系统分配（看 .port）
+pub fn listen(port: Int) -> Result<net.Listener, Str> { net.listen("0.0.0.0", port) }
+
+// HTTPS 服务器：cert / key 是 PEM 文件
+pub fn listen_tls(port: Int, cert: Str, key: Str) -> Result<net.Listener, Str> { net.listen_tls("0.0.0.0", port, cert, key) }
+
+fn send_response(c: net.Conn, r: Response, keep: Bool) -> Result<Unit, Str> {
+  let conn = if keep { "keep-alive" } else { "close" }
+  let head = "HTTP/1.1 {r.status} {reason(r.status)}\r\nContent-Length: {__byte_len(r.body)}\r\nConnection: {conn}\r\n"
+  c.write(head + head_lines(r.headers, ["content-length", "connection"]) + "\r\n" + r.body)
+}
+
+// HTTP/1.1 默认保持连接，HTTP/1.0 要客户端明确要求
+fn keep_alive(version: Str, h: Map<Str, Str>) -> Bool {
+  let v = lower(unwrap_or(lookup(h, "connection"), ""))
+  if version == "HTTP/1.1" { !contains(v, "close") } else { contains(v, "keep-alive") }
+}
+
+// 第一个请求最多等 10 秒，之后的空闲超时 5 秒；一个连接最多处理 100 个请求
+fn serve_conn(c: net.Conn, handler: fn(Request) -> Response) -> Result<Unit, Str> {
+  var n = 0
+  while true {
+    let line = match c.read_line_within(if n == 0 { 10000 } else { 5000 })? {
+      Some(l) => l,
+      None    => { return Ok(()) },
+    }
+    if line != "" {
+      let parts = split(line, " ")
+      if len(parts) != 3 { return send_response(c, text(400, "Bad Request"), false) }
+      let target = parts[1]
+      let (path, query) = match strings.find(target, "?") {
+        Some(i) => (strings.slice(target, 0, i), strings.slice(target, i + 1, len(target))),
+        None    => (target, ""),
+      }
+      let h = read_headers(c)?
+      let body = read_body(c, h, false)?
+      let req = Request { method: parts[0], path: path, query: query, headers: h, body: body }
+      let resp = match recover(() => handler(req)) {
+        Ok(r)  => r,
+        Err(_) => text(500, "Internal Server Error"),
+      }
+      n += 1
+      let keep = keep_alive(parts[2], h) && !wants_close(resp.headers) && n < 100
+      send_response(c, resp, keep)?
+      if !keep { return Ok(()) }
+    }
+  }
+  Ok(())
+}
+
+// 接受一个连接，处理它上面的所有请求（keep-alive）；handler panic 时回复 500
+pub fn handle_one(l: net.Listener, handler: fn(Request) -> Response) -> Result<Unit, Str> {
+  let c = l.accept()?
+  defer { c.close() }
+  serve_conn(c, handler)
+}
+
+// 依次处理 n 个连接（测试和脚本用）
+pub fn serve_n(l: net.Listener, n: Int, handler: fn(Request) -> Response) {
+  for _ in 0..n { handle_one(l, handler) }
+}
+
+// 一直服务下去：workers 个任务并发地接受连接（每个任务同一时间服务一个连接）
+pub fn serve_with(l: net.Listener, workers: Int, handler: fn(Request) -> Response) {
+  par_map(0..workers |> map((i) => i), (_) => {
+    while true { handle_one(l, handler) }
+  })
+}
+
+pub fn serve(l: net.Listener, handler: fn(Request) -> Response) { serve_with(l, 32, handler) }
+
+// 把 "a=1&b=x%20y" 解析成 Map（处理 %XX 和 +）
+pub fn parse_query(q: Str) -> Map<Str, Str> {
+  var m = Map()
+  for part in split(q, "&") {
+    if part != "" {
+      match strings.find(part, "=") {
+        Some(i) => { m = set(m, url_decode(strings.slice(part, 0, i)), url_decode(strings.slice(part, i + 1, len(part)))) },
+        None    => { m = set(m, url_decode(part), "") },
+      }
+    }
+  }
+  m
+}
+
+// %XX 是 UTF-8 字节：连续的几个先收集起来再解码
+pub fn url_decode(s: Str) -> Str {
+  let cs = chars(s)
+  var out = ""
+  var bytes = []
+  var i = 0
+  while i < len(cs) {
+    let b = if cs[i] == "%" && i + 2 < len(cs) { hex_num(cs[i + 1] + cs[i + 2]) } else { -1 }
+    if b >= 0 {
+      bytes = push(bytes, b)
+      i += 3
+    } else {
+      out = out + utf8(bytes) + (if cs[i] == "+" { " " } else { cs[i] })
+      bytes = []
+      i += 1
+    }
+  }
+  out + utf8(bytes)
+}
+
+fn utf8(bs: List<Int>) -> Str {
+  var out = ""
+  var i = 0
+  while i < len(bs) {
+    let b = bs[i]
+    let n = if b < 128 { 1 } else if b >= 240 { 4 } else if b >= 224 { 3 } else if b >= 192 { 2 } else { 0 }
+    if n == 0 || i + n > len(bs) {
+      out = out + strings.chr(65533)
+      i += 1
+    } else {
+      var cp = if n == 1 { b } else if n == 2 { b % 32 } else if n == 3 { b % 16 } else { b % 8 }
+      for k in 1..n { cp = cp * 64 + bs[i + k] % 64 }
+      out = out + strings.chr(cp)
+      i += n
+    }
+  }
+  out
+}

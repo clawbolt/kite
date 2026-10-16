@@ -1,0 +1,24 @@
+// 结构体更新语法：Name { 字段: 值, ..base }，没写的字段从 base 复制
+type Cfg = { host: Str, port: Int, debug: Bool }
+type Box<T> = { v: T, n: Int }
+
+fn default_cfg() -> Cfg { Cfg { host: "localhost", port: 80, debug: false } }
+
+fn main() {
+  let c = default_cfg()
+  let d = Cfg { port: 8080, ..c }
+  let e = Cfg { debug: true, ..default_cfg() }
+  let f = Cfg { ..d }
+  let b = Box { v: "x", n: 1 }
+  let b2 = Box { n: 2, ..b }
+  print(d, e, f, b2, c)
+  let g = Cfg {
+    host: "example.com",
+    ..e
+  }
+  print(g.host, g.port, g.debug)
+  // 原值不变（结构体是值语义）
+  var cs = [c]
+  for i in 1..=3 { cs = cs + [Cfg { port: c.port + i, ..c }] }
+  print(cs.map((x) => x.port))
+}

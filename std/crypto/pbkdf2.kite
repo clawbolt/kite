@@ -1,0 +1,27 @@
+// std.crypto.pbkdf2：PBKDF2（RFC 8018，对齐 Go 1.24 起的 crypto/pbkdf2）
+//   key(h, block_size, password, salt, iter, n) -> Result<List<Int>, Str>：摘要的表示和 std.crypto.hmac 相同
+//   错误信息和 Go 相同："pbkdf2: keyLength must be larger than 0"、"pbkdf2: keyLength too long"
+//   和 Go 的差别：没有 FIPS 140-only 模式。
+
+use std.crypto.hmac
+
+pub fn key(h: fn(List<Int>) -> List<Int>, block_size: Int, password: Str, salt: List<Int>, iter: Int, n: Int) -> Result<List<Int>, Str> {
+  if n <= 0 { return Err("pbkdf2: keyLength must be larger than 0") }
+  let pw = __bytes(password)
+  let hash_len = len(h([]))
+  let blocks = (n + hash_len - 1) / hash_len
+  if blocks > 4294967295 { return Err("pbkdf2: keyLength too long") }
+  var dk: List<Int> = []
+  for block in 1..blocks + 1 {
+    var u = hmac.sum(h, block_size, pw, salt + [(block >> 24) & 255, (block >> 16) & 255, (block >> 8) & 255, block & 255])
+    var t = u
+    for _ in 2..iter + 1 {
+      u = hmac.sum(h, block_size, pw, u)
+      var x: List<Int> = []
+      for i in 0..hash_len { x = push(x, t[i] ^ u[i]) }
+      t = x
+    }
+    dk = dk + t
+  }
+  Ok(dk[..n])
+}

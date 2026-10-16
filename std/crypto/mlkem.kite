@@ -1,0 +1,291 @@
+// std.crypto.mlkem：对齐 Go 1.27 的 crypto/mlkem（FIPS 203 的 ML-KEM-768 和 ML-KEM-1024）
+//   new_decapsulation_key(k, seed)：k = 3 是 768，k = 4 是 1024；seed 64 字节（d || z）。
+//   encapsulate_with(ek, m)：相当于 mlkemtest.Encapsulate768/1024（给定 32 字节随机数），encapsulate(ek) 用系统随机数。
+//   错误文字与 Go 相同
+
+use std.crypto.sha3
+use std.crypto.rand as crand
+
+const Q: Int = 3329
+const N: Int = 256
+
+pub type EncapsulationKey = { k: Int, t: List<List<Int>>, rho: List<Int>, h: List<Int>, a: List<List<Int>> }
+
+pub type DecapsulationKey = { d: List<Int>, z: List<Int>, ek: EncapsulationKey, s: List<List<Int>> }
+
+fn du(k: Int) -> Int { if k == 3 { 10 } else { 11 } }
+fn dv(k: Int) -> Int { if k == 3 { 4 } else { 5 } }
+
+pub fn ciphertext_size(k: Int) -> Int { k * 32 * du(k) + 32 * dv(k) }
+pub fn encapsulation_key_size(k: Int) -> Int { k * 384 + 32 }
+
+fn bitrev7(x: Int) -> Int {
+  var r = 0
+  for i in 0..7 { r = r | (((x >> i) & 1) << (6 - i)) }
+  r
+}
+
+fn pow17(e: Int) -> Int {
+  var r = 1
+  for _ in 0..e { r = r * 17 % Q }
+  r
+}
+
+fn zetas() -> List<Int> { map(0..128, (i) => pow17(bitrev7(i))) }
+
+fn gammas() -> List<Int> { map(0..128, (i) => pow17(2 * bitrev7(i) + 1)) }
+
+fn ntt(f0: List<Int>, z: List<Int>) -> List<Int> {
+  var f = f0
+  var i = 1
+  var len_ = 128
+  while len_ >= 2 {
+    var start = 0
+    while start < 256 {
+      let zeta = z[i]
+      i += 1
+      for j in start..start + len_ {
+        let t = zeta * f[j + len_] % Q
+        let a = f[j]
+        f = set(f, j + len_, (a - t + Q) % Q)
+        f = set(f, j, (a + t) % Q)
+      }
+      start += 2 * len_
+    }
+    len_ = len_ / 2
+  }
+  f
+}
+
+fn inv_ntt(f0: List<Int>, z: List<Int>) -> List<Int> {
+  var f = f0
+  var i = 127
+  var len_ = 2
+  while len_ <= 128 {
+    var start = 0
+    while start < 256 {
+      let zeta = z[i]
+      i -= 1
+      for j in start..start + len_ {
+        let t = f[j]
+        let u = f[j + len_]
+        f = set(f, j, (t + u) % Q)
+        f = set(f, j + len_, zeta * ((u - t + Q) % Q) % Q)
+      }
+      start += 2 * len_
+    }
+    len_ = len_ * 2
+  }
+  map(f, (x) => x * 3303 % Q)
+}
+
+fn ntt_mul(f: List<Int>, g: List<Int>, gm: List<Int>) -> List<Int> {
+  var h: List<Int> = []
+  for i in 0..128 {
+    let a0 = f[2 * i]
+    let a1 = f[2 * i + 1]
+    let b0 = g[2 * i]
+    let b1 = g[2 * i + 1]
+    h = push(h, (a0 * b0 + a1 * b1 % Q * gm[i]) % Q)
+    h = push(h, (a0 * b1 + a1 * b0) % Q)
+  }
+  h
+}
+
+fn padd(a: List<Int>, b: List<Int>) -> List<Int> { map(0..256, (i) => (a[i] + b[i]) % Q) }
+fn psub(a: List<Int>, b: List<Int>) -> List<Int> { map(0..256, (i) => (a[i] - b[i] + Q) % Q) }
+fn zero_poly() -> List<Int> { map(0..256, (_) => 0) }
+
+fn sample_ntt(rho: List<Int>, ii: Int, jj: Int) -> List<Int> {
+  var sp = sha3.new_shake128().write(rho + [ii, jj])
+  var a: List<Int> = []
+  var buf: List<Int> = []
+  var off = 0
+  loop {
+    if off >= len(buf) {
+      let (b, sp2) = sp.read(168)
+      buf = b
+      sp = sp2
+      off = 0
+    }
+    let d1 = buf[off] | ((buf[off + 1] & 15) << 8)
+    let d2 = (buf[off + 1] >> 4) | (buf[off + 2] << 4)
+    off += 3
+    if d1 < Q { a = push(a, d1) }
+    if len(a) >= 256 { break }
+    if d2 < Q { a = push(a, d2) }
+    if len(a) >= 256 { break }
+  }
+  a
+}
+
+fn cbd(s: List<Int>, b: Int) -> List<Int> {
+  let bs = sha3.sum_shake256(s + [b], 128)
+  var f: List<Int> = []
+  for x in bs {
+    f = push(f, ((x & 1) + ((x >> 1) & 1) - ((x >> 2) & 1) - ((x >> 3) & 1) + Q) % Q)
+    f = push(f, (((x >> 4) & 1) + ((x >> 5) & 1) - ((x >> 6) & 1) - ((x >> 7) & 1) + Q) % Q)
+  }
+  f
+}
+
+// 每个系数 d 位，小端位序
+fn encode_bits(f: List<Int>, d: Int) -> List<Int> {
+  var out: List<Int> = []
+  var acc = 0
+  var nb = 0
+  for x in f {
+    acc = acc | (x << nb)
+    nb += d
+    while nb >= 8 {
+      out = push(out, acc & 255)
+      acc = acc >> 8
+      nb -= 8
+    }
+  }
+  out
+}
+
+fn decode_bits(b: List<Int>, d: Int) -> List<Int> {
+  var out: List<Int> = []
+  var acc = 0
+  var nb = 0
+  let mask = (1 << d) - 1
+  for x in b {
+    acc = acc | (x << nb)
+    nb += 8
+    while nb >= d {
+      out = push(out, acc & mask)
+      acc = acc >> d
+      nb -= d
+    }
+  }
+  out
+}
+
+fn compress(x: Int, d: Int) -> Int { (((x << (d + 1)) + Q) / (2 * Q)) & ((1 << d) - 1) }
+
+fn decompress(y: Int, d: Int) -> Int { (Q * y + (1 << (d - 1))) >> d }
+
+fn byte_decode12(b: List<Int>) -> Result<List<Int>, Str> {
+  if len(b) != 384 { return Err("mlkem: invalid encoding length") }
+  let f = decode_bits(b, 12)
+  for x in f { if x >= Q { return Err("mlkem: invalid polynomial encoding") } }
+  Ok(f)
+}
+
+fn ek_bytes(ek: EncapsulationKey) -> List<Int> { fold(ek.t, [], (acc, t) => acc + encode_bits(t, 12)) + ek.rho }
+
+impl EncapsulationKey {
+  pub fn bytes(self) -> List<Int> { ek_bytes(self) }
+}
+
+fn matrix(rho: List<Int>, k: Int) -> List<List<Int>> {
+  var a: List<List<Int>> = []
+  for i in 0..k { for j in 0..k { a = push(a, sample_ntt(rho, j, i)) } }
+  a
+}
+
+pub fn new_decapsulation_key(k: Int, seed: List<Int>) -> Result<DecapsulationKey, Str> {
+  if len(seed) != 64 { return Err("mlkem: invalid seed length") }
+  let z = zetas()
+  let gm = gammas()
+  let d = seed[..32]
+  let g = sha3.sum512(d + [k])
+  let rho = g[..32]
+  let sigma = g[32..]
+  let a = matrix(rho, k)
+  var nn = 0
+  var s: List<List<Int>> = []
+  for _ in 0..k {
+    s = push(s, ntt(cbd(sigma, nn), z))
+    nn += 1
+  }
+  var e: List<List<Int>> = []
+  for _ in 0..k {
+    e = push(e, ntt(cbd(sigma, nn), z))
+    nn += 1
+  }
+  var t: List<List<Int>> = []
+  for i in 0..k {
+    var ti = e[i]
+    for j in 0..k { ti = padd(ti, ntt_mul(a[i * k + j], s[j], gm)) }
+    t = push(t, ti)
+  }
+  let ek0 = EncapsulationKey { k: k, t: t, rho: rho, h: [], a: a }
+  let ek = EncapsulationKey { h: sha3.sum256(ek_bytes(ek0)), ..ek0 }
+  Ok(DecapsulationKey { d: d, z: seed[32..], ek: ek, s: s })
+}
+
+pub fn new_encapsulation_key(k: Int, b: List<Int>) -> Result<EncapsulationKey, Str> {
+  if len(b) != encapsulation_key_size(k) { return Err("mlkem: invalid encapsulation key length") }
+  var t: List<List<Int>> = []
+  for i in 0..k { t = push(t, byte_decode12(b[384 * i..384 * (i + 1)])?) }
+  let rho = b[384 * k..]
+  Ok(EncapsulationKey { k: k, t: t, rho: rho, h: sha3.sum256(b), a: matrix(rho, k) })
+}
+
+fn pke_encrypt(ek: EncapsulationKey, m: List<Int>, rnd: List<Int>) -> List<Int> {
+  let k = ek.k
+  let z = zetas()
+  let gm = gammas()
+  var nn = 0
+  var r: List<List<Int>> = []
+  for _ in 0..k {
+    r = push(r, ntt(cbd(rnd, nn), z))
+    nn += 1
+  }
+  var e1: List<List<Int>> = []
+  for _ in 0..k {
+    e1 = push(e1, cbd(rnd, nn))
+    nn += 1
+  }
+  let e2 = cbd(rnd, nn)
+  var c: List<Int> = []
+  for i in 0..k {
+    var uh = zero_poly()
+    for j in 0..k { uh = padd(uh, ntt_mul(ek.a[j * k + i], r[j], gm)) }
+    let u = padd(e1[i], inv_ntt(uh, z))
+    c = c + encode_bits(map(u, (x) => compress(x, du(k))), du(k))
+  }
+  let mu = map(decode_bits(m, 1), (b) => decompress(b, 1))
+  var vh = zero_poly()
+  for i in 0..k { vh = padd(vh, ntt_mul(ek.t[i], r[i], gm)) }
+  let v = padd(padd(inv_ntt(vh, z), e2), mu)
+  c + encode_bits(map(v, (x) => compress(x, dv(k))), dv(k))
+}
+
+// mlkemtest.Encapsulate768/1024：(共享密钥, 密文)
+pub fn encapsulate_with(ek: EncapsulationKey, m: List<Int>) -> Result<(List<Int>, List<Int>), Str> {
+  if len(m) != 32 { return Err("mlkemtest: Encapsulate{if ek.k == 3 { 768 } else { 1024 }}: random must be 32 bytes") }
+  let g = sha3.sum512(m + ek.h)
+  Ok((g[..32], pke_encrypt(ek, m, g[32..])))
+}
+
+pub fn encapsulate(ek: EncapsulationKey) -> (List<Int>, List<Int>) { unwrap(encapsulate_with(ek, crand.read(32))) }
+
+impl DecapsulationKey {
+  pub fn bytes(self) -> List<Int> { self.d + self.z }
+
+  pub fn encapsulation_key(self) -> EncapsulationKey { self.ek }
+
+  pub fn decapsulate(self, c: List<Int>) -> Result<List<Int>, Str> {
+    let k = self.ek.k
+    if len(c) != ciphertext_size(k) { return Err("mlkem: invalid ciphertext length") }
+    let z = zetas()
+    let gm = gammas()
+    let ub = 32 * du(k)
+    var mask = zero_poly()
+    for i in 0..k {
+      let u = map(decode_bits(c[ub * i..ub * (i + 1)], du(k)), (y) => decompress(y, du(k)))
+      mask = padd(mask, ntt_mul(self.s[i], ntt(u, z), gm))
+    }
+    let v = map(decode_bits(c[ub * k..], dv(k)), (y) => decompress(y, dv(k)))
+    let w = psub(v, inv_ntt(mask, z))
+    let m = encode_bits(map(w, (x) => compress(x, 1)), 1)
+    let g = sha3.sum512(m + self.ek.h)
+    let kout = sha3.sum_shake256(self.z + c, 32)
+    let c1 = pke_encrypt(self.ek, m, g[32..])
+    Ok(if c1 == c { g[..32] } else { kout })
+  }
+}

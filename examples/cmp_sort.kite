@@ -1,0 +1,50 @@
+// sort / min / max 用在实现了 Cmp 的自定义类型上；sort_with 接受自定义比较函数
+type Version = { major: Int, minor: Int, patch: Int }
+
+impl Cmp for Version {
+  fn cmp(self, o: Version) -> Int {
+    if self.major != o.major { self.major - o.major }
+    else if self.minor != o.minor { self.minor - o.minor }
+    else { self.patch - o.patch }
+  }
+}
+
+impl Show for Version {
+  fn show(self) -> Str { "v{self.major}.{self.minor}.{self.patch}" }
+}
+
+enum Level { Low, Mid, High }
+
+impl Cmp for Level {
+  fn cmp(self, o: Level) -> Int { rank(self) - rank(o) }
+}
+
+fn rank(l: Level) -> Int {
+  match l {
+    Low  => 0,
+    Mid  => 1,
+    High => 2,
+  }
+}
+
+fn top<T: Cmp>(xs: List<T>, n: Int) -> List<T> { sort(xs).reverse().take(n) }
+
+fn main() {
+  let vs = [
+    Version { major: 1, minor: 2, patch: 0 },
+    Version { major: 0, minor: 9, patch: 7 },
+    Version { major: 1, minor: 10, patch: 1 },
+    Version { major: 1, minor: 2, patch: 3 },
+  ]
+  print(sort(vs).map((v) => v.show()))
+  print(min(vs).show(), max(vs).show())
+  print(max(vs[0], vs[3]).show(), min(vs[0], vs[3]).show())
+  print(vs |> sort |> len)
+  print(top(vs, 2).map((v) => v.show()))
+  print(sort([High, Low, Mid, Low]), max([Low, High, Mid]))
+  print(vs[0] < vs[2], vs[1] >= vs[3])
+  // sort_with：自定义比较函数，稳定排序
+  let words = ["pear", "fig", "banana", "kiwi", "apple"]
+  print(sort_with(words, (a, b) => len(a) - len(b)))
+  print(sort_with([3, 1, 2], (a, b) => b - a))
+}

@@ -1,0 +1,33 @@
+use std.container.list
+use std.container.ring
+fn main() {
+  var l = list.new()
+  let (l1, e4) = l.push_back(4)
+  let (l2, e1) = l1.push_front(1)
+  let (l3, oe3) = l2.insert_before(3, e4)
+  let e3 = unwrap(oe3)
+  let (l4, oe2) = l3.insert_after(2, e1)
+  let e2 = unwrap(oe2)
+  l = l4
+  print(l.values(), l.len())
+  l = l.move_to_back(e1)
+  print(l.values())
+  l = l.move_to_front(e4).move_before(e3, e4).move_after(e2, e3)
+  print(l.values())
+  let (l5, v) = l.remove(e3)
+  print(l5.values(), v, l5.remove(e3).1, l5.value(unwrap(l5.next(unwrap(l5.front())))), l5.prev(unwrap(l5.front())) == None)
+  var cur = l5.back()
+  var rev: List<Int> = []
+  while is_some(cur) {
+    let e = unwrap(cur)
+    rev = push(rev, l5.value(e))
+    cur = l5.prev(e)
+  }
+  print(rev, l5.push_back_list(list.from_list([7, 8])).values(), l5.push_front_list(list.from_list([7, 8])).values(), l5.set_value(e2, 20).values(), l5.init().len())
+  let r = ring.new([1, 2, 3, 4, 5])
+  print(r.values(), r.move(2).values(), r.move(-1).value(), r.next().next().prev().value(), r.len())
+  let s = ring.new([10, 20])
+  print(r.link(s).values(), r.move(3).link(s).values())
+  let (rest, removed) = r.unlink(2)
+  print(rest.values(), unwrap(removed).values(), r.unlink(7).0.values())
+}

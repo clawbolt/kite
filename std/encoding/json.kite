@@ -1,0 +1,521 @@
+// std.encoding.json：JSON 解析与生成
+//   json.parse(text)      -> Result<Json, Str>
+//   json.stringify(v)     紧凑输出；对象的键按字典序排列，所以输出是确定的
+//   json.pretty(v)        两个空格缩进
+//   json.field / at / as_str / as_int / as_float / as_bool 取值，不匹配时为 None
+// 整数（没有小数点和指数、且在 64 位范围内）解析为 JInt，其余数字为 JNum
+//
+// 和 Go 1.27 的 encoding/json 一致的部分（输入输出是字节列表，语法层在 std.encoding.json.jsontext）：
+//   valid(bs)、check_valid(bs) -> Option<SyntaxError>（msg 和 offset 同 Go 的 *json.SyntaxError）
+//   compact(bs) / indent(bs, prefix, ind) -> Result<List<Int>, SyntaxError>；html_escape(bs)
+//   unmarshal(bs) -> Result<Json, Str>：相当于 Unmarshal 到 any（数字一律 JNum，重复的键后者生效，
+//     坏的 UTF-8 和代理对换成 U+FFFD）
+//   marshal(v) / marshal_indent(v, prefix, ind) -> Result<List<Int>, Str>：键按字节序排序（Go 的 map），
+//     转义 < > & 和 U+2028/2029，JInt 原样输出，JNum 用 Go 的浮点格式，NaN / Inf 报错
+
+use std.encoding.json.jsontext as jt
+use std.strconv
+
+pub enum Json {
+  JNull
+  JBool(b: Bool)
+  JInt(i: Int)
+  JNum(f: Float)
+  JStr(s: Str)
+  JArr(items: List<Json>)
+  JObj(fields: Map<Str, Json>)
+}
+
+// ── 解析 ──
+fn fail(i: Int, msg: Str) -> Str { "JSON 解析错误（第 {i} 个字符）：{msg}" }
+
+fn is_digit(c: Str) -> Bool {
+  let o = __ord(c)
+  o >= 48 && o <= 57
+}
+
+fn skip_ws(cs: List<Str>, i: Int) -> Int {
+  var j = i
+  while j < len(cs) {
+    let o = __ord(cs[j])
+    if o != 32 && o != 10 && o != 9 && o != 13 { return j }
+    j += 1
+  }
+  j
+}
+
+fn word(cs: List<Str>, i: Int, w: Str) -> Bool {
+  let ws = chars(w)
+  if i + len(ws) > len(cs) { return false }
+  var k = 0
+  while k < len(ws) {
+    if cs[i + k] != ws[k] { return false }
+    k += 1
+  }
+  true
+}
+
+pub fn parse(text: Str) -> Result<Json, Str> {
+  let cs = chars(text)
+  let (v, i) = value(cs, skip_ws(cs, 0))?
+  let j = skip_ws(cs, i)
+  if j < len(cs) { return Err(fail(j, "多余的内容")) }
+  Ok(v)
+}
+
+fn value(cs: List<Str>, i: Int) -> Result<(Json, Int), Str> {
+  if i >= len(cs) { return Err(fail(i, "意外的结尾")) }
+  let c = cs[i]
+  if c == "\{" { return object(cs, i + 1) }
+  if c == "[" { return array(cs, i + 1) }
+  if c == "\"" {
+    let (s, j) = string(cs, i + 1)?
+    return Ok((JStr(s), j))
+  }
+  if word(cs, i, "true") { return Ok((JBool(true), i + 4)) }
+  if word(cs, i, "false") { return Ok((JBool(false), i + 5)) }
+  if word(cs, i, "null") { return Ok((JNull, i + 4)) }
+  if c == "-" || is_digit(c) { return number(cs, i) }
+  Err(fail(i, "意外的字符 {c}"))
+}
+
+fn digits(cs: List<Str>, i: Int) -> Int {
+  var j = i
+  while j < len(cs) && is_digit(cs[j]) { j += 1 }
+  j
+}
+
+fn number(cs: List<Str>, i: Int) -> Result<(Json, Int), Str> {
+  var j = i
+  var frac = false
+  if cs[j] == "-" { j += 1 }
+  let d = digits(cs, j)
+  if d == j { return Err(fail(i, "无效的数字")) }
+  j = d
+  if j < len(cs) && cs[j] == "." {
+    let f = digits(cs, j + 1)
+    if f == j + 1 { return Err(fail(i, "无效的数字")) }
+    j = f
+    frac = true
+  }
+  if j < len(cs) && (cs[j] == "e" || cs[j] == "E") {
+    j += 1
+    if j < len(cs) && (cs[j] == "+" || cs[j] == "-") { j += 1 }
+    let e = digits(cs, j)
+    if e == j { return Err(fail(i, "无效的数字")) }
+    j = e
+    frac = true
+  }
+  var text = ""
+  for k in i..j { text = text + cs[k] }
+  if !frac {
+    match parse_int(text) {
+      Ok(n) => { return Ok((JInt(n), j)) },
+      Err(_) => {},
+    }
+  }
+  match parse_float(text) {
+    Ok(x) => Ok((JNum(x), j)),
+    Err(_) => Err(fail(i, "无效的数字")),
+  }
+}
+
+fn hex_val(c: Str) -> Int {
+  let o = __ord(c)
+  if o >= 48 && o <= 57 { o - 48 } else if o >= 97 && o <= 102 { o - 87 } else if o >= 65 && o <= 70 { o - 55 } else { -1 }
+}
+
+fn hex4(cs: List<Str>, i: Int) -> Result<Int, Str> {
+  if i + 4 > len(cs) { return Err(fail(i, "\\u 后面需要 4 位十六进制数")) }
+  var n = 0
+  for k in 0..4 {
+    let h = hex_val(cs[i + k])
+    if h < 0 { return Err(fail(i, "\\u 后面需要 4 位十六进制数")) }
+    n = n * 16 + h
+  }
+  Ok(n)
+}
+
+fn escape(e: Str) -> Str {
+  match e {
+    "\"" => "\"",
+    "\\" => "\\",
+    "/" => "/",
+    "b" => __chr(8),
+    "f" => __chr(12),
+    "n" => "\n",
+    "r" => __chr(13),
+    "t" => "\t",
+    _ => "",
+  }
+}
+
+fn string(cs: List<Str>, i: Int) -> Result<(Str, Int), Str> {
+  var out = ""
+  var j = i
+  while j < len(cs) {
+    let c = cs[j]
+    if c == "\"" { return Ok((out, j + 1)) }
+    if c == "\\" {
+      if j + 1 >= len(cs) { return Err(fail(j, "字符串没有结束")) }
+      let e = cs[j + 1]
+      if e == "u" {
+        var code = hex4(cs, j + 2)?
+        j += 6
+        // UTF-16 代理对
+        if code >= 55296 && code <= 56319 && j + 1 < len(cs) && cs[j] == "\\" && cs[j + 1] == "u" {
+          let lo = hex4(cs, j + 2)?
+          if lo >= 56320 && lo <= 57343 {
+            code = 65536 + (code - 55296) * 1024 + (lo - 56320)
+            j += 6
+          }
+        }
+        out = out + __chr(code)
+      } else {
+        let m = escape(e)
+        if m == "" { return Err(fail(j, "无效的转义 \\{e}")) }
+        out = out + m
+        j += 2
+      }
+    } else {
+      if __ord(c) < 32 { return Err(fail(j, "字符串里不能有控制字符")) }
+      out = out + c
+      j += 1
+    }
+  }
+  Err(fail(i - 1, "字符串没有结束"))
+}
+
+fn array(cs: List<Str>, i: Int) -> Result<(Json, Int), Str> {
+  var xs = []
+  var j = skip_ws(cs, i)
+  if j < len(cs) && cs[j] == "]" { return Ok((JArr(xs), j + 1)) }
+  while true {
+    let (v, k) = value(cs, skip_ws(cs, j))?
+    xs = push(xs, v)
+    j = skip_ws(cs, k)
+    if j < len(cs) && cs[j] == "," {
+      j += 1
+      continue
+    }
+    if j < len(cs) && cs[j] == "]" { return Ok((JArr(xs), j + 1)) }
+    return Err(fail(j, "这里应该是 , 或 ]"))
+  }
+  Err(fail(j, "意外的结尾"))
+}
+
+fn object(cs: List<Str>, i: Int) -> Result<(Json, Int), Str> {
+  var m = Map()
+  var j = skip_ws(cs, i)
+  if j < len(cs) && cs[j] == "\}" { return Ok((JObj(m), j + 1)) }
+  while true {
+    j = skip_ws(cs, j)
+    if j >= len(cs) || cs[j] != "\"" { return Err(fail(j, "这里应该是字符串键")) }
+    let (key, k1) = string(cs, j + 1)?
+    j = skip_ws(cs, k1)
+    if j >= len(cs) || cs[j] != ":" { return Err(fail(j, "这里应该是 :")) }
+    let (v, k2) = value(cs, skip_ws(cs, j + 1))?
+    m = set(m, key, v)
+    j = skip_ws(cs, k2)
+    if j < len(cs) && cs[j] == "," {
+      j += 1
+      continue
+    }
+    if j < len(cs) && cs[j] == "\}" { return Ok((JObj(m), j + 1)) }
+    return Err(fail(j, "这里应该是 , 或 \}"))
+  }
+  Err(fail(j, "意外的结尾"))
+}
+
+// ── 生成 ──
+fn hex2(n: Int) -> Str {
+  let h = chars("0123456789abcdef")
+  h[n / 16] + h[n % 16]
+}
+
+fn quote_str(s: Str) -> Str {
+  var out = "\""
+  for c in chars(s) {
+    let o = __ord(c)
+    out = out + (if c == "\"" { "\\\"" } else if c == "\\" { "\\\\" } else if o == 10 { "\\n" } else if o == 13 { "\\r" } else if o == 9 { "\\t" } else if o < 32 { "\\u00" + hex2(o) } else { c })
+  }
+  out + "\""
+}
+
+fn num(x: Float) -> Str { if x - x != 0.0 { "null" } else { "{x}" } }
+
+pub fn stringify(v: Json) -> Str {
+  match v {
+    JNull => "null",
+    JBool(b) => if b { "true" } else { "false" },
+    JInt(n) => "{n}",
+    JNum(x) => num(x),
+    JStr(s) => quote_str(s),
+    JArr(xs) => "[" + join(map(xs, (x) => stringify(x)), ",") + "]",
+    JObj(m) => "\{" + join(map(sort(keys(m)), (k) => quote_str(k) + ":" + stringify(unwrap(get(m, k)))), ",") + "\}",
+  }
+}
+
+fn ind_str(n: Int) -> Str {
+  var s = ""
+  for _ in 0..n { s = s + "  " }
+  s
+}
+
+fn pp(v: Json, lv: Int) -> Str {
+  match v {
+    JArr(xs) => if len(xs) == 0 { "[]" } else {
+      "[\n" + join(map(xs, (x) => ind_str(lv + 1) + pp(x, lv + 1)), ",\n") + "\n" + ind_str(lv) + "]"
+    },
+    JObj(m) => if len(m) == 0 { "\{\}" } else {
+      let items = map(sort(keys(m)), (k) => ind_str(lv + 1) + quote_str(k) + ": " + pp(unwrap(get(m, k)), lv + 1))
+      "\{\n" + join(items, ",\n") + "\n" + ind_str(lv) + "\}"
+    },
+    _ => stringify(v),
+  }
+}
+
+pub fn pretty(v: Json) -> Str { pp(v, 0) }
+
+// ── 取值 ──
+pub fn field(v: Json, key: Str) -> Option<Json> {
+  match v {
+    JObj(m) => get(m, key),
+    _ => None,
+  }
+}
+
+pub fn at(v: Json, i: Int) -> Option<Json> {
+  match v {
+    JArr(xs) => get(xs, i),
+    _ => None,
+  }
+}
+
+pub fn as_str(v: Json) -> Option<Str> {
+  match v {
+    JStr(s) => Some(s),
+    _ => None,
+  }
+}
+
+pub fn as_int(v: Json) -> Option<Int> {
+  match v {
+    JInt(n) => Some(n),
+    _ => None,
+  }
+}
+
+// JInt 也会转成 Float
+pub fn as_float(v: Json) -> Option<Float> {
+  match v {
+    JNum(x) => Some(x),
+    JInt(n) => Some(float(n)),
+    _ => None,
+  }
+}
+
+pub fn as_bool(v: Json) -> Option<Bool> {
+  match v {
+    JBool(b) => Some(b),
+    _ => None,
+  }
+}
+
+// ───────── Go 1.27 encoding/json 兼容 ─────────
+
+pub type SyntaxError = { msg: Str, offset: Int }
+
+fn syn(e: jt.SynErr) -> SyntaxError { SyntaxError { msg: jt.v1_message(e), offset: e.offset } }
+
+pub fn check_valid(bs: List<Int>) -> Option<SyntaxError> {
+  match jt.read_value(bs, jt.v1_opts()) {
+    Err(e) => Some(syn(e)),
+    Ok((_, end)) => match jt.check_eof(bs, end) {
+      Some(e) => Some(syn(e)),
+      None => None,
+    },
+  }
+}
+
+pub fn valid(bs: List<Int>) -> Bool { is_none(check_valid(bs)) }
+
+pub fn compact(bs: List<Int>) -> Result<List<Int>, SyntaxError> {
+  match jt.append_format(bs, jt.v1_opts()) {
+    Ok(out) => Ok(out),
+    Err(e) => Err(syn(e)),
+  }
+}
+
+fn all_blank(s: Str) -> Bool { all(chars(s), (c) => c == " " || c == "\t") }
+
+fn spaces(n: Int) -> List<Int> {
+  var out: List<Int> = []
+  for _ in 0..n { out = push(out, 32) }
+  out
+}
+
+// Go 的 appendIndent：prefix / ind 不全是空白时先用等长空格排版，再把每行开头的空格换回去
+pub fn indent(bs: List<Int>, prefix: Str, ind: Str) -> Result<List<Int>, SyntaxError> {
+  let pb = __bytes(prefix)
+  let ib = __bytes(ind)
+  let fix = !(all_blank(prefix) && all_blank(ind))
+  let o = jt.Opts { allow_invalid_utf8: true, allow_dup: true, legacy: true, canonical: false, multiline: true, prefix: if fix { spaces(len(pb)) } else { pb }, indent: if fix { spaces(len(ib)) } else { ib } }
+  let r0 = jt.append_format(bs, o)
+  if let Err(e) = r0 { return Err(syn(e)) }
+  var out = unwrap(r0)
+  if fix {
+    var res: List<Int> = []
+    var i = 0
+    let n = len(out)
+    while i < n {
+      let c = out[i]
+      res = push(res, c)
+      i += 1
+      if c == 10 {
+        var k = i
+        while k < n && out[k] == 32 { k += 1 }
+        let cnt = k - i
+        var fill: List<Int> = []
+        if cnt > 0 {
+          fill = pb
+          while len(fill) < cnt {
+            if len(ib) == 0 { break }
+            fill = fill + ib
+          }
+        }
+        // copy 语义：长度以原来的空格数为准，不足的保留空格
+        var seg = take(fill, cnt)
+        seg = seg + spaces(cnt - len(seg))
+        res = res + seg
+        i = k
+      }
+    }
+    out = res
+  }
+  var t = len(bs)
+  while t > 0 && (bs[t - 1] == 32 || bs[t - 1] == 10 || bs[t - 1] == 13 || bs[t - 1] == 9) { t -= 1 }
+  Ok(out + bs[t..])
+}
+
+pub fn html_escape(src: List<Int>) -> List<Int> {
+  let hx = chars("0123456789abcdef")
+  var dst: List<Int> = []
+  var start = 0
+  let n = len(src)
+  for i in 0..n {
+    let c = src[i]
+    if c == 60 || c == 62 || c == 38 {
+      dst = dst + src[start..i] + __bytes("\\u00" + hx[c >> 4] + hx[c & 15])
+      start = i + 1
+    }
+    if c == 0xe2 && i + 2 < n && src[i + 1] == 0x80 && (src[i + 2] & 0xfe) == 0xa8 {
+      dst = dst + src[start..i] + __bytes("\\u202" + hx[src[i + 2] & 15])
+      start = i + 3
+    }
+  }
+  dst + src[start..]
+}
+
+// v2 的 UnmarshalTypeError.Error：路径最后一段像数组下标时不加 "Go struct field "
+fn into_what(path: List<Str>) -> Str {
+  if len(path) == 0 { return "Go value" }
+  let last = path[len(path) - 1]
+  let digits = len(last) > 0 && all(chars(last), (c) => c >= "0" && c <= "9")
+  (if digits { "" } else { "Go struct field " }) + "." + join(path, ".")
+}
+
+// 已校验的输入 → Json（Unmarshal 到 any）
+fn build(b: List<Int>, p0: Int, path: List<Str>) -> Result<(Json, Int), Str> {
+  let p = jt.consume_ws(b, p0)
+  let c = b[p]
+  if c == 110 { return Ok((JNull, p + 4)) }
+  if c == 116 { return Ok((JBool(true), p + 4)) }
+  if c == 102 { return Ok((JBool(false), p + 5)) }
+  if c == 34 {
+    let (q, _) = jt.consume_string(b, p, false)
+    return Ok((JStr(unwrap(__from_bytes(jt.append_unquote(b[p..q])))), q))
+  }
+  if c == 91 {
+    var items: List<Json> = []
+    var q = jt.consume_ws(b, p + 1)
+    if b[q] == 93 { return Ok((JArr(items), q + 1)) }
+    loop {
+      let (v, r) = build(b, q, push(path, "{len(items)}"))?
+      items = push(items, v)
+      q = jt.consume_ws(b, r)
+      if b[q] == 93 { return Ok((JArr(items), q + 1)) }
+      q += 1
+    }
+  }
+  if c == 123 {
+    var m: Map<Str, Json> = Map()
+    var q = jt.consume_ws(b, p + 1)
+    if b[q] == 125 { return Ok((JObj(m), q + 1)) }
+    loop {
+      q = jt.consume_ws(b, q)
+      let (k, _) = jt.consume_string(b, q, false)
+      let key = unwrap(__from_bytes(jt.append_unquote(b[q..k])))
+      let colon = jt.consume_ws(b, k)
+      let (v, r) = build(b, colon + 1, push(path, key))?
+      m = set(m, key, v)
+      q = jt.consume_ws(b, r)
+      if b[q] == 125 { return Ok((JObj(m), q + 1)) }
+      q += 1
+    }
+  }
+  let (q, _) = jt.consume_number(b, p)
+  let text = unwrap(__from_bytes(b[p..q]))
+  let (f, err) = strconv.parse_float_go(text, 64)
+  if err != "" { return Err("json: cannot unmarshal number " + text + " into " + into_what(path) + " of type float64") }
+  Ok((JNum(f), q))
+}
+
+pub fn unmarshal(bs: List<Int>) -> Result<Json, Str> {
+  if let Some(e) = check_valid(bs) { return Err(e.msg) }
+  let (v, _) = build(bs, 0, [])?
+  Ok(v)
+}
+
+fn enc(v: Json) -> Result<List<Int>, Str> {
+  match v {
+    JNull => Ok(__bytes("null")),
+    JBool(b) => Ok(__bytes(if b { "true" } else { "false" })),
+    JInt(i) => Ok(__bytes("{i}")),
+    JNum(f) => {
+      if f != f || f - f != 0.0 { return Err("json: unsupported value: " + strconv.format_float_go(f, "g", -1, 64)) }
+      Ok(jt.append_float(f, 64))
+    },
+    JStr(s) => Ok(jt.append_quote([], __bytes(s), true, true)),
+    JArr(items) => {
+      var out = [91]
+      var first = true
+      for it in items {
+        if !first { out = push(out, 44) }
+        first = false
+        out = out + enc(it)?
+      }
+      Ok(push(out, 93))
+    },
+    JObj(m) => {
+      var out = [123]
+      var first = true
+      for k in sort(keys(m)) {
+        if !first { out = push(out, 44) }
+        first = false
+        out = jt.append_quote(out, __bytes(k), true, true) + [58] + enc(unwrap(get(m, k)))?
+      }
+      Ok(push(out, 125))
+    },
+  }
+}
+
+pub fn marshal(v: Json) -> Result<List<Int>, Str> { enc(v) }
+
+pub fn marshal_indent(v: Json, prefix: Str, ind: Str) -> Result<List<Int>, Str> {
+  let b = enc(v)?
+  match indent(b, prefix, ind) {
+    Ok(x) => Ok(x),
+    Err(e) => Err(e.msg),
+  }
+}

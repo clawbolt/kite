@@ -1,0 +1,181 @@
+// std.crypto.sha3：SHA-3 和 SHAKE / cSHAKE（对齐 Go 1.24 起的 crypto/sha3，FIPS 202 / SP 800-185）
+//   sum224 / sum256 / sum384 / sum512(bs) -> List<Int>：Go 的 Sum224 等
+//   sum_shake128(bs, n) / sum_shake256(bs, n)：n 字节输出
+//   new224() / new256() / new384() / new512()：SHA3 值，write(bs) 返回新值，sum_to(bs) 把摘要追加到 bs 后面（Go 的 Sum(b)；sum 和内建函数重名），
+//     size() / block_size() / reset()
+//   new_shake128() / new_shake256() / new_cshake128(n, s) / new_cshake256(n, s)：SHAKE 值，write(bs)、read(n) -> (List<Int>, SHAKE)
+//     （Kite 的值不可变，所以 read 返回挤出的字节和新的状态；读过之后再 write 会 panic，信息同 Go："sha3: Write after Read"）
+//   和 Go 的差别：没有 hash.Hash 接口和 MarshalBinary。
+
+use std.math.bits
+
+const RC: List<Int> = [0x0000000000000001, 0x0000000000008082, -0x7fffffffffff7f76, -0x7fffffff7fff8000, 0x000000000000808b, 0x0000000080000001,
+  -0x7fffffff7fff7f7f, -0x7fffffffffff7ff7, 0x000000000000008a, 0x0000000000000088, 0x0000000080008009, 0x000000008000000a,
+  0x000000008000808b, -0x7fffffffffffff75, -0x7fffffffffff7f77, -0x7fffffffffff7ffd, -0x7fffffffffff7ffe, -0x7fffffffffffff80,
+  0x000000000000800a, -0x7fffffff7ffffff6, -0x7fffffff7fff7f7f, -0x7fffffffffff7f80, 0x0000000080000001, -0x7fffffff7fff7ff8]
+
+const ROT: List<Int> = [0, 1, 62, 28, 27, 36, 44, 6, 55, 20, 3, 10, 43, 25, 39, 41, 45, 15, 21, 8, 18, 2, 61, 56, 14]
+
+fn rotl(x: Int, n: Int) -> Int { if n == 0 { x } else { (x << n) | bits.shr(x, 64 - n) } }
+
+// Keccak-f[1600]，a[x + 5y]
+fn keccak_f(a0: List<Int>) -> List<Int> {
+  var a = a0
+  for round in 0..24 {
+    // θ
+    var c: List<Int> = []
+    for x in 0..5 { c = push(c, a[x] ^ a[x + 5] ^ a[x + 10] ^ a[x + 15] ^ a[x + 20]) }
+    var na: List<Int> = []
+    for i in 0..25 {
+      let x = i % 5
+      na = push(na, a[i] ^ c[(x + 4) % 5] ^ rotl(c[(x + 1) % 5], 1))
+    }
+    // ρ 和 π：B[y, 2x+3y] = rot(A[x, y])
+    var b = na
+    for i in 0..25 {
+      let x = i % 5
+      let y = i / 5
+      b = set(b, y + 5 * ((2 * x + 3 * y) % 5), rotl(na[i], ROT[i]))
+    }
+    // χ
+    var out: List<Int> = []
+    for i in 0..25 {
+      let x = i % 5
+      let r = i - x
+      out = push(out, b[i] ^ (~b[r + (x + 1) % 5] & b[r + (x + 2) % 5]))
+    }
+    // ι
+    a = set(out, 0, out[0] ^ RC[round])
+  }
+  a
+}
+
+fn zeros(n: Int) -> List<Int> {
+  var out: List<Int> = []
+  for _ in 0..n { out = push(out, 0) }
+  out
+}
+
+fn absorb_block(a: List<Int>, blk: List<Int>, rate: Int) -> List<Int> {
+  var s = a
+  for i in 0..rate / 8 {
+    var lane = 0
+    for k in 0..8 { lane = lane | (blk[8 * i + k] << (8 * k)) }
+    s = set(s, i, s[i] ^ lane)
+  }
+  keccak_f(s)
+}
+
+fn lanes_bytes(a: List<Int>, rate: Int) -> List<Int> {
+  var out: List<Int> = []
+  for i in 0..rate / 8 {
+    for k in 0..8 { out = push(out, (a[i] >> (8 * k)) & 255) }
+  }
+  out
+}
+
+// 海绵状态：a 25 条 lane；buf 未满一块的输入；squeezing 后 out 是当前可读的字节，pos 已读位置
+pub type Sponge = { a: List<Int>, buf: List<Int>, rate: Int, ds: Int, out_len: Int, squeezing: Bool, out: List<Int>, pos: Int, init: List<Int> }
+
+fn new_sponge(rate: Int, ds: Int, out_len: Int, init: List<Int>) -> Sponge {
+  var a = zeros(25)
+  if len(init) > 0 {
+    var i = 0
+    while i < len(init) {
+      a = absorb_block(a, init[i..i + rate], rate)
+      i += rate
+    }
+  }
+  Sponge { a: a, buf: [], rate: rate, ds: ds, out_len: out_len, squeezing: false, out: [], pos: 0, init: init }
+}
+
+impl Sponge {
+  fn write(self, p: List<Int>) -> Sponge {
+    if self.squeezing { panic("sha3: Write after Read") }
+    var a = self.a
+    var buf = self.buf + p
+    var i = 0
+    while len(buf) - i >= self.rate {
+      a = absorb_block(a, buf[i..i + self.rate], self.rate)
+      i += self.rate
+    }
+    Sponge { a: a, buf: buf[i..], ..self }
+  }
+
+  fn pad(self) -> Sponge {
+    var blk = self.buf + zeros(self.rate - len(self.buf))
+    blk = set(blk, len(self.buf), blk[len(self.buf)] ^ self.ds)
+    blk = set(blk, self.rate - 1, blk[self.rate - 1] ^ 0x80)
+    let a = absorb_block(self.a, blk, self.rate)
+    Sponge { a: a, buf: [], squeezing: true, out: lanes_bytes(a, self.rate), pos: 0, ..self }
+  }
+
+  fn read(self, n: Int) -> (List<Int>, Sponge) {
+    var s = if self.squeezing { self } else { self.pad() }
+    var res: List<Int> = []
+    while len(res) < n {
+      if s.pos == s.rate {
+        let a = keccak_f(s.a)
+        s = Sponge { a: a, out: lanes_bytes(a, s.rate), pos: 0, ..s }
+      }
+      let k = min(n - len(res), s.rate - s.pos)
+      res = res + s.out[s.pos..s.pos + k]
+      s = Sponge { pos: s.pos + k, ..s }
+    }
+    (res, s)
+  }
+
+  // 固定长度的 SHA-3：不改变自身，摘要追加到 b 后面
+  fn sum_to(self, b: List<Int>) -> List<Int> {
+    let (d, _) = self.read(self.out_len)
+    b + d
+  }
+
+  fn size(self) -> Int { self.out_len }
+
+  fn block_size(self) -> Int { self.rate }
+
+  fn reset(self) -> Sponge { new_sponge(self.rate, self.ds, self.out_len, self.init) }
+}
+
+pub fn new224() -> Sponge { new_sponge(144, 0x06, 28, []) }
+pub fn new256() -> Sponge { new_sponge(136, 0x06, 32, []) }
+pub fn new384() -> Sponge { new_sponge(104, 0x06, 48, []) }
+pub fn new512() -> Sponge { new_sponge(72, 0x06, 64, []) }
+
+pub fn sum224(bs: List<Int>) -> List<Int> { new224().write(bs).sum_to([]) }
+pub fn sum256(bs: List<Int>) -> List<Int> { new256().write(bs).sum_to([]) }
+pub fn sum384(bs: List<Int>) -> List<Int> { new384().write(bs).sum_to([]) }
+pub fn sum512(bs: List<Int>) -> List<Int> { new512().write(bs).sum_to([]) }
+
+pub fn new_shake128() -> Sponge { new_sponge(168, 0x1f, 32, []) }
+pub fn new_shake256() -> Sponge { new_sponge(136, 0x1f, 64, []) }
+
+pub fn sum_shake128(bs: List<Int>, n: Int) -> List<Int> { new_shake128().write(bs).read(n).0 }
+pub fn sum_shake256(bs: List<Int>, n: Int) -> List<Int> { new_shake256().write(bs).read(n).0 }
+
+// SP 800-185 的 left_encode / encode_string / bytepad
+fn left_encode(x: Int) -> List<Int> {
+  var bs: List<Int> = []
+  var v = x
+  while v > 0 {
+    bs = [v & 255] + bs
+    v = v >> 8
+  }
+  if len(bs) == 0 { bs = [0] }
+  [len(bs)] + bs
+}
+
+fn bytepad(data: List<Int>, w: Int) -> List<Int> {
+  let z = left_encode(w) + data
+  z + zeros((w - len(z) % w) % w)
+}
+
+fn cshake(rate: Int, out_len: Int, n: List<Int>, s: List<Int>) -> Sponge {
+  if len(n) == 0 && len(s) == 0 { return new_sponge(rate, 0x1f, out_len, []) }
+  let init = bytepad(left_encode(len(n) * 8) + n + left_encode(len(s) * 8) + s, rate)
+  new_sponge(rate, 0x04, out_len, init)
+}
+
+pub fn new_cshake128(n: List<Int>, s: List<Int>) -> Sponge { cshake(168, 32, n, s) }
+pub fn new_cshake256(n: List<Int>, s: List<Int>) -> Sponge { cshake(136, 64, n, s) }

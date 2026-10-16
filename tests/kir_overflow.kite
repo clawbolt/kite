@@ -1,0 +1,8 @@
+fn bump(n: Int) -> Int {
+  n * 4611686018427387904
+}
+
+fn main() {
+  print(bump(1))
+  print(bump(2))
+}

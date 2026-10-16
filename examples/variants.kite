@@ -1,0 +1,28 @@
+// 同名变体：限定模式（A.Other），模式和表达式都按期望类型选择枚举
+enum A {
+  Other
+  X
+}
+enum B {
+  Other
+  Y(n: Int)
+}
+fn name(a: A) -> Str {
+  match a {
+    A.Other => "A 的 Other"
+    X       => "X"
+  }
+}
+fn nb(b: B) -> Str {
+  match b {
+    Other => "B 的 Other"
+    Y(n)  => "Y {n}"
+  }
+}
+fn main() {
+  let a: A = A.Other
+  print(name(a), name(X), nb(Other), nb(Y(3)))
+  print(recover(() => 1 / 0) |> is_err())
+  let xs: List<A> = [Other, X]
+  print(name(Other), xs |> map(name))
+}

@@ -1,0 +1,40 @@
+// std.hash.fnv：FNV-1a 哈希（对齐 Go 的 hash/fnv）
+//   hash32 返回 0 到 2^32-1；hash64 返回 64 位结果，按有符号 Int 存放（和 Go 的 uint64 位模式相同）
+
+pub fn hash32_bytes(bs: List<Int>) -> Int {
+  var h = 2166136261
+  for b in bs { h = ((h ^ b) * 16777619) & 0xffffffff }
+  h
+}
+
+pub fn hash32(s: Str) -> Int { hash32_bytes(__bytes(s)) }
+
+// 64 位回绕加法（Int 的普通加法溢出会报错）
+fn wadd(a: Int, b: Int) -> Int {
+  let lo = (a & 0xffffffff) + (b & 0xffffffff)
+  let hi = ((a >> 32) & 0xffffffff) + ((b >> 32) & 0xffffffff) + (lo >> 32)
+  ((hi & 0xffffffff) << 32) | (lo & 0xffffffff)
+}
+
+// x * 1099511628211（FNV 64 位素数 = 2^40 + 0x1b3），回绕
+fn wmul_prime(x: Int) -> Int {
+  let lo = (x & 0xffffffff) * 0x1b3
+  let hi = ((x >> 32) & 0xffffffff) * 0x1b3
+  wadd(wadd(x << 40, hi << 32), lo)
+}
+
+pub fn hash64_bytes(bs: List<Int>) -> Int {
+  var h = -3750763034362895579
+  for b in bs { h = wmul_prime(h ^ b) }
+  h
+}
+
+pub fn hash64(s: Str) -> Int { hash64_bytes(__bytes(s)) }
+
+// 64 位结果的十六进制写法（16 位，补 0）
+pub fn hex64(h: Int) -> Str {
+  let ds = chars("0123456789abcdef")
+  var out = ""
+  for k in 0..16 { out = out + ds[(h >> (60 - 4 * k)) & 15] }
+  out
+}

@@ -1,0 +1,2640 @@
+// std.go.parser：对齐 Go 1.27 的 go/parser
+//   parse_file(fset, filename, src, mode) -> (FileSet, Node.File, List<Error>)：src 是字节；错误已按 Go 的规则排序，
+//     列表为空表示成功（Go 返回 nil error）。返回的 FileSet 里已经加入这个文件（含扫描时得到的行表）。
+//   parse_expr_from(fset, filename, src, mode) -> (FileSet, Node, List<Error>)，parse_expr(x) -> (Node, List<Error>)
+//   模式常量同 Go：PACKAGE_CLAUSE_ONLY、IMPORTS_ONLY、PARSE_COMMENTS、TRACE、DECLARATION_ERRORS、
+//     SPURIOUS_ERRORS / ALL_ERRORS、SKIP_OBJECT_RESOLUTION。
+//   与 Go 的差异：TRACE 不打印跟踪；没有 ParseDir；不检查嵌套深度上限（Go 是 10 万层）。
+//   出错超过 10 个（没开 ALL_ERRORS）时同 Go 一样放弃，返回只有空 Name 和空 Scope 的 File。
+
+use std.go.token as token
+use std.go.scanner as scanner
+use std.go.ast as ast
+use std.go.ast.{Node, Object, Scope}
+use std.unicode
+
+pub const PACKAGE_CLAUSE_ONLY: Int = 1
+pub const IMPORTS_ONLY: Int = 2
+pub const PARSE_COMMENTS: Int = 4
+pub const TRACE: Int = 8
+pub const DECLARATION_ERRORS: Int = 16
+pub const SPURIOUS_ERRORS: Int = 32
+pub const SKIP_OBJECT_RESOLUTION: Int = 64
+pub const ALL_ERRORS: Int = 32
+
+type P = {
+  sc: scanner.Scanner,
+  errors: List<scanner.Error>,
+  mode: Int,
+  comments: List<Node>,
+  lead: Node,
+  linec: Node,
+  top: Bool,
+  go_version: Str,
+  pos: Int,
+  tok: Int,
+  lit: Str,
+  sync_pos: Int,
+  sync_cnt: Int,
+  expr_lev: Int,
+  in_rhs: Bool,
+  imports: List<Node>,
+  bail: Bool,
+}
+
+const STMT_START: List<Int> = [token.BREAK, token.CONST, token.CONTINUE, token.DEFER, token.FALLTHROUGH, token.FOR, token.GO,
+  token.GOTO, token.IF, token.RETURN, token.SELECT, token.SWITCH, token.TYPE, token.VAR]
+const DECL_START: List<Int> = [token.IMPORT, token.CONST, token.TYPE, token.VAR]
+const EXPR_END: List<Int> = [token.COMMA, token.COLON, token.SEMICOLON, token.RPAREN, token.RBRACK, token.RBRACE]
+
+fn ident(pos: Int, name: Str) -> Node { Node.Ident { name_pos: pos, name: name, obj: -1 } }
+fn bad_expr(a: Int, b: Int) -> Node { Node.BadExpr { from: a, to: b } }
+
+// ── //go:build 表达式（go/build/constraint 的 Parse + GoVersion）──
+type BX = { s: List<Int>, i: Int, tok: Str, is_tag: Bool, ok: Bool }
+
+fn bx_lex(x0: BX) -> BX {
+  var x = BX { is_tag: false, ..x0 }
+  var i = x.i
+  while i < len(x.s) && (x.s[i] == 32 || x.s[i] == 9) { i += 1 }
+  if i >= len(x.s) { return BX { tok: "", i: i, ..x } }
+  let c = x.s[i]
+  if c == 40 || c == 41 || c == 33 { return BX { tok: __chr(c), i: i + 1, ..x } }
+  if c == 38 || c == 124 {
+    if i + 1 >= len(x.s) || x.s[i + 1] != c { return BX { ok: false, tok: "", i: i, ..x } }
+    return BX { tok: __chr(c) + __chr(c), i: i + 2, ..x }
+  }
+  var j = i
+  while j < len(x.s) {
+    let (r, w) = scanner.decode_rune(x.s, j)
+    let ch = __chr(if r >= 55296 && r <= 57343 { 65533 } else { r })
+    if !(unicode.is_letter(ch) || unicode.is_digit(ch) || r == 95 || r == 46) { break }
+    j += w
+  }
+  if j == i { return BX { ok: false, tok: "", i: i, ..x } }
+  BX { tok: scanner.bytes_str(x.s[i..j]), i: j, is_tag: true, ..x }
+}
+
+fn and_v(a: Int, b: Int) -> Int { if a > b { a } else { b } }
+fn or_v(a: Int, b: Int) -> Int { if a < b { a } else { b } }
+
+fn tag_version(t: Str) -> Int {
+  if t == "go1" { return 0 }
+  let k = __str_find(t, "go1.", 0)
+  if k < 0 { return -1 }
+  var v = __str_slice(t, k + 4, len(t))
+  var neg = false
+  if starts_with(v, "+") { v = __str_slice(v, 1, len(v)) } else if starts_with(v, "-") { neg = true; v = __str_slice(v, 1, len(v)) }
+  if v == "" || len(v) > 18 { return -1 }
+  var n = 0
+  for c in v {
+    if c < "0" || c > "9" { return -1 }
+    n = n * 10 + __ord(c) - 48
+  }
+  if neg { 0 - n } else { n }
+}
+
+// 返回 (BX, 正向最小版本, 反向最小版本)
+fn bx_or(x0: BX) -> (BX, Int, Int) {
+  var (x, p, n) = bx_and(x0)
+  while x.ok && x.tok == "||" {
+    let (x2, p2, n2) = bx_and(x)
+    x = x2
+    p = or_v(p, p2)
+    n = and_v(n, n2)
+  }
+  (x, p, n)
+}
+
+fn bx_and(x0: BX) -> (BX, Int, Int) {
+  var (x, p, n) = bx_not(x0)
+  while x.ok && x.tok == "&&" {
+    let (x2, p2, n2) = bx_not(x)
+    x = x2
+    p = and_v(p, p2)
+    n = or_v(n, n2)
+  }
+  (x, p, n)
+}
+
+fn bx_not(x0: BX) -> (BX, Int, Int) {
+  var x = bx_lex(x0)
+  if !x.ok { return (x, -1, -1) }
+  if x.tok == "!" {
+    x = bx_lex(x)
+    if x.tok == "!" { return (BX { ok: false, ..x }, -1, -1) }
+    let (x2, p, n) = bx_atom(x)
+    return (x2, n, p)
+  }
+  bx_atom(x)
+}
+
+fn bx_atom(x0: BX) -> (BX, Int, Int) {
+  var x = x0
+  if !x.ok { return (x, -1, -1) }
+  if x.tok == "(" {
+    let (x2, p, n) = bx_or(x)
+    x = x2
+    if !x.ok || x.tok != ")" { return (BX { ok: false, ..x }, -1, -1) }
+    return (bx_lex(x), p, n)
+  }
+  if !x.is_tag { return (BX { ok: false, ..x }, -1, -1) }
+  let v = tag_version(x.tok)
+  (bx_lex(x), v, -1)
+}
+
+fn trim_space(s: Str) -> Str { trim(s) }
+
+fn build_go_version(line0: Str) -> Option<Str> {
+  var line = line0
+  if ends_with(line, "\n") { line = __str_slice(line, 0, len(line) - 1) }
+  if __str_find(line, "\n", 0) >= 0 { return None }
+  if !starts_with(line, "//go:build") { return None }
+  line = trim_space(line)
+  line = __str_slice(line, 10, len(line))
+  let t = trim_space(line)
+  if len(line) == len(t) && line != "" { return None }
+  let x0 = BX { s: __bytes(t), i: 0, tok: "", is_tag: false, ok: true }
+  let (x, p, _) = bx_or(x0)
+  if !x.ok || x.tok != "" { return None }
+  if p < 0 { return Some("") }
+  if p == 0 { return Some("go1") }
+  Some("go1.{p}")
+}
+
+// ── 记号流 ──
+fn scan_once(p: P) -> P {
+  let (sc, pos, tok, lit) = p.sc.scan()
+  var errs = p.errors
+  if len(sc.errors) > 0 { errs = errs + sc.errors }
+  P { sc: scanner.Scanner { errors: [], ..sc }, errors: errs, pos: pos, tok: tok, lit: lit, ..p }
+}
+
+fn next0(p0: P) -> P {
+  var p = p0
+  if p.bail { return p }
+  loop {
+    p = scan_once(p)
+    if p.tok == token.COMMENT {
+      if p.top && starts_with(p.lit, "//go:build") {
+        match build_go_version(p.lit) { Some(v) => { p = P { go_version: v, ..p } }, None => {} }
+      }
+      if p.mode & PARSE_COMMENTS == 0 { continue }
+    } else {
+      p = P { top: false, ..p }
+    }
+    break
+  }
+  p
+}
+
+fn line_for(p: P, pos: Int) -> Int { p.sc.file.position_for(pos, false).line }
+
+fn consume_comment(p0: P) -> (P, Node, Int) {
+  var endline = line_for(p0, p0.pos)
+  if __str_slice(p0.lit, 1, 2) == "*" {
+    for b in __bytes(p0.lit) { if b == 10 { endline += 1 } }
+  }
+  let c = Node.Comment { slash: p0.pos, text: p0.lit }
+  (next0(p0), c, endline)
+}
+
+fn consume_comment_group(p0: P, n: Int) -> (P, Node, Int) {
+  var p = p0
+  var list: List<Node> = []
+  var endline = line_for(p, p.pos)
+  while p.tok == token.COMMENT && line_for(p, p.pos) <= endline + n {
+    let (p2, c, e) = consume_comment(p)
+    p = p2
+    endline = e
+    list = push(list, c)
+  }
+  let g = Node.CommentGroup { list: list }
+  p = P { comments: push(p.comments, g), ..p }
+  (p, g, endline)
+}
+
+fn next(p0: P) -> P {
+  var p = P { lead: Nil, linec: Nil, ..p0 }
+  let prev = p.pos
+  p = next0(p)
+  if p.tok == token.COMMENT {
+    var comment: Node = Nil
+    var endline = 0
+    if line_for(p, p.pos) == line_for(p, prev) {
+      let (p2, c, e) = consume_comment_group(p, 0)
+      p = p2
+      comment = c
+      endline = e
+      if line_for(p, p.pos) != endline || p.tok == token.SEMICOLON || p.tok == token.EOF { p = P { linec: comment, ..p } }
+    }
+    endline = -1
+    while p.tok == token.COMMENT {
+      let (p2, c, e) = consume_comment_group(p, 1)
+      p = p2
+      comment = c
+      endline = e
+    }
+    if endline + 1 == line_for(p, p.pos) { p = P { lead: comment, ..p } }
+  }
+  p
+}
+
+fn bail_out(p: P) -> P { P { bail: true, tok: token.EOF, lit: "", ..p } }
+
+fn err(p: P, pos: Int, msg: Str) -> P {
+  if p.bail { return p }
+  let epos = p.sc.file.position(pos)
+  if p.mode & ALL_ERRORS == 0 {
+    let n = len(p.errors)
+    if n > 0 && p.errors[n - 1].pos.line == epos.line { return p }
+    if n > 10 { return bail_out(p) }
+  }
+  P { errors: push(p.errors, scanner.Error { pos: epos, msg: msg }), ..p }
+}
+
+fn error_expected(p: P, pos: Int, msg0: Str) -> P {
+  var msg = "expected " + msg0
+  if pos == p.pos {
+    if p.tok == token.SEMICOLON && p.lit == "\n" { msg = msg + ", found newline" }
+    else if token.is_literal(p.tok) { msg = msg + ", found " + p.lit }
+    else { msg = msg + ", found '" + token.token_string(p.tok) + "'" }
+  }
+  err(p, pos, msg)
+}
+
+fn expect(p0: P, tok: Int) -> (P, Int) {
+  var p = p0
+  let pos = p.pos
+  if p.tok != tok { p = error_expected(p, pos, "'" + token.token_string(tok) + "'") }
+  (next(p), pos)
+}
+
+fn expect2(p0: P, tok: Int) -> (P, Int) {
+  var p = p0
+  var pos = 0
+  if p.tok == tok { pos = p.pos } else { p = error_expected(p, p.pos, "'" + token.token_string(tok) + "'") }
+  (next(p), pos)
+}
+
+fn expect_closing(p0: P, tok: Int, context: Str) -> (P, Int) {
+  var p = p0
+  if p.tok != tok && p.tok == token.SEMICOLON && p.lit == "\n" {
+    p = err(p, p.pos, "missing ',' before newline in " + context)
+    p = next(p)
+  }
+  expect(p, tok)
+}
+
+fn expect_semi(p0: P) -> (P, Node) {
+  var p = p0
+  if p.tok == token.RPAREN || p.tok == token.RBRACE { return (p, Nil) }
+  if p.tok == token.COMMA || p.tok == token.SEMICOLON {
+    if p.tok == token.COMMA { p = error_expected(p, p.pos, "';'") }
+    if p.lit == ";" {
+      p = next(p)
+      return (p, p.linec)
+    }
+    let c = p.linec
+    return (next(p), c)
+  }
+  p = error_expected(p, p.pos, "';'")
+  (advance(p, STMT_START), Nil)
+}
+
+fn at_comma(p: P, context: Str, follow: Int) -> (P, Bool) {
+  if p.tok == token.COMMA { return (p, true) }
+  if p.tok != follow {
+    var msg = "missing ','"
+    if p.tok == token.SEMICOLON && p.lit == "\n" { msg = msg + " before newline" }
+    return (err(p, p.pos, msg + " in " + context), true)
+  }
+  (p, false)
+}
+
+fn advance(p0: P, to: List<Int>) -> P {
+  var p = p0
+  while p.tok != token.EOF {
+    if contains(to, p.tok) {
+      if p.pos == p.sync_pos && p.sync_cnt < 10 { return P { sync_cnt: p.sync_cnt + 1, ..p } }
+      if p.pos > p.sync_pos { return P { sync_pos: p.pos, sync_cnt: 0, ..p } }
+    }
+    p = next(p)
+  }
+  p
+}
+
+// ── 标识符、列表 ──
+fn parse_ident(p0: P) -> (P, Node) {
+  var p = p0
+  let pos = p.pos
+  var name = "_"
+  if p.tok == token.IDENT {
+    name = p.lit
+    p = next(p)
+  } else {
+    let (p2, _) = expect(p, token.IDENT)
+    p = p2
+  }
+  (p, ident(pos, name))
+}
+
+fn parse_ident_list(p0: P) -> (P, List<Node>) {
+  var (p, x) = parse_ident(p0)
+  var list = [x]
+  while p.tok == token.COMMA {
+    p = next(p)
+    let (p2, y) = parse_ident(p)
+    p = p2
+    list = push(list, y)
+  }
+  (p, list)
+}
+
+fn parse_expr_list(p0: P) -> (P, List<Node>) {
+  var (p, x) = pexpr(p0)
+  var list = [x]
+  while p.tok == token.COMMA {
+    p = next(p)
+    let (p2, y) = pexpr(p)
+    p = p2
+    list = push(list, y)
+  }
+  (p, list)
+}
+
+fn parse_list(p0: P, in_rhs: Bool) -> (P, List<Node>) {
+  let old = p0.in_rhs
+  let (p, list) = parse_expr_list(P { in_rhs: in_rhs, ..p0 })
+  (P { in_rhs: old, ..p }, list)
+}
+
+// ── 类型 ──
+fn parse_type(p0: P) -> (P, Node) {
+  var (p, typ) = try_ident_or_type(p0)
+  if typ == Nil {
+    let pos = p.pos
+    p = error_expected(p, pos, "type")
+    p = advance(p, EXPR_END)
+    return (p, bad_expr(pos, p.pos))
+  }
+  (p, typ)
+}
+
+fn parse_qualified_ident(p0: P, id: Node) -> (P, Node) {
+  var (p, typ) = parse_type_name(p0, id)
+  if p.tok == token.LBRACK {
+    let (p2, t2) = parse_type_instance(p, typ)
+    p = p2
+    typ = t2
+  }
+  (p, typ)
+}
+
+fn parse_type_name(p0: P, id0: Node) -> (P, Node) {
+  var p = p0
+  var id = id0
+  if id == Nil {
+    let (p2, x) = parse_ident(p)
+    p = p2
+    id = x
+  }
+  if p.tok == token.PERIOD {
+    p = next(p)
+    let (p2, sel) = parse_ident(p)
+    return (p2, Node.SelectorExpr { x: id, sel: sel })
+  }
+  (p, id)
+}
+
+fn parse_array_type(p0: P, lbrack: Int, len0: Node) -> (P, Node) {
+  var p = p0
+  var ln = len0
+  if ln == Nil {
+    p = P { expr_lev: p.expr_lev + 1, ..p }
+    if p.tok == token.ELLIPSIS {
+      ln = Node.Ellipsis { ellipsis: p.pos, elt: Nil }
+      p = next(p)
+    } else if p.tok != token.RBRACK {
+      let (p2, x) = parse_rhs(p)
+      p = p2
+      ln = x
+    }
+    p = P { expr_lev: p.expr_lev - 1, ..p }
+  }
+  if p.tok == token.COMMA {
+    p = err(p, p.pos, "unexpected comma; expecting ]")
+    p = next(p)
+  }
+  let (p2, _) = expect(p, token.RBRACK)
+  let (p3, elt) = parse_type(p2)
+  (p3, Node.ArrayType { lbrack: lbrack, length: ln, elt: elt })
+}
+
+// 返回 (P, 名字或 Nil, 类型)
+fn parse_array_field_or_type_instance(p0: P, x: Node) -> (P, Node, Node) {
+  var (p, lbrack) = expect(p0, token.LBRACK)
+  var trailing_comma = 0
+  var args: List<Node> = []
+  if p.tok != token.RBRACK {
+    p = P { expr_lev: p.expr_lev + 1, ..p }
+    let (p2, a) = parse_rhs(p)
+    p = p2
+    args = push(args, a)
+    while p.tok == token.COMMA {
+      let comma = p.pos
+      p = next(p)
+      if p.tok == token.RBRACK {
+        trailing_comma = comma
+        break
+      }
+      let (p3, b) = parse_rhs(p)
+      p = p3
+      args = push(args, b)
+    }
+    p = P { expr_lev: p.expr_lev - 1, ..p }
+  }
+  let (p4, rbrack) = expect(p, token.RBRACK)
+  p = p4
+  if len(args) == 0 {
+    let (p5, elt) = parse_type(p)
+    return (p5, x, Node.ArrayType { lbrack: lbrack, length: Nil, elt: elt })
+  }
+  if len(args) == 1 {
+    let (p5, elt) = try_ident_or_type(p)
+    p = p5
+    if elt != Nil {
+      if trailing_comma != 0 { p = err(p, trailing_comma, "unexpected comma; expecting ]") }
+      return (p, x, Node.ArrayType { lbrack: lbrack, length: args[0], elt: elt })
+    }
+  }
+  (p, Nil, pack_index_expr(x, lbrack, args, rbrack))
+}
+
+fn parse_field_decl(p0: P) -> (P, Node) {
+  var p = p0
+  let doc = p.lead
+  var names: List<Node> = []
+  var typ: Node = Nil
+  if p.tok == token.IDENT {
+    let (p2, name) = parse_ident(p)
+    p = p2
+    if p.tok == token.PERIOD || p.tok == token.STRING || p.tok == token.SEMICOLON || p.tok == token.RBRACE {
+      typ = name
+      if p.tok == token.PERIOD {
+        let (p3, t) = parse_qualified_ident(p, name)
+        p = p3
+        typ = t
+      }
+    } else {
+      names = [name]
+      while p.tok == token.COMMA {
+        p = next(p)
+        let (p3, n2) = parse_ident(p)
+        p = p3
+        names = push(names, n2)
+      }
+      if len(names) == 1 && p.tok == token.LBRACK {
+        let (p3, nm, t) = parse_array_field_or_type_instance(p, name)
+        p = p3
+        typ = t
+        if nm == Nil { names = [] }
+      } else {
+        let (p3, t) = parse_type(p)
+        p = p3
+        typ = t
+      }
+    }
+  } else if p.tok == token.MUL {
+    let star = p.pos
+    p = next(p)
+    if p.tok == token.LPAREN {
+      p = err(p, p.pos, "cannot parenthesize embedded type")
+      p = next(p)
+      let (p3, t) = parse_qualified_ident(p, Nil)
+      p = p3
+      typ = t
+      if p.tok == token.RPAREN { p = next(p) }
+    } else {
+      let (p3, t) = parse_qualified_ident(p, Nil)
+      p = p3
+      typ = t
+    }
+    typ = Node.StarExpr { star: star, x: typ }
+  } else if p.tok == token.LPAREN {
+    p = err(p, p.pos, "cannot parenthesize embedded type")
+    p = next(p)
+    if p.tok == token.MUL {
+      let star = p.pos
+      p = next(p)
+      let (p3, t) = parse_qualified_ident(p, Nil)
+      p = p3
+      typ = Node.StarExpr { star: star, x: t }
+    } else {
+      let (p3, t) = parse_qualified_ident(p, Nil)
+      p = p3
+      typ = t
+    }
+    if p.tok == token.RPAREN { p = next(p) }
+  } else {
+    let pos = p.pos
+    p = error_expected(p, pos, "field name or embedded type")
+    p = advance(p, EXPR_END)
+    typ = bad_expr(pos, p.pos)
+  }
+  var tag: Node = Nil
+  if p.tok == token.STRING {
+    tag = Node.BasicLit { value_pos: p.pos, value_end: p.sc.end(), kind: p.tok, value: p.lit }
+    p = next(p)
+  }
+  let (p6, comment) = expect_semi(p)
+  (p6, Node.Field { doc: doc, names: names, typ: typ, tag: tag, comment: comment })
+}
+
+fn parse_struct_type(p0: P) -> (P, Node) {
+  var (p, pos) = expect(p0, token.STRUCT)
+  let (p1, lbrace) = expect(p, token.LBRACE)
+  p = p1
+  var list: List<Node> = []
+  while p.tok == token.IDENT || p.tok == token.MUL || p.tok == token.LPAREN {
+    let (p2, f) = parse_field_decl(p)
+    p = p2
+    list = push(list, f)
+  }
+  let (p3, rbrace) = expect(p, token.RBRACE)
+  (p3, Node.StructType { struct_pos: pos, fields: Node.FieldList { opening: lbrace, list: list, closing: rbrace }, incomplete: false })
+}
+
+fn parse_pointer_type(p0: P) -> (P, Node) {
+  let (p, star) = expect(p0, token.MUL)
+  let (p2, base) = parse_type(p)
+  (p2, Node.StarExpr { star: star, x: base })
+}
+
+fn parse_dots_type(p0: P) -> (P, Node) {
+  let (p, pos) = expect(p0, token.ELLIPSIS)
+  let (p2, elt) = parse_type(p)
+  (p2, Node.Ellipsis { ellipsis: pos, elt: elt })
+}
+
+type PF = { name: Node, typ: Node }
+
+fn parse_param_decl(p0: P, name: Node, type_sets_ok: Bool) -> (P, PF) {
+  var p = p0
+  let ptok = p.tok
+  var f = PF { name: Nil, typ: Nil }
+  if name != Nil {
+    p = P { tok: token.IDENT, ..p }
+  } else if type_sets_ok && p.tok == token.TILDE {
+    let (p2, t) = embedded_elem(p, Nil)
+    return (p2, PF { name: Nil, typ: t })
+  }
+  let t0 = p.tok
+  if t0 == token.IDENT {
+    if name != Nil {
+      f = PF { name: name, ..f }
+      p = P { tok: ptok, ..p }
+    } else {
+      let (p2, n) = parse_ident(p)
+      p = p2
+      f = PF { name: n, ..f }
+    }
+    let t1 = p.tok
+    if t1 == token.IDENT || t1 == token.MUL || t1 == token.ARROW || t1 == token.FUNC || t1 == token.CHAN || t1 == token.MAP ||
+       t1 == token.STRUCT || t1 == token.INTERFACE || t1 == token.LPAREN {
+      let (p2, t) = parse_type(p)
+      p = p2
+      f = PF { typ: t, ..f }
+    } else if t1 == token.LBRACK {
+      let (p2, n, t) = parse_array_field_or_type_instance(p, f.name)
+      p = p2
+      f = PF { name: n, typ: t }
+    } else if t1 == token.ELLIPSIS {
+      let (p2, t) = parse_dots_type(p)
+      return (p2, PF { typ: t, ..f })
+    } else if t1 == token.PERIOD {
+      let (p2, t) = parse_qualified_ident(p, f.name)
+      p = p2
+      f = PF { name: Nil, typ: t }
+    } else if t1 == token.TILDE {
+      if type_sets_ok {
+        let (p2, t) = embedded_elem(p, Nil)
+        return (p2, PF { typ: t, ..f })
+      }
+    } else if t1 == token.OR {
+      if type_sets_ok {
+        let (p2, t) = embedded_elem(p, f.name)
+        return (p2, PF { name: Nil, typ: t })
+      }
+    }
+  } else if t0 == token.MUL || t0 == token.ARROW || t0 == token.FUNC || t0 == token.LBRACK || t0 == token.CHAN || t0 == token.MAP ||
+            t0 == token.STRUCT || t0 == token.INTERFACE || t0 == token.LPAREN {
+    let (p2, t) = parse_type(p)
+    p = p2
+    f = PF { typ: t, ..f }
+  } else if t0 == token.ELLIPSIS {
+    let (p2, t) = parse_dots_type(p)
+    return (p2, PF { typ: t, ..f })
+  } else {
+    p = error_expected(p, p.pos, "')'")
+    p = advance(p, EXPR_END)
+  }
+  if type_sets_ok && p.tok == token.OR && f.typ != Nil {
+    let (p2, t) = embedded_elem(p, f.typ)
+    p = p2
+    f = PF { typ: t, ..f }
+  }
+  (p, f)
+}
+
+fn parse_parameter_list(p0: P, name00: Node, typ00: Node, closing: Int, dddok: Bool) -> (P, List<Node>) {
+  var p = p0
+  var name0 = name00
+  var typ0 = typ00
+  let tparams = closing == token.RBRACK
+  var pos0 = p.pos
+  if name0 != Nil { pos0 = ast.pos(name0) } else if typ0 != Nil { pos0 = ast.pos(typ0) }
+  var list: List<PF> = []
+  var tids: List<Int> = []   // Go 用指针比较类型是否同一个；这里给每个类型一个编号
+  var named = 0
+  var typed = 0
+  while name0 != Nil || p.tok != closing && p.tok != token.EOF {
+    var par = PF { name: Nil, typ: Nil }
+    if typ0 != Nil {
+      if tparams {
+        let (p2, t) = embedded_elem(p, typ0)
+        p = p2
+        typ0 = t
+      }
+      par = PF { name: name0, typ: typ0 }
+    } else {
+      let (p2, f) = parse_param_decl(p, name0, tparams)
+      p = p2
+      par = f
+    }
+    name0 = Nil
+    typ0 = Nil
+    if par.name != Nil || par.typ != Nil {
+      list = push(list, par)
+      tids = push(tids, len(tids))
+      if par.name != Nil && par.typ != Nil { named += 1 }
+      if par.typ != Nil { typed += 1 }
+    }
+    let (p3, more) = at_comma(p, "parameter list", closing)
+    p = p3
+    if !more { break }
+    p = next(p)
+  }
+  if len(list) == 0 { return (p, []) }
+  if named == 0 {
+    list = map(list, (par) => if par.name != Nil { PF { name: Nil, typ: par.name } } else { par })
+    if tparams {
+      var err_pos = 0
+      var msg = ""
+      if named == typed {
+        err_pos = p.pos
+        msg = "missing type constraint"
+      } else {
+        err_pos = pos0
+        msg = "missing type parameter name"
+        if len(list) == 1 { msg = msg + " or invalid array length" }
+      }
+      p = err(p, err_pos, msg)
+    }
+  } else if named != len(list) {
+    var err_pos = 0
+    var typ: Node = Nil
+    var tid = -1
+    var i = len(list) - 1
+    while i >= 0 {
+      let par = list[i]
+      if par.typ != Nil {
+        typ = par.typ
+        tid = tids[i]
+        if par.name == Nil {
+          err_pos = ast.pos(typ)
+          list = set(list, i, PF { name: ident(err_pos, "_"), typ: par.typ })
+        }
+      } else if typ != Nil {
+        list = set(list, i, PF { typ: typ, ..par })
+        tids = set(tids, i, tid)
+      } else {
+        err_pos = ast.pos(par.name)
+        list = set(list, i, PF { typ: bad_expr(err_pos, p.pos), ..par })
+      }
+      i -= 1
+    }
+    if err_pos != 0 {
+      var msg = ""
+      if named == typed {
+        err_pos = p.pos
+        msg = if tparams { "missing type constraint" } else { "missing parameter type" }
+      } else {
+        if tparams {
+          msg = "missing type parameter name"
+          if len(list) == 1 { msg = msg + " or invalid array length" }
+        } else {
+          msg = "missing parameter name"
+        }
+      }
+      p = err(p, err_pos, msg)
+    }
+  }
+  var first = true
+  var i = 0
+  while i < len(list) {
+    let f = list[i]
+    match f.typ {
+      Ellipsis { ellipsis, .. } => {
+        if !dddok || i + 1 < len(list) {
+          if first {
+            first = false
+            p = err(p, ellipsis, if dddok { "can only use ... with final parameter" } else { "invalid use of ..." })
+          }
+          list = set(list, i, PF { typ: bad_expr(ast.pos(f.typ), ast.end(f.typ)), ..f })
+          tids = set(tids, i, len(list) + i)
+        }
+      },
+      _ => {},
+    }
+    i += 1
+  }
+  var params: List<Node> = []
+  if named == 0 {
+    for par in list { params = push(params, Node.Field { doc: Nil, names: [], typ: par.typ, tag: Nil, comment: Nil }) }
+    return (p, params)
+  }
+  var names: List<Node> = []
+  var typ: Node = Nil
+  var cur = -1
+  var j = 0
+  for par in list {
+    if tids[j] != cur {
+      if len(names) > 0 {
+        params = push(params, Node.Field { doc: Nil, names: names, typ: typ, tag: Nil, comment: Nil })
+        names = []
+      }
+      typ = par.typ
+      cur = tids[j]
+    }
+    names = push(names, par.name)
+    j += 1
+  }
+  if len(names) > 0 { params = push(params, Node.Field { doc: Nil, names: names, typ: typ, tag: Nil, comment: Nil }) }
+  (p, params)
+}
+
+fn parse_type_parameters(p0: P) -> (P, Node) {
+  var (p, lbrack) = expect(p0, token.LBRACK)
+  var list: List<Node> = []
+  if p.tok != token.RBRACK {
+    let (p2, l) = parse_parameter_list(p, Nil, Nil, token.RBRACK, false)
+    p = p2
+    list = l
+  }
+  let (p3, rbrack) = expect(p, token.RBRACK)
+  p = p3
+  if len(list) == 0 {
+    return (err(p, rbrack, "empty type parameter list"), Nil)
+  }
+  (p, Node.FieldList { opening: lbrack, list: list, closing: rbrack })
+}
+
+fn parse_parameters(p0: P, result: Bool) -> (P, Node) {
+  var p = p0
+  if !result || p.tok == token.LPAREN {
+    let (p1, lparen) = expect(p, token.LPAREN)
+    p = p1
+    var list: List<Node> = []
+    if p.tok != token.RPAREN {
+      let (p2, l) = parse_parameter_list(p, Nil, Nil, token.RPAREN, !result)
+      p = p2
+      list = l
+    }
+    let (p3, rparen) = expect(p, token.RPAREN)
+    return (p3, Node.FieldList { opening: lparen, list: list, closing: rparen })
+  }
+  let (p4, typ) = try_ident_or_type(p)
+  if typ != Nil {
+    return (p4, Node.FieldList { opening: 0, list: [Node.Field { doc: Nil, names: [], typ: typ, tag: Nil, comment: Nil }], closing: 0 })
+  }
+  (p4, Nil)
+}
+
+fn parse_func_type(p0: P) -> (P, Node) {
+  var (p, pos) = expect(p0, token.FUNC)
+  if p.tok == token.LBRACK {
+    let (p2, tparams) = parse_type_parameters(p)
+    p = p2
+    match tparams { FieldList { opening, .. } => { p = err(p, opening, "function type must have no type parameters") }, _ => {} }
+  }
+  let (p3, params) = parse_parameters(p, false)
+  let (p4, results) = parse_parameters(p3, true)
+  (p4, Node.FuncType { func_pos: pos, type_params: Nil, params: params, results: results })
+}
+
+fn parse_method_spec(p0: P) -> (P, Node) {
+  var p = p0
+  let doc = p.lead
+  var idents: List<Node> = []
+  var typ: Node = Nil
+  let (p1, x) = parse_type_name(p, Nil)
+  p = p1
+  if x is Ident { .. } {
+    let id = x
+    if p.tok == token.LBRACK {
+      let lbrack = p.pos
+      p = next(p)
+      p = P { expr_lev: p.expr_lev + 1, ..p }
+      let (p2, x2) = pexpr(p)
+      p = p2
+      p = P { expr_lev: p.expr_lev - 1, ..p }
+      if x2 is Ident { .. } && p.tok != token.COMMA && p.tok != token.RBRACK {
+        let (p3, _) = parse_parameter_list(p, x2, Nil, token.RBRACK, false)
+        let (p4, _) = expect(p3, token.RBRACK)
+        p = err(p4, lbrack, "interface method must have no type parameters")
+        let (p5, params) = parse_parameters(p, false)
+        let (p6, results) = parse_parameters(p5, true)
+        p = p6
+        idents = [id]
+        typ = Node.FuncType { func_pos: 0, type_params: Nil, params: params, results: results }
+      } else {
+        var list = [x2]
+        let (p3, more) = at_comma(p, "type argument list", token.RBRACK)
+        p = p3
+        if more {
+          p = P { expr_lev: p.expr_lev + 1, ..p }
+          p = next(p)
+          while p.tok != token.RBRACK && p.tok != token.EOF {
+            let (p4, t) = parse_type(p)
+            p = p4
+            list = push(list, t)
+            let (p5, more2) = at_comma(p, "type argument list", token.RBRACK)
+            p = p5
+            if !more2 { break }
+            p = next(p)
+          }
+          p = P { expr_lev: p.expr_lev - 1, ..p }
+        }
+        let (p6, rbrack) = expect_closing(p, token.RBRACK, "type argument list")
+        p = p6
+        typ = pack_index_expr(id, lbrack, list, rbrack)
+      }
+    } else if p.tok == token.LPAREN {
+      let (p5, params) = parse_parameters(p, false)
+      let (p6, results) = parse_parameters(p5, true)
+      p = p6
+      idents = [id]
+      typ = Node.FuncType { func_pos: 0, type_params: Nil, params: params, results: results }
+    } else {
+      typ = x
+    }
+  } else {
+    typ = x
+    if p.tok == token.LBRACK {
+      let (p2, t) = parse_type_instance(p, typ)
+      p = p2
+      typ = t
+    }
+  }
+  (p, Node.Field { doc: doc, names: idents, typ: typ, tag: Nil, comment: Nil })
+}
+
+fn embedded_elem(p0: P, x0: Node) -> (P, Node) {
+  var p = p0
+  var x = x0
+  if x == Nil {
+    let (p1, t) = embedded_term(p)
+    p = p1
+    x = t
+  }
+  while p.tok == token.OR {
+    let op_pos = p.pos
+    p = next(p)
+    let (p2, y) = embedded_term(p)
+    p = p2
+    x = Node.BinaryExpr { x: x, op_pos: op_pos, op: token.OR, y: y }
+  }
+  (p, x)
+}
+
+fn embedded_term(p0: P) -> (P, Node) {
+  var p = p0
+  if p.tok == token.TILDE {
+    let op_pos = p.pos
+    p = next(p)
+    let (p2, t) = parse_type(p)
+    return (p2, Node.UnaryExpr { op_pos: op_pos, op: token.TILDE, x: t })
+  }
+  let (p3, t) = try_ident_or_type(p)
+  p = p3
+  if t == Nil {
+    let pos = p.pos
+    p = error_expected(p, pos, "~ term or type")
+    p = advance(p, EXPR_END)
+    return (p, bad_expr(pos, p.pos))
+  }
+  (p, t)
+}
+
+fn parse_interface_type(p0: P) -> (P, Node) {
+  var (p, pos) = expect(p0, token.INTERFACE)
+  let (p1, lbrace) = expect(p, token.LBRACE)
+  p = p1
+  var list: List<Node> = []
+  loop {
+    if p.tok == token.IDENT {
+      let (p2, f0) = parse_method_spec(p)
+      p = p2
+      var f = f0
+      match f {
+        Field { doc, names, typ, tag, .. } => {
+          var t = typ
+          if len(names) == 0 {
+            let (p3, t2) = embedded_elem(p, typ)
+            p = p3
+            t = t2
+          }
+          let (p4, c) = expect_semi(p)
+          p = p4
+          f = Node.Field { doc: doc, names: names, typ: t, tag: tag, comment: c }
+        },
+        _ => {},
+      }
+      list = push(list, f)
+    } else if p.tok == token.TILDE {
+      let (p2, typ) = embedded_elem(p, Nil)
+      let (p3, c) = expect_semi(p2)
+      p = p3
+      list = push(list, Node.Field { doc: Nil, names: [], typ: typ, tag: Nil, comment: c })
+    } else {
+      let (p2, t) = try_ident_or_type(p)
+      p = p2
+      if t != Nil {
+        let (p3, typ) = embedded_elem(p, t)
+        let (p4, c) = expect_semi(p3)
+        p = p4
+        list = push(list, Node.Field { doc: Nil, names: [], typ: typ, tag: Nil, comment: c })
+      } else {
+        break
+      }
+    }
+  }
+  let (p5, rbrace) = expect(p, token.RBRACE)
+  (p5, Node.InterfaceType { interface_pos: pos, methods: Node.FieldList { opening: lbrace, list: list, closing: rbrace }, incomplete: false })
+}
+
+fn parse_map_type(p0: P) -> (P, Node) {
+  let (p, pos) = expect(p0, token.MAP)
+  let (p1, _) = expect(p, token.LBRACK)
+  let (p2, key) = parse_type(p1)
+  let (p3, _) = expect(p2, token.RBRACK)
+  let (p4, value) = parse_type(p3)
+  (p4, Node.MapType { map_pos: pos, key: key, value: value })
+}
+
+fn parse_chan_type(p0: P) -> (P, Node) {
+  var p = p0
+  let pos = p.pos
+  var dir = ast.SEND | ast.RECV
+  var arrow = 0
+  if p.tok == token.CHAN {
+    p = next(p)
+    if p.tok == token.ARROW {
+      arrow = p.pos
+      p = next(p)
+      dir = ast.SEND
+    }
+  } else {
+    let (p1, a) = expect(p, token.ARROW)
+    let (p2, _) = expect(p1, token.CHAN)
+    p = p2
+    arrow = a
+    dir = ast.RECV
+  }
+  let (p3, value) = parse_type(p)
+  (p3, Node.ChanType { begin: pos, arrow: arrow, dir: dir, value: value })
+}
+
+fn parse_type_instance(p0: P, typ: Node) -> (P, Node) {
+  var (p, opening) = expect(p0, token.LBRACK)
+  p = P { expr_lev: p.expr_lev + 1, ..p }
+  var list: List<Node> = []
+  while p.tok != token.RBRACK && p.tok != token.EOF {
+    let (p1, t) = parse_type(p)
+    p = p1
+    list = push(list, t)
+    let (p2, more) = at_comma(p, "type argument list", token.RBRACK)
+    p = p2
+    if !more { break }
+    p = next(p)
+  }
+  p = P { expr_lev: p.expr_lev - 1, ..p }
+  let (p3, closing) = expect_closing(p, token.RBRACK, "type argument list")
+  p = p3
+  if len(list) == 0 {
+    p = error_expected(p, closing, "type argument list")
+    return (p, Node.IndexExpr { x: typ, lbrack: opening, index: bad_expr(opening + 1, closing), rbrack: closing })
+  }
+  (p, pack_index_expr(typ, opening, list, closing))
+}
+
+fn try_ident_or_type(p0: P) -> (P, Node) {
+  var p = p0
+  let t = p.tok
+  if t == token.IDENT {
+    let (p1, typ) = parse_type_name(p, Nil)
+    if p1.tok == token.LBRACK { return parse_type_instance(p1, typ) }
+    return (p1, typ)
+  }
+  if t == token.LBRACK {
+    let (p1, lbrack) = expect(p, token.LBRACK)
+    return parse_array_type(p1, lbrack, Nil)
+  }
+  if t == token.STRUCT { return parse_struct_type(p) }
+  if t == token.MUL { return parse_pointer_type(p) }
+  if t == token.FUNC { return parse_func_type(p) }
+  if t == token.INTERFACE { return parse_interface_type(p) }
+  if t == token.MAP { return parse_map_type(p) }
+  if t == token.CHAN || t == token.ARROW { return parse_chan_type(p) }
+  if t == token.LPAREN {
+    let lparen = p.pos
+    p = next(p)
+    let (p1, typ) = parse_type(p)
+    let (p2, rparen) = expect(p1, token.RPAREN)
+    return (p2, Node.ParenExpr { lparen: lparen, x: typ, rparen: rparen })
+  }
+  (p, Nil)
+}
+
+// ── 语句块 ──
+fn parse_stmt_list(p0: P) -> (P, List<Node>) {
+  var p = p0
+  var list: List<Node> = []
+  while p.tok != token.CASE && p.tok != token.DEFAULT && p.tok != token.RBRACE && p.tok != token.EOF {
+    let (p1, s) = parse_stmt(p)
+    p = p1
+    list = push(list, s)
+  }
+  (p, list)
+}
+
+fn parse_body(p0: P) -> (P, Node) {
+  let (p, lbrace) = expect(p0, token.LBRACE)
+  let (p1, list) = parse_stmt_list(p)
+  let (p2, rbrace) = expect2(p1, token.RBRACE)
+  (p2, Node.BlockStmt { lbrace: lbrace, list: list, rbrace: rbrace })
+}
+
+fn parse_func_type_or_lit(p0: P) -> (P, Node) {
+  var (p, typ) = parse_func_type(p0)
+  if p.tok != token.LBRACE { return (p, typ) }
+  p = P { expr_lev: p.expr_lev + 1, ..p }
+  let (p1, body) = parse_body(p)
+  p = P { expr_lev: p1.expr_lev - 1, ..p1 }
+  (p, Node.FuncLit { typ: typ, body: body })
+}
+
+// ── 表达式 ──
+fn parse_operand(p0: P) -> (P, Node) {
+  var p = p0
+  let t = p.tok
+  if t == token.IDENT { return parse_ident(p) }
+  if t == token.INT || t == token.FLOAT || t == token.IMAG || t == token.CHAR || t == token.STRING {
+    let x = Node.BasicLit { value_pos: p.pos, value_end: p.sc.end(), kind: p.tok, value: p.lit }
+    return (next(p), x)
+  }
+  if t == token.LPAREN {
+    let lparen = p.pos
+    p = next(p)
+    p = P { expr_lev: p.expr_lev + 1, ..p }
+    let (p1, x) = parse_rhs(p)
+    p = P { expr_lev: p1.expr_lev - 1, ..p1 }
+    let (p2, rparen) = expect(p, token.RPAREN)
+    return (p2, Node.ParenExpr { lparen: lparen, x: x, rparen: rparen })
+  }
+  if t == token.FUNC { return parse_func_type_or_lit(p) }
+  let (p3, typ) = try_ident_or_type(p)
+  p = p3
+  if typ != Nil { return (p, typ) }
+  let pos = p.pos
+  p = error_expected(p, pos, "operand")
+  p = advance(p, STMT_START)
+  (p, bad_expr(pos, p.pos))
+}
+
+fn parse_selector(p0: P, x: Node) -> (P, Node) {
+  let (p, sel) = parse_ident(p0)
+  (p, Node.SelectorExpr { x: x, sel: sel })
+}
+
+fn parse_type_assertion(p0: P, x: Node) -> (P, Node) {
+  var (p, lparen) = expect(p0, token.LPAREN)
+  var typ: Node = Nil
+  if p.tok == token.TYPE {
+    p = next(p)
+  } else {
+    let (p1, t) = parse_type(p)
+    p = p1
+    typ = t
+  }
+  let (p2, rparen) = expect(p, token.RPAREN)
+  (p2, Node.TypeAssertExpr { x: x, lparen: lparen, typ: typ, rparen: rparen })
+}
+
+fn parse_index_or_slice_or_instance(p0: P, x: Node) -> (P, Node) {
+  var (p, lbrack) = expect(p0, token.LBRACK)
+  if p.tok == token.RBRACK {
+    p = error_expected(p, p.pos, "operand")
+    let rbrack = p.pos
+    p = next(p)
+    return (p, Node.IndexExpr { x: x, lbrack: lbrack, index: bad_expr(rbrack, rbrack), rbrack: rbrack })
+  }
+  p = P { expr_lev: p.expr_lev + 1, ..p }
+  var args: List<Node> = []
+  var index: List<Node> = [Nil, Nil, Nil]
+  var colons: List<Int> = [0, 0]
+  if p.tok != token.COLON {
+    let (p1, e) = parse_rhs(p)
+    p = p1
+    index = set(index, 0, e)
+  }
+  var ncolons = 0
+  if p.tok == token.COLON {
+    while p.tok == token.COLON && ncolons < 2 {
+      colons = set(colons, ncolons, p.pos)
+      ncolons += 1
+      p = next(p)
+      if p.tok != token.COLON && p.tok != token.RBRACK && p.tok != token.EOF {
+        let (p1, e) = parse_rhs(p)
+        p = p1
+        index = set(index, ncolons, e)
+      }
+    }
+  } else if p.tok == token.COMMA {
+    args = push(args, index[0])
+    while p.tok == token.COMMA {
+      p = next(p)
+      if p.tok != token.RBRACK && p.tok != token.EOF {
+        let (p1, t) = parse_type(p)
+        p = p1
+        args = push(args, t)
+      }
+    }
+  }
+  p = P { expr_lev: p.expr_lev - 1, ..p }
+  let (p2, rbrack) = expect(p, token.RBRACK)
+  p = p2
+  if ncolons > 0 {
+    var slice3 = false
+    if ncolons == 2 {
+      slice3 = true
+      if index[1] == Nil {
+        p = err(p, colons[0], "middle index required in 3-index slice")
+        index = set(index, 1, bad_expr(colons[0] + 1, colons[1]))
+      }
+      if index[2] == Nil {
+        p = err(p, colons[1], "final index required in 3-index slice")
+        index = set(index, 2, bad_expr(colons[1] + 1, rbrack))
+      }
+    }
+    return (p, Node.SliceExpr { x: x, lbrack: lbrack, low: index[0], high: index[1], max: index[2], slice3: slice3, rbrack: rbrack })
+  }
+  if len(args) == 0 { return (p, Node.IndexExpr { x: x, lbrack: lbrack, index: index[0], rbrack: rbrack }) }
+  (p, pack_index_expr(x, lbrack, args, rbrack))
+}
+
+fn parse_call_or_conversion(p0: P, fun: Node) -> (P, Node) {
+  var (p, lparen) = expect(p0, token.LPAREN)
+  p = P { expr_lev: p.expr_lev + 1, ..p }
+  var list: List<Node> = []
+  var ellipsis = 0
+  while p.tok != token.RPAREN && p.tok != token.EOF && ellipsis == 0 {
+    let (p1, e) = parse_rhs(p)
+    p = p1
+    list = push(list, e)
+    if p.tok == token.ELLIPSIS {
+      ellipsis = p.pos
+      p = next(p)
+    }
+    let (p2, more) = at_comma(p, "argument list", token.RPAREN)
+    p = p2
+    if !more { break }
+    p = next(p)
+  }
+  p = P { expr_lev: p.expr_lev - 1, ..p }
+  let (p3, rparen) = expect_closing(p, token.RPAREN, "argument list")
+  (p3, Node.CallExpr { fun: fun, lparen: lparen, args: list, ellipsis: ellipsis, rparen: rparen })
+}
+
+fn parse_value(p: P) -> (P, Node) {
+  if p.tok == token.LBRACE { return parse_literal_value(p, Nil) }
+  pexpr(p)
+}
+
+fn parse_element(p0: P) -> (P, Node) {
+  var (p, x) = parse_value(p0)
+  if p.tok == token.COLON {
+    let colon = p.pos
+    p = next(p)
+    let (p1, v) = parse_value(p)
+    return (p1, Node.KeyValueExpr { key: x, colon: colon, value: v })
+  }
+  (p, x)
+}
+
+fn parse_element_list(p0: P) -> (P, List<Node>) {
+  var p = p0
+  var list: List<Node> = []
+  while p.tok != token.RBRACE && p.tok != token.EOF {
+    let (p1, e) = parse_element(p)
+    p = p1
+    list = push(list, e)
+    let (p2, more) = at_comma(p, "composite literal", token.RBRACE)
+    p = p2
+    if !more { break }
+    p = next(p)
+  }
+  (p, list)
+}
+
+fn parse_literal_value(p0: P, typ: Node) -> (P, Node) {
+  var (p, lbrace) = expect(p0, token.LBRACE)
+  var elts: List<Node> = []
+  p = P { expr_lev: p.expr_lev + 1, ..p }
+  if p.tok != token.RBRACE {
+    let (p1, l) = parse_element_list(p)
+    p = p1
+    elts = l
+  }
+  p = P { expr_lev: p.expr_lev - 1, ..p }
+  let (p2, rbrace) = expect_closing(p, token.RBRACE, "composite literal")
+  (p2, Node.CompositeLit { typ: typ, lbrace: lbrace, elts: elts, rbrace: rbrace, incomplete: false })
+}
+
+fn parse_primary_expr(p0: P, x0: Node) -> (P, Node) {
+  var p = p0
+  var x = x0
+  if x == Nil {
+    let (p1, o) = parse_operand(p)
+    p = p1
+    x = o
+  }
+  loop {
+    let t = p.tok
+    if t == token.PERIOD {
+      p = next(p)
+      if p.tok == token.IDENT {
+        let (p1, y) = parse_selector(p, x)
+        p = p1
+        x = y
+      } else if p.tok == token.LPAREN {
+        let (p1, y) = parse_type_assertion(p, x)
+        p = p1
+        x = y
+      } else {
+        let pos = p.pos
+        p = error_expected(p, pos, "selector or type assertion")
+        if p.tok != token.RBRACE { p = next(p) }
+        x = Node.SelectorExpr { x: x, sel: ident(pos, "_") }
+      }
+    } else if t == token.LBRACK {
+      let (p1, y) = parse_index_or_slice_or_instance(p, x)
+      p = p1
+      x = y
+    } else if t == token.LPAREN {
+      let (p1, y) = parse_call_or_conversion(p, x)
+      p = p1
+      x = y
+    } else if t == token.LBRACE {
+      let u = ast.unparen(x)
+      let k = ast.type_name(u)
+      if k == "BadExpr" || k == "Ident" || k == "SelectorExpr" || k == "IndexExpr" || k == "IndexListExpr" {
+        if p.expr_lev < 0 { return (p, x) }
+      } else if k == "ArrayType" || k == "StructType" || k == "MapType" {
+      } else {
+        return (p, x)
+      }
+      if u != x { p = err(p, ast.pos(u), "cannot parenthesize type in composite literal") }
+      let (p1, y) = parse_literal_value(p, x)
+      p = p1
+      x = y
+    } else {
+      return (p, x)
+    }
+  }
+  (p, x)
+}
+
+// <-chan T 的改写：把 ChanType 链上的方向和箭头位置挪一格（Go 是原地修改）
+fn fix_recv_chan(p0: P, typ: Node, arrow0: Int) -> (P, Node, Int, Int) {
+  // 返回 (P, 新类型, 最后的 dir, 最后的 arrow)
+  var p = p0
+  match typ {
+    ChanType { begin, arrow, dir, value } => {
+      if dir == ast.RECV { p = error_expected(p, arrow, "'chan'") }
+      let new_arrow = arrow
+      let nd = dir
+      if nd == ast.SEND && value is ChanType { .. } {
+        let (p2, v2, d2, a2) = fix_recv_chan(p, value, new_arrow)
+        return (p2, Node.ChanType { begin: arrow0, arrow: arrow0, dir: ast.RECV, value: v2 }, d2, a2)
+      }
+      (p, Node.ChanType { begin: arrow0, arrow: arrow0, dir: ast.RECV, value: value }, nd, new_arrow)
+    },
+    _ => (p, typ, ast.SEND, arrow0),
+  }
+}
+
+fn parse_unary_expr(p0: P) -> (P, Node) {
+  var p = p0
+  let t = p.tok
+  if t == token.ADD || t == token.SUB || t == token.NOT || t == token.XOR || t == token.AND || t == token.TILDE {
+    let pos = p.pos
+    p = next(p)
+    let (p1, x) = parse_unary_expr(p)
+    return (p1, Node.UnaryExpr { op_pos: pos, op: t, x: x })
+  }
+  if t == token.ARROW {
+    let arrow = p.pos
+    p = next(p)
+    let (p1, x) = parse_unary_expr(p)
+    p = p1
+    if x is ChanType { .. } {
+      let (p2, x2, dir, last_arrow) = fix_recv_chan(p, x, arrow)
+      p = p2
+      if dir == ast.SEND { p = error_expected(p, last_arrow, "channel type") }
+      return (p, x2)
+    }
+    return (p, Node.UnaryExpr { op_pos: arrow, op: token.ARROW, x: x })
+  }
+  if t == token.MUL {
+    let pos = p.pos
+    p = next(p)
+    let (p1, x) = parse_unary_expr(p)
+    return (p1, Node.StarExpr { star: pos, x: x })
+  }
+  parse_primary_expr(p, Nil)
+}
+
+fn tok_prec(p: P) -> (Int, Int) {
+  var tok = p.tok
+  if p.in_rhs && tok == token.ASSIGN { tok = token.EQL }
+  (tok, token.precedence(tok))
+}
+
+fn parse_binary_expr(p0: P, x0: Node, prec1: Int) -> (P, Node) {
+  var p = p0
+  var x = x0
+  if x == Nil {
+    let (p1, u) = parse_unary_expr(p)
+    p = p1
+    x = u
+  }
+  loop {
+    let (op, oprec) = tok_prec(p)
+    if oprec < prec1 { return (p, x) }
+    let (p1, pos) = expect(p, op)
+    let (p2, y) = parse_binary_expr(p1, Nil, oprec + 1)
+    p = p2
+    x = Node.BinaryExpr { x: x, op_pos: pos, op: op, y: y }
+  }
+  (p, x)
+}
+
+fn pexpr(p: P) -> (P, Node) { parse_binary_expr(p, Nil, token.LOWEST_PREC + 1) }
+
+fn parse_rhs(p0: P) -> (P, Node) {
+  let old = p0.in_rhs
+  let (p, x) = pexpr(P { in_rhs: true, ..p0 })
+  (P { in_rhs: old, ..p }, x)
+}
+
+// ── 语句 ──
+const BASIC: Int = 0
+const LABEL_OK: Int = 1
+const RANGE_OK: Int = 2
+
+fn is_assign_tok(t: Int) -> Bool {
+  t == token.DEFINE || t == token.ASSIGN || t == token.ADD_ASSIGN || t == token.SUB_ASSIGN || t == token.MUL_ASSIGN ||
+  t == token.QUO_ASSIGN || t == token.REM_ASSIGN || t == token.AND_ASSIGN || t == token.OR_ASSIGN || t == token.XOR_ASSIGN ||
+  t == token.SHL_ASSIGN || t == token.SHR_ASSIGN || t == token.AND_NOT_ASSIGN
+}
+
+fn parse_simple_stmt(p0: P, mode: Int) -> (P, Node, Bool) {
+  var (p, x) = parse_list(p0, false)
+  if is_assign_tok(p.tok) {
+    let pos = p.pos
+    let tok = p.tok
+    p = next(p)
+    var y: List<Node> = []
+    var is_range = false
+    if mode == RANGE_OK && p.tok == token.RANGE && (tok == token.DEFINE || tok == token.ASSIGN) {
+      let rpos = p.pos
+      p = next(p)
+      let (p1, e) = parse_rhs(p)
+      p = p1
+      y = [Node.UnaryExpr { op_pos: rpos, op: token.RANGE, x: e }]
+      is_range = true
+    } else {
+      let (p1, l) = parse_list(p, true)
+      p = p1
+      y = l
+    }
+    return (p, Node.AssignStmt { lhs: x, tok_pos: pos, tok: tok, rhs: y }, is_range)
+  }
+  if len(x) > 1 { p = error_expected(p, ast.pos(x[0]), "1 expression") }
+  if p.tok == token.COLON {
+    let colon = p.pos
+    p = next(p)
+    if mode == LABEL_OK && x[0] is Ident { .. } {
+      let (p1, s) = parse_stmt(p)
+      return (p1, Node.LabeledStmt { label: x[0], colon: colon, stmt: s }, false)
+    }
+    p = err(p, colon, "illegal label declaration")
+    return (p, Node.BadStmt { from: ast.pos(x[0]), to: colon + 1 }, false)
+  }
+  if p.tok == token.ARROW {
+    let arrow = p.pos
+    p = next(p)
+    let (p1, y) = parse_rhs(p)
+    return (p1, Node.SendStmt { chan_x: x[0], arrow: arrow, value: y }, false)
+  }
+  if p.tok == token.INC || p.tok == token.DEC {
+    let s = Node.IncDecStmt { x: x[0], tok_pos: p.pos, tok: p.tok }
+    return (next(p), s, false)
+  }
+  (p, Node.ExprStmt { x: x[0] }, false)
+}
+
+fn parse_call_expr(p0: P, call_type: Str) -> (P, Node) {
+  var (p, x) = parse_rhs(p0)
+  let t = ast.unparen(x)
+  if t != x {
+    p = err(p, ast.pos(x), "expression in " + call_type + " must not be parenthesized")
+    x = t
+  }
+  if x is CallExpr { .. } { return (p, x) }
+  if !(x is BadExpr { .. }) { p = err(p, ast.end(x), "expression in " + call_type + " must be function call") }
+  (p, Nil)
+}
+
+fn parse_go_stmt(p0: P) -> (P, Node) {
+  let (p, pos) = expect(p0, token.GO)
+  let (p1, call) = parse_call_expr(p, "go")
+  let (p2, _) = expect_semi(p1)
+  if call == Nil { return (p2, Node.BadStmt { from: pos, to: pos + 2 }) }
+  (p2, Node.GoStmt { go_pos: pos, call: call })
+}
+
+fn parse_defer_stmt(p0: P) -> (P, Node) {
+  let (p, pos) = expect(p0, token.DEFER)
+  let (p1, call) = parse_call_expr(p, "defer")
+  let (p2, _) = expect_semi(p1)
+  if call == Nil { return (p2, Node.BadStmt { from: pos, to: pos + 5 }) }
+  (p2, Node.DeferStmt { defer_pos: pos, call: call })
+}
+
+fn parse_return_stmt(p0: P) -> (P, Node) {
+  let pos = p0.pos
+  var (p, _) = expect(p0, token.RETURN)
+  var x: List<Node> = []
+  if p.tok != token.SEMICOLON && p.tok != token.RBRACE {
+    let (p1, l) = parse_list(p, true)
+    p = p1
+    x = l
+  }
+  let (p2, _) = expect_semi(p)
+  (p2, Node.ReturnStmt { return_pos: pos, results: x })
+}
+
+fn parse_branch_stmt(p0: P, tok: Int) -> (P, Node) {
+  var (p, pos) = expect(p0, tok)
+  var label: Node = Nil
+  if tok == token.GOTO || ((tok == token.CONTINUE || tok == token.BREAK) && p.tok == token.IDENT) {
+    let (p1, l) = parse_ident(p)
+    p = p1
+    label = l
+  }
+  let (p2, _) = expect_semi(p)
+  (p2, Node.BranchStmt { tok_pos: pos, tok: tok, label: label })
+}
+
+fn make_expr(p: P, s: Node, want: Str) -> (P, Node) {
+  if s == Nil { return (p, Nil) }
+  match s { ExprStmt { x } => { return (p, x) }, _ => {} }
+  let found = if s is AssignStmt { .. } { "assignment" } else { "simple statement" }
+  let p2 = err(p, ast.pos(s), "expected " + want + ", found " + found + " (missing parentheses around composite literal?)")
+  (p2, bad_expr(ast.pos(s), ast.end(s)))
+}
+
+fn parse_if_header(p0: P) -> (P, Node, Node) {
+  var p = p0
+  var init: Node = Nil
+  var cond: Node = Nil
+  if p.tok == token.LBRACE {
+    p = err(p, p.pos, "missing condition in if statement")
+    return (p, Nil, bad_expr(p.pos, p.pos))
+  }
+  let prev_lev = p.expr_lev
+  p = P { expr_lev: -1, ..p }
+  if p.tok != token.SEMICOLON {
+    if p.tok == token.VAR {
+      p = next(p)
+      p = err(p, p.pos, "var declaration not allowed in if initializer")
+    }
+    let (p1, s, _) = parse_simple_stmt(p, BASIC)
+    p = p1
+    init = s
+  }
+  var cond_stmt: Node = Nil
+  var semi_pos = 0
+  var semi_lit = ""
+  if p.tok != token.LBRACE {
+    if p.tok == token.SEMICOLON {
+      semi_pos = p.pos
+      semi_lit = p.lit
+      p = next(p)
+    } else {
+      let (p1, _) = expect(p, token.SEMICOLON)
+      p = p1
+    }
+    if p.tok != token.LBRACE {
+      let (p1, s, _) = parse_simple_stmt(p, BASIC)
+      p = p1
+      cond_stmt = s
+    }
+  } else {
+    cond_stmt = init
+    init = Nil
+  }
+  if cond_stmt != Nil {
+    let (p1, c) = make_expr(p, cond_stmt, "boolean expression")
+    p = p1
+    cond = c
+  } else if semi_pos != 0 {
+    if semi_lit == "\n" {
+      p = err(p, semi_pos, "unexpected newline, expecting {{ after if clause")
+    } else {
+      p = err(p, semi_pos, "missing condition in if statement")
+    }
+  }
+  if cond == Nil { cond = bad_expr(p.pos, p.pos) }
+  p = P { expr_lev: prev_lev, ..p }
+  (p, init, cond)
+}
+
+fn parse_if_stmt(p0: P) -> (P, Node) {
+  let (p1, pos) = expect(p0, token.IF)
+  let (p2, init, cond) = parse_if_header(p1)
+  var (p, body) = parse_body(p2)
+  var else_s: Node = Nil
+  if p.tok == token.ELSE {
+    p = next(p)
+    if p.tok == token.IF {
+      let (p3, s) = parse_if_stmt(p)
+      p = p3
+      else_s = s
+    } else if p.tok == token.LBRACE {
+      let (p3, s) = parse_body(p)
+      let (p4, _) = expect_semi(p3)
+      p = p4
+      else_s = s
+    } else {
+      p = error_expected(p, p.pos, "if statement or block")
+      else_s = Node.BadStmt { from: p.pos, to: p.pos }
+    }
+  } else {
+    let (p3, _) = expect_semi(p)
+    p = p3
+  }
+  (p, Node.IfStmt { if_pos: pos, init_s: init, cond: cond, body: body, else_s: else_s })
+}
+
+fn parse_case_clause(p0: P) -> (P, Node) {
+  var p = p0
+  let pos = p.pos
+  var list: List<Node> = []
+  if p.tok == token.CASE {
+    p = next(p)
+    let (p1, l) = parse_list(p, true)
+    p = p1
+    list = l
+  } else {
+    let (p1, _) = expect(p, token.DEFAULT)
+    p = p1
+  }
+  let (p2, colon) = expect(p, token.COLON)
+  let (p3, body) = parse_stmt_list(p2)
+  (p3, Node.CaseClause { case_pos: pos, list: list, colon: colon, body: body })
+}
+
+fn is_type_switch_assert(x: Node) -> Bool {
+  match x { TypeAssertExpr { typ, .. } => typ == Nil, _ => false }
+}
+
+fn is_type_switch_guard(p: P, s: Node) -> (P, Bool) {
+  match s {
+    ExprStmt { x } => (p, is_type_switch_assert(x)),
+    AssignStmt { lhs, tok_pos, tok, rhs } => {
+      if len(lhs) == 1 && len(rhs) == 1 && is_type_switch_assert(rhs[0]) {
+        if tok == token.ASSIGN { return (err(p, tok_pos, "expected ':=', found '='"), true) }
+        if tok == token.DEFINE { return (p, true) }
+      }
+      (p, false)
+    },
+    _ => (p, false),
+  }
+}
+
+fn parse_switch_stmt(p0: P) -> (P, Node) {
+  var (p, pos) = expect(p0, token.SWITCH)
+  var s1: Node = Nil
+  var s2: Node = Nil
+  if p.tok != token.LBRACE {
+    let prev_lev = p.expr_lev
+    p = P { expr_lev: -1, ..p }
+    if p.tok != token.SEMICOLON {
+      let (p1, s, _) = parse_simple_stmt(p, BASIC)
+      p = p1
+      s2 = s
+    }
+    if p.tok == token.SEMICOLON {
+      p = next(p)
+      s1 = s2
+      s2 = Nil
+      if p.tok != token.LBRACE {
+        let (p1, s, _) = parse_simple_stmt(p, BASIC)
+        p = p1
+        s2 = s
+      }
+    }
+    p = P { expr_lev: prev_lev, ..p }
+  }
+  let (p2, type_switch) = is_type_switch_guard(p, s2)
+  let (p3, lbrace) = expect(p2, token.LBRACE)
+  p = p3
+  var list: List<Node> = []
+  while p.tok == token.CASE || p.tok == token.DEFAULT {
+    let (p4, c) = parse_case_clause(p)
+    p = p4
+    list = push(list, c)
+  }
+  let (p5, rbrace) = expect(p, token.RBRACE)
+  let (p6, _) = expect_semi(p5)
+  p = p6
+  let body = Node.BlockStmt { lbrace: lbrace, list: list, rbrace: rbrace }
+  if type_switch { return (p, Node.TypeSwitchStmt { switch_pos: pos, init_s: s1, assign: s2, body: body }) }
+  let (p7, tag) = make_expr(p, s2, "switch expression")
+  (p7, Node.SwitchStmt { switch_pos: pos, init_s: s1, tag: tag, body: body })
+}
+
+fn parse_comm_clause(p0: P) -> (P, Node) {
+  var p = p0
+  let pos = p.pos
+  var comm: Node = Nil
+  if p.tok == token.CASE {
+    p = next(p)
+    let (p1, lhs0) = parse_list(p, false)
+    p = p1
+    var lhs = lhs0
+    if p.tok == token.ARROW {
+      if len(lhs) > 1 { p = error_expected(p, ast.pos(lhs[0]), "1 expression") }
+      let arrow = p.pos
+      p = next(p)
+      let (p2, rhs) = parse_rhs(p)
+      p = p2
+      comm = Node.SendStmt { chan_x: lhs[0], arrow: arrow, value: rhs }
+    } else {
+      let tok = p.tok
+      if tok == token.ASSIGN || tok == token.DEFINE {
+        if len(lhs) > 2 {
+          p = error_expected(p, ast.pos(lhs[0]), "1 or 2 expressions")
+          lhs = lhs[0..2]
+        }
+        let apos = p.pos
+        p = next(p)
+        let (p2, rhs) = parse_rhs(p)
+        p = p2
+        comm = Node.AssignStmt { lhs: lhs, tok_pos: apos, tok: tok, rhs: [rhs] }
+      } else {
+        if len(lhs) > 1 { p = error_expected(p, ast.pos(lhs[0]), "1 expression") }
+        comm = Node.ExprStmt { x: lhs[0] }
+      }
+    }
+  } else {
+    let (p1, _) = expect(p, token.DEFAULT)
+    p = p1
+  }
+  let (p2, colon) = expect(p, token.COLON)
+  let (p3, body) = parse_stmt_list(p2)
+  (p3, Node.CommClause { case_pos: pos, comm: comm, colon: colon, body: body })
+}
+
+fn parse_select_stmt(p0: P) -> (P, Node) {
+  let (p1, pos) = expect(p0, token.SELECT)
+  var (p, lbrace) = expect(p1, token.LBRACE)
+  var list: List<Node> = []
+  while p.tok == token.CASE || p.tok == token.DEFAULT {
+    let (p2, c) = parse_comm_clause(p)
+    p = p2
+    list = push(list, c)
+  }
+  let (p3, rbrace) = expect(p, token.RBRACE)
+  let (p4, _) = expect_semi(p3)
+  (p4, Node.SelectStmt { select_pos: pos, body: Node.BlockStmt { lbrace: lbrace, list: list, rbrace: rbrace } })
+}
+
+fn parse_for_stmt(p0: P) -> (P, Node) {
+  var (p, pos) = expect(p0, token.FOR)
+  var s1: Node = Nil
+  var s2: Node = Nil
+  var s3: Node = Nil
+  var is_range = false
+  if p.tok != token.LBRACE {
+    let prev_lev = p.expr_lev
+    p = P { expr_lev: -1, ..p }
+    if p.tok != token.SEMICOLON {
+      if p.tok == token.RANGE {
+        let rpos = p.pos
+        p = next(p)
+        let (p1, e) = parse_rhs(p)
+        p = p1
+        s2 = Node.AssignStmt { lhs: [], tok_pos: 0, tok: token.ILLEGAL, rhs: [Node.UnaryExpr { op_pos: rpos, op: token.RANGE, x: e }] }
+        is_range = true
+      } else {
+        let (p1, s, r) = parse_simple_stmt(p, RANGE_OK)
+        p = p1
+        s2 = s
+        is_range = r
+      }
+    }
+    if !is_range && p.tok == token.SEMICOLON {
+      p = next(p)
+      s1 = s2
+      s2 = Nil
+      if p.tok != token.SEMICOLON {
+        let (p1, s, _) = parse_simple_stmt(p, BASIC)
+        p = p1
+        s2 = s
+      }
+      let (p2, _) = expect_semi(p)
+      p = p2
+      if p.tok != token.LBRACE {
+        let (p3, s, _) = parse_simple_stmt(p, BASIC)
+        p = p3
+        s3 = s
+      }
+    }
+    p = P { expr_lev: prev_lev, ..p }
+  }
+  let (p4, body) = parse_body(p)
+  let (p5, _) = expect_semi(p4)
+  p = p5
+  if is_range {
+    match s2 {
+      AssignStmt { lhs, tok_pos, tok, rhs } => {
+        var key: Node = Nil
+        var value: Node = Nil
+        if len(lhs) == 1 { key = lhs[0] }
+        else if len(lhs) == 2 { key = lhs[0]; value = lhs[1] }
+        else if len(lhs) > 2 {
+          p = error_expected(p, ast.pos(lhs[len(lhs) - 1]), "at most 2 expressions")
+          return (p, Node.BadStmt { from: pos, to: ast.end(body) })
+        }
+        let x = match rhs[0] { UnaryExpr { x, .. } => x, _ => Nil }
+        return (p, Node.RangeStmt { for_pos: pos, key: key, value: value, tok_pos: tok_pos, tok: tok, range_pos: ast.pos(rhs[0]), x: x, body: body })
+      },
+      _ => {},
+    }
+  }
+  let (p6, cond) = make_expr(p, s2, "boolean or range expression")
+  (p6, Node.ForStmt { for_pos: pos, init_s: s1, cond: cond, post: s3, body: body })
+}
+
+fn parse_stmt(p0: P) -> (P, Node) {
+  var p = p0
+  let t = p.tok
+  if t == token.CONST || t == token.TYPE || t == token.VAR {
+    let (p1, d) = parse_decl(p, STMT_START)
+    return (p1, Node.DeclStmt { decl: d })
+  }
+  if t == token.IDENT || t == token.INT || t == token.FLOAT || t == token.IMAG || t == token.CHAR || t == token.STRING || t == token.FUNC ||
+     t == token.LPAREN || t == token.LBRACK || t == token.STRUCT || t == token.MAP || t == token.CHAN || t == token.INTERFACE ||
+     t == token.ADD || t == token.SUB || t == token.MUL || t == token.AND || t == token.XOR || t == token.ARROW || t == token.NOT {
+    let (p1, s, _) = parse_simple_stmt(p, LABEL_OK)
+    p = p1
+    if !(s is LabeledStmt { .. }) {
+      let (p2, _) = expect_semi(p)
+      p = p2
+    }
+    return (p, s)
+  }
+  if t == token.GO { return parse_go_stmt(p) }
+  if t == token.DEFER { return parse_defer_stmt(p) }
+  if t == token.RETURN { return parse_return_stmt(p) }
+  if t == token.BREAK || t == token.CONTINUE || t == token.GOTO || t == token.FALLTHROUGH { return parse_branch_stmt(p, t) }
+  if t == token.LBRACE {
+    let (p1, s) = parse_body(p)
+    let (p2, _) = expect_semi(p1)
+    return (p2, s)
+  }
+  if t == token.IF { return parse_if_stmt(p) }
+  if t == token.SWITCH { return parse_switch_stmt(p) }
+  if t == token.SELECT { return parse_select_stmt(p) }
+  if t == token.FOR { return parse_for_stmt(p) }
+  if t == token.SEMICOLON {
+    let s = Node.EmptyStmt { semicolon: p.pos, implicit: p.lit == "\n" }
+    return (next(p), s)
+  }
+  if t == token.RBRACE { return (p, Node.EmptyStmt { semicolon: p.pos, implicit: true }) }
+  let pos = p.pos
+  p = error_expected(p, pos, "statement")
+  p = advance(p, STMT_START)
+  (p, Node.BadStmt { from: pos, to: p.pos })
+}
+
+// ── 声明 ──
+fn parse_import_spec(p0: P, doc: Node) -> (P, Node) {
+  var p = p0
+  var id: Node = Nil
+  if p.tok == token.IDENT {
+    let (p1, x) = parse_ident(p)
+    p = p1
+    id = x
+  } else if p.tok == token.PERIOD {
+    id = ident(p.pos, ".")
+    p = next(p)
+  }
+  let pos = p.pos
+  var end = p.pos
+  var path = ""
+  if p.tok == token.STRING {
+    path = p.lit
+    end = p.sc.end()
+    p = next(p)
+  } else if token.is_literal(p.tok) {
+    p = err(p, pos, "import path must be a string")
+    p = next(p)
+  } else {
+    p = err(p, pos, "missing import path")
+    p = advance(p, EXPR_END)
+  }
+  let (p2, comment) = expect_semi(p)
+  p = p2
+  let spec = Node.ImportSpec { doc: doc, name: id, path: Node.BasicLit { value_pos: pos, value_end: end, kind: token.STRING, value: path }, comment: comment, end_pos: 0 }
+  (P { imports: push(p.imports, spec), ..p }, spec)
+}
+
+fn parse_value_spec(p0: P, doc: Node, keyword: Int) -> (P, Node) {
+  var (p, idents) = parse_ident_list(p0)
+  var typ: Node = Nil
+  var values: List<Node> = []
+  if keyword == token.CONST {
+    if p.tok != token.EOF && p.tok != token.SEMICOLON && p.tok != token.RPAREN {
+      let (p1, t) = try_ident_or_type(p)
+      p = p1
+      typ = t
+      if p.tok == token.ASSIGN {
+        p = next(p)
+        let (p2, l) = parse_list(p, true)
+        p = p2
+        values = l
+      }
+    }
+  } else {
+    if p.tok != token.ASSIGN {
+      let (p1, t) = parse_type(p)
+      p = p1
+      typ = t
+    }
+    if p.tok == token.ASSIGN {
+      p = next(p)
+      let (p2, l) = parse_list(p, true)
+      p = p2
+      values = l
+    }
+  }
+  let (p3, comment) = expect_semi(p)
+  (p3, Node.ValueSpec { doc: doc, names: idents, typ: typ, values: values, comment: comment })
+}
+
+type TS = { type_params: Node, assign: Int, typ: Node }
+
+fn parse_generic_type(p0: P, ts: TS, open_pos: Int, name0: Node, typ0: Node) -> (P, TS) {
+  let (p1, list) = parse_parameter_list(p0, name0, typ0, token.RBRACK, false)
+  var (p, close_pos) = expect(p1, token.RBRACK)
+  var t = TS { type_params: Node.FieldList { opening: open_pos, list: list, closing: close_pos }, ..ts }
+  if p.tok == token.ASSIGN {
+    t = TS { assign: p.pos, ..t }
+    p = next(p)
+  }
+  let (p2, typ) = parse_type(p)
+  (p2, TS { typ: typ, ..t })
+}
+
+fn parse_type_spec(p0: P, doc: Node) -> (P, Node) {
+  var (p, name) = parse_ident(p0)
+  var ts = TS { type_params: Nil, assign: 0, typ: Nil }
+  if p.tok == token.LBRACK {
+    let lbrack = p.pos
+    p = next(p)
+    if p.tok == token.IDENT {
+      let (p1, x0) = parse_ident(p)
+      p = p1
+      var x = x0
+      if p.tok != token.LBRACK {
+        p = P { expr_lev: p.expr_lev + 1, ..p }
+        let (p2, lhs) = parse_primary_expr(p, x)
+        let (p3, x2) = parse_binary_expr(p2, lhs, token.LOWEST_PREC + 1)
+        p = P { expr_lev: p3.expr_lev - 1, ..p3 }
+        x = x2
+      }
+      let (pname, ptype) = extract_name(x, p.tok == token.COMMA)
+      if pname != Nil && (ptype != Nil || p.tok != token.RBRACK) {
+        let (p4, t2) = parse_generic_type(p, ts, lbrack, pname, ptype)
+        p = p4
+        ts = t2
+      } else {
+        let (p4, t) = parse_array_type(p, lbrack, x)
+        p = p4
+        ts = TS { typ: t, ..ts }
+      }
+    } else {
+      let (p4, t) = parse_array_type(p, lbrack, Nil)
+      p = p4
+      ts = TS { typ: t, ..ts }
+    }
+  } else {
+    if p.tok == token.ASSIGN {
+      ts = TS { assign: p.pos, ..ts }
+      p = next(p)
+    }
+    let (p5, t) = parse_type(p)
+    p = p5
+    ts = TS { typ: t, ..ts }
+  }
+  let (p6, comment) = expect_semi(p)
+  (p6, Node.TypeSpec { doc: doc, name: name, type_params: ts.type_params, assign: ts.assign, typ: ts.typ, comment: comment })
+}
+
+fn extract_name(x: Node, force: Bool) -> (Node, Node) {
+  match x {
+    Ident { .. } => (x, Nil),
+    BinaryExpr { x: bx, op_pos, op, y } => {
+      if op == token.MUL {
+        if bx is Ident { .. } && (force || is_type_elem(y)) { return (bx, Node.StarExpr { star: op_pos, x: y }) }
+      } else if op == token.OR {
+        let (name, lhs) = extract_name(bx, force || is_type_elem(y))
+        if name != Nil && lhs != Nil { return (name, Node.BinaryExpr { x: lhs, op_pos: op_pos, op: op, y: y }) }
+      }
+      (Nil, x)
+    },
+    CallExpr { fun, lparen, args, ellipsis, rparen } => {
+      if fun is Ident { .. } {
+        if len(args) == 1 && ellipsis == 0 && (force || is_type_elem(args[0])) {
+          return (fun, Node.ParenExpr { lparen: lparen, x: args[0], rparen: rparen })
+        }
+      }
+      (Nil, x)
+    },
+    _ => (Nil, x),
+  }
+}
+
+fn is_type_elem(x: Node) -> Bool {
+  match x {
+    ArrayType { .. } => true,
+    StructType { .. } => true,
+    FuncType { .. } => true,
+    InterfaceType { .. } => true,
+    MapType { .. } => true,
+    ChanType { .. } => true,
+    BinaryExpr { x: a, y: b, .. } => is_type_elem(a) || is_type_elem(b),
+    UnaryExpr { op, .. } => op == token.TILDE,
+    ParenExpr { x: a, .. } => is_type_elem(a),
+    _ => false,
+  }
+}
+
+fn parse_spec(p: P, kind: Int, doc: Node, keyword: Int) -> (P, Node) {
+  if kind == 0 { return parse_import_spec(p, doc) }
+  if kind == 1 { return parse_value_spec(p, doc, keyword) }
+  parse_type_spec(p, doc)
+}
+
+fn parse_gen_decl(p0: P, keyword: Int, kind: Int) -> (P, Node) {
+  let doc = p0.lead
+  var (p, pos) = expect(p0, keyword)
+  var lparen = 0
+  var rparen = 0
+  var list: List<Node> = []
+  if p.tok == token.LPAREN {
+    lparen = p.pos
+    p = next(p)
+    while p.tok != token.RPAREN && p.tok != token.EOF {
+      let (p1, s) = parse_spec(p, kind, p.lead, keyword)
+      p = p1
+      list = push(list, s)
+    }
+    let (p2, r) = expect(p, token.RPAREN)
+    let (p3, _) = expect_semi(p2)
+    p = p3
+    rparen = r
+  } else {
+    let (p1, s) = parse_spec(p, kind, Nil, keyword)
+    p = p1
+    list = push(list, s)
+  }
+  (p, Node.GenDecl { doc: doc, tok_pos: pos, tok: keyword, lparen: lparen, specs: list, rparen: rparen })
+}
+
+fn parse_func_decl(p0: P) -> (P, Node) {
+  let doc = p0.lead
+  var (p, pos) = expect(p0, token.FUNC)
+  var recv: Node = Nil
+  if p.tok == token.LPAREN {
+    let (p1, r) = parse_parameters(p, false)
+    p = p1
+    recv = r
+  }
+  let (p2, id) = parse_ident(p)
+  p = p2
+  var tparams: Node = Nil
+  if p.tok == token.LBRACK {
+    let (p3, t) = parse_type_parameters(p)
+    p = p3
+    tparams = t
+  }
+  let (p4, params) = parse_parameters(p, false)
+  let (p5, results) = parse_parameters(p4, true)
+  p = p5
+  var body: Node = Nil
+  if p.tok == token.LBRACE {
+    let (p6, b) = parse_body(p)
+    let (p7, _) = expect_semi(p6)
+    p = p7
+    body = b
+  } else if p.tok == token.SEMICOLON {
+    p = next(p)
+    if p.tok == token.LBRACE {
+      p = err(p, p.pos, "unexpected semicolon or newline before {{")
+      let (p6, b) = parse_body(p)
+      let (p7, _) = expect_semi(p6)
+      p = p7
+      body = b
+    }
+  } else {
+    let (p6, _) = expect_semi(p)
+    p = p6
+  }
+  (p, Node.FuncDecl { doc: doc, recv: recv, name: id, typ: Node.FuncType { func_pos: pos, type_params: tparams, params: params, results: results }, body: body })
+}
+
+fn parse_decl(p0: P, sync: List<Int>) -> (P, Node) {
+  var p = p0
+  let t = p.tok
+  if t == token.IMPORT { return parse_gen_decl(p, t, 0) }
+  if t == token.CONST || t == token.VAR { return parse_gen_decl(p, t, 1) }
+  if t == token.TYPE { return parse_gen_decl(p, t, 2) }
+  if t == token.FUNC { return parse_func_decl(p) }
+  let pos = p.pos
+  p = error_expected(p, pos, "declaration")
+  p = advance(p, sync)
+  (p, Node.BadDecl { from: pos, to: p.pos })
+}
+
+fn empty_file() -> Node {
+  Node.File { doc: Nil, package_pos: 0, name: ident(0, ""), decls: [], file_start: 0, file_end: 0, scope: Some(Scope { objects: Map() }),
+    imports: [], unresolved: [], comments: [], go_version: "", unresolved_set: false, objects: [] }
+}
+
+// 返回 (P, File 或 Nil)
+fn parse_file0(p0: P) -> (P, Node) {
+  var p = p0
+  if len(p.errors) != 0 { return (p, Nil) }
+  let doc = p.lead
+  let (p1, pos) = expect(p, token.PACKAGE)
+  let (p2, id) = parse_ident(p1)
+  p = p2
+  if id is Ident { name: "_", .. } && p.mode & DECLARATION_ERRORS != 0 { p = err(p, p.pos, "invalid package name _") }
+  let (p3, _) = expect_semi(p)
+  p = p3
+  if len(p.errors) != 0 { return (p, Nil) }
+  var decls: List<Node> = []
+  if p.mode & PACKAGE_CLAUSE_ONLY == 0 {
+    while p.tok == token.IMPORT {
+      let (p4, d) = parse_gen_decl(p, token.IMPORT, 0)
+      p = p4
+      decls = push(decls, d)
+    }
+    if p.mode & IMPORTS_ONLY == 0 {
+      var prev = token.IMPORT
+      while p.tok != token.EOF {
+        if p.tok == token.IMPORT && prev != token.IMPORT { p = err(p, p.pos, "imports must appear before other declarations") }
+        prev = p.tok
+        let (p5, d) = parse_decl(p, DECL_START)
+        p = p5
+        decls = push(decls, d)
+      }
+    }
+  }
+  var f = Node.File { doc: doc, package_pos: pos, name: id, decls: decls, file_start: 0, file_end: 0, scope: None,
+    imports: p.imports, unresolved: [], comments: p.comments, go_version: p.go_version, unresolved_set: false, objects: [] }
+  if p.mode & SKIP_OBJECT_RESOLUTION == 0 && !p.bail {
+    let (p6, f2) = resolve_file(p, f, p.mode & DECLARATION_ERRORS != 0)
+    p = p6
+    f = f2
+  }
+  (p, f)
+}
+
+fn pack_index_expr(x: Node, lbrack: Int, exprs: List<Node>, rbrack: Int) -> Node {
+  if len(exprs) == 1 { return Node.IndexExpr { x: x, lbrack: lbrack, index: exprs[0], rbrack: rbrack } }
+  Node.IndexListExpr { x: x, lbrack: lbrack, indices: exprs, rbrack: rbrack }
+}
+
+fn new_parser(file: token.File, src: List<Int>, mode: Int) -> P {
+  let sc = unwrap(scanner.init(file, src, scanner.SCAN_COMMENTS))
+  let p = P { sc: scanner.Scanner { errors: [], ..sc }, errors: sc.errors, mode: mode, comments: [], lead: Nil, linec: Nil, top: true,
+    go_version: "", pos: 0, tok: token.ILLEGAL, lit: "", sync_pos: 0, sync_cnt: 0, expr_lev: 0, in_rhs: false, imports: [], bail: false }
+  next(p)
+}
+
+pub fn parse_file(fset0: token.FileSet, filename: Str, src: List<Int>, mode: Int) -> (token.FileSet, Node, List<scanner.Error>) {
+  let (fset1, file) = unwrap(fset0.add_file(filename, -1, len(src)))
+  let p0 = new_parser(file, src, mode)
+  let (p, f0) = parse_file0(p0)
+  var f = f0
+  if p.bail || f == Nil { f = empty_file() }
+  let fset = fset1.set_file(p.sc.file)
+  f = match f {
+    File { doc, package_pos, name, decls, scope, imports, unresolved, comments, go_version, unresolved_set, objects, .. } =>
+      Node.File { doc: doc, package_pos: package_pos, name: name, decls: decls, file_start: file.base, file_end: file.base + file.size,
+        scope: scope, imports: imports, unresolved: unresolved, comments: comments, go_version: go_version, unresolved_set: unresolved_set, objects: objects },
+    _ => f,
+  }
+  (fset, f, scanner.sort_errors(p.errors))
+}
+
+pub fn parse_expr_from(fset0: token.FileSet, filename: Str, src: List<Int>, mode: Int) -> (token.FileSet, Node, List<scanner.Error>) {
+  let (fset1, file) = unwrap(fset0.add_file(filename, -1, len(src)))
+  var p = new_parser(file, src, mode)
+  let (p1, e) = parse_rhs(p)
+  p = p1
+  if p.tok == token.SEMICOLON && p.lit == "\n" { p = next(p) }
+  let (p2, _) = expect(p, token.EOF)
+  p = p2
+  let x = if p.bail { Nil } else { e }
+  (fset1.set_file(p.sc.file), x, scanner.sort_errors(p.errors))
+}
+
+pub fn parse_expr(x: Str) -> (Node, List<scanner.Error>) {
+  let (_, e, errs) = parse_expr_from(token.new_file_set(), "", __bytes(x), 0)
+  (e, errs)
+}
+
+// ── 标识符解析（parser/resolver.go）──
+//   Go 直接修改 Ident.Obj；这里先记下 “Ident 的 (位置, 名字) → 对象编号”，最后统一改写整棵树。
+type RScope = { objects: Map<Str, Int> }
+
+type R = {
+  p: P,
+  decl_err: Bool,
+  objects: List<Object>,
+  scopes: List<RScope>,
+  unresolved: List<Node>,
+  depth: Int,
+  label_scopes: List<RScope>,
+  targets: List<List<Node>>,
+  assign: Map<Str, Int>,
+}
+
+fn ikey(id: Node) -> Str { match id { Ident { name_pos, name, .. } => "{name_pos}:" + name, _ => "" } }
+fn iname(id: Node) -> Str { match id { Ident { name, .. } => name, _ => "" } }
+
+fn r_err(r: R, pos: Int, msg: Str) -> R { if r.decl_err { R { p: err(r.p, pos, msg), ..r } } else { r } }
+
+fn open_scope(r: R, pos: Int) -> R {
+  let d = r.depth + 1
+  var r2 = R { depth: d, scopes: push(r.scopes, RScope { objects: Map() }), ..r }
+  if d > 1000 && !r2.p.bail {
+    let p = r2.p
+    r2 = R { p: bail_out(P { errors: push(p.errors, scanner.Error { pos: p.sc.file.position(pos), msg: "exceeded max scope depth during object resolution" }), ..p }), ..r2 }
+  }
+  r2
+}
+
+fn close_scope(r: R) -> R { R { depth: r.depth - 1, scopes: r.scopes[0..len(r.scopes) - 1], ..r } }
+
+fn scope_insert(r: R, which_label: Bool, name: Str, id: Int) -> (R, Int) {
+  // 返回 (R, 已有对象编号或 -1)
+  let ss = if which_label { r.label_scopes } else { r.scopes }
+  let top = ss[len(ss) - 1]
+  match get(top.objects, name) {
+    Some(alt) => (r, alt),
+    None => {
+      let nt = RScope { objects: set(top.objects, name, id) }
+      let ns = set(ss, len(ss) - 1, nt)
+      if which_label { (R { label_scopes: ns, ..r }, -1) } else { (R { scopes: ns, ..r }, -1) }
+    },
+  }
+}
+
+fn new_obj(r: R, kind: Int, name: Str, decl: Node, data: Option<Int>) -> (R, Int) {
+  let id = len(r.objects)
+  (R { objects: push(r.objects, Object { kind: kind, name: name, decl: decl, data: data }), ..r }, id)
+}
+
+fn set_obj(r: R, id_node: Node, obj: Int) -> R { R { assign: set(r.assign, ikey(id_node), obj), ..r } }
+
+// scope_kind：0 = 当前作用域，1 = 标签作用域，2 = 包作用域
+fn declare(r0: R, decl: Node, data: Option<Int>, scope_kind: Int, kind: Int, idents: List<Node>) -> R {
+  var r = r0
+  for id in idents {
+    let name = iname(id)
+    let (r1, obj) = new_obj(r, kind, name, decl, data)
+    r = r1
+    if !(decl is Ident { .. }) { r = set_obj(r, id, obj) }
+    if name != "_" {
+      var alt = -1
+      if scope_kind == 2 {
+        let top = r.scopes[0]
+        match get(top.objects, name) {
+          Some(a) => { alt = a },
+          None => { r = R { scopes: set(r.scopes, 0, RScope { objects: set(top.objects, name, obj) }), ..r } },
+        }
+      } else {
+        let (r2, a) = scope_insert(r, scope_kind == 1, name, obj)
+        r = r2
+        alt = a
+      }
+      if alt >= 0 && r.decl_err {
+        var prev = ""
+        let ap = ast.object_pos(r.objects[alt])
+        if ap != 0 { prev = "\n\tprevious declaration at " + r.p.sc.file.position(ap).to_string() }
+        r = r_err(r, ast.pos(id), name + " redeclared in this block" + prev)
+      }
+    }
+  }
+  r
+}
+
+fn short_var_decl(r0: R, decl: Node) -> R {
+  var r = r0
+  let lhs = match decl { AssignStmt { lhs, .. } => lhs, _ => [] }
+  var n = 0
+  for x in lhs {
+    if x is Ident { .. } {
+      let name = iname(x)
+      let (r1, obj) = new_obj(r, ast.VAR, name, decl, None)
+      r = set_obj(r1, x, obj)
+      if name != "_" {
+        let (r2, alt) = scope_insert(r, false, name, obj)
+        r = r2
+        if alt >= 0 { r = set_obj(r, x, alt) } else { n += 1 }
+      }
+    }
+  }
+  if n == 0 && r.decl_err { r = r_err(r, ast.pos(lhs[0]), "no new variables on left side of :=") }
+  r
+}
+
+fn resolve(r: R, id: Node, collect: Bool) -> R {
+  let name = iname(id)
+  if name == "_" { return r }
+  var i = len(r.scopes) - 1
+  while i >= 0 {
+    match get(r.scopes[i].objects, name) {
+      Some(obj) => {
+        if r.objects[obj].decl is Ident { .. } { return r }
+        return set_obj(r, id, obj)
+      },
+      None => {},
+    }
+    i -= 1
+  }
+  if collect { return R { unresolved: push(r.unresolved, id), ..r } }
+  r
+}
+
+fn walk_exprs(r0: R, list: List<Node>) -> R {
+  var r = r0
+  for n in list { r = rwalk(r, n) }
+  r
+}
+
+fn walk_lhs(r0: R, list: List<Node>) -> R {
+  var r = r0
+  for e in list {
+    let x = ast.unparen(e)
+    if !(x is Ident { .. }) && x != Nil { r = rwalk(r, x) }
+  }
+  r
+}
+
+fn field_list(n: Node) -> List<Node> { match n { FieldList { list, .. } => list, _ => [] } }
+
+fn resolve_list(r0: R, fl: Node) -> R {
+  var r = r0
+  for f in field_list(fl) {
+    match f { Field { typ, .. } => { if typ != Nil { r = rwalk(r, typ) } }, _ => {} }
+  }
+  r
+}
+
+fn declare_list(r0: R, fl: Node, kind: Int) -> R {
+  var r = r0
+  for f in field_list(fl) {
+    match f { Field { names, .. } => { r = declare(r, f, None, 0, kind, names) }, _ => {} }
+  }
+  r
+}
+
+fn walk_func_type(r0: R, typ: Node) -> R {
+  match typ {
+    FuncType { params, results, .. } => {
+      var r = resolve_list(r0, params)
+      r = resolve_list(r, results)
+      r = declare_list(r, params, ast.VAR)
+      declare_list(r, results, ast.VAR)
+    },
+    _ => r0,
+  }
+}
+
+fn walk_field_list(r: R, fl: Node, kind: Int) -> R {
+  if fl == Nil { return r }
+  declare_list(resolve_list(r, fl), fl, kind)
+}
+
+fn walk_tparams(r: R, fl: Node) -> R { resolve_list(declare_list(r, fl, ast.TYP), fl) }
+
+fn walk_body(r0: R, body: Node) -> R {
+  match body {
+    BlockStmt { list, .. } => {
+      var r = R { label_scopes: push(r0.label_scopes, RScope { objects: Map() }), targets: push(r0.targets, []), ..r0 }
+      r = walk_exprs(r, list)
+      // closeLabelScope
+      let n = len(r.targets) - 1
+      let sc = r.label_scopes[len(r.label_scopes) - 1]
+      for id in r.targets[n] {
+        match get(sc.objects, iname(id)) {
+          Some(o) => { r = set_obj(r, id, o) },
+          None => {
+            r = set_obj(r, id, -1)
+            r = r_err(r, ast.pos(id), "label " + iname(id) + " undefined")
+          },
+        }
+      }
+      R { targets: r.targets[0..n], label_scopes: r.label_scopes[0..len(r.label_scopes) - 1], ..r }
+    },
+    _ => r0,
+  }
+}
+
+fn walk_recv(r0: R, recv: Node) -> R {
+  var r = r0
+  let list = field_list(recv)
+  if len(list) == 0 { return r }
+  var typ = match list[0] { Field { typ, .. } => typ, _ => Nil }
+  match typ { StarExpr { x, .. } => { typ = x }, _ => {} }
+  var declare_exprs: List<Node> = []
+  var resolve_exprs: List<Node> = []
+  match typ {
+    IndexExpr { x, index, .. } => { declare_exprs = [index]; resolve_exprs = [x] },
+    IndexListExpr { x, indices, .. } => { declare_exprs = indices; resolve_exprs = [x] },
+    _ => { resolve_exprs = [typ] },
+  }
+  for e in declare_exprs {
+    if e is Ident { .. } { r = declare(r, e, None, 0, ast.TYP, [e]) } else { resolve_exprs = push(resolve_exprs, e) }
+  }
+  for e in resolve_exprs { if e != Nil { r = rwalk(r, e) } }
+  var i = 1
+  while i < len(list) {
+    match list[i] { Field { typ: t, .. } => { if t != Nil { r = rwalk(r, t) } }, _ => {} }
+    i += 1
+  }
+  r
+}
+
+fn rwalk_children(r0: R, n: Node) -> R {
+  var r = r0
+  for c in ast.children(n) { r = rwalk(r, c) }
+  r
+}
+
+fn rwalk(r0: R, node: Node) -> R {
+  var r = r0
+  if r.p.bail { return r }
+  match node {
+    Ident { .. } => resolve(r, node, true),
+    FuncLit { typ, body } => {
+      r = open_scope(r, ast.pos(node))
+      r = walk_func_type(r, typ)
+      r = walk_body(r, body)
+      close_scope(r)
+    },
+    SelectorExpr { x, .. } => rwalk(r, x),
+    StructType { fields, .. } => close_scope(walk_field_list(open_scope(r, ast.pos(node)), fields, ast.VAR)),
+    FuncType { .. } => close_scope(walk_func_type(open_scope(r, ast.pos(node)), node)),
+    CompositeLit { typ, elts, .. } => {
+      if typ != Nil { r = rwalk(r, typ) }
+      for e in elts {
+        match e {
+          KeyValueExpr { key, value, .. } => {
+            if key is Ident { .. } { r = resolve(r, key, false) } else { r = rwalk(r, key) }
+            r = rwalk(r, value)
+          },
+          _ => { r = rwalk(r, e) },
+        }
+      }
+      r
+    },
+    InterfaceType { methods, .. } => close_scope(walk_field_list(open_scope(r, ast.pos(node)), methods, ast.FUN)),
+    LabeledStmt { label, stmt, .. } => {
+      r = declare(r, node, None, 1, ast.LBL, [label])
+      rwalk(r, stmt)
+    },
+    AssignStmt { lhs, tok, rhs, .. } => {
+      r = walk_exprs(r, rhs)
+      if tok == token.DEFINE { short_var_decl(r, node) } else { walk_exprs(r, lhs) }
+    },
+    BranchStmt { tok, label, .. } => {
+      if tok != token.FALLTHROUGH && label != Nil {
+        let d = len(r.targets) - 1
+        r = R { targets: set(r.targets, d, push(r.targets[d], label)), ..r }
+      }
+      r
+    },
+    BlockStmt { list, .. } => close_scope(walk_exprs(open_scope(r, ast.pos(node)), list)),
+    IfStmt { init_s, cond, body, else_s, .. } => {
+      r = open_scope(r, ast.pos(node))
+      if init_s != Nil { r = rwalk(r, init_s) }
+      r = rwalk(r, cond)
+      r = rwalk(r, body)
+      if else_s != Nil { r = rwalk(r, else_s) }
+      close_scope(r)
+    },
+    CaseClause { list, body, .. } => {
+      r = walk_exprs(r, list)
+      r = open_scope(r, ast.pos(node))
+      r = walk_exprs(r, body)
+      close_scope(r)
+    },
+    SwitchStmt { init_s, tag, body, .. } => {
+      r = open_scope(r, ast.pos(node))
+      var extra = false
+      if init_s != Nil { r = rwalk(r, init_s) }
+      if tag != Nil {
+        if init_s != Nil {
+          r = open_scope(r, ast.pos(tag))
+          extra = true
+        }
+        r = rwalk(r, tag)
+      }
+      match body { BlockStmt { list, .. } => { r = walk_exprs(r, list) }, _ => {} }
+      if extra { r = close_scope(r) }
+      close_scope(r)
+    },
+    TypeSwitchStmt { init_s, assign, body, .. } => {
+      var extra = false
+      if init_s != Nil {
+        r = open_scope(r, ast.pos(node))
+        extra = true
+        r = rwalk(r, init_s)
+      }
+      r = open_scope(r, ast.pos(assign))
+      r = rwalk(r, assign)
+      match body { BlockStmt { list, .. } => { r = walk_exprs(r, list) }, _ => {} }
+      r = close_scope(r)
+      if extra { r = close_scope(r) }
+      r
+    },
+    CommClause { comm, body, .. } => {
+      r = open_scope(r, ast.pos(node))
+      if comm != Nil { r = rwalk(r, comm) }
+      r = walk_exprs(r, body)
+      close_scope(r)
+    },
+    SelectStmt { body, .. } => match body { BlockStmt { list, .. } => walk_exprs(r, list), _ => r },
+    ForStmt { init_s, cond, post, body, .. } => {
+      r = open_scope(r, ast.pos(node))
+      if init_s != Nil { r = rwalk(r, init_s) }
+      if cond != Nil { r = rwalk(r, cond) }
+      if post != Nil { r = rwalk(r, post) }
+      r = rwalk(r, body)
+      close_scope(r)
+    },
+    RangeStmt { key, value, tok_pos, tok, x, body, .. } => {
+      r = open_scope(r, ast.pos(node))
+      r = rwalk(r, x)
+      var lhs: List<Node> = []
+      if key != Nil { lhs = push(lhs, key) }
+      if value != Nil { lhs = push(lhs, value) }
+      if len(lhs) > 0 {
+        if tok == token.DEFINE {
+          let a = Node.AssignStmt { lhs: lhs, tok_pos: tok_pos, tok: token.DEFINE, rhs: [Node.UnaryExpr { op_pos: 0, op: token.RANGE, x: x }] }
+          r = walk_lhs(r, lhs)
+          r = short_var_decl(r, a)
+        } else {
+          r = walk_exprs(r, lhs)
+        }
+      }
+      r = rwalk(r, body)
+      close_scope(r)
+    },
+    GenDecl { tok, specs, .. } => {
+      if tok == token.CONST || tok == token.VAR {
+        var i = 0
+        for spec in specs {
+          match spec {
+            ValueSpec { names, typ, values, .. } => {
+              let kind = if tok == token.VAR { ast.VAR } else { ast.CON }
+              r = walk_exprs(r, values)
+              if typ != Nil { r = rwalk(r, typ) }
+              r = declare(r, spec, Some(i), 0, kind, names)
+            },
+            _ => {},
+          }
+          i += 1
+        }
+      } else if tok == token.TYPE {
+        var opened = 0
+        for spec in specs {
+          match spec {
+            TypeSpec { name, type_params, typ, .. } => {
+              r = declare(r, spec, None, 0, ast.TYP, [name])
+              if type_params != Nil {
+                r = open_scope(r, ast.pos(spec))
+                opened += 1
+                r = walk_tparams(r, type_params)
+              }
+              r = rwalk(r, typ)
+            },
+            _ => {},
+          }
+        }
+        while opened > 0 { r = close_scope(r); opened -= 1 }
+      }
+      r
+    },
+    FuncDecl { recv, name, typ, body, .. } => {
+      r = open_scope(r, ast.pos(node))
+      r = walk_recv(r, recv)
+      match typ {
+        FuncType { type_params, params, results, .. } => {
+          if type_params != Nil { r = walk_tparams(r, type_params) }
+          r = resolve_list(r, params)
+          r = resolve_list(r, results)
+          r = declare_list(r, recv, ast.VAR)
+          r = declare_list(r, params, ast.VAR)
+          r = declare_list(r, results, ast.VAR)
+        },
+        _ => {},
+      }
+      r = walk_body(r, body)
+      if recv == Nil && iname(name) != "init" { r = declare(r, node, None, 2, ast.FUN, [name]) }
+      close_scope(r)
+    },
+    Nil => r,
+    _ => rwalk_children(r, node),
+  }
+}
+
+// 把记下的 Ident → 对象编号写进树里
+fn apply(n: Node, m: Map<Str, Int>) -> Node {
+  if len(m) == 0 { return n }
+  match n {
+    Nil => n,
+    Ident { name_pos, name, obj } => match get(m, "{name_pos}:" + name) { Some(o) => Node.Ident { name_pos: name_pos, name: name, obj: o }, None => n },
+    _ => ast.map_children(n, (c) => apply(c, m)),
+  }
+}
+
+fn resolve_file(p: P, f: Node, decl_err: Bool) -> (P, Node) {
+  var r = R { p: p, decl_err: decl_err, objects: [], scopes: [RScope { objects: Map() }], unresolved: [], depth: 1, label_scopes: [], targets: [], assign: Map() }
+  let decls = match f { File { decls, .. } => decls, _ => [] }
+  for d in decls { r = rwalk(r, d) }
+  if r.p.bail { return (r.p, f) }
+  let pkg = r.scopes[0]
+  var unres: List<Node> = []
+  for id in r.unresolved {
+    match get(pkg.objects, iname(id)) {
+      Some(o) => {
+        if r.objects[o].decl is Ident { .. } { unres = push(unres, id) } else { r = set_obj(r, id, o) }
+      },
+      None => { unres = push(unres, id) },
+    }
+  }
+  let m = r.assign
+  let objs = map(r.objects, (o) => Object { decl: apply(o.decl, m), ..o })
+  let unres2 = map(unres, (id) => apply(id, m))
+  let out = match f {
+    File { doc, package_pos, name, decls, file_start, file_end, imports, comments, go_version, .. } =>
+      Node.File { doc: doc, package_pos: package_pos, name: name, decls: map(decls, (d) => apply(d, m)), file_start: file_start, file_end: file_end,
+        scope: Some(Scope { objects: pkg.objects }), imports: map(imports, (d) => apply(d, m)), unresolved: unres2, comments: comments,
+        go_version: go_version, unresolved_set: len(r.unresolved) > 0, objects: objs },
+    _ => f,
+  }
+  (r.p, out)
+}

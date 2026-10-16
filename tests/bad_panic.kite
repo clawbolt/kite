@@ -1,0 +1,9 @@
+fn main() {
+  match recover(() => 1) {
+    Ok(v) => print(v)
+    Err(p) => {
+      let s: Str = p.kind
+      print(s)
+    }
+  }
+}

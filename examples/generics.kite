@@ -1,0 +1,50 @@
+// 泛型、类型推断、Option 与 ?
+
+type Pair<A, B> = { first: A, second: B }
+
+enum Tree<T> {
+  Leaf
+  Node(left: Tree<T>, value: T, right: Tree<T>)
+}
+
+fn insert(t: Tree<Int>, x: Int) -> Tree<Int> {
+  match t {
+    Leaf          => Node(Leaf, x, Leaf)
+    Node(l, v, r) => if x < v { Node(insert(l, x), v, r) } else { Node(l, v, insert(r, x)) }
+  }
+}
+
+fn to_list<T>(t: Tree<T>) -> List<T> {
+  match t {
+    Leaf          => []
+    Node(l, v, r) => to_list(l) + [v] + to_list(r)
+  }
+}
+
+fn swap<A, B>(p: Pair<A, B>) -> Pair<B, A> {
+  Pair { first: p.second, second: p.first }
+}
+
+fn first_even(xs: List<Int>) -> Option<Int> {
+  xs |> find(x => x % 2 == 0)
+}
+
+fn double_first_even(xs: List<Int>) -> Option<Int> {
+  let n = first_even(xs)?
+  Some(n * 2)
+}
+
+fn main() {
+  let tree = [5, 2, 8, 1, 9, 3] |> reduce(Leaf, insert)
+  print("排序: {to_list(tree)}")
+
+  let p = swap(Pair { first: "年龄", second: 30 })
+  print(p.first + 1, p.second)
+
+  let square = n => n * n          // 参数类型由使用处推断为 Int
+  print([1, 2, 3] |> map(square))
+
+  let words = ["kite", "rust", "go"]
+  let lens = words |> map(w => w.len())   // w 推断为 Str
+  print(lens, double_first_even([1, 3, 6, 7]), double_first_even([1, 3]))
+}

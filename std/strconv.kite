@@ -1,0 +1,1519 @@
+// std.strconv：数字、布尔值与字符串的转换（对齐 Go 的 strconv）
+// 第一部分（Kite 原有 API，行为不变）：
+//   itoa / atoi、parse_int_base / format_int（2 到 36 进制）、parse_bool / format_bool、
+//   format_float（固定小数位，Kite 自己的格式）、quote / unquote（Kite 风格的转义：\u00XX、\u{…}）
+// 第二部分（逐行移植 Go 1.23 的 ftoa.go / decimal.go / atof.go / quote.go，输出和 Go 逐字节相同，
+//   见 tests/go/strconvf.go）：
+//   float64_bits / float64_from_bits / float32_bits / float32_from_bits / round_float32
+//       同 math.Float64bits 等；float32 是“按 float32 舍入后的 float64”
+//   format_float_go(f, fmt, prec, bitsize)   同 FormatFloat，fmt 为 "e" "E" "f" "g" "G" "b" "x" "X"
+//       （其它字母得到 "%c"），prec = -1 为最短可还原表示，bitsize 32/64（其它值 panic，同 Go）
+//   format_float_bytes(f, fmt 的字节码, prec, bitsize) -> List<Int>   同 AppendFloat
+//   parse_float_go(s, bitsize) -> (Float, Str)   同 ParseFloat：第二项是 Go 的错误文本，没出错时为 ""，
+//       例如 `strconv.ParseFloat: parsing "x": invalid syntax`；超出范围时值为 ±Inf 并报 "value out of range"。
+//       支持 inf/infinity/nan（不分大小写）、十六进制浮点（0x1.8p3）、下划线（规则同 Go）
+//   parse_float(s, bitsize) -> Result<Float, Str>   同上，出错（包括超出范围）时 Err(错误文本)
+//   format_uint(n, base)   把 Int 当 uint64 格式化（同 FormatUint）
+//   quote_go / quote_to_ascii / quote_to_graphic、quote_rune / quote_rune_to_ascii / quote_rune_to_graphic、
+//   quote_bytes_with(字节, 引号码, ascii_only, graphic_only)（非法 UTF-8 字节写成 \xNN）、
+//   can_backquote、is_print、is_graphic（Unicode 15，和 Go 1.23 全码点对过）、
+//   unquote_char(s, 引号码) -> Result<(码点, 是否多字节, 剩余), Str>、unquote_bytes、unquote_go、quoted_prefix
+//       出错时 Err("invalid syntax")
+// 和 Go 的差别：
+//   - Kite 的 Float 只有一个 NaN：float64_bits(NaN) 总是 0x7ff8000000000001（math.NaN() 的位），
+//     看不到 NaN 的载荷，所以 float64(float32(NaN)) 的位模式和 Go（0x7ff8000000000000）不同；格式化都是 "NaN"。
+//   - Kite 的 Str 必须是合法 UTF-8：unquote_go 的结果不是合法 UTF-8（如 "\xff"）时报 invalid syntax，
+//     要拿原始字节请用 unquote_bytes；对非法字节加引号请用 quote_bytes_with。
+//   - 错误是字符串（Go 的 *NumError 的 Error() 文本），没有 errors.Is(ErrSyntax/ErrRange)。
+//   - 算法：格式化不用 Ryu，而是精确十进制展开（10^9 进制大整数）+ Go 的 decimal 取舍，解析用 Go 的
+//     atof64exact 快速路径 + decimal 慢速路径（不用 Eisel-Lemire），结果都是正确舍入，因此和 Go 相同；
+//     只是在极大/极小（次正规）数上比较慢。
+use std.math.bits
+use std.math
+use std.unicode
+
+fn digit_val(c: Str) -> Int {
+  let o = __ord(c)
+  if o >= 48 && o <= 57 { o - 48 } else if o >= 97 && o <= 122 { o - 87 } else if o >= 65 && o <= 90 { o - 55 } else { 99 }
+}
+
+pub fn itoa(n: Int) -> Str { "{n}" }
+
+pub fn atoi(s: Str) -> Result<Int, Str> { parse_int(s) }
+
+// base 为 0 时按前缀判断：0x 十六进制、0o 八进制、0b 二进制，否则十进制。允许 + / - 号和数字间的 _
+pub fn parse_int_base(s: Str, base: Int) -> Result<Int, Str> {
+  let bad = "无法按 {base} 进制解析: {s}"
+  if base != 0 && (base < 2 || base > 36) { return Err("进制必须在 2 到 36 之间: {base}") }
+  var cs = chars(s)
+  if len(cs) == 0 { return Err(bad) }
+  var neg = false
+  if cs[0] == "+" || cs[0] == "-" {
+    neg = cs[0] == "-"
+    cs = cs[1..]
+  }
+  var b = base
+  if len(cs) > 2 && cs[0] == "0" {
+    let p = lower(cs[1])
+    let pb = if p == "x" { 16 } else if p == "o" { 8 } else if p == "b" { 2 } else { 0 }
+    if pb != 0 && (base == 0 || base == pb) {
+      b = pb
+      cs = cs[2..]
+    }
+  }
+  if b == 0 { b = 10 }
+  if len(cs) == 0 { return Err(bad) }
+  // 用负数累加，这样能表示最小的 Int
+  var r = 0
+  var prev = "_"
+  for c in cs {
+    if c == "_" {
+      if prev == "_" { return Err(bad) }
+      prev = c
+      continue
+    }
+    let d = digit_val(c)
+    if d >= b { return Err(bad) }
+    if r < (-9223372036854775807 - 1 + d) / b { return Err("超出 Int 范围: {s}") }
+    r = r * b - d
+    prev = c
+  }
+  if prev == "_" { return Err(bad) }
+  if neg { Ok(r) } else if r == -9223372036854775807 - 1 { Err("超出 Int 范围: {s}") } else { Ok(-r) }
+}
+
+// 按 base（2 到 36）格式化，字母用小写
+pub fn format_int(n: Int, base: Int) -> Str {
+  if base < 2 || base > 36 { panic("format_int: 进制必须在 2 到 36 之间") }
+  if n == 0 { return "0" }
+  let ds = chars("0123456789abcdefghijklmnopqrstuvwxyz")
+  var out: List<Str> = []
+  var x = n
+  // 负数直接按负数取余，避免最小 Int 取反溢出
+  while x != 0 {
+    let r = x % base
+    out = push(out, ds[if r < 0 { -r } else { r }])
+    x = x / base
+  }
+  (if n < 0 { "-" } else { "" }) + join(reverse(out), "")
+}
+
+pub fn parse_bool(s: Str) -> Result<Bool, Str> {
+  if s == "1" || s == "t" || s == "T" || s == "true" || s == "TRUE" || s == "True" { return Ok(true) }
+  if s == "0" || s == "f" || s == "F" || s == "false" || s == "FALSE" || s == "False" { return Ok(false) }
+  Err("无法解析为布尔值: {s}")
+}
+
+pub fn format_bool(b: Bool) -> Str { if b { "true" } else { "false" } }
+
+// 固定 prec 位小数
+pub fn format_float(f: Float, prec: Int) -> Str { __fmt(f, ".{prec}") }
+
+fn hex4(n: Int) -> Str {
+  let ds = chars("0123456789abcdef")
+  ds[(n >> 12) & 15] + ds[(n >> 8) & 15] + ds[(n >> 4) & 15] + ds[n & 15]
+}
+
+// 加上双引号并转义 \ " 和控制字符（\n \t \r，其余写成 \u00XX）
+pub fn quote(s: Str) -> Str {
+  var out = "\""
+  for c in chars(s) {
+    let o = __ord(c)
+    out = out + if c == "\"" { "\\\"" } else if c == "\\" { "\\\\" } else if o == 10 { "\\n" } else if o == 9 { "\\t" } else if o == 13 { "\\r" } else if o < 32 || o == 127 { "\\u" + hex4(o) } else { c }
+  }
+  out + "\""
+}
+
+// quote 的逆运算；还接受 \u{…}、\uXXXX 和反引号包起来的原样字符串
+pub fn unquote(s: Str) -> Result<Str, Str> {
+  let cs = chars(s)
+  let n = len(cs)
+  if n >= 2 && cs[0] == "`" && cs[n - 1] == "`" { return Ok(__str_slice(s, 1, n - 1)) }
+  if n < 2 || cs[0] != "\"" || cs[n - 1] != "\"" { return Err("不是带引号的字符串: {s}") }
+  var out = ""
+  var i = 1
+  while i < n - 1 {
+    let c = cs[i]
+    if c == "\"" { return Err("字符串中间有未转义的引号") }
+    if c != "\\" {
+      out = out + c
+      i += 1
+      continue
+    }
+    if i + 1 >= n - 1 { return Err("转义序列不完整") }
+    let e = cs[i + 1]
+    if e == "n" { out = out + "\n" } else if e == "t" { out = out + "\t" } else if e == "r" { out = out + __chr(13) } else if e == "\\" { out = out + "\\" } else if e == "\"" { out = out + "\"" } else if e == "'" { out = out + "'" } else if e == "0" { out = out + __chr(0) } else if e == "u" {
+      var j = i + 2
+      var v = 0
+      if j < n - 1 && cs[j] == "\{" {
+        j += 1
+        while j < n - 1 && cs[j] != "\}" {
+          let d = digit_val(cs[j])
+          if d >= 16 { return Err("\\u\{…\} 里有非十六进制字符") }
+          v = v * 16 + d
+          j += 1
+        }
+        if j >= n - 1 { return Err("\\u\{ 没有闭合") }
+        j += 1
+      } else {
+        if j + 4 > n - 1 { return Err("\\u 后面需要 4 位十六进制数") }
+        for k in 0..4 {
+          let d = digit_val(cs[j + k])
+          if d >= 16 { return Err("\\u 后面需要 4 位十六进制数") }
+          v = v * 16 + d
+        }
+        j += 4
+      }
+      if v > 1114111 || (v >= 55296 && v <= 57343) { return Err("无效的码点: {v}") }
+      out = out + __chr(v)
+      i = j
+      continue
+    } else {
+      return Err("未知的转义: \\{e}")
+    }
+    i += 2
+  }
+  Ok(out)
+}
+
+// ═════════════════ 以下逐行移植自 Go 的 strconv（ftoa.go / decimal.go / atof.go / quote.go） ═════════════════
+
+const SIGN_BIT: Int = 1 << 63
+
+// ───────── Float64bits / Float32bits（Kite 没有位转换内建，用 2 的幂缩放精确算出来） ─────────
+
+fn p60() -> Float { float(1 << 60) }
+
+// x * 2^k；只要结果能精确表示，每一步都是精确的
+fn scale2(x: Float, k: Int) -> Float {
+  var v = x
+  var e = k
+  let big = p60()
+  while e > 60 {
+    v = v * big
+    e -= 60
+  }
+  while e < -60 {
+    v = v / big
+    e += 60
+  }
+  if e >= 0 { v * float(1 << e) } else { v / float(1 << (0 - e)) }
+}
+
+// IEEE 754 双精度的位模式（同 Go 的 math.Float64bits；NaN 统一是 0x7ff8000000000001）
+pub fn float64_bits(f: Float) -> Int {
+  if math.is_nan(f) { return 9221120237041090561 }
+  let neg = math.signbit(f)
+  let sign = if neg { SIGN_BIT } else { 0 }
+  let a = if neg { -f } else { f }
+  if math.is_inf(a) { return sign | (2047 << 52) }
+  if a == 0.0 { return sign }
+  var x = a
+  var e = 0
+  let big = p60()
+  while x >= big {
+    x = x / big
+    e += 60
+  }
+  while x >= 2.0 {
+    x = x / 2.0
+    e += 1
+  }
+  while x < 1.0 / big {
+    x = x * big
+    e -= 60
+  }
+  while x < 1.0 {
+    x = x * 2.0
+    e -= 1
+  }
+  if e >= -1022 {
+    let m = int(x * float(1 << 52))
+    return sign | ((e + 1023) << 52) | (m - (1 << 52))
+  }
+  sign | int(scale2(a, 1074))
+}
+
+// 同 Go 的 math.Float64frombits
+pub fn float64_from_bits(b: Int) -> Float {
+  let neg = b < 0
+  let be = (b >> 52) & 2047
+  let m = b & ((1 << 52) - 1)
+  if be == 2047 {
+    if m != 0 { return math.nan }
+    return if neg { -math.inf } else { math.inf }
+  }
+  let v = if be == 0 { scale2(float(m), -1074) } else { scale2(float(m | (1 << 52)), be - 1075) }
+  if neg { -v } else { v }
+}
+
+// 把 float64 按 Go 的 float32(x) 舍入（就近偶数，溢出得 ±Inf），返回 32 位位模式
+pub fn float32_bits(f: Float) -> Int {
+  if math.is_nan(f) { return 0x7fc00000 }
+  let b = float64_bits(f)
+  let sign = if b < 0 { 0x80000000 } else { 0 }
+  let be = (b >> 52) & 2047
+  if be == 2047 { return sign | 0x7f800000 }
+  var m = b & ((1 << 52) - 1)
+  var e = 0
+  if be == 0 {
+    if m == 0 { return sign }
+    e = -1074
+  } else {
+    m = m | (1 << 52)
+    e = be - 1075
+  }
+  let p = bits.len64(m) - 1 + e
+  var e32 = p - 23
+  if e32 < -149 { e32 = -149 }
+  let shift = e32 - e
+  var mm = 0
+  if shift <= 0 {
+    mm = m << (0 - shift)
+  } else if shift >= 60 {
+    mm = 0
+  } else {
+    mm = m >> shift
+    let rem = m & ((1 << shift) - 1)
+    let half = 1 << (shift - 1)
+    if rem > half || (rem == half && (mm & 1) == 1) { mm += 1 }
+  }
+  if mm == 1 << 24 {
+    mm = 1 << 23
+    e32 += 1
+  }
+  if mm >= 1 << 23 {
+    let biased = e32 + 150
+    if biased >= 255 { return sign | 0x7f800000 }
+    return sign | (biased << 23) | (mm - (1 << 23))
+  }
+  sign | mm
+}
+
+// 32 位位模式 → 浮点数（同 Go 的 float64(math.Float32frombits(b))）
+pub fn float32_from_bits(b: Int) -> Float {
+  let neg = (b & 0x80000000) != 0
+  let be = (b >> 23) & 255
+  let m = b & 0x7fffff
+  if be == 255 {
+    if m != 0 { return math.nan }
+    return if neg { -math.inf } else { math.inf }
+  }
+  let v = if be == 0 { scale2(float(m), -149) } else { scale2(float(m | 0x800000), be - 150) }
+  if neg { -v } else { v }
+}
+
+// 舍入到 float32 精度（同 Go 的 float64(float32(x))）
+pub fn round_float32(f: Float) -> Float { float32_from_bits(float32_bits(f)) }
+
+// ───────── decimal：任意精度十进制数（decimal.go） ─────────
+
+const DEC_CAP: Int = 800
+
+// 每次移位最多 59 位，保证中间值不超过 Int
+const MAX_SHIFT: Int = 59
+
+type Dec = { d: List<Int>, dp: Int, neg: Bool, trunc: Bool }
+
+const LC_DELTA: List<Int> = [0, 1, 1, 1, 2, 2, 2, 3, 3, 3, 4, 4, 4, 4, 5, 5, 5, 6, 6, 6, 7, 7, 7, 7, 8, 8, 8, 9, 9, 9, 10, 10, 10, 10, 11, 11, 11, 12, 12, 12, 13, 13, 13, 13, 14, 14, 14, 15, 15, 15, 16, 16, 16, 16, 17, 17, 17, 18, 18, 18]
+
+const LC_CUT: List<Str> = ["", "5", "25", "125", "625", "3125", "15625", "78125", "390625", "1953125", "9765625", "48828125", "244140625", "1220703125", "6103515625", "30517578125", "152587890625", "762939453125", "3814697265625", "19073486328125", "95367431640625", "476837158203125", "2384185791015625", "11920928955078125", "59604644775390625", "298023223876953125", "1490116119384765625", "7450580596923828125", "37252902984619140625", "186264514923095703125", "931322574615478515625", "4656612873077392578125", "23283064365386962890625", "116415321826934814453125", "582076609134674072265625", "2910383045673370361328125", "14551915228366851806640625", "72759576141834259033203125", "363797880709171295166015625", "1818989403545856475830078125", "9094947017729282379150390625", "45474735088646411895751953125", "227373675443232059478759765625", "1136868377216160297393798828125", "5684341886080801486968994140625", "28421709430404007434844970703125", "142108547152020037174224853515625", "710542735760100185871124267578125", "3552713678800500929355621337890625", "17763568394002504646778106689453125", "88817841970012523233890533447265625", "444089209850062616169452667236328125", "2220446049250313080847263336181640625", "11102230246251565404236316680908203125", "55511151231257827021181583404541015625", "277555756156289135105907917022705078125", "1387778780781445675529539585113525390625", "6938893903907228377647697925567626953125", "34694469519536141888238489627838134765625", "173472347597680709441192448139190673828125"]
+
+fn dec_mk(d: List<Int>, dp: Int, neg: Bool, trunc: Bool) -> Dec {
+  var n = len(d)
+  while n > 0 && d[n - 1] == 0 { n -= 1 }
+  if n == 0 { return Dec { d: [], dp: 0, neg: neg, trunc: trunc } }
+  Dec { d: if n == len(d) { d } else { d[..n] }, dp: dp, neg: neg, trunc: trunc }
+}
+
+// v 是非负数
+fn dec_assign(v: Int) -> Dec {
+  var rev: List<Int> = []
+  var x = v
+  while x > 0 {
+    rev = push(rev, x % 10)
+    x = x / 10
+  }
+  let d = reverse(rev)
+  dec_mk(d, len(d), false, false)
+}
+
+fn right_shift(a: Dec, k: Int) -> Dec {
+  let nd = len(a.d)
+  var r = 0
+  var n = 0
+  var trunc = a.trunc
+  while (n >> k) == 0 {
+    if r >= nd {
+      if n == 0 { return Dec { d: [], dp: a.dp, neg: a.neg, trunc: trunc } }
+      while (n >> k) == 0 {
+        n = n * 10
+        r += 1
+      }
+      break
+    }
+    n = n * 10 + a.d[r]
+    r += 1
+  }
+  let dp = a.dp - (r - 1)
+  let mask = (1 << k) - 1
+  var out: List<Int> = []
+  while r < nd {
+    out = push(out, n >> k)
+    n = (n & mask) * 10 + a.d[r]
+    r += 1
+  }
+  while n > 0 {
+    let dig = n >> k
+    n = n & mask
+    if len(out) < DEC_CAP { out = push(out, dig) } else if dig > 0 { trunc = true }
+    n = n * 10
+  }
+  dec_mk(out, dp, a.neg, trunc)
+}
+
+fn prefix_is_less_than(b: List<Int>, s: Str) -> Bool {
+  let cs = __bytes(s)
+  var i = 0
+  while i < len(cs) {
+    if i >= len(b) { return true }
+    if b[i] != cs[i] - 48 { return b[i] < cs[i] - 48 }
+    i += 1
+  }
+  false
+}
+
+fn left_shift(a: Dec, k: Int) -> Dec {
+  var delta = LC_DELTA[k]
+  if prefix_is_less_than(a.d, LC_CUT[k]) { delta -= 1 }
+  let nd = len(a.d)
+  var r = nd - 1
+  var w = nd + delta
+  var n = 0
+  var trunc = a.trunc
+  var rev: List<Int> = []
+  while r >= 0 {
+    n += a.d[r] << k
+    let quo = n / 10
+    let rem = n - 10 * quo
+    w -= 1
+    if w < DEC_CAP { rev = push(rev, rem) } else if rem != 0 { trunc = true }
+    n = quo
+    r -= 1
+  }
+  while n > 0 {
+    let quo = n / 10
+    let rem = n - 10 * quo
+    w -= 1
+    if w < DEC_CAP { rev = push(rev, rem) } else if rem != 0 { trunc = true }
+    n = quo
+  }
+  dec_mk(reverse(rev), a.dp + delta, a.neg, trunc)
+}
+
+fn dec_shift(a0: Dec, k0: Int) -> Dec {
+  var a = a0
+  var k = k0
+  if len(a.d) == 0 { return a }
+  if k > 0 {
+    while k > MAX_SHIFT {
+      a = left_shift(a, MAX_SHIFT)
+      k -= MAX_SHIFT
+    }
+    return left_shift(a, k)
+  }
+  if k < 0 {
+    while k < 0 - MAX_SHIFT {
+      a = right_shift(a, MAX_SHIFT)
+      k += MAX_SHIFT
+    }
+    return right_shift(a, 0 - k)
+  }
+  a
+}
+
+fn should_round_up(a: Dec, nd: Int) -> Bool {
+  if nd < 0 || nd >= len(a.d) { return false }
+  if a.d[nd] == 5 && nd + 1 == len(a.d) {
+    if a.trunc { return true }
+    return nd > 0 && a.d[nd - 1] % 2 != 0
+  }
+  a.d[nd] >= 5
+}
+
+fn dec_round_down(a: Dec, nd: Int) -> Dec {
+  if nd < 0 || nd >= len(a.d) { return a }
+  dec_mk(a.d[..nd], a.dp, a.neg, a.trunc)
+}
+
+fn dec_round_up(a: Dec, nd: Int) -> Dec {
+  if nd < 0 || nd >= len(a.d) { return a }
+  var i = nd - 1
+  while i >= 0 {
+    if a.d[i] < 9 { return Dec { d: push(a.d[..i], a.d[i] + 1), ..a } }
+    i -= 1
+  }
+  Dec { d: [1], dp: a.dp + 1, ..a }
+}
+
+fn dec_round(a: Dec, nd: Int) -> Dec {
+  if nd < 0 || nd >= len(a.d) { return a }
+  if should_round_up(a, nd) { dec_round_up(a, nd) } else { dec_round_down(a, nd) }
+}
+
+// m * 2^e2 的精确十进制（m 非负，小于 2^62）。和 dec_shift(dec_assign(m), e2) 结果相同，
+// 但用 10^9 进制的大整数（低位在前）直接乘 2^k 或 5^k，快得多（float64 的精确值最多 767 位，不会被截断）
+const LIMB: Int = 1000000000
+
+// a * m，m 小于 2^33
+fn limbs_mul(a: List<Int>, m: Int) -> List<Int> {
+  var out: List<Int> = []
+  var carry = 0
+  for x in a {
+    let t = x * m + carry
+    out = push(out, t % LIMB)
+    carry = t / LIMB
+  }
+  while carry > 0 {
+    out = push(out, carry % LIMB)
+    carry = carry / LIMB
+  }
+  out
+}
+
+// a * m，m 小于 2^62：拆成 m = mh * 10^9 + ml
+fn limbs_mul_big(a: List<Int>, m: Int) -> List<Int> {
+  if m < LIMB { return limbs_mul(a, m) }
+  let lo = limbs_mul(a, m % LIMB)
+  let hi = limbs_mul(a, m / LIMB)
+  var out: List<Int> = []
+  var carry = 0
+  var i = 0
+  while i < len(lo) || i < len(hi) + 1 || carry > 0 {
+    let x = (if i < len(lo) { lo[i] } else { 0 }) + (if i >= 1 && i - 1 < len(hi) { hi[i - 1] } else { 0 }) + carry
+    out = push(out, x % LIMB)
+    carry = x / LIMB
+    i += 1
+  }
+  out
+}
+
+// 2^e2（e2 >= 0）或 5^(-e2)（e2 < 0）
+fn pow_limbs(e2: Int) -> List<Int> {
+  var limbs = [1]
+  var k = if e2 >= 0 { e2 } else { 0 - e2 }
+  let (step, big) = if e2 >= 0 { (31, 1 << 31) } else { (13, 1220703125) }
+  while k >= step {
+    limbs = limbs_mul(limbs, big)
+    k -= step
+  }
+  var last = 1
+  while k > 0 {
+    last = last * (if e2 >= 0 { 2 } else { 5 })
+    k -= 1
+  }
+  if last > 1 { limbs_mul(limbs, last) } else { limbs }
+}
+
+// limbs（= m * 2^e2 或 m * 5^k）转成 Dec
+fn dec_from_limbs(limbs: List<Int>, e2: Int) -> Dec {
+  var ds: List<Int> = []
+  var i = len(limbs) - 1
+  while i > 0 && limbs[i] == 0 { i -= 1 }
+  if i == 0 && limbs[0] == 0 { return Dec { d: [], dp: 0, neg: false, trunc: false } }
+  ds = digit_vals(limbs[i])
+  i -= 1
+  while i >= 0 {
+    let v = limbs[i]
+    var j = 100000000
+    while j > 0 {
+      ds = push(ds, (v / j) % 10)
+      j = j / 10
+    }
+    i -= 1
+  }
+  let dp = if e2 >= 0 { len(ds) } else { len(ds) + e2 }
+  dec_mk(ds, dp, false, false)
+}
+
+fn dec_exact_with(pw: List<Int>, m: Int, e2: Int) -> Dec {
+  if m == 0 { return Dec { d: [], dp: 0, neg: false, trunc: false } }
+  let r = dec_from_limbs(limbs_mul_big(pw, m), e2)
+  if len(r.d) > DEC_CAP { return dec_shift(dec_assign(m), e2) }
+  r
+}
+
+fn dec_exact(m: Int, e2: Int) -> Dec { dec_exact_with(pow_limbs(e2), m, e2) }
+
+fn digit_vals(n: Int) -> List<Int> {
+  var rev: List<Int> = []
+  var x = n
+  while x > 0 {
+    rev = push(rev, x % 10)
+    x = x / 10
+  }
+  reverse(rev)
+}
+
+// 只在 floatBits 里用，结果不超过 2^54
+fn dec_rounded_integer(a: Dec) -> Int {
+  if a.dp > 18 { return -1 }
+  var i = 0
+  var n = 0
+  while i < a.dp && i < len(a.d) {
+    n = n * 10 + a.d[i]
+    i += 1
+  }
+  while i < a.dp {
+    n = n * 10
+    i += 1
+  }
+  if should_round_up(a, a.dp) { n += 1 }
+  n
+}
+
+// ───────── FormatFloat（ftoa.go） ─────────
+
+type FltInfo = { mantbits: Int, expbits: Int, bias: Int }
+
+fn f32info() -> FltInfo { FltInfo { mantbits: 23, expbits: 8, bias: -127 } }
+
+fn f64info() -> FltInfo { FltInfo { mantbits: 52, expbits: 11, bias: -1023 } }
+
+fn round_shortest(d: Dec, mant: Int, exp: Int, flt: FltInfo) -> Dec {
+  if mant == 0 { return Dec { d: [], ..d } }
+  let minexp = flt.bias + 1
+  if exp > minexp && 332 * (d.dp - len(d.d)) >= 100 * (exp - flt.mantbits) { return d }
+  var mantlo = 0
+  var explo = 0
+  if mant > (1 << flt.mantbits) || exp == minexp {
+    mantlo = mant - 1
+    explo = exp
+  } else {
+    mantlo = mant * 2 - 1
+    explo = exp - 1
+  }
+  // upper 和 lower 都写成 X * 2^(exp-mantbits-2)，共用一次 2 或 5 的幂
+  let e2 = exp - flt.mantbits - 2
+  let pw = pow_limbs(e2)
+  let upper = dec_exact_with(pw, (mant * 2 + 1) * 2, e2)
+  let lower = dec_exact_with(pw, if explo == exp { (mantlo * 2 + 1) * 2 } else { mantlo * 2 + 1 }, e2)
+  let inclusive = mant % 2 == 0
+  var upperdelta = 0
+  var ui = 0
+  loop {
+    let mi = ui - upper.dp + d.dp
+    if mi >= len(d.d) { break }
+    let li = ui - upper.dp + lower.dp
+    let l = if li >= 0 && li < len(lower.d) { lower.d[li] } else { 0 }
+    let m = if mi >= 0 { d.d[mi] } else { 0 }
+    let u = if ui < len(upper.d) { upper.d[ui] } else { 0 }
+    let okdown = l != m || (inclusive && li + 1 == len(lower.d))
+    if upperdelta == 0 && m + 1 < u {
+      upperdelta = 2
+    } else if upperdelta == 0 && m != u {
+      upperdelta = 1
+    } else if upperdelta == 1 && (m != 9 || u != 0) {
+      upperdelta = 2
+    }
+    let okup = upperdelta > 0 && (inclusive || upperdelta > 1 || ui + 1 < len(upper.d))
+    if okdown && okup { return dec_round(d, mi + 1) }
+    if okdown { return dec_round_down(d, mi + 1) }
+    if okup { return dec_round_up(d, mi + 1) }
+    ui += 1
+  }
+  d
+}
+
+fn digit_bytes(n: Int) -> List<Int> {
+  if n == 0 { return [48] }
+  var rev: List<Int> = []
+  var x = n
+  while x > 0 {
+    rev = push(rev, 48 + x % 10)
+    x = x / 10
+  }
+  reverse(rev)
+}
+
+fn fmt_e(neg: Bool, d: Dec, prec: Int, fmtc: Int) -> List<Int> {
+  var out: List<Int> = if neg { [45] } else { [] }
+  let nd = len(d.d)
+  out = push(out, if nd != 0 { 48 + d.d[0] } else { 48 })
+  if prec > 0 {
+    out = push(out, 46)
+    var i = 1
+    let m = if nd < prec + 1 { nd } else { prec + 1 }
+    while i < m {
+      out = push(out, 48 + d.d[i])
+      i += 1
+    }
+    while i <= prec {
+      out = push(out, 48)
+      i += 1
+    }
+  }
+  out = push(out, fmtc)
+  var exp = if nd == 0 { 0 } else { d.dp - 1 }
+  if exp < 0 {
+    out = push(out, 45)
+    exp = 0 - exp
+  } else {
+    out = push(out, 43)
+  }
+  if exp < 10 {
+    out = push(push(out, 48), 48 + exp)
+  } else if exp < 100 {
+    out = push(push(out, 48 + exp / 10), 48 + exp % 10)
+  } else {
+    out = push(push(push(out, 48 + exp / 100), 48 + (exp / 10) % 10), 48 + exp % 10)
+  }
+  out
+}
+
+fn fmt_f(neg: Bool, d: Dec, prec: Int) -> List<Int> {
+  var out: List<Int> = if neg { [45] } else { [] }
+  let nd = len(d.d)
+  if d.dp > 0 {
+    var m = 0
+    while m < nd && m < d.dp {
+      out = push(out, 48 + d.d[m])
+      m += 1
+    }
+    while m < d.dp {
+      out = push(out, 48)
+      m += 1
+    }
+  } else {
+    out = push(out, 48)
+  }
+  if prec > 0 {
+    out = push(out, 46)
+    var i = 0
+    while i < prec {
+      let j = d.dp + i
+      out = push(out, if 0 <= j && j < nd { 48 + d.d[j] } else { 48 })
+      i += 1
+    }
+  }
+  out
+}
+
+fn fmt_b(neg: Bool, mant: Int, exp: Int, flt: FltInfo) -> List<Int> {
+  var out: List<Int> = if neg { [45] } else { [] }
+  out = out + digit_bytes(mant)
+  out = push(out, 112)
+  let e = exp - flt.mantbits
+  if e >= 0 {
+    out = push(out, 43)
+    out = out + digit_bytes(e)
+  } else {
+    out = push(out, 45)
+    out = out + digit_bytes(0 - e)
+  }
+  out
+}
+
+fn fmt_x(prec: Int, fmtc: Int, neg: Bool, mant0: Int, exp0: Int, flt: FltInfo) -> List<Int> {
+  var mant = mant0
+  var exp = if mant0 == 0 { 0 } else { exp0 }
+  mant = mant << (60 - flt.mantbits)
+  while mant != 0 && (mant & (1 << 60)) == 0 {
+    mant = mant << 1
+    exp -= 1
+  }
+  if prec >= 0 && prec < 15 {
+    let shift = prec * 4
+    let extra = (mant << shift) & ((1 << 60) - 1)
+    mant = mant >> (60 - shift)
+    if (extra | (mant & 1)) > (1 << 59) { mant += 1 }
+    mant = mant << (60 - shift)
+    if (mant & (1 << 61)) != 0 {
+      mant = mant >> 1
+      exp += 1
+    }
+  }
+  let hex = if fmtc == 88 { __bytes("0123456789ABCDEF") } else { __bytes("0123456789abcdef") }
+  var out: List<Int> = if neg { [45] } else { [] }
+  out = push(push(push(out, 48), fmtc), 48 + ((mant >> 60) & 1))
+  mant = mant & ((1 << 60) - 1)
+  if prec < 0 && mant != 0 {
+    out = push(out, 46)
+    while mant != 0 {
+      out = push(out, hex[(mant >> 56) & 15])
+      mant = (mant << 4) & ((1 << 60) - 1)
+    }
+  } else if prec > 0 {
+    out = push(out, 46)
+    var i = 0
+    while i < prec {
+      out = push(out, hex[(mant >> 56) & 15])
+      mant = (mant << 4) & ((1 << 60) - 1)
+      i += 1
+    }
+  }
+  out = push(out, if fmtc == 88 { 80 } else { 112 })
+  if exp < 0 {
+    out = push(out, 45)
+    exp = 0 - exp
+  } else {
+    out = push(out, 43)
+  }
+  if exp < 100 {
+    out = push(push(out, 48 + exp / 10), 48 + exp % 10)
+  } else if exp < 1000 {
+    out = push(push(push(out, 48 + exp / 100), 48 + (exp / 10) % 10), 48 + exp % 10)
+  } else {
+    out = push(push(push(push(out, 48 + exp / 1000), 48 + (exp / 100) % 10), 48 + (exp / 10) % 10), 48 + exp % 10)
+  }
+  out
+}
+
+fn format_digits(shortest: Bool, neg: Bool, d: Dec, prec0: Int, fmtc: Int) -> List<Int> {
+  var prec = prec0
+  if fmtc == 101 || fmtc == 69 { return fmt_e(neg, d, prec, fmtc) }
+  if fmtc == 102 { return fmt_f(neg, d, prec) }
+  if fmtc == 103 || fmtc == 71 {
+    let nd = len(d.d)
+    var eprec = prec
+    if eprec > nd && nd >= d.dp { eprec = nd }
+    if shortest { eprec = 6 }
+    let exp = d.dp - 1
+    if exp < -4 || exp >= eprec {
+      if prec > nd { prec = nd }
+      return fmt_e(neg, d, prec - 1, fmtc + 101 - 103)
+    }
+    if prec > d.dp { prec = nd }
+    let p2 = prec - d.dp
+    return fmt_f(neg, d, if p2 > 0 { p2 } else { 0 })
+  }
+  [37, fmtc]
+}
+
+// 拆出 (neg, mant, exp)，exp 已经加上 bias；inf/nan 时返回对应文本
+fn float_parts(val: Float, bitsize: Int) -> (Bool, Int, Int, FltInfo, Str) {
+  let flt = if bitsize == 32 { f32info() } else if bitsize == 64 { f64info() } else { panic("strconv: illegal AppendFloat/FormatFloat bitSize") }
+  let b = if bitsize == 32 { float32_bits(val) } else { float64_bits(val) }
+  let neg = if bitsize == 32 { (b & 0x80000000) != 0 } else { b < 0 }
+  var exp = (b >> flt.mantbits) & ((1 << flt.expbits) - 1)
+  var mant = b & ((1 << flt.mantbits) - 1)
+  if exp == (1 << flt.expbits) - 1 {
+    let s = if mant != 0 { "NaN" } else if neg { "-Inf" } else { "+Inf" }
+    return (neg, mant, exp, flt, s)
+  }
+  if exp == 0 { exp += 1 } else { mant = mant | (1 << flt.mantbits) }
+  (neg, mant, exp + flt.bias, flt, "")
+}
+
+// Go 的 strconv.FormatFloat(f, fmt, prec, bitSize)：fmt 是 "e" "E" "f" "g" "G" "b" "x" "X" 之一，
+// prec 为 -1 时取能精确还原的最短表示；bitsize 为 32 时先按 float32 舍入
+pub fn format_float_go(val: Float, fmt: Str, prec0: Int, bitsize: Int) -> Str {
+  unwrap(__from_bytes(format_float_bytes(val, __ord(fmt), prec0, bitsize)))
+}
+
+pub fn format_float_bytes(val: Float, fmtc: Int, prec0: Int, bitsize: Int) -> List<Int> {
+  let (neg, mant, exp, flt, special) = float_parts(val, bitsize)
+  if special != "" { return __bytes(special) }
+  if fmtc == 98 { return fmt_b(neg, mant, exp, flt) }
+  if fmtc == 120 || fmtc == 88 { return fmt_x(prec0, fmtc, neg, mant, exp, flt) }
+  var prec = prec0
+  // %f 时数值小于 10^-(prec+1)：结果一定是 0.000…（Go 也是这样，只是要先算出全部数字），省掉精确展开
+  if fmtc == 102 && prec >= 0 && (exp + 1) * 30103 < (0 - prec - 1) * 100000 - 1000 {
+    return fmt_f(neg, Dec { d: [], dp: 0, neg: neg, trunc: false }, prec)
+  }
+  var d = dec_exact(mant, exp - flt.mantbits)
+  let shortest = prec < 0
+  if shortest {
+    d = round_shortest(d, mant, exp, flt)
+    let nd = len(d.d)
+    if fmtc == 101 || fmtc == 69 {
+      prec = nd - 1
+    } else if fmtc == 102 {
+      prec = if nd - d.dp > 0 { nd - d.dp } else { 0 }
+    } else if fmtc == 103 || fmtc == 71 {
+      prec = nd
+    }
+  } else if fmtc == 101 || fmtc == 69 {
+    d = dec_round(d, prec + 1)
+  } else if fmtc == 102 {
+    d = dec_round(d, d.dp + prec)
+  } else if fmtc == 103 || fmtc == 71 {
+    if prec == 0 { prec = 1 }
+    d = dec_round(d, prec)
+  }
+  format_digits(shortest, neg, d, prec, fmtc)
+}
+
+// ───────── ParseFloat（atof.go，只用精确的 decimal 算法） ─────────
+
+fn lower_b(c: Int) -> Int { if c >= 65 && c <= 90 { c + 32 } else { c } }
+
+fn common_prefix_len_ignore_case(s: List<Int>, start: Int, prefix: Str) -> Int {
+  let p = __bytes(prefix)
+  var n = len(p)
+  if n > len(s) - start { n = len(s) - start }
+  var i = 0
+  while i < n {
+    if lower_b(s[start + i]) != p[i] { return i }
+    i += 1
+  }
+  n
+}
+
+// (值, 消耗的字节数, 是否成功)
+fn special_float(s: List<Int>) -> (Float, Int, Bool) {
+  if len(s) == 0 { return (0.0, 0, false) }
+  let c = s[0]
+  if c == 43 || c == 45 || c == 105 || c == 73 {
+    let nsign = if c == 43 || c == 45 { 1 } else { 0 }
+    var n = common_prefix_len_ignore_case(s, nsign, "infinity")
+    if 3 < n && n < 8 { n = 3 }
+    if n == 3 || n == 8 { return (if c == 45 { -math.inf } else { math.inf }, nsign + n, true) }
+    return (0.0, 0, false)
+  }
+  if (c == 110 || c == 78) && common_prefix_len_ignore_case(s, 0, "nan") == 3 { return (math.nan, 3, true) }
+  (0.0, 0, false)
+}
+
+fn underscore_ok(s0: List<Int>) -> Bool {
+  var s = s0
+  var saw = 94
+  var i = 0
+  if len(s) >= 1 && (s[0] == 45 || s[0] == 43) { s = s[1..] }
+  var hex = false
+  if len(s) >= 2 && s[0] == 48 && (lower_b(s[1]) == 98 || lower_b(s[1]) == 111 || lower_b(s[1]) == 120) {
+    i = 2
+    saw = 48
+    hex = lower_b(s[1]) == 120
+  }
+  while i < len(s) {
+    let c = s[i]
+    if (48 <= c && c <= 57) || (hex && 97 <= lower_b(c) && lower_b(c) <= 102) {
+      saw = 48
+    } else if c == 95 {
+      if saw != 48 { return false }
+      saw = 95
+    } else {
+      if saw == 95 { return false }
+      saw = 33
+    }
+    i += 1
+  }
+  saw != 95
+}
+
+type RF = { mant: Int, exp: Int, neg: Bool, trunc: Bool, hex: Bool, n: Int, ok: Bool }
+
+fn read_float(s: List<Int>) -> RF {
+  var r = RF { mant: 0, exp: 0, neg: false, trunc: false, hex: false, n: 0, ok: false }
+  var underscores = false
+  var i = 0
+  if i >= len(s) { return r }
+  if s[i] == 43 {
+    i += 1
+  } else if s[i] == 45 {
+    r = RF { neg: true, ..r }
+    i += 1
+  }
+  var base = 10
+  var max_mant_digits = 19
+  var exp_char = 101
+  if i + 2 < len(s) && s[i] == 48 && lower_b(s[i + 1]) == 120 {
+    base = 16
+    max_mant_digits = 16
+    i += 2
+    exp_char = 112
+    r = RF { hex: true, ..r }
+  }
+  var sawdot = false
+  var sawdigits = false
+  var nd = 0
+  var nd_mant = 0
+  var dp = 0
+  var mant = 0
+  var trunc = false
+  while i < len(s) {
+    let c = s[i]
+    if c == 95 {
+      underscores = true
+    } else if c == 46 {
+      if sawdot { break }
+      sawdot = true
+      dp = nd
+    } else if 48 <= c && c <= 57 {
+      sawdigits = true
+      if c == 48 && nd == 0 {
+        dp -= 1
+      } else {
+        nd += 1
+        if nd_mant < max_mant_digits {
+          // 按 uint64 回绕（同 Go）
+          mant = bits.wadd(bits.wmul(mant, base), c - 48)
+          nd_mant += 1
+        } else if c != 48 {
+          trunc = true
+        }
+      }
+    } else if base == 16 && 97 <= lower_b(c) && lower_b(c) <= 102 {
+      sawdigits = true
+      nd += 1
+      if nd_mant < max_mant_digits {
+        mant = bits.wadd(bits.wmul(mant, 16), lower_b(c) - 97 + 10)
+        nd_mant += 1
+      } else {
+        trunc = true
+      }
+    } else {
+      break
+    }
+    i += 1
+  }
+  if !sawdigits { return RF { n: i, ..r } }
+  if !sawdot { dp = nd }
+  if base == 16 {
+    dp = dp * 4
+    nd_mant = nd_mant * 4
+  }
+  if i < len(s) && lower_b(s[i]) == exp_char {
+    i += 1
+    if i >= len(s) { return RF { n: i, ..r } }
+    var esign = 1
+    if s[i] == 43 {
+      i += 1
+    } else if s[i] == 45 {
+      i += 1
+      esign = -1
+    }
+    if i >= len(s) || s[i] < 48 || s[i] > 57 { return RF { n: i, ..r } }
+    var e = 0
+    while i < len(s) && ((48 <= s[i] && s[i] <= 57) || s[i] == 95) {
+      if s[i] == 95 {
+        underscores = true
+      } else if e < 10000 {
+        e = e * 10 + s[i] - 48
+      }
+      i += 1
+    }
+    dp += e * esign
+  } else if base == 16 {
+    return RF { n: i, ..r }
+  }
+  var exp = 0
+  if mant != 0 { exp = dp - nd_mant }
+  if underscores && !underscore_ok(s[..i]) { return RF { n: i, ..r } }
+  RF { mant: mant, exp: exp, trunc: trunc, n: i, ok: true, ..r }
+}
+
+fn dec_set(s: List<Int>) -> Option<Dec> {
+  var i = 0
+  var neg = false
+  var trunc = false
+  if i >= len(s) { return None }
+  if s[i] == 43 {
+    i += 1
+  } else if s[i] == 45 {
+    neg = true
+    i += 1
+  }
+  var sawdot = false
+  var sawdigits = false
+  var d: List<Int> = []
+  var dp = 0
+  while i < len(s) {
+    let c = s[i]
+    if c == 95 {
+      i += 1
+      continue
+    }
+    if c == 46 {
+      if sawdot { return None }
+      sawdot = true
+      dp = len(d)
+      i += 1
+      continue
+    }
+    if 48 <= c && c <= 57 {
+      sawdigits = true
+      if c == 48 && len(d) == 0 {
+        dp -= 1
+      } else if len(d) < DEC_CAP {
+        d = push(d, c - 48)
+      } else if c != 48 {
+        trunc = true
+      }
+      i += 1
+      continue
+    }
+    break
+  }
+  if !sawdigits { return None }
+  if !sawdot { dp = len(d) }
+  if i < len(s) && lower_b(s[i]) == 101 {
+    i += 1
+    if i >= len(s) { return None }
+    var esign = 1
+    if s[i] == 43 {
+      i += 1
+    } else if s[i] == 45 {
+      i += 1
+      esign = -1
+    }
+    if i >= len(s) || s[i] < 48 || s[i] > 57 { return None }
+    var e = 0
+    while i < len(s) && ((48 <= s[i] && s[i] <= 57) || s[i] == 95) {
+      if s[i] != 95 && e < 10000 { e = e * 10 + s[i] - 48 }
+      i += 1
+    }
+    dp += e * esign
+  }
+  if i != len(s) { return None }
+  // 注意：数字没去掉末尾的 0，和 Go 一样
+  Some(Dec { d: d, dp: dp, neg: neg, trunc: trunc })
+}
+
+const POWTAB: List<Int> = [1, 3, 6, 9, 13, 16, 19, 23, 26]
+
+// (位模式, 是否溢出)
+fn dec_float_bits(d0: Dec, flt: FltInfo) -> (Int, Bool) {
+  var d = d0
+  var exp = 0
+  var mant = 0
+  var overflow = false
+  let nd = len(d.d)
+  var done = false
+  if nd == 0 {
+    exp = flt.bias
+    done = true
+  } else if d.dp > 310 {
+    overflow = true
+  } else if d.dp < -330 {
+    exp = flt.bias
+    done = true
+  }
+  if !done && !overflow {
+    while d.dp > 0 {
+      // Go 每次移 27 位；这里离得远时一次移 59 位（2^59 < 10^18，不会越过目标区间），结果相同但快一倍
+      let n = if d.dp >= 18 { 59 } else if d.dp >= len(POWTAB) { 27 } else { POWTAB[d.dp] }
+      d = dec_shift(d, 0 - n)
+      exp += n
+    }
+    while d.dp < 0 || (d.dp == 0 && d.d[0] < 5) {
+      let n = if 0 - d.dp >= 18 { 59 } else if 0 - d.dp >= len(POWTAB) { 27 } else { POWTAB[0 - d.dp] }
+      d = dec_shift(d, n)
+      exp -= n
+    }
+    exp -= 1
+    if exp < flt.bias + 1 {
+      let n = flt.bias + 1 - exp
+      d = dec_shift(d, 0 - n)
+      exp += n
+    }
+    if exp - flt.bias >= (1 << flt.expbits) - 1 {
+      overflow = true
+    } else {
+      d = dec_shift(d, 1 + flt.mantbits)
+      mant = dec_rounded_integer(d)
+      if mant == 2 << flt.mantbits {
+        mant = mant >> 1
+        exp += 1
+        if exp - flt.bias >= (1 << flt.expbits) - 1 { overflow = true }
+      }
+      if !overflow && (mant & (1 << flt.mantbits)) == 0 { exp = flt.bias }
+    }
+  }
+  if overflow {
+    mant = 0
+    exp = (1 << flt.expbits) - 1 + flt.bias
+  }
+  var b = mant & ((1 << flt.mantbits) - 1)
+  b = b | (((exp - flt.bias) & ((1 << flt.expbits) - 1)) << flt.mantbits)
+  if d0.neg { b = b | ((1 << flt.mantbits) << flt.expbits) }
+  (b, overflow)
+}
+
+fn bits_to_float(b: Int, flt: FltInfo) -> Float { if flt.mantbits == 23 { float32_from_bits(b) } else { float64_from_bits(b) } }
+
+// (值, 是否溢出)
+fn atof_hex(flt: FltInfo, mant0: Int, exp0: Int, neg: Bool, trunc: Bool) -> (Float, Bool) {
+  let max_exp = (1 << flt.expbits) + flt.bias - 2
+  let min_exp = flt.bias + 1
+  var mantissa = mant0
+  var exp = exp0 + flt.mantbits
+  while mantissa != 0 && bits.shr(mantissa, flt.mantbits + 2) == 0 {
+    mantissa = mantissa << 1
+    exp -= 1
+  }
+  if trunc { mantissa = mantissa | 1 }
+  while bits.shr(mantissa, 1 + flt.mantbits + 2) != 0 {
+    mantissa = bits.shr(mantissa, 1) | (mantissa & 1)
+    exp += 1
+  }
+  while mantissa > 1 && exp < min_exp - 2 {
+    mantissa = bits.shr(mantissa, 1) | (mantissa & 1)
+    exp += 1
+  }
+  var round = mantissa & 3
+  mantissa = mantissa >> 2
+  round = round | (mantissa & 1)
+  exp += 2
+  if round == 3 {
+    mantissa += 1
+    if mantissa == 1 << (1 + flt.mantbits) {
+      mantissa = mantissa >> 1
+      exp += 1
+    }
+  }
+  if (mantissa >> flt.mantbits) == 0 { exp = flt.bias }
+  var ovf = false
+  if exp > max_exp {
+    mantissa = 1 << flt.mantbits
+    exp = max_exp + 1
+    ovf = true
+  }
+  var b = mantissa & ((1 << flt.mantbits) - 1)
+  b = b | (((exp - flt.bias) & ((1 << flt.expbits) - 1)) << flt.mantbits)
+  if neg { b = b | ((1 << flt.mantbits) << flt.expbits) }
+  (bits_to_float(b, flt), ovf)
+}
+
+const F64POW10: List<Float> = [1e0, 1e1, 1e2, 1e3, 1e4, 1e5, 1e6, 1e7, 1e8, 1e9, 1e10, 1e11, 1e12, 1e13, 1e14, 1e15, 1e16, 1e17, 1e18, 1e19, 1e20, 1e21, 1e22]
+
+// Go 的 atof64exact / atof32exact：尾数和 10 的幂都能精确表示时，一次浮点乘除就是正确舍入的结果。
+// float32 用双精度算完再舍入到 float32（24 位有效数字的一次乘除，二次舍入不会出错）
+fn atof_exact(mant: Int, exp0: Int, neg: Bool, is32: Bool) -> Option<Float> {
+  let mbits = if is32 { 23 } else { 52 }
+  if bits.shr(mant, mbits) != 0 { return None }
+  let maxe = if is32 { 10 } else { 22 }
+  let lim = if is32 { 1e7 } else { 1e15 }
+  var f = float(mant)
+  if neg { f = -f }
+  var exp = exp0
+  var r = 0.0
+  if exp == 0 {
+    r = f
+  } else if exp > 0 && exp <= maxe + (if is32 { 7 } else { 15 }) {
+    if exp > maxe {
+      f = f * F64POW10[exp - maxe]
+      if is32 { f = round_float32(f) }
+      exp = maxe
+    }
+    if f > lim || f < -lim { return None }
+    r = f * F64POW10[exp]
+  } else if exp < 0 && exp >= 0 - maxe {
+    r = f / F64POW10[0 - exp]
+  } else {
+    return None
+  }
+  Some(if is32 { round_float32(r) } else { r })
+}
+
+fn num_error(fname: Str, s: Str, msg: Str) -> Str { "strconv." + fname + ": parsing " + quote_go(s) + ": " + msg }
+
+// Go 的 strconv.ParseFloat：返回 (值, 错误信息)，没有错误时错误信息是 ""。
+// 和 Go 一样，超出范围时值是 ±Inf，同时报 "value out of range"
+pub fn parse_float_go(s: Str, bitsize: Int) -> (Float, Str) {
+  let bs = __bytes(s)
+  let flt = if bitsize == 32 { f32info() } else { f64info() }
+  let (sv, sn, sok) = special_float(bs)
+  if sok {
+    if sn != len(bs) { return (0.0, num_error("ParseFloat", s, "invalid syntax")) }
+    return (sv, "")
+  }
+  let r = read_float(bs)
+  if !r.ok || r.n != len(bs) { return (0.0, num_error("ParseFloat", s, "invalid syntax")) }
+  if r.hex {
+    let (f, ovf) = atof_hex(flt, r.mant, r.exp, r.neg, r.trunc)
+    return (f, if ovf { num_error("ParseFloat", s, "value out of range") } else { "" })
+  }
+  if !r.trunc {
+    if let Some(f) = atof_exact(r.mant, r.exp, r.neg, bitsize == 32) { return (f, "") }
+  }
+  let Some(d) = dec_set(bs) else { return (0.0, num_error("ParseFloat", s, "invalid syntax")) }
+  let (b, ovf) = dec_float_bits(d, flt)
+  (bits_to_float(b, flt), if ovf { num_error("ParseFloat", s, "value out of range") } else { "" })
+}
+
+// 只要值的版本：出错（包括超出范围）时返回 Err(Go 的错误信息)
+pub fn parse_float(s: Str, bitsize: Int) -> Result<Float, Str> {
+  let (f, e) = parse_float_go(s, bitsize)
+  if e == "" { Ok(f) } else { Err(e) }
+}
+
+// ───────── 整数（itoa.go）：无符号格式化 ─────────
+
+// 把 n 当作 uint64 按 base 格式化（同 Go 的 strconv.FormatUint）
+pub fn format_uint(n: Int, base: Int) -> Str {
+  if base < 2 || base > 36 { panic("strconv: illegal AppendInt/FormatInt base") }
+  if n >= 0 { return format_int(n, base) }
+  let q = bits.udiv(n, base)
+  format_int(q, base) + format_int(bits.urem(n, base), base)
+}
+
+// ───────── Quote / Unquote（quote.go，Go 的转义规则） ─────────
+
+const LOWERHEX: Str = "0123456789abcdef"
+
+fn hexd(n: Int) -> Int { __ord(__str_slice(LOWERHEX, n, n + 1)) }
+
+// 同 Go 的 strconv.IsPrint（Unicode 15.0）
+pub fn is_print(r: Int) -> Bool {
+  if r < 0 || r > 0x10ffff || (r >= 0xd800 && r <= 0xdfff) { return false }
+  if r <= 0xff {
+    if 0x20 <= r && r <= 0x7e { return true }
+    if 0xa1 <= r && r <= 0xff { return r != 0xad }
+    return false
+  }
+  unicode.is_print(__chr(r))
+}
+
+fn is_in_graphic_list(r: Int) -> Bool {
+  r == 0xa0 || r == 0x1680 || (r >= 0x2000 && r <= 0x200a) || r == 0x202f || r == 0x205f || r == 0x3000
+}
+
+// 同 Go 的 strconv.IsGraphic
+pub fn is_graphic(r: Int) -> Bool { is_print(r) || is_in_graphic_list(r) }
+
+fn valid_rune(r: Int) -> Bool { (0 <= r && r < 0xd800) || (0xdfff < r && r <= 0x10ffff) }
+
+fn append_escaped_rune(buf: List<Int>, r0: Int, quote: Int, ascii_only: Bool, graphic_only: Bool) -> List<Int> {
+  var r = r0
+  if r == quote || r == 92 { return push(push(buf, 92), r) }
+  if ascii_only {
+    if r < 128 && is_print(r) { return push(buf, r) }
+  } else if is_print(r) || (graphic_only && is_in_graphic_list(r)) {
+    return buf + __bytes(__chr(r))
+  }
+  if r == 7 { return buf + [92, 97] }
+  if r == 8 { return buf + [92, 98] }
+  if r == 12 { return buf + [92, 102] }
+  if r == 10 { return buf + [92, 110] }
+  if r == 13 { return buf + [92, 114] }
+  if r == 9 { return buf + [92, 116] }
+  if r == 11 { return buf + [92, 118] }
+  if (r < 32 && r >= 0) || r == 0x7f { return buf + [92, 120, hexd((r >> 4) & 15), hexd(r & 15)] }
+  if !valid_rune(r) { r = 0xfffd }
+  if r < 0x10000 {
+    var out = buf + [92, 117]
+    var s = 12
+    while s >= 0 {
+      out = push(out, hexd((r >> s) & 15))
+      s -= 4
+    }
+    return out
+  }
+  var out = buf + [92, 85]
+  var s = 28
+  while s >= 0 {
+    out = push(out, hexd((r >> s) & 15))
+    s -= 4
+  }
+  out
+}
+
+// UTF-8 解码一个字符：(码点, 字节数)；非法时 (0xfffd, 1)
+fn decode_rune_bytes(s: List<Int>, i: Int) -> (Int, Int) {
+  let n = len(s)
+  let c0 = s[i]
+  if c0 < 0x80 { return (c0, 1) }
+  let bad = (0xfffd, 1)
+  if c0 < 0xc2 || c0 > 0xf4 { return bad }
+  let need = if c0 < 0xe0 { 1 } else if c0 < 0xf0 { 2 } else { 3 }
+  if i + need >= n { return bad }
+  let c1 = s[i + 1]
+  var lo = 0x80
+  var hi = 0xbf
+  if c0 == 0xe0 { lo = 0xa0 }
+  if c0 == 0xed { hi = 0x9f }
+  if c0 == 0xf0 { lo = 0x90 }
+  if c0 == 0xf4 { hi = 0x8f }
+  if c1 < lo || c1 > hi { return bad }
+  if need == 1 { return (((c0 & 0x1f) << 6) | (c1 & 0x3f), 2) }
+  let c2 = s[i + 2]
+  if c2 < 0x80 || c2 > 0xbf { return bad }
+  if need == 2 { return (((c0 & 0x0f) << 12) | ((c1 & 0x3f) << 6) | (c2 & 0x3f), 3) }
+  let c3 = s[i + 3]
+  if c3 < 0x80 || c3 > 0xbf { return bad }
+  ((((c0 & 0x07) << 18) | ((c1 & 0x3f) << 12) | ((c2 & 0x3f) << 6) | (c3 & 0x3f)), 4)
+}
+
+// 对任意字节序列加引号（非法 UTF-8 字节写成 \xNN），quote 是引号字符的码
+pub fn quote_bytes_with(s: List<Int>, quote: Int, ascii_only: Bool, graphic_only: Bool) -> Str {
+  var buf: List<Int> = [quote]
+  var i = 0
+  while i < len(s) {
+    let (r, w) = decode_rune_bytes(s, i)
+    if w == 1 && r == 0xfffd {
+      buf = buf + [92, 120, hexd(s[i] >> 4), hexd(s[i] & 15)]
+    } else {
+      buf = append_escaped_rune(buf, r, quote, ascii_only, graphic_only)
+    }
+    i += w
+  }
+  unwrap(__from_bytes(push(buf, quote)))
+}
+
+// Go 的 strconv.Quote（std.strconv 原来的 quote 规则不同，保留不动）
+pub fn quote_go(s: Str) -> Str { quote_bytes_with(__bytes(s), 34, false, false) }
+
+pub fn quote_to_ascii(s: Str) -> Str { quote_bytes_with(__bytes(s), 34, true, false) }
+
+pub fn quote_to_graphic(s: Str) -> Str { quote_bytes_with(__bytes(s), 34, false, true) }
+
+fn quote_rune_with(r0: Int, quote: Int, ascii_only: Bool, graphic_only: Bool) -> Str {
+  let r = if valid_rune(r0) { r0 } else { 0xfffd }
+  unwrap(__from_bytes(push(append_escaped_rune([quote], r, quote, ascii_only, graphic_only), quote)))
+}
+
+pub fn quote_rune(r: Int) -> Str { quote_rune_with(r, 39, false, false) }
+
+pub fn quote_rune_to_ascii(r: Int) -> Str { quote_rune_with(r, 39, true, false) }
+
+pub fn quote_rune_to_graphic(r: Int) -> Str { quote_rune_with(r, 39, false, true) }
+
+pub fn can_backquote(s: Str) -> Bool {
+  for c in chars(s) {
+    let r = __ord(c)
+    if r == 0xfeff { return false }
+    if r < 128 && ((r < 32 && r != 9) || r == 96 || r == 0x7f) { return false }
+  }
+  true
+}
+
+fn unhex(c: Int) -> Int {
+  if 48 <= c && c <= 57 { c - 48 } else if 97 <= c && c <= 102 { c - 87 } else if 65 <= c && c <= 70 { c - 55 } else { -1 }
+}
+
+// UnquoteChar：从 s 的第 i 个字节开始解一个字符，返回 Some((值, 是否多字节, 新位置))
+fn unquote_char_at(s: List<Int>, i0: Int, quote: Int) -> Option<(Int, Bool, Int)> {
+  let n = len(s)
+  if i0 >= n { return None }
+  let c = s[i0]
+  if c == quote && (quote == 39 || quote == 34) { return None }
+  if c >= 128 {
+    let (r, w) = decode_rune_bytes(s, i0)
+    return Some((r, true, i0 + w))
+  }
+  if c != 92 { return Some((c, false, i0 + 1)) }
+  if i0 + 1 >= n { return None }
+  let e = s[i0 + 1]
+  var i = i0 + 2
+  if e == 97 { return Some((7, false, i)) }
+  if e == 98 { return Some((8, false, i)) }
+  if e == 102 { return Some((12, false, i)) }
+  if e == 110 { return Some((10, false, i)) }
+  if e == 114 { return Some((13, false, i)) }
+  if e == 116 { return Some((9, false, i)) }
+  if e == 118 { return Some((11, false, i)) }
+  if e == 120 || e == 117 || e == 85 {
+    let k = if e == 120 { 2 } else if e == 117 { 4 } else { 8 }
+    if n - i < k { return None }
+    var v = 0
+    var j = 0
+    while j < k {
+      let x = unhex(s[i + j])
+      if x < 0 { return None }
+      v = (v << 4) | x
+      j += 1
+    }
+    i += k
+    if e == 120 { return Some((v, false, i)) }
+    if !valid_rune(v) { return None }
+    return Some((v, true, i))
+  }
+  if 48 <= e && e <= 55 {
+    var v = e - 48
+    if n - i < 2 { return None }
+    var j = 0
+    while j < 2 {
+      let x = s[i + j] - 48
+      if x < 0 || x > 7 { return None }
+      v = (v << 3) | x
+      j += 1
+    }
+    i += 2
+    if v > 255 { return None }
+    return Some((v, false, i))
+  }
+  if e == 92 { return Some((92, false, i)) }
+  if e == 39 || e == 34 {
+    if e != quote { return None }
+    return Some((e, false, i))
+  }
+  None
+}
+
+// Go 的 strconv.UnquoteChar：返回 (值, 是否多字节, 剩下的部分)，出错时 Err("invalid syntax")
+pub fn unquote_char(s: Str, quote: Int) -> Result<(Int, Bool, Str), Str> {
+  let bs = __bytes(s)
+  let Some((v, mb, i)) = unquote_char_at(bs, 0, quote) else { return Err("invalid syntax") }
+  Ok((v, mb, unwrap_or(__from_bytes(bs[i..]), "")))
+}
+
+// Go 的 unquote：返回解出的字节和剩余部分的起点；出错时 None
+fn unquote_bytes_impl(s: List<Int>, unescape: Bool) -> Option<(List<Int>, Int)> {
+  let n = len(s)
+  if n < 2 { return None }
+  let quote = s[0]
+  var end = -1
+  var k = 1
+  while k < n {
+    if s[k] == quote {
+      end = k
+      break
+    }
+    k += 1
+  }
+  if end < 0 { return None }
+  end += 1
+  if quote == 96 {
+    if !unescape { return Some((s[..end], end)) }
+    var out: List<Int> = []
+    var j = 1
+    while j < end - 1 {
+      if s[j] != 13 { out = push(out, s[j]) }
+      j += 1
+    }
+    return Some((out, end))
+  }
+  if quote != 34 && quote != 39 { return None }
+  var out: List<Int> = []
+  var i = 1
+  while i < n && s[i] != quote {
+    if s[i] == 10 { return None }
+    let Some((r, mb, ni)) = unquote_char_at(s, i, quote) else { return None }
+    i = ni
+    if unescape {
+      if r < 128 || !mb { out = push(out, r) } else { out = out + __bytes(__chr(r)) }
+    }
+    if quote == 39 { break }
+  }
+  if !(i < n && s[i] == quote) { return None }
+  i += 1
+  if unescape { Some((out, i)) } else { Some((s[..i], i)) }
+}
+
+// Go 的 strconv.Unquote，得到字节（可能不是合法 UTF-8，比如 "\xff"）
+pub fn unquote_bytes(s: Str) -> Result<List<Int>, Str> {
+  let bs = __bytes(s)
+  match unquote_bytes_impl(bs, true) {
+    Some((out, rest)) => if rest == len(bs) { Ok(out) } else { Err("invalid syntax") },
+    None              => Err("invalid syntax"),
+  }
+}
+
+// Go 的 strconv.Unquote；结果不是合法 UTF-8 时也报 invalid syntax（Kite 的 Str 放不下）
+pub fn unquote_go(s: Str) -> Result<Str, Str> {
+  let out = unquote_bytes(s)?
+  match __from_bytes(out) {
+    Some(t) => Ok(t),
+    None    => Err("invalid syntax"),
+  }
+}
+
+// Go 的 strconv.QuotedPrefix
+pub fn quoted_prefix(s: Str) -> Result<Str, Str> {
+  match unquote_bytes_impl(__bytes(s), false) {
+    Some((out, _)) => Ok(unwrap(__from_bytes(out))),
+    None           => Err("invalid syntax"),
+  }
+}

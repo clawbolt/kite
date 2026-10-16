@@ -1,0 +1,14 @@
+fn main() {
+  let (a, b) = spawn {
+    {
+      defer print("兄弟任务清理")
+      sleep(100000)
+      1
+    },
+    {
+      sleep(5)
+      panic("坏了")
+    },
+  }
+  print("不应执行", a, b)
+}

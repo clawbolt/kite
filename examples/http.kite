@@ -1,0 +1,46 @@
+// std.net.http：同一个程序里起服务器（系统分配端口），再用客户端请求它
+use std.net.http
+use std.encoding.json
+
+fn handler(req: http.Request) -> http.Response {
+  match req.path {
+    "/hello" => http.text(200, "你好，{unwrap_or(get(http.parse_query(req.query), "name"), "世界")}"),
+    "/echo"  => http.json(201, json.stringify(JObj(Map([("method", JStr(req.method)), ("body", JStr(req.body)), ("ua", JStr(unwrap_or(req.header("User-Agent"), "-")))])))),
+    "/boom"  => panic("炸了"),
+    _        => http.text(404, "没有 {req.path}"),
+  }
+}
+
+fn show(r: Result<http.Response, Str>) -> Str {
+  match r {
+    Ok(resp) => "{resp.status} {unwrap_or(resp.header("Content-Type"), "-")} {resp.body}",
+    Err(e)   => "错误 {e}",
+  }
+}
+
+fn main() {
+  let l = unwrap(http.listen(0))
+  let url = "http://127.0.0.1:{l.port}"
+  let (_, out) = spawn {
+    http.serve_n(l, 5, handler),
+    [
+      show(http.get(url + "/hello?name=%E5%B0%8F%E6%98%8E+K")),
+      show(http.request("POST", url + "/echo", Map([("User-Agent", "kite-test")]), "数据 123")),
+      show(http.get(url + "/boom")),
+      show(http.get(url + "/nope")),
+      {
+        // keep-alive：三个请求共用一个连接（服务器只为它 accept 一次）
+        let c = unwrap(http.client(url))
+        let a = show(c.get("/hello?name=A"))
+        let b = show(c.post("/echo", "第二个", "text/plain"))
+        let d = show(c.get("/nope"))
+        c.close()
+        "{a} | {b} | {d}"
+      },
+    ],
+  }
+  for line in out { print(line) }
+  l.close()
+  print(show(http.get("ftp://example.com")))
+  print(show(http.get(url + "/hello")) |> starts_with("错误 无法连接"))
+}

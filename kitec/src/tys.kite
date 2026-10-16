@@ -1,0 +1,170 @@
+// Kite 自举编译器：类型表示（对应 typecheck.py 的 TVar / TCon / TGen / TRigid）
+// 类型变量的绑定不在对象里，而在检查器状态的替换表 sub 里（Map<Int, Ty>）
+
+pub enum Ty {
+  TV(Int),
+  TC(Str, List<Ty>),
+  TG(Str, List<Str>),
+  TR(Str, List<Str>),
+}
+
+pub fn tcon(n: Str) -> Ty { TC(n, []) }
+
+pub fn fn_t(ps: List<Ty>, r: Ty) -> Ty { TC("fn", push(ps, r)) }
+
+pub fn list_t(t: Ty) -> Ty { TC("List", [t]) }
+
+pub fn prune(sub: Map<Int, Ty>, t: Ty) -> Ty {
+  var x = t
+  var go = true
+  while go {
+    go = false
+    if let TV(i) = x {
+      if let Some(y) = get(sub, i) {
+        x = y
+        go = true
+      }
+    }
+  }
+  x
+}
+
+// TCon / TRigid 的名字（Python 里 TRigid 是 TCon 的子类）；TVar / TGen 返回 ""
+pub fn tname(t: Ty) -> Str {
+  match t {
+    TC(n, _) => n,
+    TR(n, _) => n,
+    _        => "",
+  }
+}
+
+pub fn targs(t: Ty) -> List<Ty> {
+  match t {
+    TC(_, a) => a,
+    _        => [],
+  }
+}
+
+pub fn is_tv(t: Ty) -> Bool {
+  match t {
+    TV(_) => true,
+    _     => false,
+  }
+}
+
+pub fn is_tr(t: Ty) -> Bool {
+  match t {
+    TR(_, _) => true,
+    _        => false,
+  }
+}
+
+pub fn is_tg(t: Ty) -> Bool {
+  match t {
+    TG(_, _) => true,
+    _        => false,
+  }
+}
+
+pub fn is_con(t: Ty) -> Bool {
+  match t {
+    TC(_, _) => true,
+    TR(_, _) => true,
+    _        => false,
+  }
+}
+
+fn idx_of(xs: List<Int>, x: Int) -> Int {
+  var i = 0
+  for y in xs {
+    if y == x { return i }
+    i += 1
+  }
+  -1
+}
+
+fn letter(i: Int) -> Str { __str_slice("abcdefghijklmnopqrstuvwxyz", i, i + 1) }
+
+pub fn show(sub: Map<Int, Ty>, t: Ty) -> Str { show_n(sub, t, []).1 }
+
+pub fn show_list(sub: Map<Int, Ty>, ts: List<Ty>, ns0: List<Int>) -> (List<Int>, List<Str>) {
+  var ns = ns0
+  var out: List<Str> = []
+  for t in ts {
+    let (n2, s) = show_n(sub, t, ns)
+    ns = n2
+    out = push(out, s)
+  }
+  (ns, out)
+}
+
+pub fn show_n(sub: Map<Int, Ty>, t0: Ty, ns: List<Int>) -> (List<Int>, Str) {
+  let t = prune(sub, t0)
+  match t {
+    TV(i)    => {
+      let k = idx_of(ns, i)
+      if k >= 0 { (ns, "?" + letter(k % 26)) } else { (push(ns, i), "?" + letter(len(ns) % 26)) }
+    },
+    TG(n, _) => (ns, n),
+    TR(n, _) => (ns, n),
+    TC(n, args) => {
+      if n == "fn" {
+        let (n1, ps) = show_list(sub, take(args, len(args) - 1), ns)
+        let (n2, r) = show_n(sub, args[len(args) - 1], n1)
+        (n2, "fn(" + join(ps, ", ") + ") -> " + r)
+      } else if n == "UnsafeFn" && len(args) == 1 {
+        let (n1, r) = show_n(sub, args[0], ns)
+        (n1, "unsafe " + r)
+      } else if n == "Tuple" {
+        let (n1, ps) = show_list(sub, args, ns)
+        (n1, "(" + join(ps, ", ") + ")")
+      } else if __str_slice(n, 0, 1) == "@" && len(args) == 1 {
+        let (n1, b) = show_n(sub, args[0], ns)
+        (n1, b + "." + __str_slice(n, 1, len(n)))
+      } else if n == "Array" && len(args) == 2 {
+        let (n1, a) = show_n(sub, args[0], ns)
+        let (n2, b) = show_n(sub, args[1], n1)
+        (n2, "[" + a + "; " + b + "]")
+      } else if __str_slice(n, 0, 1) == "#" {
+        (ns, __str_slice(n, 1, len(n)))
+      } else if len(args) > 0 {
+        let (n1, ps) = show_list(sub, args, ns)
+        (n1, n + "<" + join(ps, ", ") + ">")
+      } else { (ns, n) }
+    },
+  }
+}
+
+pub fn occurs(sub: Map<Int, Ty>, v: Int, t0: Ty) -> Bool {
+  let t = prune(sub, t0)
+  match t {
+    TV(i)    => i == v,
+    TC(_, a) => any(a, (x) => occurs(sub, v, x)),
+    _        => false,
+  }
+}
+
+pub fn subst(sub: Map<Int, Ty>, t0: Ty, m: Map<Str, Ty>) -> Ty {
+  let t = prune(sub, t0)
+  match t {
+    TG(n, _) => unwrap_or(get(m, n), t),
+    TC(n, a) => if len(a) > 0 { TC(n, map(a, (x) => subst(sub, x, m))) } else { t },
+    _        => t,
+  }
+}
+
+// 签名里的泛型参数（首次出现顺序）：[(名字, 约束)]
+pub fn gen_objs(sub: Map<Int, Ty>, t: Ty) -> List<(Str, List<Str>)> { gen_acc(sub, t, []) }
+
+fn gen_acc(sub: Map<Int, Ty>, t0: Ty, acc0: List<(Str, List<Str>)>) -> List<(Str, List<Str>)> {
+  let t = prune(sub, t0)
+  match t {
+    TG(n, bs) => if any(acc0, (p) => p.0 == n) { acc0 } else { push(acc0, (n, bs)) },
+    TC(_, a)  => {
+      var acc = acc0
+      for x in a { acc = gen_acc(sub, x, acc) }
+      acc
+    },
+    _         => acc0,
+  }
+}

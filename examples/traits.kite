@@ -1,0 +1,38 @@
+// trait 约束：泛型只能使用约束承诺的能力
+
+trait Describe {
+  fn describe(self) -> Str
+  fn shout(self) -> Str { upper(self.describe()) + "!" }   // 默认方法
+}
+
+type Dog = { name: Str }
+
+impl Describe for Dog {
+  fn describe(self) -> Str { "狗狗 {self.name}" }
+}
+
+impl Describe for Int {
+  fn describe(self) -> Str { "数字 {self}" }
+}
+
+fn describe_all<T: Describe>(xs: List<T>) -> List<Str> {
+  xs |> map(x => x.describe())
+}
+
+fn largest<T: Ord>(xs: List<T>) -> Option<T> {
+  var best = first(xs)?
+  for x in xs {
+    if x > best { best = x }
+  }
+  Some(best)
+}
+
+fn total<T: Num>(xs: List<T>) -> T { sum(xs) }
+
+fn main() {
+  print(describe_all([Dog { name: "旺财" }, Dog { name: "小黑" }]))
+  print(describe_all([1, 2]))
+  print(Dog { name: "rex" }.shout())
+  print(largest([3, 9, 4]), largest(["kite", "rust"]), largest([] + [1.5]))
+  print(total([1, 2, 3]), total([0.5, 0.25]))
+}

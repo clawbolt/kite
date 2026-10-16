@@ -1,0 +1,37 @@
+// 0.75：s + t 在原生后端共享字节区尾部（均摊 O(1)），Str 仍然是不可变值
+fn build(n: Int) -> Str {
+  var s = ""
+  for i in 0..n {
+    s = s + "{i % 10}"
+  }
+  s
+}
+
+fn grow(base: Str, tag: Str, n: Int) -> Int {
+  var s = base
+  for i in 0..n {
+    s = s + tag
+  }
+  s.len()
+}
+
+fn main() {
+  let s = build(12)
+  // 同一个旧值上的两次拼接互不影响
+  let a = s + "X"
+  let b = s + "YZ"
+  print(s, a, b, s.len(), a.len(), b.len())
+  // 旧值交给 C（解析、格式化）时，结尾不能带上别人追加的字节
+  let n = "12"
+  let m = n + "345"
+  print(parse_int(n), parse_float(n), parse_int(m), float(n) + 0.5)
+  let w = "1.5"
+  let w2 = w + "e3"
+  print(parse_float(w), parse_float(w2))
+  // 自身拼接、空串
+  print(s + s, s + "" == s, "" + s == s)
+  // 多个任务同时在同一个基础字符串上拼接
+  let base = build(5)
+  let (p, q, r) = spawn { grow(base, "a", 40), grow(base, "bb", 40), grow(base, "ccc", 40) }.await
+  print(p, q, r, base)
+}

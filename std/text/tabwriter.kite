@@ -1,0 +1,247 @@
+// std.text.tabwriter：按列对齐文本（对齐 Go 的 text/tabwriter，算法逐行移植）
+//   let w = tabwriter.new_writer(minwidth, tabwidth, padding, padchar, flags)
+//   w2 = w.write_string("a\tb\tc\n")…；w3 = w2.flush()；w3.output() 取出已经写出的文本
+//   Go 的 Writer 写到 io.Writer；Kite 的值不可变，写出的字节攒在 Writer 里，用 output() / take_output() 取
+//   flags：FILTER_HTML STRIP_ESCAPE ALIGN_RIGHT DISCARD_EMPTY_COLUMNS TAB_INDENT DEBUG，可以用 | 组合
+
+use std.unicode.utf8
+
+pub const FILTER_HTML: Int = 1
+
+pub const STRIP_ESCAPE: Int = 2
+
+pub const ALIGN_RIGHT: Int = 4
+
+pub const DISCARD_EMPTY_COLUMNS: Int = 8
+
+pub const TAB_INDENT: Int = 16
+
+pub const DEBUG: Int = 32
+
+pub const ESCAPE: Int = 255
+
+pub type Cell = { size: Int, width: Int, htab: Bool }
+
+pub type Writer = {
+  minwidth: Int, tabwidth: Int, padding: Int, padchar: Int, flags: Int,
+  buf: List<Int>, pos: Int, cell: Cell, end_char: Int,
+  lines: List<List<Cell>>, widths: List<Int>, out: List<Int>,
+}
+
+fn empty_cell() -> Cell { Cell { size: 0, width: 0, htab: false } }
+
+pub fn new_writer(minwidth: Int, tabwidth: Int, padding: Int, padchar: Int, flags0: Int) -> Writer {
+  if minwidth < 0 || tabwidth < 0 || padding < 0 { panic("negative minwidth, tabwidth, or padding") }
+  let flags = if padchar == 9 { flags0 & ~ALIGN_RIGHT } else { flags0 }
+  Writer { minwidth: minwidth, tabwidth: tabwidth, padding: padding, padchar: padchar, flags: flags,
+           buf: [], pos: 0, cell: empty_cell(), end_char: 0, lines: [[]], widths: [], out: [] }
+}
+
+fn rep(b: Int, n: Int) -> List<Int> {
+  var out: List<Int> = []
+  var i = 0
+  while i < n {
+    out = push(out, b)
+    i += 1
+  }
+  out
+}
+
+impl Writer {
+  // 已写出的文本（无效的 UTF-8 字节显示成 U+FFFD）
+  fn output(self) -> Str {
+    match __from_bytes(self.out) {
+      Some(t) => t,
+      None    => {
+        var t = ""
+        var i = 0
+        while i < len(self.out) {
+          let (r, k) = utf8.decode_rune_at(self.out, i)
+          t = t + __chr(r)
+          i += k
+        }
+        t
+      },
+    }
+  }
+
+  fn output_bytes(self) -> List<Int> { self.out }
+
+  // 取出已写出的文本并清空
+  fn take_output(self) -> (Str, Writer) { (self.output(), Writer { out: [], ..self }) }
+
+  fn reset(self) -> Writer { Writer { buf: [], pos: 0, cell: empty_cell(), end_char: 0, lines: [[]], widths: [], ..self } }
+
+  fn emit(self, bs: List<Int>) -> Writer { Writer { out: self.out + bs, ..self } }
+
+  fn write_padding(self, textw: Int, cellw0: Int, use_tabs: Bool) -> Writer {
+    if self.padchar == 9 || use_tabs {
+      if self.tabwidth == 0 { return self }
+      let cellw = (cellw0 + self.tabwidth - 1) / self.tabwidth * self.tabwidth
+      let n = cellw - textw
+      if n < 0 { panic("internal error") }
+      return self.emit(rep(9, (n + self.tabwidth - 1) / self.tabwidth))
+    }
+    self.emit(rep(self.padchar, cellw0 - textw))
+  }
+
+  fn write_lines(self, pos0: Int, line0: Int, line1: Int) -> (Writer, Int) {
+    var w = self
+    var pos = pos0
+    var i = line0
+    while i < line1 {
+      let line = w.lines[i]
+      var use_tabs = (w.flags & TAB_INDENT) != 0
+      var j = 0
+      while j < len(line) {
+        let c = line[j]
+        if j > 0 && (w.flags & DEBUG) != 0 { w = w.emit([124]) }
+        if c.size == 0 {
+          if j < len(w.widths) { w = w.write_padding(c.width, w.widths[j], use_tabs) }
+        } else {
+          use_tabs = false
+          if (w.flags & ALIGN_RIGHT) == 0 {
+            w = w.emit(w.buf[pos..pos + c.size])
+            pos += c.size
+            if j < len(w.widths) { w = w.write_padding(c.width, w.widths[j], false) }
+          } else {
+            if j < len(w.widths) { w = w.write_padding(c.width, w.widths[j], false) }
+            w = w.emit(w.buf[pos..pos + c.size])
+            pos += c.size
+          }
+        }
+        j += 1
+      }
+      if i + 1 == len(w.lines) {
+        w = w.emit(w.buf[pos..pos + w.cell.size])
+        pos += w.cell.size
+      } else {
+        w = w.emit([10])
+      }
+      i += 1
+    }
+    (w, pos)
+  }
+
+  fn format(self, pos0: Int, line0_: Int, line1: Int) -> (Writer, Int) {
+    var w = self
+    var pos = pos0
+    var line0 = line0_
+    let column = len(w.widths)
+    var this = line0
+    while this < line1 {
+      if column >= len(w.lines[this]) - 1 {
+        this += 1
+        continue
+      }
+      let (w1, p1) = w.write_lines(pos, line0, this)
+      w = w1
+      pos = p1
+      line0 = this
+      var width = w.minwidth
+      var discardable = true
+      while this < line1 {
+        let line = w.lines[this]
+        if column >= len(line) - 1 { break }
+        let c = line[column]
+        let cw = c.width + w.padding
+        if cw > width { width = cw }
+        if c.width > 0 || c.htab { discardable = false }
+        this += 1
+      }
+      if discardable && (w.flags & DISCARD_EMPTY_COLUMNS) != 0 { width = 0 }
+      w = Writer { widths: push(w.widths, width), ..w }
+      let (w2, p2) = w.format(pos, line0, this)
+      w = Writer { widths: w2.widths[..len(w2.widths) - 1], ..w2 }
+      pos = p2
+      line0 = this
+    }
+    w.write_lines(pos, line0, line1)
+  }
+
+  fn append_text(self, text: List<Int>) -> Writer {
+    Writer { buf: self.buf + text, cell: Cell { size: self.cell.size + len(text), ..self.cell }, ..self }
+  }
+
+  fn update_width(self) -> Writer {
+    let n = utf8.rune_count_bytes(self.buf[self.pos..])
+    Writer { cell: Cell { width: self.cell.width + n, ..self.cell }, pos: len(self.buf), ..self }
+  }
+
+  fn start_escape(self, ch: Int) -> Writer {
+    let e = if ch == ESCAPE { ESCAPE } else if ch == 60 { 62 } else if ch == 38 { 59 } else { self.end_char }
+    Writer { end_char: e, ..self }
+  }
+
+  fn end_escape(self) -> Writer {
+    var w = self
+    if w.end_char == ESCAPE {
+      w = w.update_width()
+      if (w.flags & STRIP_ESCAPE) == 0 { w = Writer { cell: Cell { width: w.cell.width - 2, ..w.cell }, ..w } }
+    } else if w.end_char == 59 {
+      w = Writer { cell: Cell { width: w.cell.width + 1, ..w.cell }, ..w }
+    }
+    Writer { pos: len(w.buf), end_char: 0, ..w }
+  }
+
+  fn terminate_cell(self, htab: Bool) -> (Writer, Int) {
+    let c = Cell { htab: htab, ..self.cell }
+    let k = len(self.lines) - 1
+    let line = push(self.lines[k], c)
+    (Writer { lines: set(self.lines, k, line), cell: empty_cell(), ..self }, len(line))
+  }
+
+  fn flush_no_defers(self) -> Writer {
+    var w = self
+    if w.cell.size > 0 {
+      if w.end_char != 0 { w = w.end_escape() }
+      w = w.terminate_cell(false).0
+    }
+    let (w2, _) = w.format(0, 0, len(w.lines))
+    w2.reset()
+  }
+
+  fn flush(self) -> Writer { self.flush_no_defers() }
+
+  fn write(self, buf: List<Int>) -> Writer {
+    var w = self
+    var n = 0
+    var i = 0
+    while i < len(buf) {
+      let ch = buf[i]
+      if w.end_char == 0 {
+        if ch == 9 || ch == 11 || ch == 10 || ch == 12 {
+          w = w.append_text(buf[n..i]).update_width()
+          n = i + 1
+          let (w2, ncells) = w.terminate_cell(ch == 9)
+          w = w2
+          if ch == 10 || ch == 12 {
+            w = Writer { lines: push(w.lines, []), ..w }
+            if ch == 12 || ncells == 1 {
+              w = w.flush_no_defers()
+              if ch == 12 && (w.flags & DEBUG) != 0 { w = w.emit([45, 45, 45, 10]) }
+            }
+          }
+        } else if ch == ESCAPE {
+          w = w.append_text(buf[n..i]).update_width()
+          n = i
+          if (w.flags & STRIP_ESCAPE) != 0 { n += 1 }
+          w = w.start_escape(ESCAPE)
+        } else if (ch == 60 || ch == 38) && (w.flags & FILTER_HTML) != 0 {
+          w = w.append_text(buf[n..i]).update_width()
+          n = i
+          w = w.start_escape(ch)
+        }
+      } else if ch == w.end_char {
+        let j = if ch == ESCAPE && (w.flags & STRIP_ESCAPE) != 0 { i } else { i + 1 }
+        w = w.append_text(buf[n..j])
+        n = i + 1
+        w = w.end_escape()
+      }
+      i += 1
+    }
+    w.append_text(buf[n..])
+  }
+
+  fn write_string(self, s: Str) -> Writer { self.write(__bytes(s)) }
+}

@@ -1,0 +1,224 @@
+// std.crypto.ecdsa：对齐 Go 1.27 的 crypto/ecdsa（P-256、P-384、P-521）
+//   曲线编号与 std.crypto.ecdh 相同：P256 = 1，P384 = 2，P521 = 3。
+//   sign 对应 PrivateKey.Sign(nil, digest, hash)，即 RFC 6979 的确定性签名，输出 DER；
+//   verify_asn1 对应 VerifyASN1。哈希用 crypto.Hash 的编号：SHA1 = 3，SHA224 = 4，SHA256 = 5，SHA384 = 6，SHA512 = 7。
+//   不提供需要随机数的 GenerateKey / SignASN1
+
+use std.math.big
+use std.math.big.{ BigInt }
+use std.crypto.internal.nistec
+use std.crypto.internal.nistec.{ Curve }
+use std.crypto.hmac
+use std.crypto.sha1
+use std.crypto.sha256
+use std.crypto.sha512
+
+pub const P256: Int = 1
+pub const P384: Int = 2
+pub const P521: Int = 3
+
+pub const SHA1: Int = 3
+pub const SHA224: Int = 4
+pub const SHA256: Int = 5
+pub const SHA384: Int = 6
+pub const SHA512: Int = 7
+
+pub type PrivateKey = { curve: Int, d: List<Int>, q: List<Int> }
+
+pub type PublicKey = { curve: Int, q: List<Int> }
+
+fn nist(c: Int) -> Curve { if c == P256 { nistec.p256() } else if c == P384 { nistec.p384() } else { nistec.p521() } }
+
+fn hash_fn(h: Int) -> fn(List<Int>) -> List<Int> {
+  if h == SHA1 { sha1.digest } else if h == SHA224 { sha256.digest224 } else if h == SHA256 { sha256.digest } else if h == SHA384 { sha512.digest384 } else { sha512.digest }
+}
+
+fn hash_size(h: Int) -> Int { if h == SHA1 { 20 } else if h == SHA224 { 28 } else if h == SHA256 { 32 } else if h == SHA384 { 48 } else if h == SHA512 { 64 } else { 0 } }
+
+fn block_size(h: Int) -> Int { if h == SHA384 || h == SHA512 { 128 } else { 64 } }
+
+fn hash_name(h: Int) -> Str {
+  let names = ["unknown hash value 0", "MD4", "MD5", "SHA-1", "SHA-224", "SHA-256", "SHA-384", "SHA-512", "MD5+SHA1", "RIPEMD-160", "SHA3-224", "SHA3-256", "SHA3-384", "SHA3-512", "SHA-512/224", "SHA-512/256", "BLAKE2s-256", "BLAKE2b-256", "BLAKE2b-384", "BLAKE2b-512"]
+  if h >= 0 && h < len(names) { names[h] } else { "unknown hash value {h}" }
+}
+
+fn be(x: BigInt, n: Int) -> List<Int> { nistec.be_bytes(x, n) }
+
+// ParseRawPrivateKey
+pub fn parse_raw_private_key(curve: Int, data: List<Int>) -> Result<PrivateKey, Str> {
+  let c = nist(curve)
+  if len(data) != c.size { return Err("invalid scalar length") }
+  let q = nistec.encode(c, nistec.scalar_mult(c, nistec.generator(c), data))
+  if q[0] == 0 { return Err("ecdsa: invalid public key encoding") }
+  if big.set_bytes(data).cmp(c.n) >= 0 { return Err("input overflows the modulus") }
+  Ok(PrivateKey { curve: curve, d: data, q: q })
+}
+
+// ParseUncompressedPublicKey
+pub fn parse_uncompressed_public_key(curve: Int, data: List<Int>) -> Result<PublicKey, Str> {
+  if len(data) < 1 || data[0] != 4 { return Err("ecdsa: invalid uncompressed public key") }
+  let c = nist(curve)
+  let _ = nistec.decode(c, data)?
+  Ok(PublicKey { curve: curve, q: data })
+}
+
+pub fn public_key(k: PrivateKey) -> PublicKey { PublicKey { curve: k.curve, q: k.q } }
+
+fn right_shift(b: List<Int>, shift: Int) -> List<Int> {
+  var out = b
+  var i = len(b) - 1
+  while i >= 0 {
+    var v = b[i] >> shift
+    if i > 0 { v = v | ((b[i - 1] << (8 - shift)) & 255) }
+    out = set(out, i, v)
+    i -= 1
+  }
+  out
+}
+
+fn hash_to_int(c: Curve, hash0: List<Int>) -> BigInt {
+  var hash = hash0
+  if len(hash) >= c.size {
+    hash = hash[..c.size]
+    let excess = len(hash) * 8 - c.n.bit_len()
+    if excess > 0 { hash = right_shift(hash, excess) }
+  }
+  let e = big.set_bytes(hash)
+  if e.cmp(c.n) >= 0 { e.sub(c.n) } else { e }
+}
+
+// RFC 6979 的 HMAC_DRBG
+pub type Drbg = { h: Int, k: List<Int>, v: List<Int> }
+
+fn mac(d: Drbg, key: List<Int>, msg: List<Int>) -> List<Int> { hmac.sum(hash_fn(d.h), block_size(d.h), key, msg) }
+
+fn new_drbg(h: Int, entropy: List<Int>, nonce: List<Int>) -> Drbg {
+  let size = hash_size(h)
+  var d = Drbg { h: h, k: map(0..size, (_) => 0), v: map(0..size, (_) => 1) }
+  var k = mac(d, d.k, d.v + [0] + entropy + nonce)
+  var v = mac(d, k, d.v)
+  k = mac(d, k, v + [1] + entropy + nonce)
+  v = mac(d, k, v)
+  Drbg { h: h, k: k, v: v }
+}
+
+fn generate(d: Drbg, n: Int) -> (Drbg, List<Int>) {
+  var v = d.v
+  var out: List<Int> = []
+  while len(out) < n {
+    v = mac(d, d.k, v)
+    out = out + v
+  }
+  let k = mac(d, d.k, v + [0])
+  v = mac(d, k, v)
+  (Drbg { h: d.h, k: k, v: v }, out[..n])
+}
+
+fn asn1_int(b0: List<Int>) -> List<Int> {
+  var b = b0
+  while len(b) > 0 && b[0] == 0 { b = b[1..] }
+  if len(b) > 0 && (b[0] & 0x80) != 0 { b = [0] + b }
+  [2] + der_len(len(b)) + b
+}
+
+fn der_len(n: Int) -> List<Int> {
+  if n < 128 { return [n] }
+  var bs: List<Int> = []
+  var x = n
+  while x > 0 {
+    bs = [x & 255] + bs
+    x = x >> 8
+  }
+  [0x80 | len(bs)] + bs
+}
+
+// PrivateKey.Sign(nil, digest, hash)
+pub fn sign(priv: PrivateKey, digest: List<Int>, h: Int) -> Result<List<Int>, Str> {
+  if h == 0 { return Err("ecdsa: Sign must be called with a hash, not with crypto.Hash(0)") }
+  if hash_size(h) == 0 { return Err("ecdsa: requested hash function unavailable: " + hash_name(h)) }
+  if hash_size(h) != len(digest) { return Err("ecdsa: hash length does not match hash function") }
+  if len(digest) == 0 { return Err("ecdsa: hash cannot be empty") }
+  let c = nist(priv.curve)
+  let e = hash_to_int(c, digest)
+  var drbg = new_drbg(h, priv.d, be(e, c.size))
+  loop {
+    let (d2, b0) = generate(drbg, c.size)
+    drbg = d2
+    var b = b0
+    let excess = len(b) * 8 - c.n.bit_len()
+    if excess > 0 { b = right_shift(b, excess) }
+    let k = big.set_bytes(b)
+    if k.sign() == 0 || k.cmp(c.n) >= 0 { continue }
+    let Some((rx, _)) = nistec.to_affine(c, nistec.scalar_mult(c, nistec.generator(c), b)) else { return Err("P256 point is the point at infinity") }
+    let r = rx.modulo(c.n)
+    if r.sign() == 0 { return Err("ecdsa: internal error: r is zero") }
+    let kinv = unwrap(k.mod_inverse(c.n))
+    let s = big.set_bytes(priv.d).mul(r).add(e).mul(kinv).modulo(c.n)
+    if s.sign() == 0 { return Err("ecdsa: internal error: s is zero") }
+    let body = asn1_int(be(r, c.size)) + asn1_int(be(s, c.size))
+    return Ok([0x30] + der_len(len(body)) + body)
+  }
+}
+
+// cryptobyte 的 ReadASN1：(内容, 剩余)；不合 DER 时返回 None
+fn read_asn1(s: List<Int>, tag: Int) -> Option<(List<Int>, List<Int>)> {
+  if len(s) < 2 { return None }
+  let t = s[0]
+  let lb = s[1]
+  if (t & 0x1f) == 0x1f || t != tag { return None }
+  var length = 0
+  var hl = 2
+  if (lb & 0x80) == 0 {
+    length = lb
+  } else {
+    let ll = lb & 0x7f
+    if ll == 0 || ll > 4 || len(s) < 2 + ll { return None }
+    var l32 = 0
+    for i in 0..ll { l32 = (l32 << 8) | s[2 + i] }
+    if l32 < 128 { return None }
+    if (l32 >> ((ll - 1) * 8)) == 0 { return None }
+    hl = 2 + ll
+    length = l32
+  }
+  if len(s) < hl + length { return None }
+  Some((s[hl..hl + length], s[hl + length..]))
+}
+
+fn read_int(s: List<Int>) -> Option<(List<Int>, List<Int>)> {
+  let (b0, rest) = read_asn1(s, 2)?
+  var b = b0
+  if len(b) == 0 { return None }
+  if len(b) > 1 && ((b[0] == 0 && (b[1] & 0x80) == 0) || (b[0] == 0xff && (b[1] & 0x80) == 0x80)) { return None }
+  if (b[0] & 0x80) == 0x80 { return None }
+  while len(b) > 1 && b[0] == 0 { b = b[1..] }
+  Some((b, rest))
+}
+
+fn parse_sig(sig: List<Int>) -> Option<(List<Int>, List<Int>)> {
+  let (inner, rest) = read_asn1(sig, 0x30)?
+  if len(rest) != 0 { return None }
+  let (r, i2) = read_int(inner)?
+  let (s, i3) = read_int(i2)?
+  if len(i3) != 0 { return None }
+  Some((r, s))
+}
+
+// VerifyASN1
+pub fn verify_asn1(pub_: PublicKey, hash: List<Int>, sig: List<Int>) -> Bool {
+  if len(hash) == 0 { return false }
+  let Some((rb, sb)) = parse_sig(sig) else { return false }
+  let c = nist(pub_.curve)
+  let Ok(q) = nistec.decode(c, pub_.q) else { return false }
+  let r = big.set_bytes(rb)
+  let s = big.set_bytes(sb)
+  if r.sign() == 0 || r.cmp(c.n) >= 0 || s.sign() == 0 || s.cmp(c.n) >= 0 { return false }
+  let e = hash_to_int(c, hash)
+  let w = unwrap(s.mod_inverse(c.n))
+  let u1 = e.mul(w).modulo(c.n)
+  let u2 = r.mul(w).modulo(c.n)
+  let p = nistec.double_mult(c, nistec.generator(c), be(u1, c.size), q, be(u2, c.size))
+  match nistec.to_affine(c, p) {
+    None => false,
+    Some((x, _)) => x.modulo(c.n).cmp(r) == 0,
+  }
+}

@@ -1,0 +1,28 @@
+type Sorted<T> where T: Ord = { items: List<T> }
+impl<T> Sorted<T> {
+  fn top(self) -> T { max(self.items) }
+  fn bigger(self, x: T) -> Bool { x > self.top() }
+}
+enum Tree<T: Ord> {
+  Leaf
+  Node(Tree<T>, T, Tree<T>)
+}
+fn insert<T: Ord>(t: Tree<T>, v: T) -> Tree<T> {
+  match t {
+    Leaf          => Node(Leaf, v, Leaf)
+    Node(l, x, r) => if v < x { Node(insert(l, v), x, r) } else { Node(l, x, insert(r, v)) }
+  }
+}
+fn walk<T: Ord + Show>(t: Tree<T>) -> List<Str> {
+  match t {
+    Leaf          => []
+    Node(l, x, r) => walk(l) + ["{x}"] + walk(r)
+  }
+}
+fn main() {
+  let s = Sorted { items: [3, 9, 4] }
+  print(s.top(), s.bigger(10))
+  var t: Tree<Int> = Leaf
+  for v in [5, 2, 8, 1] { t = insert(t, v) }
+  print(walk(t))
+}

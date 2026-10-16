@@ -1,0 +1,8 @@
+unsafe fn raw(x: Int) -> Int { x }
+fn takes_safe(f: fn(Int) -> Int) -> Int { f(1) }
+fn main() {
+  let f: unsafe fn(Int) -> Int = raw
+  print(f(1))
+  print(takes_safe(raw))
+  let g: fn(Int) -> Int = f
+}

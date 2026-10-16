@@ -1,0 +1,103 @@
+[""] [] [""] [] [""] [""]
+[] []    
+-1 -1 -1 -1 -1 false -1 -1 false
+[] [] [] [] [] 0 1
+ - |  ("", false) ("", false) false false
+-1 true 
+["a"] ["a"] ["a"] ["a"] ["a"] ["a"]
+["a"] ["a"] A A a A
+-1 -1 -1 -1 -1 true -1 -1 false
+[] [] [] [a] [a] 1 2
+XY -a- |a| a ("", true) ("a", false) true false
+-1 true 
+["abc"] ["a", "b", "c"] ["abc"] ["a", "b", "c"] ["abc"] ["abc"]
+["abc"] ["abc"] Abc ABC abc ABC
+-1 -1 -1 -1 -1 true -1 -1 false
+[bc] [bc] [abc] [abc] [abc] 1 4
+XYbc -a-b-c |a|b|c| abc ("bc", true) ("abc", false) true false
+0 true cd
+["a", "b", "", "c", ""] ["a", ",", "b", ",", ",", "c", ","] ["a", "b,,c,"] ["a", ",", "b,,c,"] ["a,", "b,", ",", "c,", ""] ["a,", "b,,c,"]
+["a,b,,c,"] ["a", "b", "c"] A,B,,C, A,B,,C, a,b,,c, A,B,,C,
+-1 -1 -1 -1 -1 true 1 6 true
+[b,,c] [b,,c,] [a,b,,c] [a,b,,c,] [a,b,,c] 1 8
+XY,b,,c, -a-,-b,,c, |a|,|b|,|,|c|,| a,b,,c, (",b,,c,", true) ("a,b,,c", true) true true
+-1 true -c--d-
+["", ""] [","] ["", ""] [","] [",", ""] [",", ""]
+[","] [] , , , ,
+-1 -1 -1 -1 -1 false 0 0 true
+[] [] [] [,] [] 0 2
+, -,- |,| , (",", false) ("", true) false true
+-1 true -
+["héllo", " wörld"] ["h", "é", "l", "l", "o", ",", " ", "w", "ö", "r", "l", "d"] ["héllo", " wörld"] ["h", "é", "llo, wörld"] ["héllo,", " wörld"] ["héllo,", " wörld"]
+["héllo,", "wörld"] ["héllo", " wörld"] Héllo, Wörld HÉLLO, WÖRLD héllo, wörld HÉLLO, WÖRLD
+4 4 2 10 7 false 5 5 true
+[héllo, wörld] [héllo, wörld] [héllo, wörld] [héllo, wörld] [héllo, wörld] 0 13
+héllo, wörld -h-é-llo, wörld |h|é|l|l|o|,| |w|ö|r|l|d| héll0, wörld ("héllo, wörld", false) ("héllo, wörld", false) false false
+1 true iêmmp-!x÷sme
+["  	 lead and trail  
+"] [" ", " ", "	", " ", "l", "e", "a", "d", " ", "a", "n", "d", " ", "t", "r", "a", "i", "l", " ", " ", "
+"] ["  	 lead and trail  
+"] [" ", " ", "	 lead and trail  
+"] ["  	 lead and trail  
+"] ["  	 lead and trail  
+"]
+["lead", "and", "trail"] ["  	 lead and trail  
+"]   	 Lead And Trail  
+   	 LEAD AND TRAIL  
+   	 lead and trail  
+   	 LEAD AND TRAIL  
+
+-1 -1 4 17 -1 true -1 -1 false
+[	 lead and trail  
+] [	 lead and trail  
+] [  	 lead and trail  
+] [lead and trail] [  	 lead and trail  
+] 3 22
+  	 leXYd XYnd trail  
+ - - -	 lead and trail  
+ | | |	| |l|e|a|d| |a|n|d| |t|r|a|i|l| | |
+|   	 lead and trail  
+ ("  	 lead and trail  
+", false) ("  	 lead and trail  
+", false) false false
+-1 true !!
+!mfe!oe!usjm!¡
+["aaaa"] ["a", "a", "a", "a"] ["aaaa"] ["a", "a", "aa"] ["aaaa"] ["aaaa"]
+["aaaa"] ["aaaa"] Aaaa AAAA aaaa AAAA
+-1 -1 -1 -1 -1 true -1 -1 false
+[] [] [] [aaaa] [aaaa] 4 5
+XYXYaa -a-a-aa |a|a|a|a| aaaa ("aaa", true) ("aaaa", false) true false
+-1 true 
+["Go gopher go"] ["G", "o", " ", "g", "o", "p", "h", "e", "r", " ", "g", "o"] ["Go gopher go"] ["G", "o", " gopher go"] ["Go gopher go"] ["Go gopher go"]
+["Go", "gopher", "go"] ["Go gopher go"] Go Gopher Go GO GOPHER GO go gopher go GO GOPHER GO
+1 11 1 11 -1 false -1 -1 false
+[Go gopher go] [Go gopher go] [Go gopher go] [Go gopher go] [Go gopher go] 0 13
+Go gopher go -G-o- gopher go |G|o| |g|o|p|h|e|r| |g|o| G0 g0pher g0 ("Go gopher go", false) ("Go gopher go", false) false false
+-1 true Hp!hpqifs!hp
+["ǆungla ǉubav"] ["ǆ", "u", "n", "g", "l", "a", " ", "ǉ", "u", "b", "a", "v"] ["ǆungla ǉubav"] ["ǆ", "u", "ngla ǉubav"] ["ǆungla ǉubav"] ["ǆungla ǉubav"]
+["ǆungla", "ǉubav"] ["ǆungla ǉubav"] ǅungla ǈubav ǄUNGLA ǇUBAV ǆungla ǉubav ǅUNGLA ǈUBAV
+-1 -1 4 4 -1 true -1 -1 false
+[ǆungla ǉubav] [ǆungla ǉubav] [ǆungla ǉubav] [ǆungla ǉubav] [ǆungla ǉubav] 2 13
+ǆunglXY ǉubXYv -ǆ-u-ngla ǉubav |ǆ|u|n|g|l|a| |ǉ|u|b|a|v| ǆungla ǉubav ("ǆungla ǉubav", false) ("ǆungla ǉubav", false) false false
+1 true Ǉvohm!Ǌvcw
+["straße İstanbul"] ["s", "t", "r", "a", "ß", "e", " ", "İ", "s", "t", "a", "n", "b", "u", "l"] ["straße İstanbul"] ["s", "t", "raße İstanbul"] ["straße İstanbul"] ["straße İstanbul"]
+["straße", "İstanbul"] ["straße İstanbul"] Straße İstanbul STRAßE İSTANBUL straße istanbul STRAßE İSTANBUL
+-1 -1 14 14 -1 true -1 -1 false
+[straße İstanbul] [straße İstanbul] [straße İstanbul] [straße İstanbul] [straße İstanbul] 2 16
+strXYße İstXYnbul -s-t-raße İstanbul |s|t|r|a|ß|e| |İ|s|t|a|n|b|u|l| straße İstanbul ("straße İstanbul", false) ("straße İstanbul", false) false false
+1 true tusàf!ıtuocvm
+["hello-world_foo bar.baz 3rd"] ["h", "e", "l", "l", "o", "-", "w", "o", "r", "l", "d", "_", "f", "o", "o", " ", "b", "a", "r", ".", "b", "a", "z", " ", "3", "r", "d"] ["hello-world_foo bar.baz 3rd"] ["h", "e", "llo-world_foo bar.baz 3rd"] ["hello-world_foo bar.baz 3rd"] ["hello-world_foo bar.baz 3rd"]
+["hello-world_foo", "bar.baz", "3rd"] ["hello-world_foo bar.baz 3rd"] Hello-World_foo Bar.Baz 3rd HELLO-WORLD_FOO BAR.BAZ 3RD hello-world_foo bar.baz 3rd HELLO-WORLD_FOO BAR.BAZ 3RD
+4 14 2 14 6 true -1 -1 false
+[hello-world_foo bar.baz 3rd] [hello-world_foo bar.baz 3rd] [hello-world_foo bar.baz 3rd] [hello-world_foo bar.baz 3rd] [hello-world_foo bar.baz 3rd] 2 28
+hello-world_foo bXYr.bXYz 3rd -h-e-llo-world_foo bar.baz 3rd |h|e|l|l|o|-|w|o|r|l|d|_|f|o|o| |b|a|r|.|b|a|z| |3|r|d| hell0-w0rld_f00 bar.baz 3rd ("hello-world_foo bar.baz 3rd", false) ("hello-world_foo bar.baz 3rd", false) false false
+1 true ifmmp.xpsme`gpp!cs/c{!4se
+true true true false
+_   X 
+1_ a 1 XaX A
+113_ aab 2b XaXaXbX AAb
+1111_ aaaa 31 XaXaXaXaX AAAA
+_<1_ _h_r_e_f_=_"_x_"_>_&_<_/1_>_ &lt;a href="x"&gt;&amp;&lt;/a&gt; <1 href="x">&</1> X<XaX XhXrXeXfX=X"XxX"X>X&X<X/XaX>X <A href="x">&</A>
+_x_y_z_ xyz xyz XxXyXzX xyz
+31113_ baaab b3b XbXaXaXaXbX bAAAb
+héllo世! 10 0

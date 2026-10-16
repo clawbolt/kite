@@ -1,0 +1,44 @@
+// 0.74：push / 列表拼接在原生后端共享元素区尾部（均摊 O(1)），List 仍然是不可变值
+fn build(n: Int) -> List<Int> {
+  var xs: List<Int> = []
+  for i in 0..n {
+    xs = push(xs, i)
+  }
+  xs
+}
+
+fn grow(base: List<Int>, tag: Int, n: Int) -> Int {
+  var ys = base
+  for i in 0..n {
+    ys = push(ys, tag * 1000 + i)
+  }
+  var s = 0
+  for y in ys {
+    s += y
+  }
+  s
+}
+
+fn main() {
+  let xs = build(10)
+  // 同一个列表上的两次 push 互不影响
+  let a = push(xs, 100)
+  let b = push(xs, 200)
+  print(a[10], b[10], xs.len(), a.len(), b.len())
+  // 旧值的下标赋值、拼接都不会改到共享的尾部
+  var c = a
+  c[10] = 300
+  print(a[10], c[10], b[10])
+  let d = xs + [1, 2, 3]
+  let e = xs + [4]
+  print(d, e[10], xs.len())
+  let f = a + []
+  print(f.len(), f == a)
+  // 自身拼接
+  let g = xs + xs
+  print(g.len(), g[10], g[19])
+  // 多个任务同时在同一个基础列表上 push
+  let base = build(5)
+  let (p, q, r) = spawn { grow(base, 1, 50), grow(base, 2, 50), grow(base, 3, 50) }.await
+  print(p, q, r, base)
+}

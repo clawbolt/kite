@@ -1,0 +1,34 @@
+fn sum_all<const N: Int>(xs: [Int; N]) -> Int {
+  var s = 0
+  for x in xs { s += x }
+  s * 100 + N
+}
+fn zeros<const N: Int>() -> [Int; N] { [0; N] }
+fn dot<const N: Int>(a: [Float; N], b: [Float; N]) -> Float {
+  var s = 0.0
+  for i in 0..N { s += a[i] * b[i] }
+  s
+}
+type Vec<const N: Int> = { data: [Float; N] }
+impl<const N: Int> Vec<N> {
+  fn dim(self) -> Int { N }
+  fn zero() -> Vec<N> { Vec { data: [0.0; N] } }
+  fn add(self, o: Vec<N>) -> Vec<N> {
+    var d = self.data
+    for i in 0..N { d[i] = d[i] + o.data[i] }
+    Vec { data: d }
+  }
+}
+fn twice<const N: Int>(xs: [Int; N]) -> Int { sum_all(xs) + sum_all(xs) }
+fn main() {
+  print(sum_all([1, 2, 3]))
+  let z: [Int; 4] = zeros()
+  print(z, len(z))
+  print(zeros.<2>())
+  print(dot([1.0, 2.0], [3.0, 4.0]))
+  let v = Vec { data: [1.0, 2.0, 3.0] }
+  print(v.dim(), v.add(v).data)
+  let w: Vec<2> = Vec.zero()
+  print(w.dim(), w.data)
+  print(twice([5, 5]))
+}

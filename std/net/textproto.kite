@@ -1,0 +1,427 @@
+// std.net.textproto：对齐 Go 1.27 的 net/textproto 中与网络无关的部分
+//   Reader 是不可变值（整块输入 + 读位置），各读取函数返回 (新的 Reader, 结果)；
+//   read_line / read_continued_line / read_code_line / read_response / read_dot_bytes / read_dot_lines / read_mime_header；
+//   dot_encode（DotWriter 写入再 Close 的输出）、canonical_mime_header_key、trim_string、MIMEHeader 的 add/set/get/values/del。
+//   错误文字与 Go 相同；读到结尾是 "EOF"，中途结束是 "unexpected EOF"。
+//   限制：头部值里不是合法 UTF-8 的字节会被替换成 U+FFFD（Kite 的 Str 总是合法 UTF-8）
+
+use std.strconv
+use std.unicode.utf8
+
+pub type Reader = { data: List<Int>, pos: Int }
+
+pub fn new_reader(data: List<Int>) -> Reader { Reader { data: data, pos: 0 } }
+
+pub fn new_reader_str(s: Str) -> Reader { new_reader(__bytes(s)) }
+
+fn lossy(b: List<Int>) -> Str {
+  match __from_bytes(b) {
+    Some(s) => s,
+    None => {
+      var rs: List<Int> = []
+      var i = 0
+      while i < len(b) {
+        let (r, w) = utf8.decode_rune_at(b, i)
+        rs = push(rs, r)
+        i += w
+      }
+      utf8.from_runes(rs)
+    },
+  }
+}
+
+fn qb(b: List<Int>) -> Str { strconv.quote_bytes_with(b, 34, false, false) }
+
+fn trim(s: List<Int>) -> List<Int> {
+  var i = 0
+  while i < len(s) && (s[i] == 32 || s[i] == 9) { i += 1 }
+  var n = len(s) - 1
+  while n >= i && (s[n] == 32 || s[n] == 9) { n -= 1 }
+  s[i..n + 1]
+}
+
+impl Reader {
+  pub fn remaining(self) -> List<Int> { self.data[self.pos..] }
+
+  // bufio.Reader.ReadLine 加 textproto 的拼接
+  pub fn read_line_bytes(self) -> (Reader, Result<List<Int>, Str>) {
+    let d = self.data
+    if self.pos >= len(d) { return (self, Err("EOF")) }
+    var j = self.pos
+    while j < len(d) && d[j] != 10 { j += 1 }
+    if j >= len(d) { return (Reader { pos: j, ..self }, Ok(d[self.pos..j])) }
+    var e = j
+    if e > self.pos && d[e - 1] == 13 { e -= 1 }
+    (Reader { pos: j + 1, ..self }, Ok(d[self.pos..e]))
+  }
+
+  pub fn read_line(self) -> (Reader, Result<Str, Str>) {
+    let (r, x) = self.read_line_bytes()
+    (r, match x { Ok(b) => Ok(lossy(b)), Err(e) => Err(e) })
+  }
+
+  fn skip_space(self) -> (Reader, Int) {
+    var p = self.pos
+    while p < len(self.data) && (self.data[p] == 32 || self.data[p] == 9) { p += 1 }
+    (Reader { pos: p, ..self }, p - self.pos)
+  }
+
+  fn continued(self, check_colon: Bool) -> (Reader, Result<List<Int>, Str>) {
+    let (r0, x) = self.read_line_bytes()
+    let line = match x {
+      Err(e) => { return (r0, Err(e)) },
+      Ok(l) => l,
+    }
+    if len(line) == 0 { return (r0, Ok(line)) }
+    if check_colon && !contains(line, 58) { return (r0, Err("malformed MIME header: missing colon: " + qb(line))) }
+    var buf = trim(line)
+    var r = r0
+    loop {
+      let (r2, n) = r.skip_space()
+      r = r2
+      if n == 0 { break }
+      buf = push(buf, 32)
+      let (r3, y) = r.read_line_bytes()
+      r = r3
+      match y {
+        Err(_) => { break },
+        Ok(l) => { buf = buf + trim(l) },
+      }
+    }
+    (r, Ok(buf))
+  }
+
+  pub fn read_continued_line_bytes(self) -> (Reader, Result<List<Int>, Str>) { self.continued(false) }
+
+  pub fn read_continued_line(self) -> (Reader, Result<Str, Str>) {
+    let (r, x) = self.continued(false)
+    (r, match x { Ok(b) => Ok(lossy(b)), Err(e) => Err(e) })
+  }
+}
+
+pub type CodeLine = { code: Int, continued: Bool, message: Str, err: Str }
+
+fn error_s(code: Int, msg: Str) -> Str {
+  let c = if code < 10 { "00{code}" } else if code < 100 { "0{code}" } else { "{code}" }
+  c + " " + strconv.quote_go(msg)
+}
+
+fn parse_code_line(line: Str, expect: Int) -> CodeLine {
+  let b = __bytes(line)
+  if len(b) < 4 || (b[3] != 32 && b[3] != 45) { return CodeLine { code: 0, continued: false, message: "", err: "short response: " + strconv.quote_go(line) } }
+  let cont = b[3] == 45
+  var code = 0
+  var ok = true
+  for k in 0..3 {
+    if b[k] < 48 || b[k] > 57 { ok = false } else { code = code * 10 + b[k] - 48 }
+  }
+  if !ok || code < 100 { return CodeLine { code: if ok { code } else { 0 }, continued: cont, message: "", err: "invalid response code: " + strconv.quote_go(line) } }
+  let msg = lossy(b[4..])
+  var e = ""
+  if (1 <= expect && expect < 10 && code / 100 != expect) || (10 <= expect && expect < 100 && code / 10 != expect) || (100 <= expect && expect < 1000 && code != expect) { e = error_s(code, msg) }
+  CodeLine { code: code, continued: cont, message: msg, err: e }
+}
+
+pub type Response = { code: Int, message: Str, err: Str }
+
+impl Reader {
+  fn read_code(self, expect: Int) -> (Reader, CodeLine) {
+    let (r, x) = self.read_line()
+    match x {
+      Err(e) => (r, CodeLine { code: 0, continued: false, message: "", err: e }),
+      Ok(l) => (r, parse_code_line(l, expect)),
+    }
+  }
+
+  pub fn read_code_line(self, expect: Int) -> (Reader, Response) {
+    let (r, c) = self.read_code(expect)
+    var e = c.err
+    if e == "" && c.continued { e = "unexpected multi-line response: " + strconv.quote_go(c.message) }
+    (r, Response { code: c.code, message: c.message, err: e })
+  }
+
+  pub fn read_response(self, expect: Int) -> (Reader, Response) {
+    let (r0, c) = self.read_code(expect)
+    var r = r0
+    var cont = c.continued
+    let multi = cont
+    var msg = c.message
+    var err = c.err
+    while cont {
+      let (r2, x) = r.read_line()
+      r = r2
+      let line = match x {
+        Err(e) => { return (r, Response { code: 0, message: "", err: e }) },
+        Ok(l) => l,
+      }
+      let c2 = parse_code_line(line, 0)
+      err = c2.err
+      if c2.err != "" || c2.code != c.code {
+        var t = line
+        while ends_with(t, "\r") || ends_with(t, "\n") { t = __str_slice(t, 0, len(t) - 1) }
+        msg = msg + "\n" + t
+        cont = true
+        continue
+      }
+      msg = msg + "\n" + c2.message
+      cont = c2.continued
+    }
+    if err != "" && multi && msg != "" { err = error_s(c.code, msg) }
+    (r, Response { code: c.code, message: msg, err: err })
+  }
+
+  // DotReader 读到底（ReadDotBytes）：(Reader, 读到的字节, 错误)，出错时也返回已读部分
+  pub fn read_dot_bytes(self) -> (Reader, List<Int>, Str) {
+    let d = self.data
+    var p = self.pos
+    var state = 0
+    var out: List<Int> = []
+    while state != 5 {
+      if p >= len(d) { return (Reader { pos: p, ..self }, out, "unexpected EOF") }
+      var c = d[p]
+      p += 1
+      var emit = true
+      if state == 0 {
+        if c == 46 {
+          state = 1
+          emit = false
+        } else if c == 13 {
+          state = 3
+          emit = false
+        } else {
+          state = 4
+        }
+      } else if state == 1 {
+        if c == 13 {
+          state = 2
+          emit = false
+        } else if c == 10 {
+          state = 5
+          emit = false
+        } else {
+          state = 4
+        }
+      } else if state == 2 {
+        if c == 10 {
+          state = 5
+          emit = false
+        } else {
+          p -= 1
+          c = 13
+          state = 4
+        }
+      } else if state == 3 {
+        if c == 10 {
+          state = 0
+        } else {
+          p -= 1
+          c = 13
+          state = 4
+        }
+      } else {
+        if c == 13 {
+          state = 3
+          emit = false
+        } else if c == 10 {
+          state = 0
+        }
+      }
+      if emit { out = push(out, c) }
+    }
+    (Reader { pos: p, ..self }, out, "")
+  }
+
+  pub fn read_dot_lines(self) -> (Reader, List<Str>, Str) {
+    var r = self
+    var v: List<Str> = []
+    loop {
+      let (r2, x) = r.read_line_bytes()
+      r = r2
+      match x {
+        Err(e) => { return (r, v, if e == "EOF" { "unexpected EOF" } else { e }) },
+        Ok(l0) => {
+          var l = l0
+          if len(l) > 0 && l[0] == 46 {
+            if len(l) == 1 { return (r, v, "") }
+            l = l[1..]
+          }
+          v = push(v, lossy(l))
+        },
+      }
+    }
+  }
+}
+
+// ── MIMEHeader ──
+
+pub type MIMEHeader = { keys: List<Str>, vals: List<List<Str>> }
+
+pub fn new_header() -> MIMEHeader { MIMEHeader { keys: [], vals: [] } }
+
+fn index_of(h: MIMEHeader, k: Str) -> Int {
+  for i in 0..len(h.keys) { if h.keys[i] == k { return i } }
+  -1
+}
+
+impl MIMEHeader {
+  fn add_raw(self, k: Str, v: Str) -> MIMEHeader {
+    let i = index_of(self, k)
+    if i < 0 { return MIMEHeader { keys: push(self.keys, k), vals: push(self.vals, [v]) } }
+    MIMEHeader { keys: self.keys, vals: set(self.vals, i, push(self.vals[i], v)) }
+  }
+
+  pub fn add(self, key: Str, v: Str) -> MIMEHeader { self.add_raw(canonical_mime_header_key(key), v) }
+
+  pub fn set(self, key: Str, v: Str) -> MIMEHeader {
+    let k = canonical_mime_header_key(key)
+    let i = index_of(self, k)
+    if i < 0 { return MIMEHeader { keys: push(self.keys, k), vals: push(self.vals, [v]) } }
+    MIMEHeader { keys: self.keys, vals: set(self.vals, i, [v]) }
+  }
+
+  pub fn values(self, key: Str) -> List<Str> {
+    let i = index_of(self, canonical_mime_header_key(key))
+    if i < 0 { [] } else { self.vals[i] }
+  }
+
+  pub fn get(self, key: Str) -> Str {
+    let v = self.values(key)
+    if len(v) == 0 { "" } else { v[0] }
+  }
+
+  pub fn del(self, key: Str) -> MIMEHeader {
+    let i = index_of(self, canonical_mime_header_key(key))
+    if i < 0 { return self }
+    MIMEHeader { keys: self.keys[..i] + self.keys[i + 1..], vals: self.vals[..i] + self.vals[i + 1..] }
+  }
+
+  // 按键排序的 (键, 值列表)
+  pub fn sorted(self) -> List<(Str, List<Str>)> {
+    let ks = sort(self.keys)
+    map(ks, (k) => (k, self.vals[index_of(self, k)]))
+  }
+}
+
+fn valid_field_byte(c: Int) -> Bool {
+  (c >= 48 && c <= 57) || (c >= 97 && c <= 122) || (c >= 65 && c <= 90) || c == 33 || c == 35 || c == 36 || c == 37 || c == 38 || c == 39 || c == 42 || c == 43 || c == 45 || c == 46 || c == 94 || c == 95 || c == 96 || c == 124 || c == 126
+}
+
+fn valid_value_byte(c: Int) -> Bool { (c >= 0x20 && c <= 0x7e) || c == 9 || c >= 128 }
+
+fn canon_key(a: List<Int>) -> (Str, Bool) {
+  if len(a) == 0 { return ("", false) }
+  var no_canon = false
+  for c in a {
+    if valid_field_byte(c) { continue }
+    if c == 32 {
+      no_canon = true
+      continue
+    }
+    return (lossy(a), false)
+  }
+  if no_canon { return (lossy(a), true) }
+  var upper = true
+  var out: List<Int> = []
+  for c0 in a {
+    var c = c0
+    if upper && c >= 97 && c <= 122 { c -= 32 } else if !upper && c >= 65 && c <= 90 { c += 32 }
+    out = push(out, c)
+    upper = c == 45
+  }
+  (lossy(out), true)
+}
+
+pub fn canonical_mime_header_key(s: Str) -> Str {
+  let b = __bytes(s)
+  var upper = true
+  for c in b {
+    if !valid_field_byte(c) { return s }
+    if (upper && c >= 97 && c <= 122) || (!upper && c >= 65 && c <= 90) {
+      let (k, _) = canon_key(b)
+      return k
+    }
+    upper = c == 45
+  }
+  s
+}
+
+impl Reader {
+  pub fn read_mime_header(self) -> (Reader, MIMEHeader, Str) {
+    var m = new_header()
+    let d = self.data
+    if self.pos < len(d) && (d[self.pos] == 32 || d[self.pos] == 9) {
+      let (r, x) = self.read_line_bytes()
+      return match x {
+        Err(e) => (r, m, e),
+        Ok(l) => (r, m, "malformed MIME header initial line: " + qb(l)),
+      }
+    }
+    var r = self
+    loop {
+      let (r2, x) = r.continued(true)
+      r = r2
+      let (kv, err) = match x {
+        Ok(b) => (b, ""),
+        Err(e) => ([], e),
+      }
+      if len(kv) == 0 { return (r, m, err) }
+      var ci = 0
+      while ci < len(kv) && kv[ci] != 58 { ci += 1 }
+      if ci >= len(kv) { return (r, m, "malformed MIME header line: " + qb(kv)) }
+      let (key, ok) = canon_key(kv[..ci])
+      if !ok { return (r, m, "malformed MIME header line: " + qb(kv)) }
+      let v = kv[ci + 1..]
+      for c in v { if !valid_value_byte(c) { return (r, m, "malformed MIME header line: " + qb(kv)) } }
+      var s = 0
+      while s < len(v) && (v[s] == 32 || v[s] == 9) { s += 1 }
+      m = m.add_raw(key, lossy(v[s..]))
+    }
+  }
+}
+
+// DotWriter：写入 b 后 Close 的输出
+pub fn dot_encode(b: List<Int>) -> List<Int> {
+  var state = 0
+  var out: List<Int> = []
+  for c in b {
+    if state == 0 || state == 1 {
+      state = 3
+      if c == 46 { out = push(out, 46) }
+      if c == 13 { state = 2 }
+      if c == 10 {
+        out = push(out, 13)
+        state = 1
+      }
+    } else if state == 3 {
+      if c == 13 { state = 2 }
+      if c == 10 {
+        out = push(out, 13)
+        state = 1
+      }
+    } else {
+      state = 3
+      if c == 10 { state = 1 }
+    }
+    out = push(out, c)
+  }
+  if state == 2 {
+    out = out + [10, 46, 13, 10]
+  } else if state == 1 {
+    out = out + [46, 13, 10]
+  } else {
+    out = out + [13, 10, 46, 13, 10]
+  }
+  out
+}
+
+fn is_space(c: Int) -> Bool { c == 32 || c == 9 || c == 10 || c == 13 }
+
+pub fn trim_bytes(b: List<Int>) -> List<Int> {
+  var i = 0
+  var j = len(b)
+  while i < j && is_space(b[i]) { i += 1 }
+  while j > i && is_space(b[j - 1]) { j -= 1 }
+  b[i..j]
+}
+
+pub fn trim_string(s: Str) -> Str { lossy(trim_bytes(__bytes(s))) }

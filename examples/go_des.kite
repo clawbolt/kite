@@ -1,0 +1,50 @@
+// 对齐 Go 1.27 的 crypto/des 和 crypto/rc4：tests/go/des.go
+use std.crypto.des
+use std.crypto.rc4
+use std.crypto.cipher
+use std.crypto.sha256
+use std.encoding.hex
+
+fn h(b: List<Int>) -> Str { hex.encode_bytes(b) }
+
+fn nil_or(r: Result<cipher.Block, Str>) -> Str {
+  match r {
+    Ok(_) => "<nil>",
+    Err(e) => e,
+  }
+}
+
+fn main() {
+  for i in 0..12 {
+    let s = sha256.digest([i])
+    let t = sha256.digest(s)
+    let c = unwrap(des.new_cipher(s[..8]))
+    let e = c.encrypt(t[..8])
+    let d = c.decrypt(e)
+    print("DES " + h(s[..8]) + " " + h(t[..8]) + " " + h(e) + " " + h(d))
+    let c3 = unwrap(des.new_triple_des_cipher((s + t)[..24]))
+    let e3 = c3.encrypt(t[8..16])
+    print("3DES " + h(e3) + " " + h(c3.decrypt(e3)))
+    let msg = s + t
+    let cbc = cipher.new_cbc_encrypter(c3, t[16..24])
+    let (_, out) = cbc.crypt_blocks(msg)
+    print("CBC " + h(out))
+    let r = unwrap(rc4.new_cipher(s[..1 + i * 7 % 32]))
+    let (r2, ks) = r.xor_key_stream(map(0..40 + i, (_) => 0))
+    print("RC4 " + h(ks))
+    let (_, ks2) = r2.xor_key_stream(msg[..5])
+    print("RC4b " + h(ks2))
+  }
+  for n in [0, 7, 9, 16, 24] {
+    print("KEY {n} " + nil_or(des.new_cipher(map(0..n, (_) => 0))) + " " + nil_or(des.new_triple_des_cipher(map(0..n, (_) => 0))))
+  }
+  for n in [0, 1, 256, 257] {
+    match rc4.new_cipher(map(0..n, (_) => 0)) {
+      Ok(_) => print("RC4KEY {n} <nil>"),
+      Err(e) => print("RC4KEY {n} " + e),
+    }
+  }
+  let c = unwrap(des.new_cipher([1, 1, 1, 1, 1, 1, 1, 1]))
+  let e = c.encrypt(c.encrypt(__bytes("weakkey!")))
+  print("WEAK " + unwrap(__from_bytes(e)))
+}

@@ -1,0 +1,25 @@
+trait Shape {
+  const SIDES: Int
+  const NAME: Str = "shape"
+  fn describe(self) -> Str { "{Self.NAME} with {Self.SIDES} sides" }
+}
+type Tri = { a: Float }
+type Sq = { a: Float }
+impl Shape for Tri { const SIDES: Int = 3 }
+impl Shape for Sq {
+  const SIDES: Int = 4
+  const NAME: Str = "square"
+}
+type Circle = { r: Float }
+impl Circle {
+  const PI: Float = 3.14159
+  fn area(self) -> Float { Self.PI * self.r * self.r }
+}
+fn main() {
+  print(Tri.SIDES, Sq.SIDES, Tri.NAME, Sq.NAME, Circle.PI)
+  print(Tri { a: 1.0 }.describe())
+  print(Sq { a: 1.0 }.describe())
+  print(Circle { r: 2.0 }.area())
+  let shapes: List<dyn Shape> = [Tri { a: 1.0 }, Sq { a: 2.0 }]
+  for s in shapes { print(s.describe()) }
+}

@@ -1,0 +1,60 @@
+// 或模式 A | B：可以出现在任何能写模式的地方，各分支绑定的变量必须一样
+enum Shape {
+  Circle(r: Float)
+  Square(s: Float)
+  Rect(w: Float, h: Float)
+  Dot
+}
+
+fn kind(s: Shape) -> Str {
+  match s {
+    Circle(_) | Dot        => "圆的"
+    Square(_) | Rect(_, _) => "方的"
+  }
+}
+
+fn side(s: Shape) -> Float {
+  match s {
+    Square(x) | Circle(x) => x
+    Rect(w, _)            => w
+    Dot                   => 0.0
+  }
+}
+
+fn classify(n: Int) -> Str {
+  match n {
+    0 | 1         => "小"
+    2 | 3 | 5 | 7 => "质数"
+    10..20 | 100  => "特别"
+    _             => "其它"
+  }
+}
+
+fn main() {
+  for s in [Circle(1.0), Square(2.0), Rect(3.0, 4.0), Dot] { print(kind(s), side(s)) }
+  print([0, 1, 2, 7, 15, 100, 42] |> map(classify))
+  let pairs = [(1, "a"), (2, "b"), (3, "c")]
+  for p in pairs {
+    match p {
+      (1, s) | (3, s) => print("奇", s)
+      (_, s)          => print("偶", s)
+    }
+  }
+  let r: Result<Int, Int> = Err(5)
+  let v = match r {
+    Ok(x) | Err(x) => x * 2
+  }
+  print(v)
+  if let Some(1 | 2) = Some(2) { print("命中") }
+  print(Some(3) is Some(1 | 3), "x" is ("y" | "z"))
+  let c = match "b" {
+    "a" | "b" => 1
+    _         => 0
+  }
+  print(c)
+  let opt = (Some(1), None)
+  match opt {
+    (Some(n), None) | (None, Some(n)) => print("一个", n)
+    _                                 => print("别的")
+  }
+}

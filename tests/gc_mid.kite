@@ -1,0 +1,21 @@
+// 中等大小对象（4 KB 字符串、几 KB 的列表元素区）不能各占一个 256 KB 区块
+fn main() {
+  var base = ""
+  for i in 0..4000 { base = base + "x" }
+  var strs: List<Str> = []
+  var n = 0
+  for i in 0..20000 {
+    let s = base + str(i)
+    n = n + s.len()
+    if strs.len() < 2000 { strs = push(strs, s) } else { strs[i % 2000] = s }
+  }
+  var lists: List<List<Int>> = []
+  var total = 0
+  for i in 0..3000 {
+    var xs: List<Int> = []
+    for j in 0..300 { xs = push(xs, i + j) }
+    total = total + xs[299]
+    if lists.len() < 1000 { lists = push(lists, xs) } else { lists[i % 1000] = xs }
+  }
+  print(n, strs.len(), total, lists.len())
+}

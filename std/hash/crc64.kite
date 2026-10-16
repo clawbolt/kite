@@ -1,0 +1,35 @@
+// std.hash.crc64：CRC-64（对齐 Go 的 hash/crc64）
+//   多项式：ISO（0xD800000000000000）、ECMA（0xC96C5795D7870F42），都是反转形式
+//   make_table(poly) 生成查找表；checksum(bs, table)、update(crc, table, bs)
+
+use std.math.bits
+
+pub const ISO: Int = -2882303761517117440
+
+pub const ECMA: Int = -3932672073523589310
+
+pub const SIZE: Int = 8
+
+pub type Table = { t: List<Int> }
+
+pub fn make_table(poly: Int) -> Table {
+  var t: List<Int> = []
+  for i in 0..256 {
+    var crc = i
+    for _ in 0..8 {
+      crc = if crc & 1 == 1 { bits.shr(crc, 1) ^ poly } else { bits.shr(crc, 1) }
+    }
+    t = push(t, crc)
+  }
+  Table { t: t }
+}
+
+pub fn update(crc: Int, tab: Table, bs: List<Int>) -> Int {
+  var c = ~crc
+  for b in bs { c = tab.t[(c ^ b) & 0xff] ^ bits.shr(c, 8) }
+  ~c
+}
+
+pub fn checksum(bs: List<Int>, tab: Table) -> Int { update(0, tab, bs) }
+
+pub fn checksum_str(s: Str, tab: Table) -> Int { update(0, tab, __bytes(s)) }

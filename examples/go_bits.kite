@@ -1,0 +1,27 @@
+use std.math.bits
+fn main() {
+  let xs = [0, 1, 2, 3, 255, 256, 0x12345678, 0x7fffffffffffffff, -1, 1 << 63, -0x123456789abcdef0, 0xdeadbeef, 0x0102030405060708]
+  for x in xs {
+    print(bits.ustr(x), bits.len64(x), bits.len32(x), bits.len16(x), bits.len8(x), bits.leading_zeros64(x), bits.leading_zeros32(x), bits.trailing_zeros64(x), bits.trailing_zeros32(x), bits.trailing_zeros16(x), bits.trailing_zeros8(x), bits.ones_count64(x), bits.ones_count32(x), bits.ones_count8(x))
+    print(bits.ustr(bits.rotate_left64(x, 13)), bits.ustr(bits.rotate_left64(x, -7)), bits.rotate_left32(x, 5), bits.rotate_left16(x, -3), bits.rotate_left8(x, 9), bits.ustr(bits.reverse64(x)), bits.reverse32(x), bits.reverse16(x), bits.reverse8(x), bits.ustr(bits.reverse_bytes64(x)), bits.reverse_bytes32(x), bits.reverse_bytes16(x))
+    for y in xs {
+      let (h, l) = bits.mul64(x, y)
+      let (s, c) = bits.add64(x, y, 1)
+      let (d, b) = bits.sub64(x, y, 1)
+      let (h3, l3) = bits.mul32(x, y)
+      let (s3, c3) = bits.add32(x, y, 1)
+      let (d3, b3) = bits.sub32(x, y, 0)
+      var line = "{bits.ustr(h)} {bits.ustr(l)} {bits.ustr(s)} {c} {bits.ustr(d)} {b} {h3} {l3} {s3} {c3} {d3} {b3}"
+      if y != 0 {
+        line = line + " {bits.ustr(bits.udiv(x, y))} {bits.ustr(bits.urem(x, y))} {bits.ustr(bits.rem64(x, y, y))} {bits.ucmp(x, y)}"
+        if bits.ult(h, y) {
+          let (q, r) = bits.div64(h, x, y)
+          line = line + " {bits.ustr(q)} {bits.ustr(r)}"
+        }
+        if y & 0xffffffff != 0 { line = line + " {bits.rem32(x, x, y)}" }
+      }
+      print(line)
+    }
+  }
+  print(bits.UINT_SIZE)
+}

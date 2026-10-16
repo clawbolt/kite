@@ -1,0 +1,33 @@
+const SCALE: Int = 10
+
+// 子模块的 const 可以引用父模块的 const（按依赖顺序初始化）
+mod limits {
+  pub const MAX: Int = super.SCALE * 3
+}
+
+fn helper(x: Int) -> Int { x * SCALE }
+
+type Config = { name: Str, level: Int }
+
+mod core {
+  use super.Config
+
+  pub fn make(name: Str) -> Config { Config { name: name, level: super.helper(2) } }
+
+  mod detail {
+    pub fn tag() -> Str { "detail:" + str(super.super.SCALE) }
+  }
+
+  pub fn describe(c: Config) -> Str { "{c.name}@{c.level} " + detail.tag() }
+
+  pub mod extra {
+    pub fn twice() -> Int { super.super.helper(1) * 2 }
+    pub fn via_sibling() -> Str { super.detail.tag() }
+  }
+}
+
+fn main() {
+  let c = core.make("svc")
+  print(core.describe(c))
+  print(core.extra.twice(), core.extra.via_sibling(), limits.MAX)
+}

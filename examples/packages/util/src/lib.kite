@@ -1,0 +1,4 @@
+// 本地路径依赖：app 用 util = { path = "../util" } 引用
+pub fn banner(title: Str) -> Str {
+  "== {title} =="
+}

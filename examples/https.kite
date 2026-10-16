@@ -1,0 +1,44 @@
+// std.net.http 的 HTTPS：用自签名证书起服务器，客户端分别用自定义 CA、系统 CA、关闭校验去请求
+use std.net.http
+use std.net
+
+fn handler(req: http.Request) -> http.Response {
+  match req.path {
+    "/hello" => http.text(200, "你好，加密的 {req.method}"),
+    _        => http.text(404, "没有 {req.path}"),
+  }
+}
+
+fn show(r: Result<http.Response, Str>) -> Str {
+  match r {
+    Ok(resp) => "{resp.status} {resp.body}",
+    Err(e)   => "错误 {e}",
+  }
+}
+
+fn main() {
+  let l = unwrap(http.listen_tls(0, "tests/tls/cert.pem", "tests/tls/key.pem"))
+  let url = "https://localhost:{l.port}"
+  let ours = net.TlsConfig { ca: "tests/tls/cert.pem", verify: true }
+  let (_, out) = spawn {
+    http.serve_n(l, 4, handler),
+    [
+      show(http.request_with("GET", url + "/hello", Map(), "", ours)),
+      {
+        let c = unwrap(http.client_with(url, ours))
+        let a = show(c.post("/hello", "x", "text/plain"))
+        let b = show(c.get("/nope"))
+        c.close()
+        "{a} | {b}"
+      },
+      show(http.get(url + "/hello")),
+      show(http.request_with("GET", url + "/hello", Map(), "", net.TlsConfig { ca: "", verify: false })),
+    ],
+  }
+  for line in out { print(line) }
+  l.close()
+  match http.listen_tls(0, "tests/tls/missing.pem", "tests/tls/key.pem") {
+    Ok(_)  => print("不应该成功"),
+    Err(e) => print(e),
+  }
+}

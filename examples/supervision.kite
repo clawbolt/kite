@@ -1,0 +1,154 @@
+// 错误恢复与监督
+//   recover(f)                 运行 f，出错返回 Err(Panic { kind, message, location })，否则 Ok(结果)
+//   repanic(p)                 把接住的 Panic 原样（保留原位置）再抛出去
+//   supervise(n, f)            f 出错就重新运行，最多重启 n 次；超过就把错误继续往上抛
+//   supervise_if(n, pred, f)   只在 pred(panic) 为 true 时重启，否则立即上抛
+//   supervise_with(policy, pred, f) / actor_supervised_with(初始, 处理, policy, body)
+//                              policy = restart_policy(次数, 窗口毫秒)，可加 with_backoff(p, 起始毫秒, 上限毫秒)
+//   actor_supervised(初始状态, 处理函数, n, body)
+//                              处理函数出错时丢弃那条消息、状态重置为初始值，最多重启 n 次
+// 子任务出错时：兄弟任务被取消（各自执行 defer），父任务等它们停下后重新抛出这个错误
+fn main() {
+  // 1. recover：把运行时错误变成带类型的 Panic 值
+  let zero = 0
+  print(recover(() => 10 / zero))
+  print(recover(() => 10 / 2))
+  let xs = [1, 2, 3]
+  for f in [() => xs[7], () => unwrap(parse_int("abc")), () => { panic("自定义"); 0 }] {
+    match recover(f) {
+      Ok(v)  => print("值", v)
+      Err(p) => match p.kind {
+        IndexOutOfRange => print("越界:", p.message)
+        UnwrapFailed    => print("unwrap 失败")
+        PanicCalled     => print("panic:", p.message)
+        _               => repanic(p)
+      }
+    }
+  }
+
+  // 2. 错误沿任务树传播：一个子任务失败，兄弟被取消，错误交给父任务
+  let log: Chan<Str> = chan(10)
+  let r = recover(() => {
+    let (a, b) = spawn {
+      {
+        defer send(log, "兄弟任务被取消，执行了清理")
+        sleep(100000)
+        1
+      },
+      {
+        sleep(5)
+        panic("子任务失败")
+        2
+      },
+    }
+    a + b
+  })
+  match r {
+    Err(p) => print(p.kind, p.message, unwrap(recv(log)))
+    Ok(_)  => print("不会到这里")
+  }
+
+  // 3. supervise：失败就重来
+  var attempts = 0
+  let res = supervise(5, () => {
+    attempts += 1
+    if attempts < 3 { panic("连接失败 #{attempts}") }
+    "第 {attempts} 次连接成功"
+  })
+  print(res)
+
+  // 4. 超过重启上限就升级（这里由外层 recover 接住）
+  print(recover(() => supervise(1, () => panic("总是失败"))))
+
+  // supervise_if：只重启“暂时性”故障，程序错误（如除以零）立即上抛
+  var tries = 0
+  let flaky = () => {
+    tries += 1
+    if tries < 2 { panic("网络抖动") }
+    100 / zero
+  }
+  let transient = (p: Panic) => p.kind == PanicCalled
+  match recover(() => supervise_if(5, transient, flaky)) {
+    Err(p) => print("尝试 {tries} 次后放弃:", p.kind)
+    Ok(v)  => print(v)
+  }
+
+  // 5. one_for_one：每个子任务各自监督，一个重启不影响另一个
+  let (x, y) = spawn {
+    {
+      var runs = 0
+      supervise(3, () => {
+        runs += 1
+        if runs == 1 { panic("A 第一次失败") }
+        "A 运行 {runs} 次"
+      })
+    },
+    {
+      var runs = 0
+      supervise(3, () => {
+        runs += 1
+        "B 运行 {runs} 次"
+      })
+    },
+  }
+  print(x, y)
+
+  // one_for_all：把整组放进 supervise，一个失败会取消兄弟并整组重启
+  var round = 0
+  let (p, q) = supervise(3, () => {
+    round += 1
+    let rd = round
+    spawn {
+      {
+        sleep(5)
+        if rd == 1 { panic("第一轮 P 失败") }
+        "P 第 {rd} 轮"
+      },
+      "Q 第 {rd} 轮",
+    }
+  })
+  print(p, q)
+
+  // 6. 受监督的 actor：坏消息让它崩溃并重启（状态清零），之后继续工作
+  let (_, total) = actor_supervised(0, (sum: Int, s: Str) => {
+    let n = unwrap(parse_int(s))
+    sum + n
+    }, 2, acc => {
+      for s in ["10", "20", "坏数据", "5", "7"] { tell(acc, s) }
+  })
+  print("重启后累计", total)
+
+  // 7. 时间窗口：10 秒内最多重启 2 次，第 3 次失败就升级
+  let always = restart_policy(2, 10000)
+  match recover(() => supervise_with(always, e => true, () => panic("一直失败"))) {
+    Err(p) => print("窗口内超限，升级:", p.message)
+    Ok(_)  => print("不会到这里")
+  }
+
+  // 窗口过期：每 20 毫秒最多 1 次，但每次失败间隔 60 毫秒，旧的重启已经出窗，所以一直能重启
+  var slow = 0
+  let r7 = supervise_with(restart_policy(1, 20), e => true, () => {
+    slow += 1
+    sleep(60)
+    if slow < 4 { panic("慢故障 #{slow}") }
+    "第 {slow} 次成功"
+  })
+  print(r7)
+
+  // 8. 指数退避：10、20、40、40 毫秒（上限 40）
+  let backoff = with_backoff(restart_policy(10, 60000), 10, 40)
+  var fails = 0
+  let t0 = now_ms()
+  let r8 = supervise_with(backoff, e => true, () => {
+    fails += 1
+    if fails <= 4 { panic("忙 #{fails}") }
+    "退避后成功"
+  })
+  print(r8, "等待至少 110 毫秒:", now_ms() - t0 >= 110)
+
+  // 9. 带策略的 actor：坏消息触发退避重启，好消息让连续失败计数归零
+  let (_, sum) = actor_supervised_with(0, (acc: Int, s: Str) => acc + unwrap(parse_int(s)), backoff, a => {
+    for s in ["1", "x", "y", "2", "z", "3", "4"] { tell(a, s) }
+  })
+  print("actor 最终状态", sum)
+}

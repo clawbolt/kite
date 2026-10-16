@@ -1,0 +1,1187 @@
+// std.net.mail：邮件地址和邮件头解析（对齐 Go 1.23 的 net/mail，算法逐行移植；所需的 net/textproto、
+// mime 编码词、time.Parse 片段也在本模块里私有实现）
+//   地址：parse_address(s) -> Result<Address, Str>、parse_address_list(s) -> Result<List<Address>, Str>、
+//         Address { name, address }，方法 a.string()（Go 的引号规则；非 ASCII 名字按 RFC 2047 编成
+//         =?utf-8?q?...?= 或 =?utf-8?b?...?=，和 mime.QEncoding / BEncoding 输出逐字节相同）。
+//         解析时名字里的 RFC 2047 编码词会被解码（utf-8 / us-ascii / iso-8859-1，其它字符集报
+//         charset not supported: "xxx"）。支持组（group）、注释、域名字面量 [1.2.3.4]，错误信息和 Go 相同。
+//   邮件：read_message(s: Str) / read_message_bytes(bs) -> Result<Message, Str>；Message { header, body }，
+//         body 是剩余字节（List<Int>），m.body_string() 取字符串。
+//         Header：h.get(key)、h.values(key)、h.keys()（按字典序排序）、h.address_list(key)、h.date()。
+//         canonical_mime_header_key(s)：同 textproto.CanonicalMIMEHeaderKey。
+//   日期：parse_date(s) -> Result<Time, Str>；Time { unix（秒）, nsec, zone（时区名）, offset（秒） }。
+//         结果等价于 Go 在 time.Local = time.UTC 时 ParseDate 返回值的 Unix() / Nanosecond() / Zone()。
+//   err_header_not_present() = "mail: header not in message"
+// 和 Go 的差别：
+//   - Kite 的 Str 总是合法 UTF-8，所以 Go 里“invalid utf-8 in ...”这类错误不会出现；RFC 2047 用 utf-8
+//     字符集解出非法 UTF-8 字节时，Go 原样保留字节，这里把非法字节替换成 U+FFFD。
+//   - 没有 AddressParser / WordDecoder 自定义字符集；Header 是包装了 Map 的结构体；Body 是字节列表而不是 io.Reader。
+//   - textproto 的 bufio 4096 字节缓冲边界上 "\r\n" 被拆开的极端情况不模拟。
+
+use std.strconv
+use std.strings
+use std.net.netip
+use std.encoding.base64
+
+pub type Address = { name: Str, address: Str }
+
+pub type Header = { m: Map<Str, List<Str>> }
+
+pub type Message = { header: Header, body: List<Int> }
+
+pub type Time = { unix: Int, nsec: Int, zone: Str, offset: Int }
+
+pub fn err_header_not_present() -> Str { "mail: header not in message" }
+
+// ───────── 字节工具 ─────────
+
+fn bstr(bs: List<Int>) -> Str {
+  match __from_bytes(bs) {
+    Some(s) => s,
+    None    => lossy(bs),
+  }
+}
+
+// 把非法 UTF-8 序列替换成 U+FFFD
+fn lossy(bs: List<Int>) -> Str {
+  var out: List<Int> = []
+  var i = 0
+  let n = len(bs)
+  while i < n {
+    let c = bs[i]
+    var size = 0
+    if c < 0x80 {
+      size = 1
+    } else if c >= 0xc2 && c <= 0xdf {
+      size = 2
+    } else if c >= 0xe0 && c <= 0xef {
+      size = 3
+    } else if c >= 0xf0 && c <= 0xf4 {
+      size = 4
+    }
+    var ok = size > 0 && i + size <= n
+    if ok && size > 1 {
+      let chunk = bs[i..i + size]
+      ok = is_some(__from_bytes(chunk))
+    }
+    if ok {
+      out = out + bs[i..i + size]
+      i += size
+    } else {
+      out = out + [0xef, 0xbf, 0xbd]
+      i += 1
+    }
+  }
+  unwrap_or(__from_bytes(out), "")
+}
+
+fn rune_size(c: Int) -> Int {
+  if c < 0x80 { 1 } else if c < 0xe0 { 2 } else if c < 0xf0 { 3 } else { 4 }
+}
+
+fn is_vchar(c: Int) -> Bool { (c >= 33 && c <= 126) || c >= 128 }
+
+fn is_wsp(c: Int) -> Bool { c == 32 || c == 9 }
+
+fn is_atext(c: Int, dot: Bool) -> Bool {
+  if c == 46 { return dot }
+  if c == 40 || c == 41 || c == 60 || c == 62 || c == 91 || c == 93 || c == 58 || c == 59 || c == 64 || c == 92 || c == 44 || c == 34 { return false }
+  is_vchar(c)
+}
+
+fn is_qtext(c: Int) -> Bool {
+  if c == 92 || c == 34 { return false }
+  is_vchar(c)
+}
+
+fn is_dtext(c: Int) -> Bool {
+  if c == 91 || c == 93 || c == 92 { return false }
+  is_vchar(c)
+}
+
+fn skip_space(s: List<Int>, i: Int) -> Int {
+  var j = i
+  while j < len(s) && (s[j] == 32 || s[j] == 9) { j += 1 }
+  j
+}
+
+fn at(s: List<Int>, i: Int, c: Int) -> Bool { i < len(s) && s[i] == c }
+
+fn bytes_index(s: List<Int>, sub: List<Int>) -> Int {
+  let n = len(s)
+  let m = len(sub)
+  var i = 0
+  while i + m <= n {
+    var k = 0
+    while k < m && s[i + k] == sub[k] { k += 1 }
+    if k == m { return i }
+    i += 1
+  }
+  -1
+}
+
+// ───────── 地址解析 ─────────
+
+fn misformatted() -> Str { "mail: misformatted parenthetical comment" }
+
+pub fn parse_address(address: Str) -> Result<Address, Str> {
+  let s = __bytes(address)
+  let (addrs, i0) = parse_addr(s, 0, true)?
+  let (ok, i) = skip_cfws(s, i0)
+  if !ok { return Err(misformatted()) }
+  if i < len(s) { return Err("mail: expected single address, got " + strconv.quote_go(bstr(s[i..]))) }
+  if len(addrs) == 0 { return Err("mail: empty group") }
+  if len(addrs) > 1 { return Err("mail: group with multiple addresses") }
+  Ok(addrs[0])
+}
+
+pub fn parse_address_list(list: Str) -> Result<List<Address>, Str> {
+  let s = __bytes(list)
+  let n = len(s)
+  var out: List<Address> = []
+  var i = 0
+  loop {
+    i = skip_space(s, i)
+    if at(s, i, 44) {
+      i += 1
+      continue
+    }
+    let (addrs, j) = parse_addr(s, i, true)?
+    out = out + addrs
+    let (ok, k) = skip_cfws(s, j)
+    if !ok { return Err(misformatted()) }
+    i = k
+    if i >= n { break }
+    if s[i] != 44 { return Err("mail: expected comma") }
+    while at(s, i, 44) {
+      i += 1
+      i = skip_space(s, i)
+    }
+    if i >= n { break }
+  }
+  Ok(out)
+}
+
+fn parse_addr(s: List<Int>, i0: Int, handle_group: Bool) -> Result<(List<Address>, Int), Str> {
+  var i = skip_space(s, i0)
+  if i >= len(s) { return Err("mail: no address") }
+  match consume_addr_spec(s, i) {
+    Ok((spec, j0)) => {
+      let j = skip_space(s, j0)
+      if at(s, j, 40) {
+        let (dn, j2) = consume_display_name_comment(s, j)?
+        return Ok(([Address { name: dn, address: spec }], j2))
+      }
+      return Ok(([Address { name: "", address: spec }], j))
+    }
+    Err(_) => {}
+  }
+  var display = ""
+  if s[i] != 60 {
+    let (ph, j) = consume_phrase(s, i)?
+    display = ph
+    i = j
+  }
+  i = skip_space(s, i)
+  if handle_group && at(s, i, 58) { return consume_group_list(s, i + 1) }
+  if !at(s, i, 60) {
+    var atext = true
+    for c in __bytes(display) {
+      if !is_atext(c, true) {
+        atext = false
+        break
+      }
+    }
+    if atext { return Err("mail: missing '@' or angle-addr") }
+    return Err("mail: no angle-addr")
+  }
+  let (spec, j) = consume_addr_spec(s, i + 1)?
+  if !at(s, j, 62) { return Err("mail: unclosed angle-addr") }
+  Ok(([Address { name: display, address: spec }], j + 1))
+}
+
+fn consume_group_list(s: List<Int>, i0: Int) -> Result<(List<Address>, Int), Str> {
+  var group: List<Address> = []
+  var i = skip_space(s, i0)
+  if at(s, i, 59) {
+    let (ok, j) = skip_cfws(s, i + 1)
+    if !ok { return Err(misformatted()) }
+    return Ok((group, j))
+  }
+  loop {
+    i = skip_space(s, i)
+    let (addrs, j) = parse_addr(s, i, false)?
+    group = group + addrs
+    let (ok, k) = skip_cfws(s, j)
+    if !ok { return Err(misformatted()) }
+    i = k
+    if at(s, i, 59) {
+      let (ok2, k2) = skip_cfws(s, i + 1)
+      if !ok2 { return Err(misformatted()) }
+      i = k2
+      break
+    }
+    if !at(s, i, 44) { return Err("mail: expected comma") }
+    i += 1
+  }
+  Ok((group, i))
+}
+
+fn consume_addr_spec(s: List<Int>, i0: Int) -> Result<(Str, Int), Str> {
+  var i = skip_space(s, i0)
+  if i >= len(s) { return Err("mail: no addr-spec") }
+  var local = ""
+  if s[i] == 34 {
+    match consume_quoted_string(s, i) {
+      Ok((q, j)) => {
+        if q == "" { return Err("mail: empty quoted string in addr-spec") }
+        local = q
+        i = j
+      }
+      Err(_) => { return Err("mail: empty quoted string in addr-spec") }
+    }
+  } else {
+    let (a, j) = consume_atom(s, i, true, false)?
+    local = a
+    i = j
+  }
+  if !at(s, i, 64) { return Err("mail: missing @ in addr-spec") }
+  i = skip_space(s, i + 1)
+  if i >= len(s) { return Err("mail: no domain in addr-spec") }
+  var domain = ""
+  if s[i] == 91 {
+    let (d, j) = consume_domain_literal(s, i)?
+    domain = d
+    i = j
+  } else {
+    let (d, j) = consume_atom(s, i, true, false)?
+    domain = d
+    i = j
+  }
+  Ok((local + "@" + domain, i))
+}
+
+fn consume_phrase(s: List<Int>, i0: Int) -> Result<(Str, Int), Str> {
+  var words: List<Str> = []
+  var prev_enc = false
+  var err = ""
+  var i = i0
+  loop {
+    if len(words) > 0 {
+      let (ok, j) = skip_cfws(s, i)
+      if !ok { return Err(misformatted()) }
+      i = j
+    }
+    i = skip_space(s, i)
+    if i >= len(s) { break }
+    var word = ""
+    var enc = false
+    if s[i] == 34 {
+      match consume_quoted_string(s, i) {
+        Ok((q, j)) => {
+          word = q
+          i = j
+        }
+        Err(e) => {
+          err = e
+          break
+        }
+      }
+    } else {
+      match consume_atom(s, i, true, true) {
+        Ok((a, j)) => {
+          i = j
+          match decode_rfc2047_word(a) {
+            Ok((w, e)) => {
+              word = w
+              enc = e
+            }
+            Err(e) => {
+              err = e
+              break
+            }
+          }
+        }
+        Err(e) => {
+          err = e
+          break
+        }
+      }
+    }
+    if prev_enc && enc {
+      let last = len(words) - 1
+      words = set(words, last, words[last] + word)
+    } else {
+      words = push(words, word)
+    }
+    prev_enc = enc
+  }
+  if err != "" && len(words) == 0 { return Err("mail: missing word in phrase: " + err) }
+  Ok((join(words, " "), i))
+}
+
+fn consume_quoted_string(s: List<Int>, i0: Int) -> Result<(Str, Int), Str> {
+  var i = i0 + 1
+  var out: List<Int> = []
+  var escaped = false
+  let n = len(s)
+  loop {
+    if i >= n { return Err("mail: unclosed quoted-string") }
+    let c = s[i]
+    if c >= 128 {
+      let sz = rune_size(c)
+      out = out + s[i..i + sz]
+      escaped = false
+      i += sz
+      continue
+    }
+    if escaped {
+      if !is_vchar(c) && !is_wsp(c) { return Err("mail: bad character in quoted-string: " + strconv.quote_rune(c)) }
+      out = push(out, c)
+      escaped = false
+    } else if is_qtext(c) || is_wsp(c) {
+      out = push(out, c)
+    } else if c == 34 {
+      break
+    } else if c == 92 {
+      escaped = true
+    } else {
+      return Err("mail: bad character in quoted-string: " + strconv.quote_rune(c))
+    }
+    i += 1
+  }
+  Ok((bstr(out), i + 1))
+}
+
+fn consume_atom(s: List<Int>, i0: Int, dot: Bool, permissive: Bool) -> Result<(Str, Int), Str> {
+  var j = i0
+  while j < len(s) && is_atext(s[j], dot) { j += 1 }
+  if j == i0 { return Err("mail: invalid string") }
+  let a = s[i0..j]
+  if !permissive {
+    if a[0] == 46 { return Err("mail: leading dot in atom") }
+    var k = 1
+    while k < len(a) {
+      if a[k] == 46 && a[k - 1] == 46 { return Err("mail: double dot in atom") }
+      k += 1
+    }
+    if a[len(a) - 1] == 46 { return Err("mail: trailing dot in atom") }
+  }
+  Ok((bstr(a), j))
+}
+
+fn consume_domain_literal(s: List<Int>, i0: Int) -> Result<(Str, Int), Str> {
+  if !at(s, i0, 91) { return Err("mail: missing \"[\" in domain-literal") }
+  var i = i0 + 1
+  var dt: List<Int> = []
+  loop {
+    if i >= len(s) { return Err("mail: unclosed domain-literal") }
+    let c = s[i]
+    if c == 93 { break }
+    if c >= 128 {
+      let sz = rune_size(c)
+      dt = dt + s[i..i + sz]
+      i += sz
+      continue
+    }
+    if !is_dtext(c) { return Err("mail: bad character in domain-literal: " + strconv.quote_rune(c)) }
+    dt = push(dt, c)
+    i += 1
+  }
+  let d = bstr(dt)
+  // Go 1.27：带 "IPv6:" 前缀的按 IPv6（net.ParseIP，含 IPv4 文本）解析，否则必须是 IPv4（含 IPv4 映射的 IPv6）
+  if starts_with(d, "IPv6:") {
+    let ok6 = match netip.parse_addr(d[5..]) { Ok(a) => a.zone() == "", Err(_) => false }
+    if !ok6 { return Err("mail: invalid IPv6 address in domain-literal: " + strconv.quote_go(d)) }
+  } else {
+    let ok4 = match netip.parse_addr(d) { Ok(a) => a.zone() == "" && (a.is4() || a.is4in6()), Err(_) => false }
+    if !ok4 { return Err("mail: invalid IP address in domain-literal: " + strconv.quote_go(d)) }
+  }
+  Ok(("[" + d + "]", i + 1))
+}
+
+fn consume_display_name_comment(s: List<Int>, i0: Int) -> Result<(Str, Int), Str> {
+  if !at(s, i0, 40) { return Err("mail: comment does not start with (") }
+  let (comment, ok, i) = consume_comment(s, i0 + 1)
+  if !ok { return Err(misformatted()) }
+  var words: List<Str> = []
+  var cur: List<Int> = []
+  for c in comment + [32] {
+    if c == 32 || c == 9 {
+      if len(cur) > 0 {
+        let w = bstr(cur)
+        let (dw, _) = decode_rfc2047_word(w)?
+        words = push(words, dw)
+        cur = []
+      }
+    } else {
+      cur = push(cur, c)
+    }
+  }
+  Ok((join(words, " "), i))
+}
+
+// 返回 (成功, 新位置)
+fn skip_cfws(s: List<Int>, i0: Int) -> (Bool, Int) {
+  var i = skip_space(s, i0)
+  loop {
+    if !at(s, i, 40) { break }
+    let (_, ok, j) = consume_comment(s, i + 1)
+    if !ok { return (false, j) }
+    i = skip_space(s, j)
+  }
+  (true, i)
+}
+
+// '(' 已经吃掉；返回注释内容字节、是否闭合、新位置
+fn consume_comment(s: List<Int>, i0: Int) -> (List<Int>, Bool, Int) {
+  var depth = 1
+  var out: List<Int> = []
+  var i = i0
+  let n = len(s)
+  while i < n && depth > 0 {
+    if s[i] == 92 && n - i > 1 {
+      i += 1
+    } else if s[i] == 40 {
+      depth += 1
+    } else if s[i] == 41 {
+      depth -= 1
+    }
+    if depth > 0 { out = push(out, s[i]) }
+    i += 1
+  }
+  (out, depth == 0, i)
+}
+
+// ───────── RFC 2047 解码（mime.WordDecoder.Decode 的子集） ─────────
+
+// Ok((词, 是否编码))；只有字符集不支持时返回 Err
+fn decode_rfc2047_word(w: Str) -> Result<(Str, Bool), Str> {
+  let b = __bytes(w)
+  let n = len(b)
+  if n < 8 || b[0] != 61 || b[1] != 63 || b[n - 2] != 63 || b[n - 1] != 61 { return Ok((w, false)) }
+  var q = 0
+  for c in b {
+    if c == 63 { q += 1 }
+  }
+  if q != 4 { return Ok((w, false)) }
+  let inner = b[2..n - 2]
+  var k = 0
+  while inner[k] != 63 { k += 1 }
+  let charset = inner[..k]
+  if len(charset) == 0 { return Ok((w, false)) }
+  let rest = inner[k + 1..]
+  var k2 = 0
+  while rest[k2] != 63 { k2 += 1 }
+  if k2 != 1 { return Ok((w, false)) }
+  let text = rest[2..]
+  let e = rest[0]
+  var content: List<Int> = []
+  if e == 66 || e == 98 {
+    match base64.std_encoding().decode(text) {
+      Ok(bs) => { content = bs }
+      Err(_) => { return Ok((w, false)) }
+    }
+  } else if e == 81 || e == 113 {
+    match q_decode(text) {
+      Some(bs) => { content = bs }
+      None     => { return Ok((w, false)) }
+    }
+  } else {
+    return Ok((w, false))
+  }
+  let cs = bstr(charset)
+  if strings.equal_fold("utf-8", cs) { return Ok((bstr(content), true)) }
+  if strings.equal_fold("iso-8859-1", cs) {
+    var out = ""
+    for c in content { out = out + __chr(c) }
+    return Ok((out, true))
+  }
+  if strings.equal_fold("us-ascii", cs) {
+    var out2: List<Int> = []
+    for c in content {
+      if c >= 128 { out2 = out2 + [0xef, 0xbf, 0xbd] } else { out2 = push(out2, c) }
+    }
+    return Ok((bstr(out2), true))
+  }
+  Err("charset not supported: " + strconv.quote_go(strings.to_lower(cs)))
+}
+
+fn from_hex(c: Int) -> Int {
+  if c >= 48 && c <= 57 { c - 48 } else if c >= 65 && c <= 70 { c - 55 } else if c >= 97 && c <= 102 { c - 87 } else { -1 }
+}
+
+fn q_decode(s: List<Int>) -> Option<List<Int>> {
+  var out: List<Int> = []
+  var i = 0
+  let n = len(s)
+  while i < n {
+    let c = s[i]
+    if c == 95 {
+      out = push(out, 32)
+    } else if c == 61 {
+      if i + 2 >= n { return None }
+      let h = from_hex(s[i + 1])
+      let l = from_hex(s[i + 2])
+      if h < 0 || l < 0 { return None }
+      out = push(out, h * 16 + l)
+      i += 2
+    } else if (c >= 32 && c <= 126) || c == 10 || c == 13 || c == 9 {
+      out = push(out, c)
+    } else {
+      return None
+    }
+    i += 1
+  }
+  Some(out)
+}
+
+// ───────── Address.String 和 RFC 2047 编码 ─────────
+
+fn quote_string(s: List<Int>) -> Str {
+  var out: List<Int> = [34]
+  var i = 0
+  while i < len(s) {
+    let c = s[i]
+    if c >= 128 {
+      let sz = rune_size(c)
+      out = out + s[i..i + sz]
+      i += sz
+      continue
+    }
+    if is_qtext(c) || is_wsp(c) {
+      out = push(out, c)
+    } else if is_vchar(c) {
+      out = out + [92, c]
+    }
+    i += 1
+  }
+  bstr(push(out, 34))
+}
+
+fn needs_quote_local(l: List<Int>) -> Bool {
+  var i = 0
+  let n = len(l)
+  while i < n {
+    let c = l[i]
+    if c >= 128 {
+      i += rune_size(c)
+      continue
+    }
+    if !is_atext(c, false) {
+      if !(c == 46 && i > 0 && l[i - 1] != 46 && i < n - 1) { return true }
+    }
+    i += 1
+  }
+  false
+}
+
+const UPPERHEX: Str = "0123456789ABCDEF"
+
+fn write_q(buf: List<Int>, s: List<Int>) -> List<Int> {
+  let hx = __bytes(UPPERHEX)
+  var out = buf
+  for b in s {
+    if b == 32 {
+      out = push(out, 95)
+    } else if b >= 33 && b <= 126 && b != 61 && b != 63 && b != 95 {
+      out = push(out, b)
+    } else {
+      out = out + [61, hx[b >> 4], hx[b & 15]]
+    }
+  }
+  out
+}
+
+fn q_encode_word(s: List<Int>) -> Str {
+  let open = __bytes("=?utf-8?q?")
+  var buf = open
+  var cur = 0
+  var i = 0
+  while i < len(s) {
+    let b = s[i]
+    var rl = 1
+    var el = 1
+    if !(b >= 32 && b <= 126 && b != 61 && b != 63 && b != 95) {
+      rl = rune_size(b)
+      el = 3 * rl
+    }
+    if cur + el > 63 {
+      buf = buf + __bytes("?= ") + open
+      cur = 0
+    }
+    buf = write_q(buf, s[i..i + rl])
+    cur += el
+    i += rl
+  }
+  bstr(buf + __bytes("?="))
+}
+
+fn b_encode_word(s: List<Int>) -> Str {
+  let enc = base64.std_encoding()
+  var out = "=?utf-8?b?"
+  if (len(s) + 2) / 3 * 4 <= 63 { return out + enc.encode_to_string(s) + "?=" }
+  var cur = 0
+  var last = 0
+  var i = 0
+  while i < len(s) {
+    let rl = rune_size(s[i])
+    if cur + rl <= 45 {
+      cur += rl
+    } else {
+      out = out + enc.encode_to_string(s[last..i]) + "?= =?utf-8?b?"
+      last = i
+      cur = rl
+    }
+    i += rl
+  }
+  out + enc.encode_to_string(s[last..]) + "?="
+}
+
+impl Address {
+  fn string(self) -> Str {
+    let a = __bytes(self.address)
+    var at_i = -1
+    var k = len(a) - 1
+    while k >= 0 {
+      if a[k] == 64 {
+        at_i = k
+        break
+      }
+      k -= 1
+    }
+    var local = a
+    var domain: List<Int> = []
+    if at_i >= 0 {
+      local = a[..at_i]
+      domain = a[at_i + 1..]
+    }
+    let ls = if needs_quote_local(local) { quote_string(local) } else { bstr(local) }
+    let sp = "<" + ls + "@" + bstr(domain) + ">"
+    if self.name == "" { return sp }
+    let nb = __bytes(self.name)
+    var printable = true
+    for c in nb {
+      if !(c >= 32 && c <= 126) && c != 9 {
+        printable = false
+        break
+      }
+    }
+    if printable { return quote_string(nb) + " " + sp }
+    var special = false
+    for c in nb {
+      if c == 34 || c == 35 || c == 36 || c == 37 || c == 38 || c == 39 || c == 40 || c == 41 || c == 44 || c == 46 || c == 58 || c == 59 || c == 60 || c == 62 || c == 64 || c == 91 || c == 93 || c == 94 || c == 96 || c == 123 || c == 124 || c == 125 || c == 126 {
+        special = true
+        break
+      }
+    }
+    if special { return b_encode_word(nb) + " " + sp }
+    q_encode_word(nb) + " " + sp
+  }
+}
+
+// ───────── textproto：读邮件头 ─────────
+
+fn valid_header_field_byte(c: Int) -> Bool {
+  if (c >= 48 && c <= 57) || (c >= 65 && c <= 90) || (c >= 97 && c <= 122) { return true }
+  c == 33 || c == 35 || c == 36 || c == 37 || c == 38 || c == 39 || c == 42 || c == 43 || c == 45 || c == 46 || c == 94 || c == 95 || c == 96 || c == 124 || c == 126
+}
+
+fn common_headers() -> List<Str> {
+  [
+    "Accept", "Accept-Charset", "Accept-Encoding", "Accept-Language", "Accept-Ranges", "Cache-Control", "Cc", "Connection",
+    "Content-Id", "Content-Language", "Content-Length", "Content-Transfer-Encoding", "Content-Type", "Cookie", "Date",
+    "Dkim-Signature", "Etag", "Expires", "From", "Host", "If-Modified-Since", "If-None-Match", "In-Reply-To", "Last-Modified",
+    "Location", "Message-Id", "Mime-Version", "Pragma", "Received", "Return-Path", "Server", "Set-Cookie", "Subject", "To",
+    "User-Agent", "Via", "X-Forwarded-For", "X-Imforwards", "X-Powered-By",
+  ]
+}
+
+// 同 Go 的 textproto.CanonicalMIMEHeaderKey
+pub fn canonical_mime_header_key(s: Str) -> Str {
+  let b = __bytes(s)
+  for c in b {
+    if !valid_header_field_byte(c) { return s }
+  }
+  var out: List<Int> = []
+  var upper = true
+  for c0 in b {
+    var c = c0
+    if upper && c >= 97 && c <= 122 {
+      c -= 32
+    } else if !upper && c >= 65 && c <= 90 {
+      c += 32
+    }
+    out = push(out, c)
+    upper = c == 45
+  }
+  bstr(out)
+}
+
+// bufio.Reader.ReadLine 的语义：None 表示 EOF
+fn read_line(s: List<Int>, i: Int) -> Option<(List<Int>, Int)> {
+  let n = len(s)
+  if i >= n { return None }
+  var k = i
+  while k < n && s[k] != 10 { k += 1 }
+  if k == n { return Some((s[i..n], n)) }
+  var e = k
+  if e > i && s[e - 1] == 13 { e -= 1 }
+  Some((s[i..e], k + 1))
+}
+
+fn trim_ws(s: List<Int>) -> List<Int> {
+  var a = 0
+  var b = len(s)
+  while a < b && (s[a] == 32 || s[a] == 9) { a += 1 }
+  while b > a && (s[b - 1] == 32 || s[b - 1] == 9) { b -= 1 }
+  s[a..b]
+}
+
+fn read_continued_line(s: List<Int>, i0: Int) -> Option<(List<Int>, Int)> {
+  let (first, i1) = read_line(s, i0)?
+  if len(first) == 0 { return Some((first, i1)) }
+  var buf = trim_ws(first)
+  var i = i1
+  loop {
+    let j = skip_space(s, i)
+    if j == i { break }
+    i = j
+    buf = push(buf, 32)
+    match read_line(s, i) {
+      Some((l, k)) => {
+        buf = buf + trim_ws(l)
+        i = k
+      }
+      None => { break }
+    }
+  }
+  Some((buf, i))
+}
+
+pub fn read_message(s: Str) -> Result<Message, Str> { read_message_bytes(__bytes(s)) }
+
+pub fn read_message_bytes(s: List<Int>) -> Result<Message, Str> {
+  var m: Map<Str, List<Str>> = Map()
+  if len(s) > 0 && (s[0] == 32 || s[0] == 9) {
+    let (line, _) = unwrap(read_line(s, 0))
+    return Err("malformed initial line: " + strconv.quote_go(bstr(line)))
+  }
+  var i = 0
+  var count = 0
+  loop {
+    let Some((kv, j)) = read_continued_line(s, i) else {
+      if count == 0 { return Err("EOF") }
+      break
+    }
+    i = j
+    if len(kv) == 0 { break }
+    var c = 0
+    while c < len(kv) && kv[c] != 58 { c += 1 }
+    if c == len(kv) { return Err("malformed header line: " + strconv.quote_go(bstr(kv))) }
+    let key = canonical_mime_header_key(bstr(kv[..c]))
+    if key == "" { continue }
+    var v = c + 1
+    while v < len(kv) && (kv[v] == 32 || kv[v] == 9) { v += 1 }
+    m = set(m, key, push(unwrap_or(get(m, key), []), bstr(kv[v..])))
+    count += 1
+  }
+  Ok(Message { header: Header { m: m }, body: s[i..] })
+}
+
+impl Message {
+  fn body_string(self) -> Str { bstr(self.body) }
+}
+
+impl Header {
+  fn get(self, key: Str) -> Str {
+    let vs = unwrap_or(get(self.m, canonical_mime_header_key(key)), [])
+    if len(vs) == 0 { "" } else { vs[0] }
+  }
+
+  fn values(self, key: Str) -> List<Str> { unwrap_or(get(self.m, canonical_mime_header_key(key)), []) }
+
+  fn keys(self) -> List<Str> { sort(keys(self.m)) }
+
+  fn address_list(self, key: Str) -> Result<List<Address>, Str> {
+    let h = self.get(key)
+    if h == "" { return Err(err_header_not_present()) }
+    parse_address_list(h)
+  }
+
+  fn date(self) -> Result<Time, Str> {
+    let h = self.get("Date")
+    if h == "" { return Err(err_header_not_present()) }
+    parse_date(h)
+  }
+}
+
+// ───────── ParseDate（time.Parse 的所需子集） ─────────
+
+enum Tok {
+  Lit(Str)
+  WeekDay
+  Day
+  ZeroDay
+  LongYear
+  Year
+  Month
+  Hour
+  Minute
+  Second
+  NumTZ
+  TZ
+}
+
+fn date_layouts() -> List<List<Tok>> {
+  var out: List<List<Tok>> = []
+  for dow in [false, true] {
+    for zd in [false, true] {
+      for ly in [true, false] {
+        for sec in [true, false] {
+          for z in [0, 1, 2] {
+            var t: List<Tok> = []
+            if dow { t = t + [WeekDay, Lit(", ")] }
+            t = push(t, if zd { ZeroDay } else { Day })
+            t = t + [Lit(" "), Month, Lit(" ")]
+            t = push(t, if ly { LongYear } else { Year })
+            t = t + [Lit(" "), Hour, Lit(":"), Minute]
+            if sec { t = t + [Lit(":"), Second] }
+            t = push(t, Lit(" "))
+            t = push(t, if z == 0 { NumTZ } else if z == 1 { TZ } else { Lit("UT") })
+            out = push(out, t)
+          }
+        }
+      }
+    }
+  }
+  out
+}
+
+fn is_digit_at(s: List<Int>, i: Int) -> Bool { i < len(s) && s[i] >= 48 && s[i] <= 57 }
+
+// 返回 (值, 新位置)，失败时位置为 -1
+fn getnum(s: List<Int>, i: Int, fixed: Bool) -> (Int, Int) {
+  if !is_digit_at(s, i) { return (0, -1) }
+  if !is_digit_at(s, i + 1) {
+    if fixed { return (0, -1) }
+    return (s[i] - 48, i + 1)
+  }
+  ((s[i] - 48) * 10 + s[i + 1] - 48, i + 2)
+}
+
+// Go time 包的 leadingInt：(值, 结束位置, 是否溢出)
+fn leading_int(s: List<Int>, i0: Int) -> (Int, Int, Bool) {
+  var x = 0
+  var i = i0
+  while i < len(s) && s[i] >= 48 && s[i] <= 57 {
+    let d = s[i] - 48
+    if x > 922337203685477580 { return (0, i, true) }
+    if x == 922337203685477580 && d > 7 {
+      if d > 8 { return (0, i, true) }
+      x = 9223372036854775807
+    } else {
+      x = x * 10 + d
+    }
+    i += 1
+  }
+  (x, i, false)
+}
+
+// Go time 包的 atoi（允许一个正负号，必须全部是数字）
+fn time_atoi(s: List<Int>) -> Option<Int> {
+  var neg = false
+  var t = s
+  if len(t) > 0 && (t[0] == 45 || t[0] == 43) {
+    neg = t[0] == 45
+    t = t[1..]
+  }
+  let (x, e, ov) = leading_int(t, 0)
+  if ov || e != len(t) { return None }
+  Some(if neg { 0 - x } else { x })
+}
+
+fn lookup_name(tab: List<Str>, s: List<Int>, i: Int) -> (Int, Int) {
+  var k = 0
+  while k < len(tab) {
+    let v = __bytes(tab[k])
+    if len(s) - i >= len(v) {
+      var ok = true
+      var j = 0
+      while j < len(v) {
+        var c1 = s[i + j]
+        var c2 = v[j]
+        if c1 != c2 {
+          c1 = c1 | 32
+          c2 = c2 | 32
+          if c1 != c2 || c1 < 97 || c1 > 122 {
+            ok = false
+            break
+          }
+        }
+        j += 1
+      }
+      if ok { return (k, i + len(v)) }
+    }
+    k += 1
+  }
+  (-1, -1)
+}
+
+fn parse_signed_offset(s: List<Int>, i: Int) -> Int {
+  if i >= len(s) { return 0 }
+  if s[i] != 45 && s[i] != 43 { return 0 }
+  let (x, e, ov) = leading_int(s, i + 1)
+  if ov || e == i + 1 { return 0 }
+  if x > 24 { return 0 }
+  e - i
+}
+
+fn parse_time_zone(s: List<Int>, i: Int) -> Int {
+  let n = len(s) - i
+  if n < 3 { return 0 }
+  if n >= 4 {
+    let f = bstr(s[i..i + 4])
+    if f == "ChST" || f == "MeST" { return 4 }
+  }
+  if s[i] == 71 && s[i + 1] == 77 && s[i + 2] == 84 {
+    if n == 3 { return 3 }
+    return 3 + parse_signed_offset(s, i + 3)
+  }
+  if s[i] == 43 || s[i] == 45 { return parse_signed_offset(s, i) }
+  var nu = 0
+  while nu < 6 {
+    if nu >= n { break }
+    let c = s[i + nu]
+    if c < 65 || c > 90 { break }
+    nu += 1
+  }
+  if nu == 5 && s[i + 4] == 84 { return 5 }
+  if nu == 4 && (s[i + 3] == 84 || bstr(s[i..i + 4]) == "WITA") { return 4 }
+  if nu == 3 { return 3 }
+  0
+}
+
+fn is_leap(y: Int) -> Bool { y % 4 == 0 && (y % 100 != 0 || y % 400 == 0) }
+
+fn days_in(m: Int, y: Int) -> Int {
+  if m == 2 { return if is_leap(y) { 29 } else { 28 } }
+  [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31][m - 1]
+}
+
+fn fdiv(a: Int, b: Int) -> Int { if a >= 0 { a / b } else { 0 - ((b - 1 - a) / b) } }
+
+fn days_from_civil(y0: Int, m: Int, d: Int) -> Int {
+  let y = if m <= 2 { y0 - 1 } else { y0 }
+  let era = fdiv(y, 400)
+  let yoe = y - era * 400
+  let mp = if m > 2 { m - 3 } else { m + 9 }
+  let doy = (153 * mp + 2) / 5 + d - 1
+  let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy
+  era * 146097 + doe - 719468
+}
+
+// 跳过字面量（Go time 包的 skip：空格匹配任意多个空格）
+fn skip_lit(s: List<Int>, i0: Int, lit: List<Int>) -> Int {
+  var i = i0
+  var p = 0
+  while p < len(lit) {
+    if lit[p] == 32 {
+      if i < len(s) && s[i] != 32 { return -1 }
+      while p < len(lit) && lit[p] == 32 { p += 1 }
+      while i < len(s) && s[i] == 32 { i += 1 }
+      continue
+    }
+    if i >= len(s) || s[i] != lit[p] { return -1 }
+    p += 1
+    i += 1
+  }
+  i
+}
+
+fn time_parse(layout: List<Tok>, s: List<Int>) -> Option<Time> {
+  let months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+  let days = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
+  var i = 0
+  var year = 0
+  var month = -1
+  var day = -1
+  var hour = 0
+  var minute = 0
+  var sec = 0
+  var nsec = 0
+  var utc_z = false
+  var zoff = -1
+  var zname: List<Int> = []
+  for t in layout {
+    match t {
+      Lit(l) => {
+        i = skip_lit(s, i, __bytes(l))
+        if i < 0 { return None }
+      }
+      WeekDay => {
+        let (_, j) = lookup_name(days, s, i)
+        if j < 0 { return None }
+        i = j
+      }
+      Month => {
+        let (m, j) = lookup_name(months, s, i)
+        if j < 0 { return None }
+        month = m + 1
+        i = j
+      }
+      Day => {
+        let (v, j) = getnum(s, i, false)
+        if j < 0 { return None }
+        day = v
+        i = j
+      }
+      ZeroDay => {
+        let (v, j) = getnum(s, i, true)
+        if j < 0 { return None }
+        day = v
+        i = j
+      }
+      Year => {
+        if len(s) - i < 2 { return None }
+        let Some(y) = time_atoi(s[i..i + 2]) else { return None }
+        year = if y >= 69 { y + 1900 } else { y + 2000 }
+        i += 2
+      }
+      LongYear => {
+        if len(s) - i < 4 || !is_digit_at(s, i) { return None }
+        let Some(y) = time_atoi(s[i..i + 4]) else { return None }
+        year = y
+        i += 4
+      }
+      Hour => {
+        let (v, j) = getnum(s, i, false)
+        if v >= 24 || j < 0 { return None }
+        hour = v
+        i = j
+      }
+      Minute => {
+        let (v, j) = getnum(s, i, true)
+        if v >= 60 || j < 0 { return None }
+        minute = v
+        i = j
+      }
+      Second => {
+        let (v, j) = getnum(s, i, true)
+        if j < 0 || v >= 60 { return None }
+        sec = v
+        i = j
+        if len(s) - i >= 2 && (s[i] == 46 || s[i] == 44) && is_digit_at(s, i + 1) {
+          var n = 2
+          while is_digit_at(s, i + n) { n += 1 }
+          let nb = if n > 10 { 10 } else { n }
+          let Some(ns0) = time_atoi(s[i + 1..i + nb]) else { return None }
+          var ns = ns0
+          var k = 0
+          while k < 10 - nb {
+            ns = ns * 10
+            k += 1
+          }
+          nsec = ns
+          i += n
+        }
+      }
+      NumTZ => {
+        if len(s) - i < 5 { return None }
+        let sign = s[i]
+        let (hr, a) = getnum(s[i + 1..i + 3], 0, true)
+        let (mm, b) = getnum(s[i + 3..i + 5], 0, true)
+        if a < 0 || b < 0 || hr > 24 || mm > 60 { return None }
+        let off = (hr * 60 + mm) * 60
+        if sign == 43 {
+          zoff = off
+        } else if sign == 45 {
+          zoff = 0 - off
+        } else {
+          return None
+        }
+        i += 5
+      }
+      TZ => {
+        if len(s) - i >= 3 && s[i] == 85 && s[i + 1] == 84 && s[i + 2] == 67 {
+          utc_z = true
+          i += 3
+        } else {
+          let n = parse_time_zone(s, i)
+          if n == 0 { return None }
+          zname = s[i..i + n]
+          i += n
+        }
+      }
+    }
+  }
+  if i < len(s) { return None }
+  if day < 1 || day > days_in(month, year) { return None }
+  let base = days_from_civil(year, month, day) * 86400 + hour * 3600 + minute * 60 + sec
+  if utc_z { return Some(Time { unix: base, nsec: nsec, zone: "UTC", offset: 0 }) }
+  if zoff != -1 {
+    if zoff == 0 { return Some(Time { unix: base, nsec: nsec, zone: "UTC", offset: 0 }) }
+    return Some(Time { unix: base - zoff, nsec: nsec, zone: "", offset: zoff })
+  }
+  if len(zname) > 0 {
+    var off = 0
+    if len(zname) > 3 && zname[0] == 71 && zname[1] == 77 && zname[2] == 84 {
+      off = unwrap_or(time_atoi(zname[3..]), 0) * 3600
+    }
+    return Some(Time { unix: base, nsec: nsec, zone: bstr(zname), offset: off })
+  }
+  Some(Time { unix: base, nsec: nsec, zone: "UTC", offset: 0 })
+}
+
+pub fn parse_date(date0: Str) -> Result<Time, Str> {
+  let d0 = __bytes(date0)
+  // 去掉所有 "\r\n"
+  var d: List<Int> = []
+  var k = 0
+  while k < len(d0) {
+    if d0[k] == 13 && k + 1 < len(d0) && d0[k + 1] == 10 {
+      k += 2
+      continue
+    }
+    d = push(d, d0[k])
+    k += 1
+  }
+  for c in d {
+    if c == 13 { return Err("mail: header has a CR without LF") }
+  }
+  var date = d
+  let ps = d[skip_space(d, 0)..]
+  var rest = ps
+  var ind = -1
+  var q = 0
+  while q < len(ps) {
+    if ps[q] == 43 || ps[q] == 45 {
+      ind = q
+      break
+    }
+    q += 1
+  }
+  if ind != -1 && len(ps) >= ind + 5 {
+    date = ps[..ind + 5]
+    rest = ps[ind + 5..]
+  } else {
+    var ti = bytes_index(ps, [84])
+    if ti == 0 {
+      ti = bytes_index(ps[1..], [84])
+      if ti != -1 { ti += 1 }
+    }
+    if ti != -1 && len(ps) >= ti + 5 {
+      date = ps[..ti + 1]
+      rest = ps[ti + 1..]
+    }
+  }
+  let (ok, _) = skip_cfws(rest, 0)
+  if !ok { return Err(misformatted()) }
+  for layout in date_layouts() {
+    match time_parse(layout, date) {
+      Some(t) => { return Ok(t) }
+      None    => {}
+    }
+  }
+  Err("mail: header could not be parsed")
+}

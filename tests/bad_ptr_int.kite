@@ -1,0 +1,5 @@
+use std.ptr
+fn main() {
+  let p: Ptr = 5
+  print(ptr.is_null(p))
+}

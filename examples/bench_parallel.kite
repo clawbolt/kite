@@ -1,0 +1,23 @@
+// 并行基准：同样的工作量，KITE_THREADS=1 与默认（CPU 核数）对比
+fn fib(n: Int) -> Int {
+  if n < 2 { n } else { fib(n - 1) + fib(n - 2) }
+}
+
+// 分配密集：大量短命字符串和列表，考验多线程下的 GC
+fn churn(seed: Int) -> Int {
+  var total = 0
+  var i = 0
+  while i < 300000 {
+    let parts = ["k{seed}", "v{i % 97}"]
+    total += len(join(parts, "="))
+    i += 1
+  }
+  total
+}
+
+fn main() {
+  let (a, b) = spawn { fib(32), fib(32) }
+  print("fib:", a + b)
+  let sizes = par_map([1, 2, 3, 4], s => churn(s))
+  print("churn:", sum(sizes))
+}

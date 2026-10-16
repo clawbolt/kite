@@ -1,0 +1,509 @@
+// std.strings：字符串工具（对齐 Go 的 strings 包）。下标和长度都按字符（Unicode 码点）计，不按字节，
+// 所以 index / last_index 等返回的是字符下标（纯 ASCII 时和 Go 的字节下标相同）
+// 常用的 split / join / trim / upper / lower / replace / starts_with / ends_with / chars 是全局内建函数；
+// 这里同名的 strings.split / strings.trim / strings.replace 等按 Go 的语义实现
+
+use std.unicode
+
+// sub 第一次出现的位置
+pub fn find(s: Str, sub: Str) -> Option<Int> { find_from(s, sub, 0) }
+
+// 从第 start 个字符开始找
+pub fn find_from(s: Str, sub: Str, start: Int) -> Option<Int> {
+  let i = __str_find(s, sub, start)
+  if i < 0 { None } else { Some(i) }
+}
+
+// 第 a 到第 b 个字符（不含 b）；越界时自动截断
+pub fn slice(s: Str, a: Int, b: Int) -> Str { __str_slice(s, a, b) }
+
+// 按行拆分：去掉行尾的 \r，末尾的空行不算
+pub fn lines(s: Str) -> List<Str> {
+  if s == "" { return [] }
+  var ps = split(s, "\n")
+  if ends_with(s, "\n") { ps = take(ps, len(ps) - 1) }
+  let cr = __chr(13)
+  map(ps, (p) => if ends_with(p, cr) { __str_slice(p, 0, len(p) - 1) } else { p })
+}
+
+pub fn repeat(s: Str, n: Int) -> Str {
+  if n < 0 { panic("strings: negative Repeat count") }
+  var out = ""
+  for _ in 0..n { out = out + s }
+  out
+}
+
+// 左边补 fill 直到 width 个字符
+pub fn pad_left(s: Str, width: Int, fill: Str) -> Str { repeat(fill, width - len(s)) + s }
+
+pub fn pad_right(s: Str, width: Int, fill: Str) -> Str { s + repeat(fill, width - len(s)) }
+
+pub fn strip_prefix(s: Str, p: Str) -> Option<Str> {
+  if starts_with(s, p) { Some(__str_slice(s, len(p), len(s))) } else { None }
+}
+
+pub fn strip_suffix(s: Str, p: Str) -> Option<Str> {
+  if ends_with(s, p) { Some(__str_slice(s, 0, len(s) - len(p))) } else { None }
+}
+
+// sub 不重叠地出现了几次
+pub fn count(s: Str, sub: Str) -> Int {
+  if sub == "" { return len(s) + 1 }
+  var n = 0
+  var i = __str_find(s, sub, 0)
+  while i >= 0 {
+    n += 1
+    i = __str_find(s, sub, i + len(sub))
+  }
+  n
+}
+
+// 第一个字符的码点；空串返回 -1
+pub fn ord(c: Str) -> Int { __ord(c) }
+
+// 码点 → 单个字符；无效码点得到 U+FFFD
+pub fn chr(n: Int) -> Str { __chr(n) }
+
+pub fn is_digit(c: Str) -> Bool {
+  let o = __ord(c)
+  o >= 48 && o <= 57
+}
+
+pub fn is_alpha(c: Str) -> Bool {
+  let o = __ord(c)
+  (o >= 65 && o <= 90) || (o >= 97 && o <= 122)
+}
+
+pub fn is_space(c: Str) -> Bool {
+  let o = __ord(c)
+  o == 32 || o == 9 || o == 10 || o == 13
+}
+
+// ── 0.78 补充（对齐 Go 的 strings 包） ──
+
+// 最后一次出现的位置
+pub fn find_last(s: Str, sub: Str) -> Option<Int> {
+  var last = -1
+  var i = __str_find(s, sub, 0)
+  while i >= 0 {
+    last = i
+    i = __str_find(s, sub, i + 1)
+  }
+  if last < 0 { None } else { Some(last) }
+}
+
+// chars 里任意一个字符第一次出现的位置
+pub fn find_any(s: Str, set: Str) -> Option<Int> {
+  let cs = chars(s)
+  var i = 0
+  while i < len(cs) {
+    if contains(set, cs[i]) { return Some(i) }
+    i += 1
+  }
+  None
+}
+
+pub fn contains_any(s: Str, set: Str) -> Bool { is_some(find_any(s, set)) }
+
+// 按 Unicode 空白拆分，去掉空段（Go 的 Fields）
+pub fn fields(s: Str) -> List<Str> { fields_func(s, (c) => unicode.is_space(c)) }
+
+// 最多拆成 n 段；n < 0 表示不限
+pub fn split_n(s: Str, sep: Str, n: Int) -> List<Str> {
+  if n == 0 { return [] }
+  if sep == "" { return explode(s, n) }
+  var out: List<Str> = []
+  var start = 0
+  var i = __str_find(s, sep, 0)
+  while i >= 0 && (n < 0 || len(out) < n - 1) {
+    out = push(out, __str_slice(s, start, i))
+    start = i + len(sep)
+    i = __str_find(s, sep, start)
+  }
+  push(out, __str_slice(s, start, len(s)))
+}
+
+// 按第一个 sep 切成两半（Go 的 Cut）
+pub fn cut(s: Str, sep: Str) -> Option<(Str, Str)> {
+  let i = __str_find(s, sep, 0)
+  if i < 0 { None } else { Some((__str_slice(s, 0, i), __str_slice(s, i + len(sep), len(s)))) }
+}
+
+// 按最后一个 sep 切成两半（Go 1.27 的 CutLast）
+pub fn cut_last(s: Str, sep: Str) -> Option<(Str, Str)> {
+  let i = last_index(s, sep)
+  if i < 0 { None } else { Some((__str_slice(s, 0, i), __str_slice(s, i + len(sep), len(s)))) }
+}
+
+// 忽略大小写比较（Unicode 简单大小写折叠）
+pub fn equal_fold(a: Str, b: Str) -> Bool {
+  let x = chars(a)
+  let y = chars(b)
+  if len(x) != len(y) { return false }
+  var i = 0
+  while i < len(x) {
+    if x[i] != y[i] && fold(x[i]) != fold(y[i]) { return false }
+    i += 1
+  }
+  true
+}
+
+fn fold(c: Str) -> Str { unicode.to_lower(unicode.to_upper(c)) }
+
+// Go 的 isSeparator：ASCII 字母数字和 _ 不是分隔符，其他 ASCII 是；Unicode 字母数字不是，空白是
+fn is_separator(c: Str) -> Bool {
+  let o = __ord(c)
+  if o <= 127 {
+    if (o >= 48 && o <= 57) || (o >= 97 && o <= 122) || (o >= 65 && o <= 90) || o == 95 { return false }
+    return true
+  }
+  if unicode.is_letter(c) || unicode.is_digit(c) { return false }
+  unicode.is_space(c)
+}
+
+// 每个单词首字母改成标题大写（Go 的 Title，按 Go 的分隔符规则）
+pub fn title(s: Str) -> Str {
+  var out = ""
+  var prev = " "
+  for c in chars(s) {
+    out = out + if is_separator(prev) { unicode.to_title(c) } else { c }
+    prev = c
+  }
+  out
+}
+
+// 去掉两端在 set 里的字符
+pub fn trim_chars(s: Str, set: Str) -> Str { trim_right_chars(trim_left_chars(s, set), set) }
+
+pub fn trim_left_chars(s: Str, set: Str) -> Str {
+  let cs = chars(s)
+  var i = 0
+  while i < len(cs) && contains(set, cs[i]) { i += 1 }
+  __str_slice(s, i, len(cs))
+}
+
+pub fn trim_right_chars(s: Str, set: Str) -> Str {
+  let cs = chars(s)
+  var j = len(cs)
+  while j > 0 && contains(set, cs[j - 1]) { j -= 1 }
+  __str_slice(s, 0, j)
+}
+
+// 有前缀 / 后缀就去掉，没有就原样返回（Go 的 TrimPrefix / TrimSuffix）
+pub fn trim_prefix(s: Str, p: Str) -> Str { unwrap_or(strip_prefix(s, p), s) }
+
+pub fn trim_suffix(s: Str, p: Str) -> Str { unwrap_or(strip_suffix(s, p), s) }
+
+// 只替换前 n 处；n < 0 表示全部
+pub fn replace_n(s: Str, old: Str, new: Str, n: Int) -> Str {
+  if old == "" || n == 0 { return s }
+  var out = ""
+  var start = 0
+  var k = 0
+  var i = __str_find(s, old, 0)
+  while i >= 0 && (n < 0 || k < n) {
+    out = out + __str_slice(s, start, i) + new
+    start = i + len(old)
+    k += 1
+    i = __str_find(s, old, start)
+  }
+  out + __str_slice(s, start, len(s))
+}
+
+// 对每个字符做变换后拼起来
+pub fn map_chars(s: Str, f: fn(Str) -> Str) -> Str { join(map(chars(s), f), "") }
+
+// 第一个满足 f 的字符位置
+pub fn find_func(s: Str, f: fn(Str) -> Bool) -> Option<Int> {
+  let cs = chars(s)
+  var i = 0
+  while i < len(cs) {
+    if f(cs[i]) { return Some(i) }
+    i += 1
+  }
+  None
+}
+
+pub fn is_upper(c: Str) -> Bool {
+  let o = __ord(c)
+  o >= 65 && o <= 90
+}
+
+pub fn is_lower(c: Str) -> Bool {
+  let o = __ord(c)
+  o >= 97 && o <= 122
+}
+
+pub fn is_alnum(c: Str) -> Bool { is_alpha(c) || is_digit(c) }
+
+// ───────── 对齐 Go 的 strings 函数（字符下标） ─────────
+
+fn explode(s: Str, n: Int) -> List<Str> {
+  let cs = chars(s)
+  if n < 0 || n >= len(cs) { return cs }
+  push(cs[..n - 1], join(cs[n - 1..], ""))
+}
+
+pub fn clone(s: Str) -> Str { s }
+
+// -1 / 0 / 1（按字节序，和 Go 相同）
+pub fn compare(a: Str, b: Str) -> Int {
+  let x = __bytes(a)
+  let y = __bytes(b)
+  var i = 0
+  while i < len(x) && i < len(y) {
+    if x[i] != y[i] { return if x[i] < y[i] { -1 } else { 1 } }
+    i += 1
+  }
+  if len(x) == len(y) { 0 } else if len(x) < len(y) { -1 } else { 1 }
+}
+
+pub fn has_prefix(s: Str, p: Str) -> Bool { starts_with(s, p) }
+
+pub fn has_suffix(s: Str, p: Str) -> Bool { ends_with(s, p) }
+
+pub fn index(s: Str, sub: Str) -> Int { __str_find(s, sub, 0) }
+
+pub fn last_index(s: Str, sub: Str) -> Int {
+  match find_last(s, sub) {
+    Some(i) => i,
+    None    => -1,
+  }
+}
+
+pub fn index_rune(s: Str, r: Int) -> Int {
+  if r < 0 || r > 0x10ffff || (r >= 0xd800 && r <= 0xdfff) { return -1 }
+  __str_find(s, __chr(r), 0)
+}
+
+pub fn contains_rune(s: Str, r: Int) -> Bool { index_rune(s, r) >= 0 }
+
+pub fn index_any(s: Str, set: Str) -> Int {
+  match find_any(s, set) {
+    Some(i) => i,
+    None    => -1,
+  }
+}
+
+pub fn last_index_any(s: Str, set: Str) -> Int {
+  let cs = chars(s)
+  var i = len(cs) - 1
+  while i >= 0 {
+    if contains(set, cs[i]) { return i }
+    i -= 1
+  }
+  -1
+}
+
+pub fn index_func(s: Str, f: fn(Str) -> Bool) -> Int {
+  match find_func(s, f) {
+    Some(i) => i,
+    None    => -1,
+  }
+}
+
+pub fn last_index_func(s: Str, f: fn(Str) -> Bool) -> Int {
+  let cs = chars(s)
+  var i = len(cs) - 1
+  while i >= 0 {
+    if f(cs[i]) { return i }
+    i -= 1
+  }
+  -1
+}
+
+pub fn contains_func(s: Str, f: fn(Str) -> Bool) -> Bool { index_func(s, f) >= 0 }
+
+// (去掉前缀后的串, 是否有这个前缀)
+pub fn cut_prefix(s: Str, p: Str) -> (Str, Bool) {
+  if starts_with(s, p) { (__str_slice(s, len(p), len(s)), true) } else { (s, false) }
+}
+
+pub fn cut_suffix(s: Str, p: Str) -> (Str, Bool) {
+  if ends_with(s, p) { (__str_slice(s, 0, len(s) - len(p)), true) } else { (s, false) }
+}
+
+// 按满足 f 的字符拆分，去掉空段
+pub fn fields_func(s: Str, f: fn(Str) -> Bool) -> List<Str> {
+  var out: List<Str> = []
+  var cur = ""
+  var in_field = false
+  for c in chars(s) {
+    if f(c) {
+      if in_field {
+        out = push(out, cur)
+        cur = ""
+        in_field = false
+      }
+    } else {
+      cur = cur + c
+      in_field = true
+    }
+  }
+  if in_field { out = push(out, cur) }
+  out
+}
+
+// Go 的 Split：sep 为空时拆成单个字符；s 为空、sep 不为空时得到 [""]
+pub fn split(s: Str, sep: Str) -> List<Str> { split_n(s, sep, -1) }
+
+fn split_after_impl(s: Str, sep: Str, n: Int) -> List<Str> {
+  if n == 0 { return [] }
+  if sep == "" { return explode(s, n) }
+  var out: List<Str> = []
+  var start = 0
+  var i = __str_find(s, sep, 0)
+  while i >= 0 && (n < 0 || len(out) < n - 1) {
+    out = push(out, __str_slice(s, start, i + len(sep)))
+    start = i + len(sep)
+    i = __str_find(s, sep, start)
+  }
+  push(out, __str_slice(s, start, len(s)))
+}
+
+// 拆分时每段保留结尾的 sep
+pub fn split_after(s: Str, sep: Str) -> List<Str> { split_after_impl(s, sep, -1) }
+
+pub fn split_after_n(s: Str, sep: Str, n: Int) -> List<Str> { split_after_impl(s, sep, n) }
+
+// Unicode 简单大小写映射（长度不变；和 Go 一样，ß 转大写还是 ß）
+pub fn to_upper(s: Str) -> Str { unicode.upper(s) }
+
+pub fn to_lower(s: Str) -> Str { unicode.lower(s) }
+
+pub fn to_title(s: Str) -> Str { join(map(chars(s), (c) => unicode.to_title(c)), "") }
+
+// Kite 的 Str 总是合法 UTF-8，原样返回
+pub fn to_valid_utf8(s: Str, replacement: Str) -> Str { s }
+
+// 去掉两端在 cutset 里的字符（Go 的 Trim / TrimLeft / TrimRight）
+pub fn trim(s: Str, cutset: Str) -> Str { trim_chars(s, cutset) }
+
+pub fn trim_left(s: Str, cutset: Str) -> Str { trim_left_chars(s, cutset) }
+
+pub fn trim_right(s: Str, cutset: Str) -> Str { trim_right_chars(s, cutset) }
+
+pub fn trim_left_func(s: Str, f: fn(Str) -> Bool) -> Str {
+  let cs = chars(s)
+  var i = 0
+  while i < len(cs) && f(cs[i]) { i += 1 }
+  __str_slice(s, i, len(cs))
+}
+
+pub fn trim_right_func(s: Str, f: fn(Str) -> Bool) -> Str {
+  let cs = chars(s)
+  var j = len(cs)
+  while j > 0 && f(cs[j - 1]) { j -= 1 }
+  __str_slice(s, 0, j)
+}
+
+pub fn trim_func(s: Str, f: fn(Str) -> Bool) -> Str { trim_right_func(trim_left_func(s, f), f) }
+
+// 去掉两端的 Unicode 空白
+pub fn trim_space(s: Str) -> Str { trim_func(s, (c) => unicode.is_space(c)) }
+
+// Go 的 Replace：最多替换 n 处（n < 0 全部）；old 为空时在每个字符前和末尾插入
+pub fn replace(s: Str, old: Str, new: Str, n: Int) -> Str {
+  if old == "" {
+    if n == 0 { return s }
+    let cs = chars(s)
+    var out = ""
+    var k = 0
+    var i = 0
+    while i <= len(cs) {
+      if n < 0 || k < n {
+        out = out + new
+        k += 1
+      }
+      if i < len(cs) { out = out + cs[i] }
+      i += 1
+    }
+    return out
+  }
+  replace_n(s, old, new, n)
+}
+
+pub fn replace_all(s: Str, old: Str, new: Str) -> Str { replace(s, old, new, -1) }
+
+// Go 的 Map：对每个码点做映射，返回负数的字符被丢掉
+pub fn map_rune(s: Str, f: fn(Int) -> Int) -> Str {
+  var out = ""
+  for c in chars(s) {
+    let r = f(__ord(c))
+    if r >= 0 { out = out + __chr(r) }
+  }
+  out
+}
+
+// ───────── Builder（不可变：每次写入返回新的 Builder） ─────────
+
+pub type Builder = { parts: List<Str>, n: Int }
+
+pub fn new_builder() -> Builder { Builder { parts: [], n: 0 } }
+
+impl Builder {
+  fn write_string(self, s: Str) -> Builder { Builder { parts: push(self.parts, s), n: self.n + __byte_len(s) } }
+
+  fn write_rune(self, r: Int) -> Builder { self.write_string(__chr(r)) }
+
+  fn string(self) -> Str { join(self.parts, "") }
+
+  // 字节数（和 Go 的 Builder.Len 一样按字节算）
+  fn len(self) -> Int { self.n }
+
+  fn reset(self) -> Builder { new_builder() }
+}
+
+// ───────── Replacer（Go 的 NewReplacer：同一位置按参数顺序取第一个匹配，不重叠） ─────────
+
+pub type Replacer = { olds: List<Str>, news: List<Str> }
+
+pub fn new_replacer(oldnew: List<Str>) -> Replacer {
+  if len(oldnew) % 2 == 1 { panic("strings.NewReplacer: odd argument count") }
+  var olds: List<Str> = []
+  var news: List<Str> = []
+  var i = 0
+  while i < len(oldnew) {
+    olds = push(olds, oldnew[i])
+    news = push(news, oldnew[i + 1])
+    i += 2
+  }
+  Replacer { olds: olds, news: news }
+}
+
+impl Replacer {
+  fn replace(self, s: Str) -> Str {
+    let cs = chars(s)
+    var out = ""
+    var i = 0
+    var prev_empty = false
+    while i <= len(cs) {
+      var hit = -1
+      var k = 0
+      while k < len(self.olds) {
+        let o = self.olds[k]
+        if o == "" {
+          if !prev_empty {
+            hit = k
+            break
+          }
+        } else if i < len(cs) && __str_find(s, o, i) == i {
+          hit = k
+          break
+        }
+        k += 1
+      }
+      if hit >= 0 {
+        out = out + self.news[hit]
+        let kl = len(self.olds[hit])
+        prev_empty = kl == 0
+        i += kl
+        continue
+      }
+      prev_empty = false
+      if i < len(cs) { out = out + cs[i] }
+      i += 1
+    }
+    out
+  }
+}

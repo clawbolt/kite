@@ -1,0 +1,62 @@
+use std.mime.quotedprintable as qp
+use std.strings
+const HX: Str = "0123456789abcdef"
+fn q(bs: List<Int>) -> Str {
+  var out = "\""
+  for b in bs {
+    out = out + if b == 34 { "\\\"" } else if b == 92 { "\\\\" } else if b == 10 { "\\n" } else if b == 13 { "\\r" } else if b == 9 { "\\t" } else if b >= 32 && b < 127 { __chr(b) } else { "\\x" + __str_slice(HX, b >> 4, (b >> 4) + 1) + __str_slice(HX, b & 15, (b & 15) + 1) }
+  }
+  out + "\""
+}
+fn enc(chunks: List<Str>, binary: Bool) -> List<Int> {
+  var w = qp.new_writer().with_binary(binary)
+  for c in chunks { w = w.write_string(c) }
+  w.close().output()
+}
+fn dec(s: List<Int>) -> Str {
+  let (b, e) = qp.decode(s)
+  "{b} <" + e + ">"
+}
+fn tail(s: Str, n: Int) -> Str { __str_slice(s, len(s) - n, len(s)) }
+fn main() {
+  let ins = [
+    "", "hello", "foo bar", "foo bar ", "foo\tbar\t", "a=b", "café", "日本語テキスト", "line1\nline2\n", "line1\r\nline2\r\n",
+    "cr\ronly", "trailing space \nnext", "tab\t\r\nx", strings.repeat("a", 75), strings.repeat("a", 76), strings.repeat("a", 77),
+    strings.repeat("a", 200), strings.repeat("=", 30), strings.repeat("ab ", 40), strings.repeat("x", 73) + "é", strings.repeat("x", 74) + "=",
+    strings.repeat("x", 75) + " ", strings.repeat("x", 74) + " \n", "\u{0}\u{1}\u{7f}~!", "Héllo wörld, ça va? ¿Qué tal?\n" + strings.repeat("ü", 40),
+    " ", "\t", "\n", "\r", "\r\n\r\n", "a\n\rb", "end with cr\r",
+  ]
+  for s in ins {
+    let e1 = enc([s], false)
+    let e2 = enc([s], true)
+    print(q(e1))
+    print(q(e2))
+    print(dec(e1))
+    print(dec(e2))
+  }
+  print(q(enc(["foo ", "bar", "\r", "\nbaz ", " "], false)))
+  print(q(enc([strings.repeat("y", 70), "zzzzzzzzzz", "\r", "\n"], false)))
+  print(q(enc(["a\r", "\nb"], true)))
+  let decs = [
+    "", "hello", "foo=20bar", "foo=3D=3d", "soft=\r\nbreak", "soft=\nbreak", "soft=  \r\nbreak", "soft= x\nbreak",
+    "trail   \r\nx", "trail\t\t\nx", "=", "a=", "=A", "=4", "=G0", "=0G", "=\r\n", "a=\rb\n", "a=\nb", "x=\n", "x=", "=xy", "=\n=\n",
+    "bad\u{1}char", "bad\u{7f}char", "ok\tchar\r\n", "", "line1\nline2", "line1\r\nline2\r\n", "a=4\n", "a=4\r\nb",
+    "q==3D", "=a=b=c", "x\r\ry", "abc =  \n", "=E6=97=A5=E6=9C=AC", "=e6=97=a5", "a=\t\r\nb", "a= \t", " =", "end =\r\n\r\n",
+    "=4=", "==", "a\n=\r\n",
+  ]
+  var k = 0
+  for s in decs {
+    let bs = if k == 26 { __bytes("hi") + [0x80, 0xff] + __bytes("bin") } else { __bytes(s) }
+    print(q(bs), dec(bs))
+    k += 1
+  }
+  let long = __bytes(strings.repeat("a", 4095) + "\n" + strings.repeat("b", 10))
+  print(len(long), tail(dec(long), 30))
+  let r = dec(__bytes(strings.repeat("c", 4096) + "\nxyz"))
+  print(len(r), tail(r, 40))
+  let r3 = dec(__bytes(strings.repeat("d", 5000)))
+  print(len(r3), tail(r3, 40))
+  let rd = qp.new_reader(__bytes("ok=41")).read_all()
+  let re = qp.new_reader(__bytes("x=\rz")).read_all()
+  print(rd, re, qp.new_writer().write_string("caf\u{e9} \u{2603}").close().output_string(), qp.encode([255, 0, 61], false))
+}

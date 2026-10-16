@@ -1,0 +1,6 @@
+fn main() {
+  mod m {
+    fn hidden() -> Int { 1 }
+  }
+  print(m.hidden())
+}

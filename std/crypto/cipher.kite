@@ -1,0 +1,356 @@
+// std.crypto.cipher：分组密码的工作模式（对齐 Go 的 crypto/cipher）
+//   Block：分组密码的抽象，记录分组大小和加密/解密两个函数值，任何分组密码都可以包装成 Block：
+//     cipher.new_block(size, enc, dec)；b.block_size()、b.encrypt(src)、b.decrypt(src)（处理一个分组，返回新列表）
+//     std.crypto.aes 的 aes.new_cipher(key) 直接返回 Block。
+//   BlockMode（CBC）：new_cbc_encrypter(b, iv) / new_cbc_decrypter(b, iv)；
+//     m.crypt_blocks(src) -> (BlockMode, List<Int>)：返回推进后的模式和输出；
+//     m.crypt_blocks_into(dst, src)：同 Go 的 CryptBlocks(dst, src)，返回 (新模式, dst 的前 len(src) 字节被覆盖后的新列表)；
+//     m.set_iv(iv)、m.block_size()
+//   Stream（CTR / CFB / OFB）：new_ctr(b, iv)、new_cfb_encrypter(b, iv)、new_cfb_decrypter(b, iv)、new_ofb(b, iv)；
+//     s.xor_key_stream(src) -> (Stream, List<Int>)；s.xor_key_stream_into(dst, src) 同上（Go 的 XORKeyStream(dst, src)）
+//   AEAD（GCM）：new_gcm(b) / new_gcm_with_nonce_size(b, n) / new_gcm_with_tag_size(b, t) -> Result<AEAD, Str>；
+//     a.nonce_size()、a.overhead()、a.seal(dst, nonce, plaintext, additional) -> List<Int>（dst 后面接密文和标签）、
+//     a.open(dst, nonce, ciphertext, additional) -> Result<List<Int>, Str>（失败时 Err("cipher: message authentication failed")）
+//   panic 和错误信息与 Go 相同（"crypto/cipher: input not full blocks"、"cipher.NewCBCEncrypter: IV length must equal block size" 等）。
+// 与 Go 的差别：所有值都不可变，有状态的模式（CBC 的 IV、流的密钥流位置）由方法返回新值；
+//   没有写入 dst 的别名，所以没有 "invalid buffer overlap" 这个 panic；没有 StreamReader / StreamWriter；
+//   GCM 用 Go 通用实现（4 位查表的 GHASH），结果和 Go 在任何平台上的结果相同。
+
+// is_aes：Go 1.24 起 crypto/cipher 对 *aes.Block 走 crypto/aes 自己的 CTR，panic 信息不同
+pub type Block = { size: Int, enc_fn: fn(List<Int>) -> List<Int>, dec_fn: fn(List<Int>) -> List<Int>, is_aes: Bool }
+
+pub fn new_block(size: Int, enc: fn(List<Int>) -> List<Int>, dec: fn(List<Int>) -> List<Int>) -> Block {
+  Block { size: size, enc_fn: enc, dec_fn: dec, is_aes: false }
+}
+
+pub fn new_aes_block(enc: fn(List<Int>) -> List<Int>, dec: fn(List<Int>) -> List<Int>) -> Block {
+  Block { size: 16, enc_fn: enc, dec_fn: dec, is_aes: true }
+}
+
+impl Block {
+  fn block_size(self) -> Int { self.size }
+
+  fn encrypt(self, src: List<Int>) -> List<Int> {
+    let f = self.enc_fn
+    f(src)
+  }
+
+  fn decrypt(self, src: List<Int>) -> List<Int> {
+    let f = self.dec_fn
+    f(src)
+  }
+}
+
+// dst 的前 len(src) 个字节换成 out
+fn overwrite(dst: List<Int>, out: List<Int>) -> List<Int> { out + dst[len(out)..len(dst)] }
+
+// ───────── CBC ─────────
+
+pub type BlockMode = { b: Block, iv: List<Int>, decrypting: Bool }
+
+pub fn new_cbc_encrypter(b: Block, iv: List<Int>) -> BlockMode {
+  if len(iv) != b.block_size() { panic("cipher.NewCBCEncrypter: IV length must equal block size") }
+  BlockMode { b: b, iv: iv, decrypting: false }
+}
+
+pub fn new_cbc_decrypter(b: Block, iv: List<Int>) -> BlockMode {
+  if len(iv) != b.block_size() { panic("cipher.NewCBCDecrypter: IV length must equal block size") }
+  BlockMode { b: b, iv: iv, decrypting: true }
+}
+
+impl BlockMode {
+  fn block_size(self) -> Int { self.b.block_size() }
+
+  fn set_iv(self, iv: List<Int>) -> BlockMode {
+    if len(iv) != len(self.iv) { panic("cipher: incorrect length IV") }
+    BlockMode { iv: iv, ..self }
+  }
+
+  fn crypt_blocks(self, src: List<Int>) -> (BlockMode, List<Int>) {
+    let bs = self.b.block_size()
+    if len(src) % bs != 0 { panic("crypto/cipher: input not full blocks") }
+    var iv = self.iv
+    var out: List<Int> = []
+    var off = 0
+    while off < len(src) {
+      let blk = src[off..off + bs]
+      if self.decrypting {
+        let p = self.b.decrypt(blk)
+        for i in 0..bs { out = push(out, p[i] ^ iv[i]) }
+        iv = blk
+      } else {
+        var x: List<Int> = []
+        for i in 0..bs { x = push(x, blk[i] ^ iv[i]) }
+        let c = self.b.encrypt(x)
+        out = out + c
+        iv = c
+      }
+      off += bs
+    }
+    (BlockMode { iv: iv, ..self }, out)
+  }
+
+  fn crypt_blocks_into(self, dst: List<Int>, src: List<Int>) -> (BlockMode, List<Int>) {
+    if len(src) % self.b.block_size() != 0 { panic("crypto/cipher: input not full blocks") }
+    if len(dst) < len(src) { panic("crypto/cipher: output smaller than input") }
+    let (m, out) = self.crypt_blocks(src)
+    (m, overwrite(dst, out))
+  }
+}
+
+// ───────── 流模式：CTR / CFB / OFB ─────────
+
+const CTR: Int = 0
+const CFB: Int = 1
+const OFB: Int = 2
+
+// reg：CTR 是计数器，OFB 是上一个输出分组，CFB 是下一个要加密的分组（正在逐字节填充）
+// out：当前密钥流分组；used：out 里已经用掉的字节数
+pub type Stream = { kind: Int, b: Block, reg: List<Int>, out: List<Int>, used: Int, decrypting: Bool }
+
+pub fn new_ctr(b: Block, iv: List<Int>) -> Stream {
+  if len(iv) != b.block_size() { panic(if b.is_aes { "bad IV length" } else { "cipher.NewCTR: IV length must equal block size" }) }
+  Stream { kind: CTR, b: b, reg: iv, out: [], used: 0, decrypting: false }
+}
+
+pub fn new_ofb(b: Block, iv: List<Int>) -> Stream {
+  if len(iv) != b.block_size() { panic("cipher.NewOFB: IV length must equal block size") }
+  Stream { kind: OFB, b: b, reg: iv, out: [], used: 0, decrypting: false }
+}
+
+fn new_cfb(b: Block, iv: List<Int>, decrypt: Bool) -> Stream {
+  if len(iv) != b.block_size() { panic("cipher.newCFB: IV length must equal block size") }
+  Stream { kind: CFB, b: b, reg: iv, out: [], used: 0, decrypting: decrypt }
+}
+
+pub fn new_cfb_encrypter(b: Block, iv: List<Int>) -> Stream { new_cfb(b, iv, false) }
+
+pub fn new_cfb_decrypter(b: Block, iv: List<Int>) -> Stream { new_cfb(b, iv, true) }
+
+// 大端计数器加一（整个分组回绕）
+fn inc_counter(c: List<Int>) -> List<Int> {
+  var r = reverse(c)
+  var out: List<Int> = []
+  var carry = 1
+  for x in r {
+    let v = x + carry
+    out = push(out, v & 0xff)
+    carry = if v > 0xff { 1 } else { 0 }
+  }
+  reverse(out)
+}
+
+impl Stream {
+  fn xor_key_stream(self, src: List<Int>) -> (Stream, List<Int>) {
+    var reg = self.reg
+    var ks = self.out
+    var used = self.used
+    var dst: List<Int> = []
+    for c in src {
+      if used >= len(ks) {
+        if self.kind == CTR {
+          ks = self.b.encrypt(reg)
+          reg = inc_counter(reg)
+        } else if self.kind == OFB {
+          ks = self.b.encrypt(reg)
+          reg = ks
+        } else {
+          ks = self.b.encrypt(reg)
+          reg = []
+        }
+        used = 0
+      }
+      let d = c ^ ks[used]
+      dst = push(dst, d)
+      if self.kind == CFB { reg = push(reg, if self.decrypting { c } else { d }) }
+      used += 1
+    }
+    (Stream { reg: reg, out: ks, used: used, ..self }, dst)
+  }
+
+  fn xor_key_stream_into(self, dst: List<Int>, src: List<Int>) -> (Stream, List<Int>) {
+    if len(dst) < len(src) { panic(if self.kind == CTR && self.b.is_aes { "crypto/aes: len(dst) < len(src)" } else { "crypto/cipher: output smaller than input" }) }
+    let (s, out) = self.xor_key_stream(src)
+    (s, overwrite(dst, out))
+  }
+}
+
+// ───────── GCM ─────────
+
+const GCM_BLOCK_SIZE: Int = 16
+const GCM_TAG_SIZE: Int = 16
+const GCM_MINIMUM_TAG_SIZE: Int = 12
+const GCM_STANDARD_NONCE_SIZE: Int = 12
+
+// 0xe100000000000000
+const E1: Int = -2233785415175766016
+const LOW60: Int = 0xfffffffffffffff
+const LOW63: Int = 0x7fffffffffffffff
+
+const GCM_REDUCTION_TABLE: List<Int> = [0x0000, 0x1c20, 0x3840, 0x2460, 0x7080, 0x6ca0, 0x48c0, 0x54e0, 0xe100, 0xfd20, 0xd940, 0xc560, 0x9180, 0x8da0, 0xa9c0, 0xb5e0]
+
+pub type AEAD = { b: Block, nonce_sz: Int, tag_sz: Int, tlow: List<Int>, thigh: List<Int> }
+
+pub fn new_gcm(b: Block) -> Result<AEAD, Str> { new_gcm_with_nonce_and_tag_size(b, GCM_STANDARD_NONCE_SIZE, GCM_TAG_SIZE) }
+
+pub fn new_gcm_with_nonce_size(b: Block, size: Int) -> Result<AEAD, Str> { new_gcm_with_nonce_and_tag_size(b, size, GCM_TAG_SIZE) }
+
+pub fn new_gcm_with_tag_size(b: Block, tag_size: Int) -> Result<AEAD, Str> { new_gcm_with_nonce_and_tag_size(b, GCM_STANDARD_NONCE_SIZE, tag_size) }
+
+fn reverse_bits(i0: Int) -> Int {
+  let i = ((i0 << 2) & 0xc) | ((i0 >> 2) & 0x3)
+  ((i << 1) & 0xa) | ((i >> 1) & 0x5)
+}
+
+fn be64(b: List<Int>, i: Int) -> Int {
+  var x = 0
+  for k in 0..8 { x = (x << 8) | b[i + k] }
+  x
+}
+
+fn put64(out: List<Int>, x: Int) -> List<Int> {
+  var o = out
+  var s = 56
+  while s >= 0 {
+    o = push(o, (x >> s) & 0xff)
+    s -= 8
+  }
+  o
+}
+
+fn new_gcm_with_nonce_and_tag_size(b: Block, nonce_size: Int, tag_size: Int) -> Result<AEAD, Str> {
+  if tag_size < GCM_MINIMUM_TAG_SIZE || tag_size > GCM_BLOCK_SIZE { return Err("cipher: incorrect tag size given to GCM") }
+  if nonce_size <= 0 { return Err("cipher: the nonce can't have zero length") }
+  if b.block_size() != GCM_BLOCK_SIZE { return Err("cipher: NewGCM requires 128-bit block cipher") }
+  let key = b.encrypt([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0])
+  let xl = be64(key, 0)
+  let xh = be64(key, 8)
+  var tl: List<Int> = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+  var th: List<Int> = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+  tl = set(tl, reverse_bits(1), xl)
+  th = set(th, reverse_bits(1), xh)
+  var i = 2
+  while i < 16 {
+    let h = reverse_bits(i / 2)
+    let dl0 = (tl[h] >> 1) & LOW63
+    let dh = ((th[h] >> 1) & LOW63) | (tl[h] << 63)
+    let dl = if th[h] & 1 == 1 { dl0 ^ E1 } else { dl0 }
+    tl = set(tl, reverse_bits(i), dl)
+    th = set(th, reverse_bits(i), dh)
+    tl = set(tl, reverse_bits(i + 1), dl ^ xl)
+    th = set(th, reverse_bits(i + 1), dh ^ xh)
+    i += 2
+  }
+  Ok(AEAD { b: b, nonce_sz: nonce_size, tag_sz: tag_size, tlow: tl, thigh: th })
+}
+
+impl AEAD {
+  fn nonce_size(self) -> Int { self.nonce_sz }
+
+  fn overhead(self) -> Int { self.tag_sz }
+
+  // GHASH 乘法：y * H，返回 (low, high)
+  fn mul(self, yl: Int, yh: Int) -> (Int, Int) {
+    var zl = 0
+    var zh = 0
+    for i in 0..2 {
+      var word = if i == 0 { yh } else { yl }
+      for _ in 0..16 {
+        let msw = zh & 0xf
+        zh = ((zh >> 4) & LOW60) | (zl << 60)
+        zl = ((zl >> 4) & LOW60) ^ (GCM_REDUCTION_TABLE[msw] << 48)
+        let t = word & 0xf
+        zl = zl ^ self.tlow[t]
+        zh = zh ^ self.thigh[t]
+        word = (word >> 4) & LOW60
+      }
+    }
+    (zl, zh)
+  }
+
+  fn update(self, y: (Int, Int), data: List<Int>) -> (Int, Int) {
+    var yl = y.0
+    var yh = y.1
+    var off = 0
+    let n = len(data)
+    while off < n {
+      var blk = data[off..min(off + 16, n)]
+      while len(blk) < 16 { blk = push(blk, 0) }
+      let (a, b) = self.mul(yl ^ be64(blk, 0), yh ^ be64(blk, 8))
+      yl = a
+      yh = b
+      off += 16
+    }
+    (yl, yh)
+  }
+
+  fn derive_counter(self, nonce: List<Int>) -> List<Int> {
+    if len(nonce) == GCM_STANDARD_NONCE_SIZE { return nonce + [0, 0, 0, 1] }
+    let (yl, yh) = self.update((0, 0), nonce)
+    let (a, b) = self.mul(yl, yh ^ (len(nonce) * 8))
+    put64(put64([], a), b)
+  }
+
+  fn counter_crypt(self, input: List<Int>, counter0: List<Int>) -> List<Int> {
+    var counter = counter0
+    var out: List<Int> = []
+    var off = 0
+    let n = len(input)
+    while off < n {
+      let mask = self.b.encrypt(counter)
+      counter = inc32(counter)
+      let end = min(off + 16, n)
+      var k = 0
+      while off + k < end {
+        out = push(out, input[off + k] ^ mask[k])
+        k += 1
+      }
+      off += 16
+    }
+    out
+  }
+
+  fn auth(self, ciphertext: List<Int>, additional: List<Int>, tag_mask: List<Int>) -> List<Int> {
+    let y1 = self.update((0, 0), additional)
+    let (yl, yh) = self.update(y1, ciphertext)
+    let (a, b) = self.mul(yl ^ (len(additional) * 8), yh ^ (len(ciphertext) * 8))
+    let t = put64(put64([], a), b)
+    var out: List<Int> = []
+    for i in 0..16 { out = push(out, t[i] ^ tag_mask[i]) }
+    out
+  }
+
+  fn seal(self, dst: List<Int>, nonce: List<Int>, plaintext: List<Int>, additional: List<Int>) -> List<Int> {
+    if len(nonce) != self.nonce_sz { panic("crypto/cipher: incorrect nonce length given to GCM") }
+    if len(plaintext) > 68719476704 { panic("crypto/cipher: message too large for GCM") }
+    let counter = self.derive_counter(nonce)
+    let tag_mask = self.b.encrypt(counter)
+    let out = self.counter_crypt(plaintext, inc32(counter))
+    let tag = self.auth(out, additional, tag_mask)
+    dst + out + tag[0..self.tag_sz]
+  }
+
+  fn open(self, dst: List<Int>, nonce: List<Int>, ciphertext: List<Int>, additional: List<Int>) -> Result<List<Int>, Str> {
+    if len(nonce) != self.nonce_sz { panic("crypto/cipher: incorrect nonce length given to GCM") }
+    if self.tag_sz < GCM_MINIMUM_TAG_SIZE { panic("crypto/cipher: incorrect GCM tag size") }
+    if len(ciphertext) < self.tag_sz { return Err(ERR_OPEN) }
+    if len(ciphertext) > 68719476704 + self.tag_sz { return Err(ERR_OPEN) }
+    let n = len(ciphertext) - self.tag_sz
+    let tag = ciphertext[n..len(ciphertext)]
+    let ct = ciphertext[0..n]
+    let counter = self.derive_counter(nonce)
+    let tag_mask = self.b.encrypt(counter)
+    let expected = self.auth(ct, additional, tag_mask)
+    var diff = 0
+    for i in 0..self.tag_sz { diff = diff | (expected[i] ^ tag[i]) }
+    if diff != 0 { return Err(ERR_OPEN) }
+    Ok(dst + self.counter_crypt(ct, inc32(counter)))
+  }
+}
+
+pub const ERR_OPEN: Str = "cipher: message authentication failed"
+
+fn inc32(c: List<Int>) -> List<Int> {
+  let v = (((c[12] << 24) | (c[13] << 16) | (c[14] << 8) | c[15]) + 1) & 0xffffffff
+  c[0..12] + [(v >> 24) & 0xff, (v >> 16) & 0xff, (v >> 8) & 0xff, v & 0xff]
+}

@@ -1,0 +1,7 @@
+fn main() {
+  let a: Chan<Int> = chan()
+  select {
+    recv(a) as Some(x) => print(x),
+    _ => {},
+  }
+}

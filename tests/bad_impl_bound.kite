@@ -1,0 +1,10 @@
+type P = { x: Int }
+impl<T> List<T> where T: Ord {
+  fn mx(self) -> T {
+    max(self)
+  }
+}
+fn main() {
+  print([1, 5].mx())
+  print([P { x: 1 }].mx())
+}

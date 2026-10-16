@@ -1,0 +1,68 @@
+const MAX: Int = 9
+const NEG: Int = -3
+enum Shape { Circle(Float), Rect(Float, Float, Float) }
+impl Shape {
+  fn kind(self) -> Str {
+    match self {
+      Self.Circle(_)   => "circle",
+      Self.Rect(w, ..) => "rect {w}",
+    }
+  }
+}
+fn classify(n: Int) -> Str {
+  match n {
+    MAX           => "max",
+    NEG           => "neg3",
+    ..0           => "negative",
+    small @ 1..=8 => "small {small}",
+    100..         => "huge",
+    _             => "mid",
+  }
+}
+fn ch(c: Str) -> Str {
+  match c {
+    'a'..='z' => "lower",
+    'A'..='Z' => "upper",
+    _         => "other",
+  }
+}
+fn ends(xs: List<Int>) -> Str {
+  match xs {
+    []                   => "empty",
+    [x]                  => "one {x}",
+    [first, ..mid, last] => "{first} {mid} {last}",
+  }
+}
+fn main() {
+  for n in [9, -3, -7, 0, 4, 50, 1000] { print(classify(n)) }
+  print(ch('q'), ch('Q'), ch('?'))
+  print(ends([]), ends([1]), ends([1, 2]), ends([1, 2, 3, 4]))
+  match [5, 6, 7] { [.., last] => print(last), [] => print(0) }
+  let t = (1, 2, 3, 4)
+  match t { (a, .., d) => print(a + d) }
+  match (1, 2) {
+    (var a, b) => {
+      a += b
+      print(a)
+    }
+  }
+  match Some(3) { whole @ Some(v) => print(whole, v), None => print(0) }
+  print(Shape.Circle(1.0).kind(), Shape.Rect(2.0, 3.0, 4.0).kind())
+  test_let()
+}
+
+fn sum_tail(xs: List<Int>) -> Int {
+  match xs {
+    []         => 0
+    [.., a, b] => a + b
+    [x]        => x
+  }
+}
+
+fn test_let() {
+  let (var acc, step) = (10, 5)
+  acc += step
+  let [head, ..rest] = [1, 2, 3] else { return }
+  print(acc, head, rest, sum_tail([1, 2, 3, 4]), sum_tail([7]))
+  if 3.14 is 3.0..4.0 { print("pi-ish") }
+}

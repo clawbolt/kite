@@ -1,0 +1,4 @@
+fn main() {
+  let ch: Chan<Int> = chan()
+  send(ch, "不是整数")
+}

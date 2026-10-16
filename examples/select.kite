@@ -1,0 +1,120 @@
+// select：同时等待多个通道操作，取第一个就绪的分支
+//   recv(ch) as v => ...   v 是 Option（通道关闭时为 None）
+//   send(ch, x) => ...     能发出去时执行
+//   after(ms) => ...       超时
+//   _ => ...               都没就绪时立刻执行（非阻塞）
+fn produce(ch: Chan<Int>, lo: Int, hi: Int) {
+  for i in lo..=hi { send(ch, i) }
+  close(ch)
+}
+
+fn main() {
+  // 1. 汇合两个来源，直到两个都关闭
+  let evens: Chan<Int> = chan()
+  let odds: Chan<Int> = chan(4)
+  let (_, _, (se, so)) = spawn {
+    produce(evens, 1, 50),
+    produce(odds, 51, 100),
+    {
+      var a = 0
+      var b = 0
+      var e_open = true
+      var o_open = true
+      while e_open || o_open {
+        select {
+          // 守卫为假的分支本轮不参与：已关闭的通道不再被选中
+          recv(evens) as v if e_open => match v {
+            Some(x) => { a += x },
+            None    => { e_open = false },
+          },
+          recv(odds) as v if o_open => match v {
+            Some(x) => { b += x },
+            None    => { o_open = false },
+          },
+        }
+      }
+      (a, b)
+    },
+  }
+  print("两路之和:", se, so, se + so)
+
+  // 2. 非阻塞发送：缓冲满了就丢弃
+  let q: Chan<Int> = chan(3)
+  var dropped = 0
+  for i in 1..=10 {
+    select {
+      send(q, i) => {},
+      _ => { dropped += 1 },
+    }
+  }
+  close(q)
+  var kept = []
+  for x in q { kept = push(kept, x) }
+  print("保留", kept, "丢弃", dropped)
+
+  // 3. 超时：没人发送时 after 分支生效
+  let silent: Chan<Str> = chan()
+  let r = select {
+    recv(silent) as v => unwrap(v),
+    after(20) => "20ms 内没有消息",
+  }
+  print(r)
+
+  // 4. 取消：工人一边干活一边留意 stop 通道
+  let stop: Chan<Unit> = chan()
+  let work: Chan<Int> = chan()
+  let (done_count, _) = spawn {
+    {
+      var n = 0
+      var running = true
+      while running {
+        select {
+          recv(stop) => { running = false },
+          recv(work) as v => { n += unwrap(v) },
+        }
+      }
+      n
+    },
+    {
+      for i in 1..=10 { send(work, i) }
+      send(stop, ())
+    },
+  }
+  print("取消前完成的工作量:", done_count)
+
+  // 5. 带超时的请求-应答
+  let req: Chan<Int> = chan()
+  let resp: Chan<Int> = chan()
+  let (answer, _) = spawn {
+    {
+      send(req, 21)
+      select {
+        recv(resp) as v => unwrap(v),
+        after(2000) => -1,
+      }
+    },
+    {
+      let x = unwrap(recv(req))
+      sleep(5)
+      send(resp, x * 2)
+    },
+  }
+  print("应答:", answer)
+
+  // 6. 轮询：用 _ 分支忙等也不会饿死另一个任务（解释器的协作式调度会在 select 处让出）
+  let ping: Chan<Int> = chan()
+  let (polled, _) = spawn {
+    {
+      var got = 0
+      while got == 0 {
+        select {
+          recv(ping) as v => { got = unwrap(v) },
+          _ => {},
+        }
+      }
+      got
+    },
+    send(ping, 9),
+  }
+  print("轮询收到", polled)
+}

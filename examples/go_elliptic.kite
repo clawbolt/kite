@@ -1,0 +1,66 @@
+// 对齐 Go 1.27 的 crypto/elliptic：tests/go/elliptic.go
+use std.crypto.elliptic
+use std.crypto.elliptic.{ Curve, CurveParams }
+use std.math.big
+use std.math.big.{ BigInt }
+use std.crypto.sha256
+use std.encoding.hex
+
+fn pt(p: (BigInt, BigInt)) -> Str { p.0.text(16) + "," + p.1.text(16) }
+
+fn opt(o: Option<(BigInt, BigInt)>) -> Str { match o { None => "nil", Some(p) => pt(p) } }
+
+fn res(r: Result<(BigInt, BigInt), Str>) -> Str { match r { Ok(p) => pt(p), Err(e) => "panic: " + e } }
+
+fn stream(ctr: Int, n: Int) -> List<Int> { map(0..n, (i) => sha256.digest([(ctr + i) & 255, ((ctr + i) >> 8) & 255])[0]) }
+
+fn bi(i: Int) -> BigInt { big.new_int(i) }
+
+fn main() {
+  let p = elliptic.p256().params
+  let generic = elliptic.curve_params(CurveParams { name: "generic-256", bit_size: 256, ..p })
+  let toy = elliptic.curve_params(CurveParams { p: bi(1009), n: bi(1), b: bi(7), gx: bi(1), gy: bi(1), bit_size: 10, name: "toy" })
+  let curves = [elliptic.p224(), elliptic.p256(), elliptic.p384(), elliptic.p521(), generic]
+  for ci in 0..len(curves) {
+    let c = curves[ci]
+    let pr = c.params
+    print("CURVE " + pr.name + " {pr.bit_size}")
+    var ks = [[1], [2], [0, 3], [0xde, 0xad, 0xbe, 0xef]]
+    if ci < 4 { ks = ks + [pr.n.bytes(), pr.n.sub(big.one()).bytes(), [1] + pr.n.bytes()] }
+    var pts: List<(BigInt, BigInt)> = []
+    for k in ks {
+      let xy = elliptic.scalar_base_mult(c, k)
+      print(" SBM " + hex.encode_bytes(k) + " " + pt(xy) + " {elliptic.is_on_curve(c, xy.0, xy.1)}")
+      pts = push(pts, xy)
+    }
+    let g = pts[0]
+    let d = unwrap(elliptic.double(c, g.0, g.1))
+    print(" DBL " + pt(d))
+    let a3 = unwrap(elliptic.add(c, g.0, g.1, d.0, d.1))
+    print(" ADD " + pt(a3))
+    print(" ADDSELF " + res(elliptic.add(c, g.0, g.1, g.0, g.1)))
+    let neg = pr.p.sub(g.1)
+    print(" ADDNEG " + res(elliptic.add(c, g.0, g.1, g.0, neg)))
+    print(" ADDINF " + res(elliptic.add(c, big.zero(), big.zero(), g.0, g.1)))
+    print(" SM " + res(elliptic.scalar_mult(c, d.0, d.1, [5])))
+    let m = unwrap(elliptic.marshal(c, a3.0, a3.1))
+    let mc = unwrap(elliptic.marshal_compressed(c, a3.0, a3.1))
+    print(" M " + hex.encode_bytes(m) + " " + hex.encode_bytes(mc))
+    print(" U " + opt(elliptic.unmarshal(c, m)) + " " + opt(elliptic.unmarshal_compressed(c, mc)))
+    let bad = set(m, len(m) - 1, m[len(m) - 1] ^ 1)
+    print(" UBAD {is_none(elliptic.unmarshal(c, bad))} {is_none(elliptic.unmarshal(c, m[..len(m) - 1]))} {is_none(elliptic.unmarshal_compressed(c, [4] + mc[1..]))}")
+    print(" UFLIP " + opt(elliptic.unmarshal_compressed(c, set(mc, 0, mc[0] ^ 1))))
+    print(" ON {elliptic.is_on_curve(c, big.zero(), big.zero())} {elliptic.is_on_curve(c, g.0, neg)} {elliptic.is_on_curve(c, g.0, big.one())} {elliptic.is_on_curve(c, g.0.negate(), g.1)} {elliptic.is_on_curve(c, g.0.add(pr.p), g.1)}")
+    print(" P1 " + res(elliptic.add(c, g.0, big.one(), g.0, g.1)))
+    print(" P2 " + res(elliptic.double(c, g.0, big.one())))
+    print(" P3 " + res(elliptic.scalar_mult(c, g.0, big.one(), [2])))
+    print(" P4 " + match elliptic.marshal(c, g.0, big.one()) { Ok(b) => hex.encode_bytes(b), Err(e) => "panic: " + e })
+    print(" P5 " + hex.encode_bytes(unwrap(elliptic.marshal(c, big.zero(), big.zero()))))
+    if ci != 4 {
+      let (priv, x, y) = unwrap(elliptic.generate_key(c, stream(ci * 100, 200)))
+      print(" GEN " + hex.encode_bytes(priv) + " " + pt((x, y)) + " <nil>")
+    }
+  }
+  print("TOY {elliptic.is_on_curve(toy, big.one(), big.one())}")
+  for xv in 0..12 { print(" TC {xv} " + opt(elliptic.unmarshal_compressed(toy, [2, 0, xv]))) }
+}

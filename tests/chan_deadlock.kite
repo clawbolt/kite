@@ -1,0 +1,11 @@
+// 两个任务互相等对方先发：三个引擎都必须报死锁，而不是卡住
+fn main() {
+  let a: Chan<Int> = chan()
+  let b: Chan<Int> = chan()
+  print("开始")
+  let (x, y) = spawn {
+    { let v = unwrap(recv(a)); send(b, v); v },
+    { let v = unwrap(recv(b)); send(a, v); v },
+  }
+  print("不应执行", x, y)
+}

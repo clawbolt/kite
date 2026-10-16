@@ -1,0 +1,29 @@
+// 对齐 Go 1.27 的 unicode 包（Unicode 17.0.0）：tests/go/unicode.go
+use std.unicode
+
+fn b(x: Bool) -> Int { if x { 1 } else { 0 } }
+
+fn stat(kind: Str, name: Str, t: List<(Int, Int)>) {
+  var cnt = 0
+  for (a, z) in t { cnt += z - a + 1 }
+  let (lo, _) = t[0]
+  let (_, hi) = t[len(t) - 1]
+  print("{kind} {len(t)} {cnt} {lo} {hi}")
+  print("  {name}")
+}
+
+fn main() {
+  print(unicode.VERSION)
+  for k in sort(unicode.names()) { stat("cat", k, unwrap(unicode.table(k))) }
+  for k in unicode.script_names() { stat("scr", k, unwrap(unicode.table(k))) }
+  for k in unicode.property_names() { stat("prop", k, unwrap(unicode.property_table(k))) }
+  var c = 0
+  while c <= 0x10ffff {
+    let ok = c < 0x3000 || c % 61 == 0 || (c >= 0x10400 && c < 0x10500) || (c >= 0x1e900 && c < 0x1e960) || (c >= 0xa640 && c < 0xa800)
+    if ok && !(c >= 0xd800 && c <= 0xdfff) {
+      let r = __chr(c)
+      print("{c} {b(unicode.is_letter(r))} {b(unicode.is_upper(r))} {b(unicode.is_lower(r))} {b(unicode.is_title(r))} {b(unicode.is_digit(r))} {b(unicode.is_number(r))} {b(unicode.is_mark(r))} {b(unicode.is_punct(r))} {b(unicode.is_symbol(r))} {b(unicode.is_space(r))} {b(unicode.is_control(r))} {b(unicode.is_graphic(r))} {b(unicode.is_print(r))} {__ord(unicode.to_upper(r))} {__ord(unicode.to_lower(r))} {__ord(unicode.to_title(r))}")
+    }
+    c += 1
+  }
+}

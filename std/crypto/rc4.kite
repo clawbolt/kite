@@ -1,0 +1,38 @@
+// std.crypto.rc4：对齐 Go 1.27 的 crypto/rc4。Cipher 是不可变值：xor_key_stream 返回新状态和输出
+
+pub type Cipher = { s: List<Int>, i: Int, j: Int }
+
+pub fn new_cipher(key: List<Int>) -> Result<Cipher, Str> {
+  let k = len(key)
+  if k < 1 || k > 256 { return Err("crypto/rc4: invalid key size {k}") }
+  var s = map(0..256, (x) => x)
+  var j = 0
+  for i in 0..256 {
+    j = (j + s[i] + key[i % k]) & 255
+    let t = s[i]
+    s = set(s, i, s[j])
+    s = set(s, j, t)
+  }
+  Ok(Cipher { s: s, i: 0, j: 0 })
+}
+
+impl Cipher {
+  pub fn xor_key_stream(self, src: List<Int>) -> (Cipher, List<Int>) {
+    var s = self.s
+    var i = self.i
+    var j = self.j
+    var out: List<Int> = []
+    for x in src {
+      i = (i + 1) & 255
+      j = (j + s[i]) & 255
+      let t = s[i]
+      s = set(s, i, s[j])
+      s = set(s, j, t)
+      out = push(out, x ^ s[(s[i] + s[j]) & 255])
+    }
+    (Cipher { s: s, i: i, j: j }, out)
+  }
+
+  // Reset：Go 里把状态清零，之后再用会得到全零的密钥流
+  pub fn reset(self) -> Cipher { Cipher { s: map(0..256, (_) => 0), i: 0, j: 0 } }
+}

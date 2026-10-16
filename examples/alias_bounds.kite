@@ -1,0 +1,17 @@
+// 类型别名上的约束：使用别名时检查类型实参
+type Sorted<T: Ord> = List<T>
+type Pair<A, B> = (A, B)
+type Table<V> = Map<Str, V>
+
+fn smallest<T: Ord>(xs: Sorted<T>) -> T { xs[0] }
+
+fn swap<A, B>(p: Pair<A, B>) -> Pair<B, A> { (p.1, p.0) }
+
+fn main() {
+  let xs: Sorted<Int> = sort([5, 3, 9])
+  print(smallest(xs))
+  print(swap((1, "one")))
+  var t: Table<Int> = Map()
+  t["a"] = 1
+  print(t)
+}

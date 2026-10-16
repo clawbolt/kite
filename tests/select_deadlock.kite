@@ -1,0 +1,11 @@
+// select 在两个永远没人发送的通道上等待（没有 after）：必须报死锁
+fn main() {
+  let a: Chan<Int> = chan()
+  let b: Chan<Str> = chan()
+  print("开始")
+  let r = select {
+    recv(a) => 1,
+    recv(b) => 2,
+  }
+  print("不应执行", r)
+}

@@ -1,0 +1,11 @@
+use std.math as m
+use std.math.{ sqrt as root, floor }
+use std.strings as s
+use std.encoding.json.*
+
+fn main() {
+  print(m.sqrt(16.0), root(2.25), floor(2.7))
+  print(s.slice("kite lang", 0, 4))
+  let doc = parse("[1, 2, 3]").unwrap()
+  print(stringify(doc))
+}

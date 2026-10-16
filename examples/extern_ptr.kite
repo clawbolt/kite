@@ -1,0 +1,60 @@
+// extern 进阶：Ptr 裸指针（std.ptr）与按值传递的 C 结构体
+use std.ptr
+
+// 字段都是 Int/Float/Bool/Ptr 的结构体可以按值传给 C；布局按声明顺序
+type Cplx = { re: Float, im: Float }
+type Div = { quot: Int, rem: Int }
+
+extern "C" {
+  fn cabs(z: Cplx) -> Float
+  fn conj(z: Cplx) -> Cplx
+  fn lldiv(a: Int, b: Int) -> Div
+  fn strlen(s: Ptr) -> Int
+  fn strdup(s: Str) -> Ptr
+  fn memcpy(dst: Ptr, src: Ptr, n: Int) -> Ptr
+  fn memset(dst: Ptr, c: Int, n: Int) -> Ptr
+}
+
+fn sum_ints(n: Int) -> Int {
+  unsafe {
+    let buf = ptr.alloc(n * 8)
+    for i in 0..n {
+      ptr.write_int(buf, i * 8, i * i)
+    }
+    let copy = ptr.alloc(n * 8)
+    memcpy(copy, buf, n * 8)
+    var total = 0
+    for i in 0..n {
+      total += ptr.read_int(copy, i * 8)
+    }
+    ptr.free(buf)
+    ptr.free(copy)
+    total
+  }
+}
+
+fn main() {
+  let z = Cplx { re: 3.0, im: 4.0 }
+  unsafe {
+    print(cabs(z))
+    print(conj(z))
+    print(lldiv(17, 5))
+  }
+  print(sum_ints(10))
+  let p = unsafe { strdup("风筝 kite") }
+  print(ptr.is_null(p), ptr.is_null(ptr.null()))
+  unsafe {
+    print(strlen(p), ptr.to_str(p))
+    ptr.write_byte(p, 0, 75)
+    print(ptr.to_str(ptr.offset(p, 7)), ptr.read_byte(p, 0))
+    let q = ptr.from_str("abc")
+    memset(q, 120, 2)
+    print(ptr.to_str(q))
+    ptr.free(q)
+    let f = ptr.alloc(16)
+    ptr.write_float(f, 8, 2.5)
+    print(ptr.read_float(f, 8), ptr.read_float(f, 0))
+    ptr.free(f)
+    ptr.free(p)
+  }
+}

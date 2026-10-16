@@ -1,0 +1,158 @@
+use std.compress.lzw
+use std.encoding.hex
+use std.hash.crc32
+
+fn gen(n: Int, seed: Int, mask: Int) -> List<Int> {
+  var out: List<Int> = []
+  var s = seed
+  for _ in 0..n {
+    s = (s * 1103515245 + 12345) & 0x7fffffff
+    out = push(out, (s >> 16) & 255 & mask)
+  }
+  out
+}
+
+fn text(n: Int) -> List<Int> {
+  let words = ["the ", "quick ", "brown ", "fox ", "jumps ", "over ", "lazy ", "dog ", "\n"]
+  var b: List<Int> = []
+  var s = 7
+  while len(b) < n {
+    s = (s * 1103515245 + 12345) & 0x7fffffff
+    b = b + __bytes(words[(s >> 16) % 9])
+  }
+  b[..n]
+}
+
+fn comp(data: List<Int>, order: Int, lw: Int, chunk0: Int) -> Result<List<Int>, Str> {
+  var w = lzw.new_writer(order, lw)
+  let chunk = if chunk0 <= 0 { len(data) + 1 } else { chunk0 }
+  var i = 0
+  while i < len(data) {
+    let j = min(i + chunk, len(data))
+    let (w2, r) = w.write(data[i..j])
+    w = w2
+    match r {
+      Err(e) => { return Err(e) },
+      Ok(_)  => {},
+    }
+    i += chunk
+  }
+  let (w3, e) = w.close()
+  match e {
+    Some(m) => Err(m),
+    None    => Ok(w3.bytes()),
+  }
+}
+
+fn show(b: List<Int>) -> Str {
+  if len(b) <= 48 { return hex.encode_bytes(b) }
+  "len={len(b)} crc={crc32.checksum_bytes(b)} head={hex.encode_bytes(b[..16])}"
+}
+
+fn nilstr(e: Option<Str>) -> Str {
+  match e {
+    Some(m) => m,
+    None    => "<nil>",
+  }
+}
+
+fn errstr(r: Result<List<Int>, Str>) -> Str {
+  match r {
+    Ok(_)  => "<nil>",
+    Err(e) => e,
+  }
+}
+
+fn wres(r: Result<Int, Str>) -> Str {
+  match r {
+    Ok(n)  => "{n} <nil>",
+    Err(e) => "0 " + e,
+  }
+}
+
+fn quote(b: List<Int>) -> Str { "\"" + unwrap_or(__from_bytes(b), "?") + "\"" }
+
+fn main() {
+  let orders = [lzw.LSB, lzw.MSB]
+  for o in orders {
+    for lw in 2..9 {
+      let mask = (1 << lw) - 1
+      var ins: List<List<Int>> = [[], [0], [1, 1, 1, 1, 1, 1, 1, 1], gen(40, lw, mask), gen(700, 99, mask & 3)]
+      if lw == 8 {
+        ins = push(ins, __bytes("TOBEORNOTTOBEORTOBEORNOT#"))
+        ins = push(ins, text(600))
+      }
+      for inp in ins {
+        match comp(inp, o, lw, 0) {
+          Err(e) => print("err", e),
+          Ok(c)  => {
+            let (d, e) = lzw.read_all(c, o, lw)
+            print("{o} {lw} {len(inp)} {show(c)} {d == inp} {e}")
+          },
+        }
+      }
+    }
+  }
+  for o in orders {
+    let big = gen(9000, 5, 255)
+    let c = unwrap(comp(big, o, 8, 0))
+    let (d, e) = lzw.read_all(c, o, 8)
+    print("big8 {o} {show(c)} {d == big} {e}")
+    let big2 = gen(12000, 3, 3)
+    let c2 = unwrap(comp(big2, o, 2, 0))
+    let c3 = unwrap(comp(big2, o, 2, 777))
+    let (d2, e2) = lzw.read_all(c2, o, 2)
+    print("big2 {o} {show(c2)} {c2 == c3} {d2 == big2} {e2}")
+    let t = text(5000)
+    let c4 = unwrap(comp(t, o, 8, 0))
+    let c5 = unwrap(comp(t, o, 8, 13))
+    let (d4, e4) = lzw.read_all(c4, o, 8)
+    print("text {o} {show(c4)} {c4 == c5} {d4 == t} {e4}")
+  }
+  print(errstr(comp([1, 2, 3], lzw.LSB, 1, 0)))
+  print(errstr(comp([1, 2, 3], lzw.LSB, 9, 0)))
+  print(errstr(comp([1, 2, 3], 2, 8, 0)))
+  print(errstr(comp([1, 2, 4], lzw.MSB, 2, 0)))
+  {
+    var w = lzw.new_writer(lzw.LSB, 8)
+    let (w1, r1) = w.write([])
+    print(wres(r1))
+    let (w2, r2) = w1.write(__bytes("ab"))
+    print(wres(r2))
+    let (w3, e3) = w2.close()
+    print(nilstr(e3))
+    let (w4, e4) = w3.close()
+    print(nilstr(e4))
+    let (w5, r5) = w4.write(__bytes("cd"))
+    print(wres(r5) + " " + hex.encode_bytes(w5.bytes()))
+  }
+  {
+    let w = lzw.new_writer(lzw.MSB, 3)
+    let (w1, r1) = w.write([9])
+    print(errstr(match r1 { Ok(_) => Ok([]), Err(e) => Err(e) }))
+    let (w2, r2) = w1.write([1])
+    print(errstr(match r2 { Ok(_) => Ok([]), Err(e) => Err(e) }))
+    let (_, e3) = w2.close()
+    print(nilstr(e3))
+  }
+  let good = unwrap(comp(__bytes("TOBEORNOTTOBEORTOBEORNOT"), lzw.LSB, 8, 0))
+  for n in [0, 1, 2, 5, len(good) - 1] {
+    let (d, e) = lzw.read_all(good[..n], lzw.LSB, 8)
+    print("trunc {n} {quote(d)} {e}")
+  }
+  let bads = [[0xff, 0xff, 0xff], [0x00, 0xff, 0x0f], [0x41, 0x0c, 0x0c, 0x0c, 0xff, 0xff], [0x00, 0x01], gen(30, 1, 255)]
+  for b in bads {
+    for o in orders {
+      for lw in [2, 7, 8] {
+        let (d, e) = lzw.read_all(b, o, lw)
+        print("bad {hex.encode_bytes(b)} {o} {lw} {hex.encode_bytes(d)} {e}")
+      }
+    }
+  }
+  let (_, e1) = lzw.read_all(good, lzw.LSB, 1)
+  print(e1)
+  let (_, e2) = lzw.read_all(good, 5, 8)
+  print(e2)
+  let (d, e) = lzw.read_all([0x80, 0x00, 0x08, 0x02, 0x04, 0x01], lzw.MSB, 7)
+  print(hex.encode_bytes(d), e)
+}

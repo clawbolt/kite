@@ -1,0 +1,926 @@
+// std.text.template：文本模板（对齐 Go 的 text/template）
+// 数据用 std.encoding.json 的 Json 表示（json.parse 得到，或直接用 JObj / JArr 等构造）
+//   {{.}} {{.a.b}} {{$x}} {{$x.a}} {{$.a}}    取值；对象里没有的字段输出 <no value>
+//   {{"s"}} {{`raw`}} {{42}} {{1.5}} {{true}} {{nil}}
+//   {{f a b}} {{a | f b}} {{(f a) | g}}        调用函数，管道把上一个结果作为最后一个参数
+//   {{$x := pipe}} {{$x = pipe}}               声明、赋值（赋值会影响外层的同名变量）
+//   {{if p}} {{else if p}} {{else}} {{end}}    假值：false、0、0.0、""、[]、{}、nil
+//   {{range p}} {{range $v := p}} {{range $i, $v := p}} {{else}} {{end}}，{{break}} {{continue}}
+//     可以遍历数组、对象（按键排序，$k, $v）和整数 n（0..n-1）
+//   {{with p}} {{else with p}} {{else}} {{end}}
+//   {{define "name"}}…{{end}} {{template "name" p}} {{block "name" p}}默认内容{{end}}
+//   {{/* 注释 */}}，{{- 去掉前面的空白，-}} 去掉后面的空白
+// 内建函数：and or not len index slice eq ne lt le gt ge print printf println html urlquery js
+//   printf 支持 %v %s %d %f %e %x %X %o %b %q %t %c %%，标志 - + 0，宽度和精度
+// 自定义函数：add_func(t, 名字, fn(List<Json>) -> Result<Json, Str>)，必须在 parse_into 之前添加
+// 与 Go 的差别：len 按字符数计算（Go 按字节）；浮点数按 Kite 的格式输出
+
+use std.encoding.json
+use std.encoding.json.{ Json }
+use std.net.url
+
+pub type Func = fn(List<Json>) -> Result<Json, Str>
+
+pub enum Arg {
+  AField(base: Str, path: List<Str>)
+  AVal(v: Json)
+  AFn(name: Str)
+  ASub(p: Pipe)
+}
+
+pub type Pipe = { decl: List<Str>, assign: Bool, cmds: List<List<Arg>> }
+
+pub enum Node {
+  NText(s: Str)
+  NOut(p: Pipe, line: Int)
+  NIf(p: Pipe, yes: List<Node>, no: List<Node>, line: Int)
+  NRange(p: Pipe, body: List<Node>, no: List<Node>, line: Int)
+  NWith(p: Pipe, body: List<Node>, no: List<Node>, line: Int)
+  NCall(name: Str, p: Pipe, line: Int)
+  NBreak(line: Int)
+  NContinue(line: Int)
+}
+
+// 给错误加上 "template: 名字:行: " 前缀
+fn at<T>(r: Result<T, Str>, name: Str, line: Int) -> Result<T, Str> {
+  match r {
+    Ok(v) => Ok(v),
+    Err(m) => Err(perr(name, line, m)),
+  }
+}
+
+pub type Template = { name: Str, trees: Map<Str, List<Node>>, funcs: Map<Str, Func> }
+
+const BUILTINS: List<Str> = ["and", "or", "not", "len", "index", "slice", "eq", "ne", "lt", "le", "gt", "ge", "print", "printf", "println", "html", "urlquery", "js"]
+
+// ── 切分文本和动作 ──
+
+enum Item {
+  IText(s: Str)
+  IAct(src: Str, line: Int)
+}
+
+fn is_ws(c: Str) -> Bool { c == " " || c == "\t" || c == "\n" || c == "\r" }
+
+fn rtrim_ws(s: Str) -> Str {
+  let cs = chars(s)
+  var n = len(cs)
+  while n > 0 && is_ws(cs[n - 1]) { n -= 1 }
+  join(cs[0..n], "")
+}
+
+fn ltrim_ws(s: Str) -> Str {
+  let cs = chars(s)
+  var i = 0
+  while i < len(cs) && is_ws(cs[i]) { i += 1 }
+  join(cs[i..len(cs)], "")
+}
+
+fn perr(name: Str, line: Int, msg: Str) -> Str { "template: {name}:{line}: {msg}" }
+
+fn split_items(name: Str, src: Str) -> Result<List<Item>, Str> {
+  let cs = chars(src)
+  let n = len(cs)
+  var items: List<Item> = []
+  var text = ""
+  var i = 0
+  var line = 1
+  var trim_next = false
+  while i < n {
+    if cs[i] == "\{" && i + 1 < n && cs[i + 1] == "\{" {
+      let start_line = line
+      var j = i + 2
+      if j + 1 < n && cs[j] == "-" && is_ws(cs[j + 1]) {
+        text = rtrim_ws(text)
+        j += 2
+      }
+      if trim_next { text = ltrim_ws(text) }
+      trim_next = false
+      if text != "" { items = push(items, IText(text)) }
+      text = ""
+      // 找 }}，跳过字符串字面量
+      var act = ""
+      var closed = false
+      while j < n && !closed {
+        let c = cs[j]
+        if c == "\"" || c == "`" {
+          act = act + c
+          j += 1
+          while j < n && cs[j] != c {
+            if c == "\"" && cs[j] == "\\" && j + 1 < n {
+              act = act + cs[j]
+              j += 1
+            }
+            if cs[j] == "\n" { line += 1 }
+            act = act + cs[j]
+            j += 1
+          }
+          if j >= n { return Err(perr(name, start_line, "字符串没有结束")) }
+          act = act + c
+          j += 1
+        } else if c == "\}" && j + 1 < n && cs[j + 1] == "\}" {
+          closed = true
+          j += 2
+        } else {
+          if c == "\n" { line += 1 }
+          act = act + c
+          j += 1
+        }
+      }
+      if !closed { return Err(perr(name, start_line, "动作没有用 \}\} 结束")) }
+      var a = act
+      if ends_with(a, "-") && len(a) >= 2 && is_ws(__str_slice(a, len(a) - 2, len(a) - 1)) {
+        a = __str_slice(a, 0, len(a) - 1)
+        trim_next = true
+      }
+      let t = trim(a)
+      if starts_with(t, "/*") {
+        if !ends_with(t, "*/") { return Err(perr(name, start_line, "注释没有结束")) }
+      } else {
+        items = push(items, IAct(t, start_line))
+      }
+      i = j
+    } else {
+      if cs[i] == "\n" { line += 1 }
+      text = text + cs[i]
+      i += 1
+    }
+  }
+  if trim_next { text = ltrim_ws(text) }
+  if text != "" { items = push(items, IText(text)) }
+  Ok(items)
+}
+
+// ── 动作里的词法 ──
+
+type Tok = { k: Str, v: Str }
+
+fn is_ident_char(c: Str) -> Bool {
+  let o = __ord(c)
+  (o >= 65 && o <= 90) || (o >= 97 && o <= 122) || (o >= 48 && o <= 57) || c == "_" || o >= 128
+}
+
+fn lex(src: Str) -> Result<List<Tok>, Str> {
+  let cs = chars(src)
+  let n = len(cs)
+  var out: List<Tok> = []
+  var i = 0
+  while i < n {
+    let c = cs[i]
+    if is_ws(c) {
+      i += 1
+    } else if c == "|" || c == "(" || c == ")" || c == "," {
+      out = push(out, Tok { k: c, v: c })
+      i += 1
+    } else if c == ":" && i + 1 < n && cs[i + 1] == "=" {
+      out = push(out, Tok { k: ":=", v: ":=" })
+      i += 2
+    } else if c == "=" {
+      out = push(out, Tok { k: "=", v: "=" })
+      i += 1
+    } else if c == "\"" {
+      var s = ""
+      i += 1
+      while i < n && cs[i] != "\"" {
+        if cs[i] == "\\" && i + 1 < n {
+          let e = cs[i + 1]
+          s = s + (if e == "n" { "\n" } else if e == "t" { "\t" } else if e == "r" { "\r" } else { e })
+          i += 2
+        } else {
+          s = s + cs[i]
+          i += 1
+        }
+      }
+      out = push(out, Tok { k: "str", v: s })
+      i += 1
+    } else if c == "`" {
+      var s = ""
+      i += 1
+      while i < n && cs[i] != "`" {
+        s = s + cs[i]
+        i += 1
+      }
+      out = push(out, Tok { k: "str", v: s })
+      i += 1
+    } else if c == "." || c == "$" {
+      var s = c
+      i += 1
+      while i < n && (is_ident_char(cs[i]) || cs[i] == ".") {
+        s = s + cs[i]
+        i += 1
+      }
+      out = push(out, Tok { k: if c == "." { "field" } else { "var" }, v: s })
+    } else if c == "-" || c == "+" || (__ord(c) >= 48 && __ord(c) <= 57) {
+      var s = c
+      i += 1
+      while i < n && (is_ident_char(cs[i]) || cs[i] == ".") {
+        s = s + cs[i]
+        i += 1
+      }
+      out = push(out, Tok { k: "num", v: s })
+    } else if is_ident_char(c) {
+      var s = ""
+      while i < n && is_ident_char(cs[i]) {
+        s = s + cs[i]
+        i += 1
+      }
+      out = push(out, Tok { k: "ident", v: s })
+    } else {
+      return Err("动作里有意外的字符 {c}")
+    }
+  }
+  Ok(out)
+}
+
+// ── 管道 ──
+
+fn field_arg(base: Str, s: Str) -> Arg {
+  // ".a.b" → (".", ["a", "b"])；"$x.a" → ("$x", ["a"])
+  let parts = split(s, ".")
+  if base == "." { AField(".", filter(parts, (p) => p != "")) } else { AField(parts[0], parts[1..len(parts)]) }
+}
+
+fn parse_arg(ts: List<Tok>, i: Int, funcs: Map<Str, Func>) -> Result<(Arg, Int), Str> {
+  let t = ts[i]
+  if t.k == "(" {
+    let (p, j) = parse_pipe(ts, i + 1, funcs, false)?
+    if j >= len(ts) || ts[j].k != ")" { return Err("括号没有闭合") }
+    return Ok((ASub(p), j + 1))
+  }
+  if t.k == "field" { return Ok((field_arg(".", t.v), i + 1)) }
+  if t.k == "var" { return Ok((field_arg("$", t.v), i + 1)) }
+  if t.k == "str" { return Ok((AVal(JStr(t.v)), i + 1)) }
+  if t.k == "num" {
+    match parse_int(t.v) {
+      Ok(n) => { return Ok((AVal(JInt(n)), i + 1)) },
+      Err(_) => {},
+    }
+    match parse_float(t.v) {
+      Ok(f) => { return Ok((AVal(JNum(f)), i + 1)) },
+      Err(_) => { return Err("无效的数字 {t.v}") },
+    }
+  }
+  if t.k == "ident" {
+    if t.v == "true" || t.v == "false" { return Ok((AVal(JBool(t.v == "true")), i + 1)) }
+    if t.v == "nil" { return Ok((AVal(JNull), i + 1)) }
+    if !contains(BUILTINS, t.v) && !contains(funcs, t.v) { return Err("函数 \"{t.v}\" 没有定义") }
+    return Ok((AFn(t.v), i + 1))
+  }
+  Err("意外的 {t.v}")
+}
+
+fn parse_pipe(ts: List<Tok>, i0: Int, funcs: Map<Str, Func>, allow_decl: Bool) -> Result<(Pipe, Int), Str> {
+  var i = i0
+  var decl: List<Str> = []
+  var assign = false
+  // $x := … / $x = … / $i, $v := …
+  if allow_decl && i < len(ts) && ts[i].k == "var" {
+    var j = i
+    var vs: List<Str> = []
+    var ok = true
+    while ok && j < len(ts) && ts[j].k == "var" {
+      vs = push(vs, ts[j].v)
+      j += 1
+      if j < len(ts) && ts[j].k == "," { j += 1 } else { ok = false }
+    }
+    if j < len(ts) && (ts[j].k == ":=" || ts[j].k == "=") {
+      decl = vs
+      assign = ts[j].k == "="
+      i = j + 1
+    }
+  }
+  var cmds: List<List<Arg>> = []
+  var cur: List<Arg> = []
+  while i < len(ts) && ts[i].k != ")" {
+    if ts[i].k == "|" {
+      if len(cur) == 0 { return Err("管道里缺少命令") }
+      cmds = push(cmds, cur)
+      cur = []
+      i += 1
+    } else {
+      let (a, j) = parse_arg(ts, i, funcs)?
+      cur = push(cur, a)
+      i = j
+    }
+  }
+  if len(cur) == 0 { return Err("缺少值") }
+  cmds = push(cmds, cur)
+  Ok((Pipe { decl: decl, assign: assign, cmds: cmds }, i))
+}
+
+fn pipe_of(src: Str, funcs: Map<Str, Func>, allow_decl: Bool) -> Result<Pipe, Str> {
+  let ts = lex(src)?
+  let (p, i) = parse_pipe(ts, 0, funcs, allow_decl)?
+  if i < len(ts) { return Err("多余的 )") }
+  Ok(p)
+}
+
+// ── 语法树 ──
+
+type Ps = { name: Str, items: List<Item>, funcs: Map<Str, Func> }
+
+// 解析到 {{end}} / {{else …}} 或结尾：(节点, 下一项, 停在哪个词, else 后面的内容, 新增的 define)
+fn parse_list(ps: Ps, i0: Int, defs0: Map<Str, List<Node>>) -> Result<(List<Node>, Int, Str, Str, Map<Str, List<Node>>), Str> {
+  var nodes: List<Node> = []
+  var defs = defs0
+  var i = i0
+  while i < len(ps.items) {
+    match ps.items[i] {
+      IText(s) => {
+        nodes = push(nodes, NText(s))
+        i += 1
+      },
+      IAct(src, line) => {
+        let (word, rest) = first_word(src)
+        let e = (m: Str) => perr(ps.name, line, m)
+        if word == "end" { return Ok((nodes, i + 1, "end", "", defs)) }
+        if word == "else" { return Ok((nodes, i + 1, "else", rest, defs)) }
+        if word == "if" || word == "range" || word == "with" {
+          let (node, j, d2) = parse_block(ps, i + 1, defs, word, rest, line)?
+          nodes = push(nodes, node)
+          defs = d2
+          i = j
+        } else if word == "define" || word == "block" {
+          let ts = at(lex(rest), ps.name, line)?
+          if len(ts) == 0 || ts[0].k != "str" { return Err(e("{word} 需要一个模板名字符串")) }
+          let tname = ts[0].v
+          let (body, j, stop, _, d2) = parse_list(ps, i + 1, defs)?
+          if stop != "end" { return Err(e("{word} \"{tname}\" 缺少 \{\{end\}\}")) }
+          defs = set(d2, tname, body)
+          if word == "block" {
+            let p = if len(ts) > 1 { at(pipe_of(__str_slice(trim(rest), len(tname) + 2, len(trim(rest))), ps.funcs, false), ps.name, line)? } else { Pipe { decl: [], assign: false, cmds: [] } }
+            nodes = push(nodes, NCall(tname, p, line))
+          }
+          i = j
+        } else if word == "template" {
+          let ts = at(lex(rest), ps.name, line)?
+          if len(ts) == 0 || ts[0].k != "str" { return Err(e("template 需要一个模板名字符串")) }
+          let tname = ts[0].v
+          let p = if len(ts) > 1 { at(pipe_of(__str_slice(trim(rest), len(tname) + 2, len(trim(rest))), ps.funcs, false), ps.name, line)? } else { Pipe { decl: [], assign: false, cmds: [] } }
+          nodes = push(nodes, NCall(tname, p, line))
+          i += 1
+        } else if word == "break" {
+          nodes = push(nodes, NBreak(line))
+          i += 1
+        } else if word == "continue" {
+          nodes = push(nodes, NContinue(line))
+          i += 1
+        } else {
+          nodes = push(nodes, NOut(at(pipe_of(src, ps.funcs, true), ps.name, line)?, line))
+          i += 1
+        }
+      },
+    }
+  }
+  Ok((nodes, i, "", "", defs))
+}
+
+fn first_word(s: Str) -> (Str, Str) {
+  let cs = chars(s)
+  var i = 0
+  while i < len(cs) && is_ident_char(cs[i]) { i += 1 }
+  // 只有后面是空白或结尾时才算关键字
+  if i == 0 || (i < len(cs) && !is_ws(cs[i])) { return ("", s) }
+  (join(cs[0..i], ""), trim(join(cs[i..len(cs)], "")))
+}
+
+fn parse_block(ps: Ps, i0: Int, defs: Map<Str, List<Node>>, word: Str, head: Str, line: Int) -> Result<(Node, Int, Map<Str, List<Node>>), Str> {
+  let e = (m: Str) => perr(ps.name, line, m)
+  let p = at(pipe_of(head, ps.funcs, word != "with" || true), ps.name, line)?
+  let (body, j, stop, rest, d2) = parse_list(ps, i0, defs)?
+  if stop == "" { return Err(e("{word} 缺少 \{\{end\}\}")) }
+  var no: List<Node> = []
+  var k = j
+  var d3 = d2
+  if stop == "else" {
+    let (w2, r2) = first_word(rest)
+    if (w2 == "if" && word == "if") || (w2 == "with" && word == "with") {
+      // else if / else with：嵌套一层，共用同一个 {{end}}
+      let (node, j2, d4) = parse_block(ps, j, d2, w2, r2, line)?
+      no = [node]
+      k = j2
+      d3 = d4
+    } else {
+      if rest != "" { return Err(e("else 后面只能跟 if 或 with")) }
+      let (els, j2, stop2, _, d4) = parse_list(ps, j, d2)?
+      if stop2 != "end" { return Err(e("{word} 缺少 \{\{end\}\}")) }
+      no = els
+      k = j2
+      d3 = d4
+    }
+  }
+  let node = if word == "if" { NIf(p, body, no, line) } else if word == "range" { NRange(p, body, no, line) } else { NWith(p, body, no, line) }
+  Ok((node, k, d3))
+}
+
+pub fn new(name: Str) -> Template { Template { name: name, trees: Map(), funcs: Map() } }
+
+pub fn add_func(t: Template, name: Str, f: Func) -> Template { Template { funcs: set(t.funcs, name, f), ..t } }
+
+// 解析 src 作为 t 的主模板（其中的 define 一并加入）
+pub fn parse_into(t: Template, src: Str) -> Result<Template, Str> {
+  let items = split_items(t.name, src)?
+  let ps = Ps { name: t.name, items: items, funcs: t.funcs }
+  let (nodes, i, stop, _, defs) = parse_list(ps, 0, t.trees)?
+  if stop != "" {
+    let line = match items[i - 1] {
+      IAct(_, l) => l,
+      IText(_) => 0,
+    }
+    return Err(perr(t.name, line, "多余的 \{\{{stop}\}\}"))
+  }
+  // 主模板只有空白和 define 时，不覆盖已有的同名模板
+  let blank = all(nodes, (nd) => match nd {
+    NText(s) => trim(s) == "",
+    _ => false,
+  })
+  Ok(Template { trees: if blank && contains(defs, t.name) { defs } else { set(defs, t.name, nodes) }, ..t })
+}
+
+pub fn parse(name: Str, src: Str) -> Result<Template, Str> { parse_into(new(name), src) }
+
+pub fn defined(t: Template) -> List<Str> { sort(keys(t.trees)) }
+
+// ── 求值 ──
+
+pub fn truth(v: Json) -> Bool {
+  match v {
+    JNull => false,
+    JBool(b) => b,
+    JInt(n) => n != 0,
+    JNum(f) => f != 0.0,
+    JStr(s) => s != "",
+    JArr(xs) => len(xs) > 0,
+    JObj(m) => len(m) > 0,
+  }
+}
+
+// Go 的 %v
+pub fn show(v: Json) -> Str {
+  match v {
+    JNull => "<no value>",
+    JBool(b) => if b { "true" } else { "false" },
+    JInt(n) => "{n}",
+    JNum(f) => "{f}",
+    JStr(s) => s,
+    JArr(xs) => "[" + join(map(xs, (x) => show(x)), " ") + "]",
+    JObj(m) => "map[" + join(map(sort(keys(m)), (k) => k + ":" + show(unwrap(get(m, k)))), " ") + "]",
+  }
+}
+
+fn kind(v: Json) -> Str {
+  match v {
+    JNull => "nil",
+    JBool(_) => "bool",
+    JInt(_) => "int",
+    JNum(_) => "float",
+    JStr(_) => "string",
+    JArr(_) => "array",
+    JObj(_) => "map",
+  }
+}
+
+type Cx = { t: Template, dot: Json, vars: Map<Str, Json>, depth: Int }
+
+fn lookup(v: Json, path: List<Str>) -> Result<Json, Str> {
+  var cur = v
+  for f in path {
+    cur = match cur {
+      JObj(m) => unwrap_or(get(m, f), JNull),
+      JNull => JNull,
+      _ => { return Err("不能在 {kind(cur)} 上取字段 {f}") },
+    }
+  }
+  Ok(cur)
+}
+
+fn eval_arg(a: Arg, cx: Cx) -> Result<Json, Str> {
+  match a {
+    AVal(v) => Ok(v),
+    AField(base, path) => {
+      let root = if base == "." { cx.dot } else {
+        match get(cx.vars, base) {
+          Some(v) => v,
+          None => { return Err("未定义的变量 {base}") },
+        }
+      }
+      lookup(root, path)
+    },
+    ASub(p) => {
+      let (v, _) = eval_pipe(p, cx)?
+      Ok(v)
+    },
+    AFn(name) => call(name, [], cx),
+  }
+}
+
+fn eval_pipe(p: Pipe, cx: Cx) -> Result<(Json, Map<Str, Json>), Str> {
+  var val: Option<Json> = None
+  for cmd in p.cmds {
+    let v = match cmd[0] {
+      AFn(name) => {
+        var args: List<Json> = []
+        for a in cmd[1..len(cmd)] { args = push(args, eval_arg(a, cx)?) }
+        match val {
+          Some(x) => { args = push(args, x) },
+          None => {},
+        }
+        call(name, args, cx)?
+      },
+      _ => {
+        if len(cmd) > 1 { return Err("{show_arg(cmd[0])} 不是函数，不能带参数") }
+        if is_some(val) { return Err("不能把管道的结果传给非函数 {show_arg(cmd[0])}") }
+        eval_arg(cmd[0], cx)?
+      },
+    }
+    val = Some(v)
+  }
+  let out = unwrap_or(val, JNull)
+  var vars = cx.vars
+  if len(p.decl) == 1 {
+    let name = p.decl[0]
+    if p.assign && !contains(vars, name) { return Err("未定义的变量 {name}") }
+    vars = set(vars, name, out)
+  }
+  Ok((out, vars))
+}
+
+fn show_arg(a: Arg) -> Str {
+  match a {
+    AField(b, path) => if b == "." { "." + join(path, ".") } else { join(push([b], join(path, ".")), ".") },
+    AVal(v) => json.stringify(v),
+    AFn(n) => n,
+    ASub(_) => "(…)",
+  }
+}
+
+fn num(v: Json) -> Option<Float> {
+  match v {
+    JInt(n) => Some(float(n)),
+    JNum(f) => Some(f),
+    _ => None,
+  }
+}
+
+fn equal(a: Json, b: Json) -> Result<Bool, Str> {
+  match (num(a), num(b)) {
+    (Some(x), Some(y)) => { return Ok(x == y) },
+    _ => {},
+  }
+  match (a, b) {
+    (JStr(x), JStr(y)) => Ok(x == y),
+    (JBool(x), JBool(y)) => Ok(x == y),
+    (JNull, JNull) => Ok(true),
+    (JNull, _) => Ok(false),
+    (_, JNull) => Ok(false),
+    _ => Err("eq：不能比较 {kind(a)} 和 {kind(b)}"),
+  }
+}
+
+fn less(a: Json, b: Json) -> Result<Bool, Str> {
+  match (num(a), num(b)) {
+    (Some(x), Some(y)) => { return Ok(x < y) },
+    _ => {},
+  }
+  match (a, b) {
+    (JStr(x), JStr(y)) => Ok(x < y),
+    _ => Err("不能比较大小：{kind(a)} 和 {kind(b)}"),
+  }
+}
+
+fn need(name: Str, args: List<Json>, n: Int) -> Result<Unit, Str> {
+  if len(args) != n { Err("{name} 需要 {n} 个参数，实际是 {len(args)} 个") } else { Ok(()) }
+}
+
+fn to_idx(v: Json) -> Result<Int, Str> {
+  match v {
+    JInt(n) => Ok(n),
+    _ => Err("下标必须是整数，实际是 {kind(v)}"),
+  }
+}
+
+fn html_escape(s: Str) -> Str { replace(replace(replace(replace(replace(s, "&", "&amp;"), "<", "&lt;"), ">", "&gt;"), "\"", "&#34;"), "'", "&#39;") }
+
+fn js_escape(s: Str) -> Str {
+  var out = ""
+  for c in chars(s) {
+    out = out + (if c == "\\" { "\\\\" } else if c == "'" { "\\'" } else if c == "\"" { "\\\"" } else if c == "<" { "\\u003C" } else if c == ">" { "\\u003E" } else if c == "&" { "\\u0026" } else if c == "=" { "\\u003D" } else if c == "\n" { "\\n" } else { c })
+  }
+  out
+}
+
+fn sprint(args: List<Json>) -> Str {
+  // 同 Go 的 fmt.Sprint：两个相邻参数都不是字符串时中间加空格
+  var out = ""
+  var prev_str = true
+  var i = 0
+  for a in args {
+    let is_str = match a {
+      JStr(_) => true,
+      _ => false,
+    }
+    if i > 0 && !is_str && !prev_str { out = out + " " }
+    out = out + show(a)
+    prev_str = is_str
+    i += 1
+  }
+  out
+}
+
+fn call(name: Str, args: List<Json>, cx: Cx) -> Result<Json, Str> {
+  match get(cx.t.funcs, name) {
+    Some(f) => { return f(args) },
+    None => {},
+  }
+  if name == "and" || name == "or" {
+    if len(args) == 0 { return Err("{name} 至少需要 1 个参数") }
+    for a in args {
+      if truth(a) != (name == "and") { return Ok(a) }
+    }
+    return Ok(args[len(args) - 1])
+  }
+  if name == "not" {
+    need(name, args, 1)?
+    return Ok(JBool(!truth(args[0])))
+  }
+  if name == "len" {
+    need(name, args, 1)?
+    return match args[0] {
+      JStr(s) => Ok(JInt(len(s))),
+      JArr(xs) => Ok(JInt(len(xs))),
+      JObj(m) => Ok(JInt(len(m))),
+      _ => Err("len：不能对 {kind(args[0])} 取长度"),
+    }
+  }
+  if name == "index" {
+    if len(args) == 0 { return Err("index 至少需要 1 个参数") }
+    var cur = args[0]
+    for k in args[1..len(args)] {
+      cur = match cur {
+        JArr(xs) => {
+          let i = to_idx(k)?
+          match get(xs, i) {
+            Some(v) => v,
+            None => { return Err("index：下标 {i} 超出范围（长度 {len(xs)}）") },
+          }
+        },
+        JObj(m) => match k {
+          JStr(s) => unwrap_or(get(m, s), JNull),
+          _ => { return Err("index：对象的键必须是字符串") },
+        },
+        JNull => JNull,
+        _ => { return Err("index：不能对 {kind(cur)} 取下标") },
+      }
+    }
+    return Ok(cur)
+  }
+  if name == "slice" {
+    if len(args) == 0 || len(args) > 3 { return Err("slice 需要 1 到 3 个参数") }
+    let x = args[0]
+    let n = match x {
+      JStr(s) => len(s),
+      JArr(xs) => len(xs),
+      _ => { return Err("slice：不能切 {kind(x)}") },
+    }
+    let a = if len(args) > 1 { to_idx(args[1])? } else { 0 }
+    let b = if len(args) > 2 { to_idx(args[2])? } else { n }
+    if a < 0 || b > n || a > b { return Err("slice：范围 [{a}:{b}] 超出长度 {n}") }
+    return match x {
+      JStr(s) => Ok(JStr(__str_slice(s, a, b))),
+      JArr(xs) => Ok(JArr(xs[a..b])),
+      _ => Ok(JNull),
+    }
+  }
+  if name == "eq" {
+    if len(args) < 2 { return Err("eq 至少需要 2 个参数") }
+    for b in args[1..len(args)] {
+      if equal(args[0], b)? { return Ok(JBool(true)) }
+    }
+    return Ok(JBool(false))
+  }
+  if name == "ne" {
+    need(name, args, 2)?
+    return Ok(JBool(!equal(args[0], args[1])?))
+  }
+  if name == "lt" || name == "le" || name == "gt" || name == "ge" {
+    need(name, args, 2)?
+    let a = args[0]
+    let b = args[1]
+    let r = if name == "lt" { less(a, b)? } else if name == "gt" { less(b, a)? } else if name == "le" { !less(b, a)? } else { !less(a, b)? }
+    return Ok(JBool(r))
+  }
+  if name == "print" { return Ok(JStr(sprint(args))) }
+  if name == "println" { return Ok(JStr(join(map(args, (a) => show(a)), " ") + "\n")) }
+  if name == "printf" {
+    if len(args) == 0 { return Err("printf 至少需要 1 个参数") }
+    let JStr(f) = args[0] else { return Err("printf 的第一个参数必须是字符串") }
+    return Ok(JStr(sprintf(f, args[1..len(args)])))
+  }
+  let s = sprint(args)
+  if name == "html" { return Ok(JStr(html_escape(s))) }
+  if name == "urlquery" { return Ok(JStr(url.query_escape(s))) }
+  if name == "js" { return Ok(JStr(js_escape(s))) }
+  Err("函数 \"{name}\" 没有定义")
+}
+
+fn toi(s: Str) -> Int {
+  match parse_int(s) {
+    Ok(n) => n,
+    Err(_) => 0,
+  }
+}
+
+fn upto(n: Int) -> List<Int> {
+  var out: List<Int> = []
+  for i in 0..n { out = push(out, i) }
+  out
+}
+
+fn quote_str(s: Str) -> Str { json.stringify(JStr(s)) }
+
+// 同 Go 的 fmt.Sprintf（常用部分）；参数不对时输出 %!d(string=x) 这样的标记
+pub fn sprintf(f: Str, args: List<Json>) -> Str {
+  let cs = chars(f)
+  var out = ""
+  var i = 0
+  var ai = 0
+  while i < len(cs) {
+    if cs[i] != "%" {
+      out = out + cs[i]
+      i += 1
+      continue
+    }
+    i += 1
+    if i < len(cs) && cs[i] == "%" {
+      out = out + "%"
+      i += 1
+      continue
+    }
+    var left = false
+    var plus = false
+    var zero = false
+    while i < len(cs) && (cs[i] == "-" || cs[i] == "+" || cs[i] == "0" || cs[i] == " ") {
+      if cs[i] == "-" { left = true }
+      if cs[i] == "+" { plus = true }
+      if cs[i] == "0" { zero = true }
+      i += 1
+    }
+    var width = ""
+    while i < len(cs) && __ord(cs[i]) >= 48 && __ord(cs[i]) <= 57 {
+      width = width + cs[i]
+      i += 1
+    }
+    var prec = ""
+    var has_prec = false
+    if i < len(cs) && cs[i] == "." {
+      has_prec = true
+      i += 1
+      while i < len(cs) && __ord(cs[i]) >= 48 && __ord(cs[i]) <= 57 {
+        prec = prec + cs[i]
+        i += 1
+      }
+      if prec == "" { prec = "0" }
+    }
+    if i >= len(cs) {
+      out = out + "%!(NOVERB)"
+      break
+    }
+    let verb = cs[i]
+    i += 1
+    if ai >= len(args) {
+      out = out + "%!" + verb + "(MISSING)"
+      continue
+    }
+    let a = args[ai]
+    ai += 1
+    let bad = "%!" + verb + "(" + kind(a) + "=" + show(a) + ")"
+    var body = match a {
+      JInt(n) => if verb == "d" || verb == "v" { "{n}" } else if verb == "x" || verb == "X" || verb == "o" || verb == "b" { __fmt(n, verb) } else if verb == "c" { __chr(n) } else if verb == "f" || verb == "e" { __fmt(float(n), if verb == "e" { ".{if has_prec { prec } else { "6" }}e" } else { ".{if has_prec { prec } else { "6" }}" }) } else if verb == "q" { "'" + __chr(n) + "'" } else { bad },
+      JNum(x) => if verb == "f" || verb == "F" { __fmt(x, ".{if has_prec { prec } else { "6" }}") } else if verb == "e" { __fmt(x, ".{if has_prec { prec } else { "6" }}e") } else if verb == "v" || verb == "g" { if has_prec { __fmt(x, ".{prec}") } else { "{x}" } } else { bad },
+      JStr(s) => if verb == "s" || verb == "v" { if has_prec { __str_slice(s, 0, min(len(s), toi(prec))) } else { s } } else if verb == "q" { quote_str(s) } else if verb == "x" || verb == "X" { join(map(__bytes(s), (b) => __fmt(b, "02" + verb)), "") } else { bad },
+      JBool(b) => if verb == "t" || verb == "v" { if b { "true" } else { "false" } } else { bad },
+      JNull => if verb == "v" { "<nil>" } else { "%!" + verb + "(<nil>)" },
+      _ => if verb == "v" || verb == "s" { show(a) } else if verb == "q" && kind(a) != "nil" { quote_str(show(a)) } else { bad },
+    }
+    let numeric = match a {
+      JInt(_) => true,
+      JNum(_) => true,
+      _ => false,
+    }
+    if plus && numeric && !starts_with(body, "-") { body = "+" + body }
+    let w = toi(width)
+    let pad = w - len(body)
+    if pad > 0 {
+      if left {
+        body = body + join(__repeat(" ", pad), "")
+      } else if zero && numeric {
+        let sign = if starts_with(body, "-") || starts_with(body, "+") { __str_slice(body, 0, 1) } else { "" }
+        body = sign + join(__repeat("0", pad), "") + __str_slice(body, len(sign), len(body))
+      } else {
+        body = join(__repeat(" ", pad), "") + body
+      }
+    }
+    out = out + body
+  }
+  if ai < len(args) { out = out + "%!(EXTRA " + join(map(args[ai..len(args)], (a) => kind(a) + "=" + show(a)), ", ") + ")" }
+  out
+}
+
+fn err_at(cx: Cx, line: Int, msg: Str) -> Str { "template: {cx.t.name}:{line}: {msg}" }
+
+// 返回 (输出, 变量, 控制流：0 正常、1 break、2 continue)
+fn exec_list(nodes: List<Node>, cx0: Cx) -> Result<(Str, Map<Str, Json>, Int), Str> {
+  var out = ""
+  var cx = cx0
+  for nd in nodes {
+    match nd {
+      NText(s) => { out = out + s },
+      NOut(p, line) => {
+        let (v, vars) = at(eval_pipe(p, cx), cx.t.name, line)?
+        if len(p.decl) == 0 { out = out + show(v) }
+        cx = Cx { vars: vars, ..cx }
+      },
+      NIf(p, yes, no, line) => {
+        let (v, vars) = at(eval_pipe(p, cx), cx.t.name, line)?
+        let (s, vars2, flow) = exec_list(if truth(v) { yes } else { no }, Cx { vars: vars, ..cx })?
+        out = out + s
+        cx = Cx { vars: keep(cx.vars, vars2), ..cx }
+        if flow != 0 { return Ok((out, cx.vars, flow)) }
+      },
+      NWith(p, body, no, line) => {
+        let (v, vars) = at(eval_pipe(p, cx), cx.t.name, line)?
+        let (s, vars2, flow) = if truth(v) { exec_list(body, Cx { dot: v, vars: vars, ..cx })? } else { exec_list(no, Cx { vars: vars, ..cx })? }
+        out = out + s
+        cx = Cx { vars: keep(cx.vars, vars2), ..cx }
+        if flow != 0 { return Ok((out, cx.vars, flow)) }
+      },
+      NRange(p, body, no, line) => {
+        let p2 = Pipe { decl: [], ..p }
+        let (v, _) = at(eval_pipe(p2, cx), cx.t.name, line)?
+        let pairs: List<(Json, Json)> = match v {
+          JArr(xs) => zip(map(upto(len(xs)), (i) => JInt(i)), xs),
+          JObj(m) => map(sort(keys(m)), (k) => (JStr(k), unwrap(get(m, k)))),
+          JInt(n) => map(upto(n), (i) => (JInt(i), JInt(i))),
+          JNull => [],
+          _ => { return Err(err_at(cx, line, "range 不能遍历 {kind(v)}")) },
+        }
+        if len(pairs) == 0 {
+          let (s, vars2, flow) = exec_list(no, cx)?
+          out = out + s
+          cx = Cx { vars: keep(cx.vars, vars2), ..cx }
+          if flow != 0 { return Ok((out, cx.vars, flow)) }
+        } else {
+          var outer = cx.vars
+          for (k, x) in pairs {
+            var vars = outer
+            if len(p.decl) == 1 { vars = set(vars, p.decl[0], if kind(v) == "int" { k } else { x }) }
+            if len(p.decl) >= 2 {
+              vars = set(vars, p.decl[0], k)
+              vars = set(vars, p.decl[1], x)
+            }
+            let (s, vars2, flow) = exec_list(body, Cx { dot: x, vars: vars, ..cx })?
+            out = out + s
+            outer = keep(outer, vars2)
+            if flow == 1 { break }
+          }
+          cx = Cx { vars: outer, ..cx }
+        }
+      },
+      NCall(name, p, line) => {
+        let Some(tree) = get(cx.t.trees, name) else { return Err(err_at(cx, line, "没有名为 \"{name}\" 的模板")) }
+        if cx.depth > 100 { return Err(err_at(cx, line, "模板嵌套太深（超过 100 层）")) }
+        let dot = if len(p.cmds) == 0 { JNull } else {
+          let (v, _) = at(eval_pipe(p, cx), cx.t.name, line)?
+          v
+        }
+        let sub = Cx { t: cx.t, dot: dot, vars: set(Map(), "$", dot), depth: cx.depth + 1 }
+        let (s, _, _) = exec_list(tree, sub)?
+        out = out + s
+      },
+      NBreak(_) => { return Ok((out, cx.vars, 1)) },
+      NContinue(_) => { return Ok((out, cx.vars, 2)) },
+    }
+  }
+  Ok((out, cx.vars, 0))
+}
+
+// 块结束后：外层已有的变量取块里的新值（赋值），块里新声明的丢掉
+fn keep(outer: Map<Str, Json>, inner: Map<Str, Json>) -> Map<Str, Json> {
+  var m = outer
+  for k in keys(outer) { m = set(m, k, unwrap_or(get(inner, k), unwrap(get(outer, k)))) }
+  m
+}
+
+pub fn execute_template(t: Template, name: Str, data: Json) -> Result<Str, Str> {
+  let Some(tree) = get(t.trees, name) else { return Err("template: 没有名为 \"{name}\" 的模板") }
+  let (s, _, _) = exec_list(tree, Cx { t: t, dot: data, vars: set(Map(), "$", data), depth: 0 })?
+  Ok(s)
+}
+
+pub fn execute(t: Template, data: Json) -> Result<Str, Str> { execute_template(t, t.name, data) }
+
+// 一步到位：解析并执行
+pub fn render(src: Str, data: Json) -> Result<Str, Str> {
+  let t = parse("render", src)?
+  execute(t, data)
+}

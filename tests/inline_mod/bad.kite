@@ -1,0 +1,11 @@
+mod a {
+  fn hidden() -> Int { 1 }
+  mod inner {
+    pub fn f() -> Int { 2 }
+  }
+  pub fn g() -> Int { inner.f() }
+}
+fn main() {
+  print(a.g())
+  print(a.hidden())
+}

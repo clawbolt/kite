@@ -1,0 +1,109 @@
+// std.bufio：带缓冲的读写（对齐 Go 的 bufio）
+//   Reader：在一段文本上逐行、逐词、逐字符或按分隔符读，不可变，每次返回新的 Reader
+//   Writer：先攒在内存里，flush_to 一次写到文件；或 flush_stdout 写到标准输出
+//   scan_lines / scan_words：直接拆成列表；stdin_lines：读完标准输入的所有行
+
+use std.fs
+use std.io
+
+pub type Reader = { cs: List<Str>, pos: Int }
+
+pub fn reader(text: Str) -> Reader { Reader { cs: chars(text), pos: 0 } }
+
+// 打开文件作为 Reader
+pub fn open(p: Str) -> Result<Reader, Str> { Ok(reader(fs.read(p)?)) }
+
+pub fn at_end(r: Reader) -> Bool { r.pos >= len(r.cs) }
+
+// 不消耗地看接下来 n 个字符
+pub fn peek(r: Reader, n: Int) -> Str {
+  let e = if r.pos + n < len(r.cs) { r.pos + n } else { len(r.cs) }
+  join(r.cs[r.pos..e], "")
+}
+
+// 读一个字符
+pub fn read_char(r: Reader) -> Option<(Str, Reader)> {
+  if at_end(r) { None } else { Some((r.cs[r.pos], Reader { pos: r.pos + 1, ..r })) }
+}
+
+// 读到 delim 为止（结果包含 delim；读到结尾没遇到 delim 时不含）
+pub fn read_until(r: Reader, delim: Str) -> Option<(Str, Reader)> {
+  if at_end(r) { return None }
+  var i = r.pos
+  while i < len(r.cs) && r.cs[i] != delim { i += 1 }
+  let e = if i < len(r.cs) { i + 1 } else { i }
+  Some((join(r.cs[r.pos..e], ""), Reader { pos: e, ..r }))
+}
+
+// 读一行，去掉行尾的 \n 和 \r
+pub fn read_line(r: Reader) -> Option<(Str, Reader)> {
+  let (s, r2) = read_until(r, "\n")?
+  var t = s
+  if ends_with(t, "\n") { t = __str_slice(t, 0, len(t) - 1) }
+  if ends_with(t, __chr(13)) { t = __str_slice(t, 0, len(t) - 1) }
+  Some((t, r2))
+}
+
+fn ws(c: Str) -> Bool { c == " " || c == "\n" || c == "\t" || c == __chr(13) }
+
+// 跳过空白读一个词
+pub fn read_word(r: Reader) -> Option<(Str, Reader)> {
+  var i = r.pos
+  while i < len(r.cs) && ws(r.cs[i]) { i += 1 }
+  if i >= len(r.cs) { return None }
+  var j = i
+  while j < len(r.cs) && !ws(r.cs[j]) { j += 1 }
+  Some((join(r.cs[i..j], ""), Reader { pos: j, ..r }))
+}
+
+// 剩下的全部
+pub fn read_rest(r: Reader) -> (Str, Reader) { (join(r.cs[r.pos..], ""), Reader { pos: len(r.cs), ..r }) }
+
+pub fn scan_lines(text: Str) -> List<Str> {
+  var out: List<Str> = []
+  var r = reader(text)
+  while let Some((l, r2)) = read_line(r) {
+    out = push(out, l)
+    r = r2
+  }
+  out
+}
+
+pub fn scan_words(text: Str) -> List<Str> { split(text) }
+
+// 读完标准输入的所有行
+pub fn stdin_lines() -> List<Str> {
+  var out: List<Str> = []
+  while let Some(l) = io.read_line() { out = push(out, l) }
+  out
+}
+
+pub type Writer = { buf: Str, lines: Int }
+
+pub fn writer() -> Writer { Writer { buf: "", lines: 0 } }
+
+pub fn write(w: Writer, s: Str) -> Writer { Writer { buf: w.buf + s, lines: w.lines } }
+
+pub fn write_line(w: Writer, s: Str) -> Writer { Writer { buf: w.buf + s + "\n", lines: w.lines + 1 } }
+
+pub fn buffered(w: Writer) -> Int { len(w.buf) }
+
+pub fn contents(w: Writer) -> Str { w.buf }
+
+// 写到文件（覆盖），返回清空后的 Writer
+pub fn flush_to(w: Writer, p: Str) -> Result<Writer, Str> {
+  fs.write(p, w.buf)?
+  Ok(writer())
+}
+
+// 追加到文件
+pub fn flush_append(w: Writer, p: Str) -> Result<Writer, Str> {
+  fs.append(p, w.buf)?
+  Ok(writer())
+}
+
+// 一次性写到标准输出（缓冲区末尾没有换行时会补一个）
+pub fn flush_stdout(w: Writer) -> Writer {
+  if ends_with(w.buf, "\n") { print(__str_slice(w.buf, 0, len(w.buf) - 1)) } else if w.buf != "" { print(w.buf) }
+  writer()
+}

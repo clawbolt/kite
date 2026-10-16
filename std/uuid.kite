@@ -1,0 +1,136 @@
+// std.uuid：UUID（对齐 Go 1.27 新增的 uuid 包，RFC 9562）
+//   UUID { b }：16 个字节；== 可直接比较
+//   parse(s) -> Result<UUID, Str>：接受 xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx、{…}、urn:uuid:…、32 位无连字符四种写法，
+//     十六进制不分大小写；失败的错误信息和 Go 相同："invalid uuid"
+//   must_parse(s)：失败时 panic
+//   new() / new_v4()：随机（版本 4）；new_v7()：48 位毫秒时间戳 + 12 位亚毫秒小数 + 随机（版本 7）
+//   nil_uuid() / max_uuid()：全 0 / 全 ff（Go 的 Nil、Max；nil 在 Kite 里不是保留字但避免歧义）
+//   u.string() / u.marshal_text() / u.append_text(bs) / u.compare(v)；unmarshal_text(bs)
+//   和 Go 的差别：Go 的 NewV7 用进程级的锁和上一次时间戳保证同一进程内严格递增；Kite 没有可变全局状态，
+//     new_v7() 只保证时间戳部分按 1/4096 毫秒递增；需要严格递增时用 V7Gen：let (u, g2) = g.next()
+
+use std.encoding.hex
+
+pub type UUID = { b: List<Int> }
+
+fn zeros(n: Int) -> List<Int> {
+  var out: List<Int> = []
+  for _ in 0..n { out = push(out, 0) }
+  out
+}
+
+pub fn nil_uuid() -> UUID { UUID { b: zeros(16) } }
+
+pub fn max_uuid() -> UUID { UUID { b: map(zeros(16), (_) => 255) } }
+
+fn hx(s: Str) -> Option<List<Int>> {
+  match hex.decode(s) {
+    Ok(bs) => Some(bs),
+    Err(_) => None,
+  }
+}
+
+pub fn unmarshal_text(bs: List<Int>) -> Result<UUID, Str> {
+  let invalid = Err("invalid uuid")
+  var b = bs
+  let n = len(b)
+  if n == 9 + 36 {
+    if b[..9] == __bytes("urn:uuid:") { b = b[9..] }
+  } else if n == 2 + 36 {
+    if b[0] == 123 { b = b[1..] }
+    if len(b) > 0 && b[len(b) - 1] == 125 { b = b[..len(b) - 1] }
+  } else if n == 32 {
+    let Some(s) = __from_bytes(b) else { return invalid }
+    let Some(d) = hx(s) else { return invalid }
+    return Ok(UUID { b: d })
+  }
+  if len(b) != 36 { return invalid }
+  if b[8] != 45 || b[13] != 45 || b[18] != 45 || b[23] != 45 { return invalid }
+  let Some(s) = __from_bytes(b[0..8] + b[9..13] + b[14..18] + b[19..23] + b[24..36]) else { return invalid }
+  if len(chars(s)) != 32 { return invalid }
+  let Some(d) = hx(s) else { return invalid }
+  Ok(UUID { b: d })
+}
+
+pub fn parse(s: Str) -> Result<UUID, Str> { unmarshal_text(__bytes(s)) }
+
+pub fn must_parse(s: Str) -> UUID {
+  match parse(s) {
+    Ok(u) => u,
+    Err(e) => panic(e),
+  }
+}
+
+fn with_version(b: List<Int>, version: Int) -> List<Int> {
+  let b1 = set(b, 6, (b[6] & 0x0f) | (version << 4))
+  set(b1, 8, (b1[8] & 0x3f) | (2 << 6))
+}
+
+pub fn new_v4() -> UUID { UUID { b: with_version(__random_bytes(16), 4) } }
+
+pub fn new() -> UUID { new_v4() }
+
+// 60 位时间戳：48 位毫秒 + 12 位 1/4096 毫秒
+fn v7_timestamp(ns: Int) -> Int {
+  let secs = ns / 1000000000
+  let nanos = ns % 1000000000
+  let msecs = nanos / 1000000
+  let frac = nanos - 1000000 * msecs
+  ((1000 * secs + msecs) << 12) + (frac * 4096) / 1000000
+}
+
+fn v7_from(ts: Int) -> UUID {
+  let hi = ((ts << 4) & 0x7fffffffffff0000) | (ts & 0xffff)
+  var b: List<Int> = []
+  var i = 7
+  while i >= 0 {
+    b = push(b, (hi >> (i * 8)) & 255)
+    i -= 1
+  }
+  UUID { b: with_version(b + __random_bytes(8), 7) }
+}
+
+pub fn new_v7() -> UUID { v7_from(v7_timestamp(__unix_ns())) }
+
+// 严格递增的 v7 生成器（对应 Go 里 NewV7 的 v7lastSecs / v7lastTimestamp）
+pub type V7Gen = { last_secs: Int, last_ts: Int }
+
+pub fn new_v7_gen() -> V7Gen { V7Gen { last_secs: 0, last_ts: 0 } }
+
+impl V7Gen {
+  fn next(self) -> (UUID, V7Gen) {
+    let ns = __unix_ns()
+    let secs = ns / 1000000000
+    var ts = v7_timestamp(ns)
+    if self.last_secs > secs {
+      // 时钟回拨：忽略之前生成的
+    } else if ts <= self.last_ts {
+      ts = self.last_ts + 1
+    }
+    (v7_from(ts), V7Gen { last_secs: secs, last_ts: ts })
+  }
+}
+
+impl UUID {
+  fn append_text(self, bs: List<Int>) -> List<Int> {
+    let h = __bytes(hex.encode_bytes(self.b))
+    bs + h[0..8] + [45] + h[8..12] + [45] + h[12..16] + [45] + h[16..20] + [45] + h[20..32]
+  }
+
+  fn marshal_text(self) -> List<Int> { self.append_text([]) }
+
+  fn string(self) -> Str { unwrap(__from_bytes(self.marshal_text())) }
+
+  fn compare(self, v: UUID) -> Int {
+    for i in 0..16 {
+      if self.b[i] < v.b[i] { return -1 }
+      if self.b[i] > v.b[i] { return 1 }
+    }
+    0
+  }
+
+  // RFC 9562 的版本号（高 4 位）和变体，Go 没有对应方法，测试用
+  fn version(self) -> Int { self.b[6] >> 4 }
+
+  fn variant(self) -> Int { self.b[8] >> 6 }
+}

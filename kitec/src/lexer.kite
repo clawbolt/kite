@@ -1,0 +1,483 @@
+// Kite 自举编译器：词法分析（对应 kite.py 的 lex）
+use std.unicode
+use ast.{ V, sv }
+
+pub type Tok = { kind: Str, val: V, line: Int, col: Int, nl: Bool, pos: Int }
+
+const KEYWORDS: List<Str> = ["let", "var", "fn", "type", "enum", "trait", "impl", "match", "if", "else", "for", "while",
+  "loop", "break", "continue", "return", "use", "mod", "pub", "spawn", "await", "defer", "unsafe", "extern", "as", "in",
+  "is", "self", "Self", "true", "false", "const", "where", "dyn", "async"]
+
+const OPS3: List<Str> = ["<<=", ">>=", "..="]
+const OPS2: List<Str> = ["|>", "=>", "->", "==", "!=", "<<", ">>", "<=", ">=", "&&", "||", "..", "+=", "-=", "*=", "/=", "%=",
+  "|=", "&=", "^=", "::"]
+const OPS1: List<Str> = ["|", "&", "^", "+", "-", "*", "/", "%", "<", ">", "=", "!", "~", "(", ")", "\{", "}", "[", "]", ",",
+  ":", ".", "?", ";", "@"]
+
+const CONT_END: List<Str> = ["+", "-", "*", "/", "%", "<", ">", "==", "!=", "<=", ">=", "&&", "||", "|", "&", "^", "<<",
+  ">>", "=", "+=", "-=", "*=", "/=", "%=", "|=", "&=", "^=", "<<=", ">>=", "|>", "=>", "->", ",", ".", "(", "[", "\{", ":",
+  "..", "..=", "!", "~"]
+const CONT_START: List<Str> = ["|>", ".", "}", ")", "]", "?", "&&", "||", "else", "where"]
+
+// ── 字符分类（Python 的 str.isdigit / isalpha / isalnum / isupper / islower）──
+
+pub fn is_digit(c: Str) -> Bool {
+  let o = __ord(c)
+  if o < 128 { o >= 48 && o <= 57 } else { unicode.is_digit(c) }
+}
+
+pub fn is_alpha(c: Str) -> Bool {
+  let o = __ord(c)
+  if o < 128 { (o >= 65 && o <= 90) || (o >= 97 && o <= 122) } else { unicode.is_letter(c) }
+}
+
+pub fn is_alnum(c: Str) -> Bool {
+  let o = __ord(c)
+  if o < 128 { (o >= 48 && o <= 57) || (o >= 65 && o <= 90) || (o >= 97 && o <= 122) } else {
+    unicode.is_letter(c) || unicode.is_number(c)
+  }
+}
+
+pub fn is_upper(c: Str) -> Bool {
+  let o = __ord(c)
+  if o < 128 { o >= 65 && o <= 90 } else { unicode.is_upper(c) }
+}
+
+pub fn is_lower(c: Str) -> Bool {
+  let o = __ord(c)
+  if o < 128 { o >= 97 && o <= 122 } else { unicode.is_lower(c) }
+}
+
+// s 的首字符是否大写（Python 的 s[:1].isupper()）
+pub fn first_upper(s: Str) -> Bool { len(s) > 0 && is_upper(__str_slice(s, 0, 1)) }
+
+pub fn first_lower(s: Str) -> Bool { len(s) > 0 && is_lower(__str_slice(s, 0, 1)) }
+
+// ── Python repr（报错信息里的 {x!r}）──
+
+pub fn repr_str(s: Str) -> Str {
+  let q = if contains(s, "'") && !contains(s, "\"") { "\"" } else { "'" }
+  var out = q
+  for c in chars(s) {
+    let o = __ord(c)
+    out = out + (if c == "\\" { "\\\\" } else if c == q { "\\" + q } else if c == "\n" { "\\n" } else if c == "\t" {
+      "\\t"
+      } else if c == "\r" { "\\r" } else if o < 32 || o == 127 || (o >= 128 && !unicode.is_print(c)) { pyesc(o) } else { c })
+  }
+  out + q
+}
+
+fn hexn(n: Int, w: Int) -> Str {
+  let ds = "0123456789abcdef"
+  var s = ""
+  var v = n
+  for _ in 0..w {
+    s = __str_slice(ds, v % 16, v % 16 + 1) + s
+    v = v / 16
+  }
+  s
+}
+
+fn pyesc(o: Int) -> Str {
+  if o < 256 { "\\x" + hexn(o, 2) } else if o < 65536 { "\\u" + hexn(o, 4) } else { "\\U" + hexn(o, 8) }
+}
+
+pub fn repr_v(v: V) -> Str {
+  match v {
+    VS(s)   => repr_str(s),
+    VI(i)   => "{i}",
+    VBig(t) => t,
+    VF(f)   => "{f}",
+    VNil    => "None",
+    VL(xs)  => "[" + join(map(xs, repr_v), ", ") + "]",
+    VT(xs)  => if len(xs) == 1 { "(" + repr_v(xs[0]) + ",)" } else { "(" + join(map(xs, repr_v), ", ") + ")" },
+    _       => "?",
+  }
+}
+
+pub fn err(line: Int, col: Int?, msg: Str) -> Str {
+  let c = match col {
+    Some(x) => "{x}",
+    None    => "-",
+  }
+  "ERR {line}:{c} {msg}"
+}
+
+fn at_str(cs: List<Str>, i: Int, s: Str) -> Bool {
+  let ss = chars(s)
+  if i + len(ss) > len(cs) { return false }
+  for k in 0..len(ss) { if cs[i + k] != ss[k] { return false } }
+  true
+}
+
+fn find_from(cs: List<Str>, i: Int, s: Str) -> Int {
+  var j = i
+  while j < len(cs) {
+    if at_str(cs, j, s) { return j }
+    j += 1
+  }
+  -1
+}
+
+fn digit_val(c: Str) -> Int {
+  let o = __ord(c)
+  if o >= 48 && o <= 57 { o - 48 } else if o >= 97 && o <= 102 { o - 87 } else if o >= 65 && o <= 70 { o - 55 } else {
+    99
+  }
+}
+
+fn esc(nx: Str) -> Str? {
+  if nx == "n" { Some("\n") } else if nx == "t" { Some("\t") } else if nx == "r" { Some("\r") } else if nx == "\\" {
+    Some("\\")
+  } else if nx == "\"" { Some("\"") } else if nx == "'" { Some("'") } else if nx == "0" { Some(__chr(0)) } else if nx == "\{" {
+    Some("\{")
+  } else if nx == "}" { Some("}") } else { None }
+}
+
+fn mk(kind: Str, val: V, line: Int, col: Int, nl: Bool, pos: Int) -> Tok {
+  Tok { kind: kind, val: val, line: line, col: col, nl: nl, pos: pos }
+}
+
+pub fn lex(src: Str) -> Result<List<Tok>, Str> {
+  let cs = chars(src)
+  let n = len(cs)
+  var toks: List<Tok> = []
+  var i = 0
+  var line = 1
+  var col = 1
+  var saw_nl = false
+  while i < n {
+    let ch = cs[i]
+    if ch == "\n" {
+      saw_nl = true
+      i += 1
+      line += 1
+      col = 1
+      continue
+    }
+    if ch == " " || ch == "\t" || ch == "\r" {
+      i += 1
+      col += 1
+      continue
+    }
+    if at_str(cs, i, "//") {
+      while i < n && cs[i] != "\n" { i += 1 }
+      continue
+    }
+    if at_str(cs, i, "/*") {
+      let j = find_from(cs, i + 2, "*/")
+      if j < 0 { return Err(err(line, Some(col), "块注释未闭合")) }
+      for k in i..j + 2 {
+        if cs[k] == "\n" {
+          line += 1
+          saw_nl = true
+        }
+      }
+      i = j + 2
+      continue
+    }
+    let sl = line
+    let sc = col
+    let start = i
+    if is_digit(ch) {
+      var j = i
+      let after_dot = len(toks) > 0 && toks[len(toks) - 1].kind == "OP" && sv(toks[len(toks) - 1].val) == "." && !saw_nl
+      let b = if ch == "0" && i + 1 < n { cs[i + 1] } else { "" }
+      let base = if b == "x" { 16 } else if b == "o" { 8 } else if b == "b" { 2 } else { 0 }
+      if base > 0 {
+        j = i + 2
+        var v = 0
+        var nd = 0
+        while j < n && (digit_val(cs[j]) < base || cs[j] == "_") {
+          if cs[j] != "_" {
+            v = v * base + digit_val(cs[j])
+            nd += 1
+          }
+          j += 1
+        }
+        if nd == 0 || (j < n && is_alnum(cs[j])) {
+          let e = if j + 1 <= n { j + 1 } else { n }
+          return Err(err(sl, Some(sc), "非法的数字字面量 " + repr_str(join(cs[i..e], ""))))
+        }
+        toks = push(toks, mk("INT", VI(v), sl, sc, saw_nl, start))
+        saw_nl = false
+        col += j - i
+        i = j
+        continue
+      }
+      while j < n && (is_digit(cs[j]) || cs[j] == "_") { j += 1 }
+      var is_float = false
+      if j + 1 < n && cs[j] == "." && is_digit(cs[j + 1]) && !after_dot {
+        is_float = true
+        j += 1
+        while j < n && (is_digit(cs[j]) || cs[j] == "_") { j += 1 }
+      }
+      if !after_dot && j < n && (cs[j] == "e" || cs[j] == "E") {
+        var k = j + 1
+        if k < n && (cs[k] == "+" || cs[k] == "-") { k += 1 }
+        if k < n && is_digit(cs[k]) {
+          is_float = true
+          j = k
+          while j < n && (is_digit(cs[j]) || cs[j] == "_") { j += 1 }
+        }
+      }
+      let text = replace(join(cs[i..j], ""), "_", "")
+      let v = if is_float { VF(unwrap(parse_float(text))) } else {
+        match parse_int(text) {
+          Ok(x)  => VI(x),
+          Err(_) => VBig(text),
+        }
+      }
+      toks = push(toks, mk(if is_float { "FLOAT" } else { "INT" }, v, sl, sc, saw_nl, start))
+      saw_nl = false
+      col += j - i
+      i = j
+      continue
+    }
+    if ch == "r" && i + 1 < n && (cs[i + 1] == "\"" || cs[i + 1] == "#") {
+      var k = i + 1
+      while k < n && cs[k] == "#" { k += 1 }
+      if k < n && cs[k] == "\"" {
+        let hashes = k - i - 1
+        var close = "\""
+        for _ in 0..hashes { close = close + "#" }
+        let end = find_from(cs, k + 1, close)
+        if end < 0 { return Err(err(sl, Some(sc), "原始字符串未闭合")) }
+        let body = join(cs[k + 1..end], "")
+        toks = push(toks, mk("STR", VL([VS(body)]), sl, sc, saw_nl, start))
+        saw_nl = false
+        let j = end + 1 + hashes
+        var nls = 0
+        var last_nl = -1
+        for q in k + 1..end {
+          if cs[q] == "\n" {
+            nls += 1
+            last_nl = q
+          }
+        }
+        line += nls
+        col = if nls > 0 { j - last_nl } else { col + (j - i) }
+        i = j
+        continue
+      }
+    }
+    if ch == "'" && i + 2 < n && (cs[i + 1] == "\\" || cs[i + 2] == "'") && cs[i + 1] != "\n" && cs[i + 1] != "'" {
+      var c = ""
+      var j = 0
+      if cs[i + 1] == "\\" {
+        let nx = cs[i + 2]
+        if nx == "u" && i + 3 < n && cs[i + 3] == "\{" {
+          let e = find_from(cs, i + 4, "}")
+          c = __chr(hex_val(cs[i + 4..e]))
+          j = e + 1
+        } else {
+          match esc(nx) {
+            Some(x) => { c = x },
+            None    => { return Err(err(sl, Some(sc), "未知的转义 \\" + nx)) },
+          }
+          j = i + 3
+        }
+      } else {
+        c = cs[i + 1]
+        j = i + 2
+      }
+      if j >= n || cs[j] != "'" { return Err(err(sl, Some(sc), "字符字面量只能包含一个字符")) }
+      toks = push(toks, mk("STR", VL([VS(c)]), sl, sc, saw_nl, start))
+      saw_nl = false
+      col += j + 1 - i
+      i = j + 1
+      continue
+    }
+    if is_alpha(ch) || ch == "_" {
+      var j = i
+      while j < n && (is_alnum(cs[j]) || cs[j] == "_") { j += 1 }
+      let word = join(cs[i..j], "")
+      toks = push(toks, mk(if contains(KEYWORDS, word) { "KW" } else { "IDENT" }, VS(word), sl, sc, saw_nl, start))
+      saw_nl = false
+      col += j - i
+      i = j
+      continue
+    }
+    if ch == "'" && i + 1 < n && (is_alpha(cs[i + 1]) || cs[i + 1] == "_") {
+      var j = i + 1
+      while j < n && (is_alnum(cs[j]) || cs[j] == "_") { j += 1 }
+      if j < n && cs[j] == "'" { return Err(err(sl, Some(sc), "字符字面量只能包含一个字符（字符串请用双引号）")) }
+      toks = push(toks, mk("LABEL", VS(join(cs[i + 1..j], "")), sl, sc, saw_nl, start))
+      saw_nl = false
+      col += j - i
+      i = j
+      continue
+    }
+    if ch == "\"" {
+      var j = i + 1
+      var parts: List<V> = []
+      var buf = ""
+      var has_buf = false
+      while true {
+        if j >= n { return Err(err(sl, Some(sc), "字符串未闭合")) }
+        let c = cs[j]
+        if c == "\"" {
+          j += 1
+          break
+        }
+        if c == "\\" && j + 2 < n && cs[j + 1] == "u" && cs[j + 2] == "\{" {
+          let e = find_from(cs, j + 3, "}")
+          buf = buf + __chr(hex_val(cs[j + 3..e]))
+          has_buf = true
+          j = e + 1
+          continue
+        }
+        if c == "\\" {
+          let nx = if j + 1 < n { cs[j + 1] } else { "" }
+          buf = buf + (if nx == "'" { "'" } else {
+            match esc(nx) {
+              Some(x) => x,
+              None    => nx,
+            }
+          })
+          has_buf = true
+          j += 2
+          continue
+        }
+        if c == "\{" {
+          if j + 1 < n && cs[j + 1] == "\{" {
+            buf = buf + "\{"
+            has_buf = true
+            j += 2
+            continue
+          }
+          var depth = 1
+          var k = j + 1
+          while k < n && depth > 0 {
+            if cs[k] == "\{" { depth += 1 } else if cs[k] == "}" { depth -= 1 }
+            k += 1
+          }
+          if depth > 0 { return Err(err(sl, Some(sc), "字符串插值未闭合")) }
+          if has_buf {
+            parts = push(parts, VS(buf))
+            buf = ""
+            has_buf = false
+          }
+          parts = push(parts, VT([VS("expr"), VS(join(cs[j + 1..k - 1], "")), VI(sl)]))
+          j = k
+          continue
+        }
+        if c == "}" && j + 1 < n && cs[j + 1] == "}" {
+          buf = buf + "}"
+          has_buf = true
+          j += 2
+          continue
+        }
+        if c == "\n" { line += 1 }
+        buf = buf + c
+        has_buf = true
+        j += 1
+      }
+      if has_buf || len(parts) == 0 { parts = push(parts, VS(buf)) }
+      toks = push(toks, mk("STR", VL(parts), sl, sc, saw_nl, start))
+      saw_nl = false
+      col += j - i
+      i = j
+      continue
+    }
+    let s3 = if i + 3 <= n { cs[i] + cs[i + 1] + cs[i + 2] } else { "" }
+    let s2 = if i + 2 <= n { cs[i] + cs[i + 1] } else { "" }
+    let op = if contains(OPS3, s3) { s3 } else if contains(OPS2, s2) { s2 } else if contains(OPS1, ch) { ch } else { "" }
+    if op == "" { return Err(err(line, Some(col), "无法识别的字符 " + repr_str(ch))) }
+    toks = push(toks, mk("OP", VS(op), sl, sc, saw_nl, start))
+    saw_nl = false
+    i += len(op)
+    col += len(op)
+  }
+  toks = push(toks, mk("EOF", VNil, line, col, false, i))
+  Ok(newlines(toks))
+}
+
+fn hex_val(cs: List<Str>) -> Int {
+  var v = 0
+  for c in cs { v = v * 16 + digit_val(c) }
+  v
+}
+
+fn opv(t: Tok) -> Str { if t.kind == "OP" { sv(t.val) } else { "" } }
+
+fn alias_line_end(out: List<Tok>) -> Bool {
+  var j = len(out) - 1
+  while j >= 0 && out[j].kind != "NEWLINE" && !(out[j].kind == "OP" && (opv(out[j]) == "\{" || opv(out[j]) == "}" || opv(out[j]) == ";")) {
+    j -= 1
+  }
+  let st = j + 1
+  let m = len(out) - st
+  var k = 0
+  while k < m {
+    let t = out[st + k]
+    let v = sv(t.val)
+    if (t.kind == "KW" && v == "pub") || (t.kind == "OP" && (v == "(" || v == ")")) || (t.kind == "IDENT" && (v == "pkg" || v == "mod") && k > 0) {
+      k += 1
+    } else {
+      break
+    }
+  }
+  if k >= m || !(out[st + k].kind == "KW" && sv(out[st + k].val) == "type") { return false }
+  var eq = -1
+  for x in 0..m {
+    if eq < 0 && out[st + x].kind == "OP" && sv(out[st + x].val) == "=" { eq = x }
+  }
+  if eq < 0 { return false }
+  var d = 0
+  for x in eq + 1..m {
+    let v = opv(out[st + x])
+    if v == "<" { d += 1 } else if v == ">" { d -= 1 } else if v == ">>" { d -= 2 }
+  }
+  d == 0
+}
+
+fn closes_typeapp(out: List<Tok>) -> Bool {
+  var depth = 0
+  var j = len(out) - 1
+  while j >= 0 {
+    let v = opv(out[j])
+    if v == ">" {
+      depth += 1
+    } else if v == ">>" {
+      depth += 2
+    } else if v == "<" {
+      depth -= 1
+      if depth == 0 { return j > 0 && opv(out[j - 1]) == "." }
+      if depth < 0 { return false }
+    } else if out[j].kind == "NEWLINE" || v == "\{" || v == "}" || v == "=" || v == ";" {
+      return false
+    }
+    j -= 1
+  }
+  false
+}
+
+fn newlines(toks: List<Tok>) -> List<Tok> {
+  var out: List<Tok> = []
+  var stack: List<Str> = []
+  for t in toks {
+    if t.nl && len(out) > 0 {
+      let prev = out[len(out) - 1]
+      let top = if len(stack) > 0 { stack[len(stack) - 1] } else { "\{" }
+      var pv = if prev.kind == "OP" || prev.kind == "KW" { sv(prev.val) } else { "\u{0}none" }
+      let nv = if t.kind == "OP" || t.kind == "KW" { sv(t.val) } else { "\u{0}none" }
+      if (pv == ">" || pv == ">>") && closes_typeapp(out) { pv = "\u{0}none" }
+      if (pv == ">" || pv == ">>") && alias_line_end(out) { pv = "\u{0}none" }
+      if pv == "*" && len(out) >= 2 && opv(out[len(out) - 2]) == "." { pv = "\u{0}none" }
+      if top == "\{" && !contains(CONT_END, pv) && !contains(CONT_START, nv) && prev.kind != "NEWLINE" {
+        out = push(out, mk("NEWLINE", VNil, prev.line, prev.col, false, prev.pos))
+      }
+    }
+    if t.kind == "OP" {
+      let v = sv(t.val)
+      if v == "(" || v == "[" || v == "\{" {
+        stack = push(stack, v)
+      } else if (v == ")" || v == "]" || v == "}") && len(stack) > 0 {
+        stack = stack[0..len(stack) - 1]
+      }
+    }
+    out = push(out, t)
+  }
+  out
+}

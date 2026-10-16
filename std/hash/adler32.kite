@@ -1,0 +1,18 @@
+// std.hash.adler32：Adler-32 校验和（对齐 Go 的 hash/adler32）
+
+pub const SIZE: Int = 4
+
+// 接着之前的结果继续算（第一次传 1）
+pub fn update(adler: Int, bs: List<Int>) -> Int {
+  var a = adler & 0xffff
+  var b = (adler >> 16) & 0xffff
+  for x in bs {
+    a = (a + x) % 65521
+    b = (b + a) % 65521
+  }
+  (b << 16) | a
+}
+
+pub fn checksum(bs: List<Int>) -> Int { update(1, bs) }
+
+pub fn checksum_str(s: Str) -> Int { update(1, __bytes(s)) }

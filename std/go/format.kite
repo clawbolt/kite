@@ -1,0 +1,128 @@
+// std.go.format：对齐 Go 1.27 的 go/format（gofmt 的核心）
+//   source(src) -> Result<List<Int>, Str>：格式化完整文件或片段（声明列表、语句列表），错误文字同 Go
+//   source_str(s) -> Result<Str, Str>
+//   node(fset, node) -> Result<List<Int>, Str>：格式化一个节点（File 时如有分组 import 会先排序）
+//   与 Go 的差异：不支持 printer.CommentedNode。
+
+use std.go.token as token
+use std.go.scanner as scanner
+use std.go.ast as ast
+use std.go.ast.{Node}
+use std.go.parser as parser
+use std.go.printer as printer
+
+const PARSER_MODE: Int = 68   // ParseComments | SkipObjectResolution
+
+pub fn config() -> printer.Config {
+  printer.Config { mode: printer.USE_SPACES | printer.TAB_INDENT | printer.NORMALIZE_NUMBERS, tabwidth: 8, indent: 0 }
+}
+
+fn has_unsorted_imports(f: Node) -> Bool {
+  let decls = match f { File { decls, .. } => decls, _ => [] }
+  for d in decls {
+    match d {
+      GenDecl { tok, lparen, .. } => {
+        if tok != token.IMPORT { return false }
+        if lparen != 0 { return true }
+      },
+      _ => { return false },
+    }
+  }
+  false
+}
+
+pub fn node(fset0: token.FileSet, n0: Node) -> Result<List<Int>, Str> {
+  var fset = fset0
+  var n = n0
+  if n is File { .. } && has_unsorted_imports(n) {
+    let buf = printer.fprint_bytes(config(), fset, n)?
+    let (fs1, f1, errs) = parser.parse_file(fset, "", buf, PARSER_MODE)
+    if len(errs) > 0 { return Err("format.Node internal error (" + scanner.list_string(errs) + ")") }
+    let (fs2, f2) = ast.sort_imports(fs1, f1)
+    fset = fs2
+    n = f2
+  }
+  printer.fprint_bytes(config(), fset, n)
+}
+
+// 片段的还原方式
+const ADJ_NONE: Int = 0
+const ADJ_DECLS: Int = 1
+const ADJ_STMTS: Int = 2
+
+fn err_text(errs: List<scanner.Error>) -> Str { scanner.list_string(errs) }
+
+// 返回 (FileSet, File, 片段类型, indentAdj, 错误)
+fn parse(src: List<Int>) -> (token.FileSet, Node, Int, Int, List<scanner.Error>) {
+  let (fs, f, errs) = parser.parse_file(token.new_file_set(), "", src, PARSER_MODE)
+  if len(errs) == 0 || __str_find(err_text(errs), "expected 'package'", 0) < 0 { return (fs, f, ADJ_NONE, 0, errs) }
+  let psrc = __bytes("package p;") + src
+  let (fs2, f2, errs2) = parser.parse_file(token.new_file_set(), "", psrc, PARSER_MODE)
+  if len(errs2) == 0 { return (fs2, f2, ADJ_DECLS, 0, errs2) }
+  if __str_find(err_text(errs2), "expected declaration", 0) < 0 { return (fs2, f2, ADJ_NONE, 0, errs2) }
+  let fsrc = __bytes("package p; func _() {{") + src + [10, 10, 125]
+  let (fs3, f3, errs3) = parser.parse_file(token.new_file_set(), "", fsrc, PARSER_MODE)
+  if len(errs3) == 0 { return (fs3, f3, ADJ_STMTS, -1, errs3) }
+  (fs3, f3, ADJ_NONE, 0, errs3)
+}
+
+fn is_space(b: Int) -> Bool { b == 32 || b == 9 || b == 10 || b == 13 }
+
+fn trim_space(bs: List<Int>) -> List<Int> {
+  // bytes.TrimSpace：去掉首尾的 Unicode 空白（这里输入是 gofmt 的输出，只会出现 ASCII 空白）
+  var a = 0
+  var b = len(bs)
+  while a < b && (is_space(bs[a]) || bs[a] == 11 || bs[a] == 12) { a += 1 }
+  while b > a && (is_space(bs[b - 1]) || bs[b - 1] == 11 || bs[b - 1] == 12) { b -= 1 }
+  bs[a..b]
+}
+
+fn source_adj(kind: Int, src: List<Int>, indent0: Int) -> List<Int> {
+  if kind == ADJ_DECLS {
+    return trim_space(src[indent0 + 10..len(src)])
+  }
+  let indent = if indent0 < 0 { 0 } else { indent0 }
+  let s = src[2 * indent + 21..len(src)]
+  trim_space(s[0..len(s) - 2])
+}
+
+pub fn source(src: List<Int>) -> Result<List<Int>, Str> {
+  let (fs, f, kind, indent_adj, errs) = parse(src)
+  if len(errs) > 0 { return Err(err_text(errs)) }
+  var fset = fs
+  var file = f
+  if kind == ADJ_NONE {
+    let (fs2, f2) = ast.sort_imports(fset, file)
+    fset = fs2
+    file = f2
+    return printer.fprint_bytes(config(), fset, file)
+  }
+  var i = 0
+  var j = 0
+  while j < len(src) && is_space(src[j]) {
+    if src[j] == 10 { i = j + 1 }
+    j += 1
+  }
+  var res = src[0..i]
+  var indent = 0
+  var has_space = false
+  for b in src[i..j] {
+    if b == 32 { has_space = true } else if b == 9 { indent += 1 }
+  }
+  if indent == 0 && has_space { indent = 1 }
+  var k = 0
+  while k < indent { res = push(res, 9); k += 1 }
+  let cfg = printer.Config { indent: indent + indent_adj, ..config() }
+  let buf = printer.fprint_bytes(cfg, fset, file)?
+  let out = source_adj(kind, buf, cfg.indent)
+  if len(out) == 0 { return Ok(src) }
+  res = res + out
+  i = len(src)
+  while i > 0 && is_space(src[i - 1]) { i -= 1 }
+  Ok(res + src[i..len(src)])
+}
+
+pub fn source_str(s: Str) -> Result<Str, Str> {
+  let bs = source(__bytes(s))?
+  match __from_bytes(bs) { Some(t) => Ok(t), None => Err("format: output is not valid UTF-8") }
+}

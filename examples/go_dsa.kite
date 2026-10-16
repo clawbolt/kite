@@ -1,0 +1,44 @@
+// 对齐 Go 1.27 的 crypto/dsa：tests/go/dsa.go
+use std.crypto.dsa
+use std.crypto.dsa.{ Parameters, PrivateKey, PublicKey }
+use std.math.big
+use std.math.big.{ BigInt }
+use std.crypto.sha1
+use std.crypto.sha256
+
+fn hx(s: Str) -> BigInt { unwrap(big.parse(s, 16)) }
+
+fn stream(ctr: Int, n: Int) -> List<Int> { map(0..n, (i) => sha256.digest([(ctr + i) & 255, ((ctr + i) >> 8) & 255, 9])[0]) }
+
+fn konst() -> List<Int> { map(0..400, (_) => 0x5a) }
+
+fn es<T>(r: Result<T, Str>) -> Str { match r { Ok(_) => "<nil>", Err(e) => e } }
+
+fn main() {
+  let params = Parameters {
+    p: hx("e576237369c0e332c4296e5f77e4d6855542a20e19c73d2ba58d505a8a57f049cf55921dd67c9dc37cf1f970dcc75e413118b8c0d3474e34b0b9f4a00747b2b5e8a1316f47d65d480646f9c31b6b4593029f5c91ba28ad875a7802a8ebb41cf0b309e3bb857c9ec81b6e67bd45b84215b851ab77a9a34e57b0bcfb9ec21dd0fd"),
+    q: hx("9949cc6bbdb0045399577d68dde986ba8f288c7b"),
+    g: hx("2482c8bd44acc857b7d21602ecb4d2f528a204625f3ca04c96010915327e16713e58a42257c832d2d706f9189803d9760703a0fd92a2043aac3d38fdcc10e00125a5f556784a4c811b77ee2f3763d69c6fe6b5e82be7624b1cf1fd5514cc41496a60e04b6ed4f4889ade530f4e1d77c701d459c6aafca0b3a91d33e0561106d2"),
+  }
+  var keys: List<PrivateKey> = []
+  for i in 0..2 {
+    let k = unwrap(dsa.generate_key(params, stream(i * 1000, 400)))
+    print("KEY <nil> " + k.x.text(16) + " " + k.pub_.y.text(16))
+    keys = push(keys, k)
+  }
+  let hs = [sha1.digest(__bytes("msg")), sha256.digest(__bytes("msg"))]
+  for i in 0..2 {
+    let h = hs[i]
+    let k = keys[i]
+    let (r, s) = unwrap(dsa.sign(konst(), k, h))
+    print("SIG " + r.text(16) + " " + s.text(16) + " <nil>")
+    print("V {dsa.verify(k.pub_, h, r, s)} {dsa.verify(keys[1 - i].pub_, h, r, s)} {dsa.verify(k.pub_, h[1..], r, s)}")
+    print("VB {dsa.verify(k.pub_, h, big.zero(), s)} {dsa.verify(k.pub_, h, r, params.q)} {dsa.verify(k.pub_, h, r.add(params.q), s)} {dsa.verify(k.pub_, h, r, params.q.sub(s))}")
+  }
+  let z = big.zero()
+  print("E1 " + es(dsa.generate_key(Parameters { p: z, q: z, g: z }, stream(0, 100))))
+  let bad = PrivateKey { x: z, ..keys[0] }
+  print("E2 " + es(dsa.sign(konst(), bad, hs[0])))
+  let odd = PrivateKey { pub_: PublicKey { params: Parameters { q: big.new_int(0x7fff), ..params }, ..keys[0].pub_ }, ..keys[0] }
+  print("E3 " + es(dsa.sign(konst(), odd, hs[0])))
+}

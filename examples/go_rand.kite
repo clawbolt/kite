@@ -1,0 +1,61 @@
+use std.math.rand
+use std.math.bits
+fn main() {
+  var r = rand.new_pcg(1, 2)
+  var line = ""
+  for _ in 0..5 {
+    let (x, r2) = rand.uint64(r)
+    r = r2
+    line = line + bits.ustr(x) + " "
+  }
+  print(line)
+  var seed: List<Int> = []
+  for i in 0..32 { seed = push(seed, i * 7 + 3) }
+  var c = rand.new_chacha8(seed)
+  var cs = ""
+  for k in 0..140 {
+    let (x, c2) = rand.uint64(c)
+    c = c2
+    if k % 9 == 0 { cs = cs + bits.ustr(x) + " " }
+  }
+  print(cs)
+  for src in [rand.new_pcg(42, 99), rand.new_chacha8(seed)] {
+    var g = src
+    var out = ""
+    for n in [1, 2, 3, 7, 10, 100, 1000, 1 << 40, 0x7fffffffffffffff, 6] {
+      let (a, g1) = rand.int_n(g, n)
+      let (b, g2) = rand.int64(g1)
+      let (cc, g3) = rand.uint32(g2)
+      let (d, g4) = rand.int32(g3)
+      let (e, g5) = rand.int32_n(g4, 1000)
+      let (f, g6) = rand.uint64_n(g5, -5)
+      let (h, g7) = rand.uint32_n(g6, 77)
+      g = g7
+      out = out + "{a} {b} {cc} {d} {e} {bits.ustr(f)} {h}\n"
+    }
+    let (f1, g8) = rand.float64(g)
+    let (f2, g9) = rand.float32(g8)
+    let (p, g10) = rand.perm(g9, 10)
+    let (sh, g11) = rand.shuffle(g10, ["a", "b", "c", "d", "e"])
+    let (sw, g12) = rand.shuffle_swaps(g11, 4)
+    g = g12
+    out = out + "{f1} {f2} {p} {sh} {sw}\n"
+    var ns = ""
+    for _ in 0..500 {
+      let (nv, ga) = rand.norm_float64(g)
+      let (ev, gb) = rand.exp_float64(ga)
+      g = gb
+      ns = ns + "{nv} {ev}\n"
+    }
+    let z = rand.new_zipf(1.5, 2.0, 1000) |> unwrap
+    var zs = ""
+    for _ in 0..30 {
+      let (zv, gz) = rand.zipf_uint64(z, g)
+      g = gz
+      zs = zs + "{zv} "
+    }
+    print(out + zs)
+    print(ns)
+  }
+  print(rand.new_zipf(1.0, 2.0, 10))
+}

@@ -1,0 +1,1518 @@
+// std.image.jpeg：JPEG 编解码（对齐 Go 1.27 的 image/jpeg）
+//   decode(bs) -> Result<Image, Str>：基线 / 扩展顺序 / 渐进式，Huffman，重启间隔，灰度 / YCbCr（各种采样比，含非标准的 flex 扩展）/
+//     RGB / CMYK / YCCK（Adobe APP14）；返回的图像类型和像素与 Go 逐字节相同（YCbCr 的平面按 MCU 对齐，和 Go 一样）。
+//   decode_config(bs) -> Result<Config, Str>：Config { model, width, height }，model 是 std.image.color 的模型常量。
+//   encode(img, quality) -> Result<List<Int>, Str>：quality 1..100（DEFAULT_QUALITY = 75），输出与 Go 逐字节相同。
+//   IDCT / FDCT 是 Go 1.27 新的整数实现的逐行移植，int32 回绕也照搬。
+//   字节读取完整模拟 Go 的 4096 字节缓冲（含 0xFF00 填充、unread 规则），所以损坏数据的报错与 Go 相同。
+
+use std.image.color
+use std.image.color.{ Color }
+use std.image
+use std.image.{ Image }
+
+pub const DEFAULT_QUALITY: Int = 75
+
+pub type Config = { model: Int, width: Int, height: Int }
+
+const UEOF: Str = "unexpected EOF"
+const ERR_FF00: Str = "invalid JPEG format: missing 0xff00 sequence"
+const ERR_SHORT_HUFF: Str = "invalid JPEG format: short Huffman data"
+const ERR_RATIO: Str = "unsupported JPEG feature: luma/chroma subsampling ratio"
+
+fn ferr(s: Str) -> Str { "invalid JPEG format: " + s }
+fn uerr(s: Str) -> Str { "unsupported JPEG feature: " + s }
+
+const UNZIG: List<Int> = [0, 1, 8, 16, 9, 2, 3, 10, 17, 24, 32, 25, 18, 11, 4, 5, 12, 19, 26, 33, 40, 48, 41, 34, 27, 20, 13, 6, 7, 14, 21, 28,
+  35, 42, 49, 56, 57, 50, 43, 36, 29, 22, 15, 23, 30, 37, 44, 51, 58, 59, 52, 45, 38, 31, 39, 46, 53, 60, 61, 54, 47, 55, 62, 63]
+
+fn w32(x: Int) -> Int { ((x + 0x80000000) & 0xffffffff) - 0x80000000 }
+
+// ───────── DCT ─────────
+
+fn box(x0: Int, x1: Int, kc: Int, ks: Int) -> (Int, Int) {
+  let ksum = w32(kc * (x0 + x1))
+  (w32(ksum + w32((ks - kc) * x1)), w32(ksum - w32((kc + ks) * x0)))
+}
+
+fn fdct(b0: List<Int>) -> List<Int> {
+  var b = b0
+  for i in 0..8 {
+    var x0 = b[i]
+    var x1 = b[8 + i]
+    var x2 = b[16 + i]
+    var x3 = b[24 + i]
+    var x4 = b[32 + i]
+    var x5 = b[40 + i]
+    var x6 = b[48 + i]
+    var x7 = b[56 + i]
+    let t07 = x0 + x7
+    x7 = x0 - x7
+    x0 = t07
+    let t16 = x1 + x6
+    x6 = x1 - x6
+    x1 = t16
+    let t25 = x2 + x5
+    x5 = x2 - x5
+    x2 = t25
+    let t34 = x3 + x4
+    x4 = x3 - x4
+    x3 = t34
+    let (a4, a7) = box(x4, x7, 217965, 145639)
+    x4 = a4
+    x7 = a7
+    let (a5, a6) = box(x5, x6, 257107, 51142)
+    x5 = a5
+    x6 = a6
+    let t03 = x0 + x3
+    x3 = x0 - x3
+    x0 = t03
+    let t12 = x1 + x2
+    x2 = x1 - x2
+    x1 = t12
+    let (a2, a3) = box(x2, x3, 141871, 342508)
+    x2 = a2
+    x3 = a3
+    let t01 = x0 + x1
+    x1 = x0 - x1
+    x0 = t01
+    b[i] = w32((x0 - 1024) << 18)
+    b[32 + i] = w32(x1 << 18)
+    b[16 + i] = x2
+    b[48 + i] = x3
+    let t46 = w32(x4 + x6)
+    x6 = w32(x4 - x6)
+    x4 = t46
+    let t75 = w32(x7 + x5)
+    x5 = w32(x7 - x5)
+    x7 = t75
+    x5 = w32((x5 >> 12) * 5793)
+    x6 = w32((x6 >> 12) * 5793)
+    let t74 = w32(x7 + x4)
+    x4 = w32(x7 - x4)
+    x7 = t74
+    b[8 + i] = x7
+    b[24 + i] = x5
+    b[40 + i] = x6
+    b[56 + i] = x4
+  }
+  for i in 0..8 {
+    let o = 8 * i
+    var x0 = b[o]
+    var x1 = b[o + 1]
+    var x2 = b[o + 2]
+    var x3 = b[o + 3]
+    var x4 = b[o + 4]
+    var x5 = b[o + 5]
+    var x6 = b[o + 6]
+    var x7 = b[o + 7]
+    let t07 = w32(x0 + x7)
+    x7 = w32(x0 - x7)
+    x0 = t07
+    let t16 = w32(x1 + x6)
+    x6 = w32(x1 - x6)
+    x1 = t16
+    let t25 = w32(x2 + x5)
+    x5 = w32(x2 - x5)
+    x2 = t25
+    let t34 = w32(x3 + x4)
+    x4 = w32(x3 - x4)
+    x3 = t34
+    let (a4, a7) = box(x4 >> 14, x7 >> 14, 13623, 9102)
+    x4 = a4
+    x7 = a7
+    let (a5, a6) = box(x5 >> 14, x6 >> 14, 16069, 3196)
+    x5 = a5
+    x6 = a6
+    let t03 = w32(x0 + x3)
+    x3 = w32(x0 - x3)
+    x0 = t03
+    let t12 = w32(x1 + x2)
+    x2 = w32(x1 - x2)
+    x1 = t12
+    let (a2, a3) = box(x2 >> 14, x3 >> 14, 8867, 21407)
+    x2 = a2
+    x3 = a3
+    let t01 = w32(x0 + x1)
+    x1 = w32(x0 - x1)
+    x0 = t01
+    let t46 = w32(x4 + x6)
+    x6 = w32(x4 - x6)
+    x4 = t46
+    let t75 = w32(x7 + x5)
+    x5 = w32(x7 - x5)
+    x7 = t75
+    x5 = w32((x5 >> 14) * 23170)
+    x6 = w32((x6 >> 14) * 23170)
+    let t74 = w32(x7 + x4)
+    x4 = w32(x7 - x4)
+    x7 = t74
+    b[o] = w32(x0 + (1 << 17)) >> 18
+    b[o + 1] = w32(x7 + (1 << 17)) >> 18
+    b[o + 2] = w32(x2 + (1 << 17)) >> 18
+    b[o + 3] = w32(x5 + (1 << 17)) >> 18
+    b[o + 4] = w32(x1 + (1 << 17)) >> 18
+    b[o + 5] = w32(x6 + (1 << 17)) >> 18
+    b[o + 6] = w32(x3 + (1 << 17)) >> 18
+    b[o + 7] = w32(x4 + (1 << 17)) >> 18
+  }
+  b
+}
+
+fn idct(b0: List<Int>) -> List<Int> {
+  var b = b0
+  for i in 0..8 {
+    let o = 8 * i
+    var x0 = b[o]
+    var x7 = b[o + 1]
+    var x2 = b[o + 2]
+    var x5 = b[o + 3]
+    var x1 = b[o + 4]
+    var x6 = b[o + 5]
+    var x3 = b[o + 6]
+    var x4 = b[o + 7]
+    x0 = w32(x0 << 17)
+    x1 = w32(x1 << 17)
+    let t01 = w32(x0 + x1)
+    x1 = w32(x0 - x1)
+    x0 = t01
+    let (a2, a3) = box(x2, x3, 70936, -171254)
+    x2 = a2
+    x3 = a3
+    let t12 = w32(x1 + x2)
+    x2 = w32(x1 - x2)
+    x1 = t12
+    let t03 = w32(x0 + x3)
+    x3 = w32(x0 - x3)
+    x0 = t03
+    x4 = w32(x4 << 7)
+    x7 = w32(x7 << 7)
+    let t74 = w32(x7 + x4)
+    x4 = w32(x7 - x4)
+    x7 = t74
+    x6 = w32(x6 * 181)
+    x5 = w32(x5 * 181)
+    let t75 = w32(x7 + x5)
+    x5 = w32(x7 - x5)
+    x7 = t75
+    let t46 = w32(x4 + x6)
+    x6 = w32(x4 - x6)
+    x4 = t46
+    let (a4, a7) = box(x4 >> 2, x7 >> 2, 3406, -2276)
+    x4 = a4
+    x7 = a7
+    let (a5, a6) = box(x5 >> 2, x6 >> 2, 4017, -799)
+    x5 = a5
+    x6 = a6
+    b[o] = w32(x0 + x7)
+    b[o + 7] = w32(x0 - x7)
+    b[o + 1] = w32(x1 + x6)
+    b[o + 6] = w32(x1 - x6)
+    b[o + 2] = w32(x2 + x5)
+    b[o + 5] = w32(x2 - x5)
+    b[o + 3] = w32(x3 + x4)
+    b[o + 4] = w32(x3 - x4)
+  }
+  for i in 0..8 {
+    var x0 = b[i]
+    var x7 = b[8 + i]
+    var x2 = b[16 + i]
+    var x5 = b[24 + i]
+    var x1 = b[32 + i]
+    var x6 = b[40 + i]
+    var x3 = b[48 + i]
+    var x4 = b[56 + i]
+    x0 = w32(x0 + (1 << 19))
+    let t01 = w32(x0 + x1) >> 2
+    x1 = w32(x0 - x1) >> 2
+    x0 = t01
+    let (a2, a3) = box(x2 >> 13, x3 >> 13, 1108, -2676)
+    x2 = a2
+    x3 = a3
+    let t12 = w32(x1 + x2)
+    x2 = w32(x1 - x2)
+    x1 = t12
+    let t03 = w32(x0 + x3)
+    x3 = w32(x0 - x3)
+    x0 = t03
+    let t74 = w32(x7 + x4)
+    x4 = w32(x7 - x4)
+    x7 = t74
+    x5 = w32((x5 >> 13) * 11585)
+    x6 = w32((x6 >> 13) * 11585)
+    let t75 = w32(x7 + x5)
+    x5 = w32(x7 - x5)
+    x7 = t75
+    let t46 = w32(x4 + x6)
+    x6 = w32(x4 - x6)
+    x4 = t46
+    let (a4, a7) = box(x4 >> 14, x7 >> 14, 3406, -2276)
+    x4 = a4
+    x7 = a7
+    let (a5, a6) = box(x5 >> 14, x6 >> 14, 4017, -799)
+    x5 = a5
+    x6 = a6
+    b[i] = w32(x0 + x7) >> 18
+    b[56 + i] = w32(x0 - x7) >> 18
+    b[8 + i] = w32(x1 + x6) >> 18
+    b[48 + i] = w32(x1 - x6) >> 18
+    b[16 + i] = w32(x2 + x5) >> 18
+    b[40 + i] = w32(x2 - x5) >> 18
+    b[24 + i] = w32(x3 + x4) >> 18
+    b[32 + i] = w32(x3 - x4) >> 18
+  }
+  b
+}
+
+// ───────── 字节与位读取（模拟 Go 的 decoder.bytes / decoder.bits）─────────
+
+type R = { data: List<Int>, off: Int, i: Int, j: Int, rpos: Int, nun: Int, a: Int, m: Int, n: Int }
+
+fn fill(r: R) -> (R, Str) {
+  var off = r.off
+  var i = r.i
+  var j = r.j
+  if j > 2 {
+    off = off + j - 2
+    i = 2
+    j = 2
+  }
+  var k = 4096 - j
+  if len(r.data) - r.rpos < k { k = len(r.data) - r.rpos }
+  let r2 = R { off: off, i: i, j: j + k, rpos: r.rpos + k, ..r }
+  if k > 0 { (r2, "") } else { (r2, UEOF) }
+}
+
+fn read_byte(r0: R) -> (R, Int, Str) {
+  var r = r0
+  while r.i == r.j {
+    let (r2, e) = fill(r)
+    r = r2
+    if e != "" { return (r, 0, e) }
+  }
+  let x = r.data[r.off + r.i]
+  (R { i: r.i + 1, nun: 0, ..r }, x, "")
+}
+
+fn unread(r: R) -> R {
+  let r2 = R { i: r.i - r.nun, nun: 0, ..r }
+  if r2.n >= 8 { R { a: r2.a >> 8, n: r2.n - 8, m: r2.m >> 8, ..r2 } } else { r2 }
+}
+
+fn read_bsb(r0: R) -> (R, Int, Str) {
+  var r = r0
+  if r.i + 2 <= r.j {
+    let x = r.data[r.off + r.i]
+    r = R { i: r.i + 1, nun: 1, ..r }
+    if x != 0xff { return (r, x, "") }
+    if r.data[r.off + r.i] != 0 { return (r, 0, ERR_FF00) }
+    return (R { i: r.i + 1, nun: 2, ..r }, 0xff, "")
+  }
+  r = R { nun: 0, ..r }
+  let (r1, x, e) = read_byte(r)
+  if e != "" { return (r1, 0, e) }
+  r = R { nun: 1, ..r1 }
+  if x != 0xff { return (r, x, "") }
+  let (r2, x2, e2) = read_byte(r)
+  if e2 != "" { return (r2, 0, e2) }
+  r = R { nun: 2, ..r2 }
+  if x2 != 0 { return (r, 0, ERR_FF00) }
+  (r, 0xff, "")
+}
+
+fn pre_read(r: R) -> R {
+  if r.nun != 0 {
+    let r2 = if r.n >= 8 { unread(r) } else { r }
+    return R { nun: 0, ..r2 }
+  }
+  r
+}
+
+fn read_full(r0: R, k0: Int) -> (R, List<Int>, Str) {
+  var r = pre_read(r0)
+  var out: List<Int> = []
+  var k = k0
+  loop {
+    var c = r.j - r.i
+    if c > k { c = k }
+    out = out + r.data[r.off + r.i..r.off + r.i + c]
+    r = R { i: r.i + c, ..r }
+    k -= c
+    if k == 0 { break }
+    let (r2, e) = fill(r)
+    r = r2
+    if e != "" { return (r, out, e) }
+  }
+  (r, out, "")
+}
+
+fn ignore(r0: R, n0: Int) -> (R, Str) {
+  var r = pre_read(r0)
+  var n = n0
+  loop {
+    var c = r.j - r.i
+    if c > n { c = n }
+    r = R { i: r.i + c, ..r }
+    n -= c
+    if n == 0 { break }
+    let (r2, e) = fill(r)
+    r = r2
+    if e != "" { return (r, e) }
+  }
+  (r, "")
+}
+
+fn ensure_nbits(r0: R, n: Int) -> (R, Str) {
+  var r = r0
+  loop {
+    let (r2, c, e) = read_bsb(r)
+    r = r2
+    if e != "" {
+      if e == UEOF { return (r, ERR_SHORT_HUFF) }
+      return (r, e)
+    }
+    r = R { a: ((r.a << 8) | c) & 0xffffffff, n: r.n + 8, m: if r.m == 0 { 128 } else { (r.m << 8) & 0xffffffff }, ..r }
+    if r.n >= n { break }
+  }
+  (r, "")
+}
+
+fn receive_extend(r0: R, t: Int) -> (R, Int, Str) {
+  var r = r0
+  if r.n < t {
+    let (r2, e) = ensure_nbits(r, t)
+    if e != "" { return (r2, 0, e) }
+    r = r2
+  }
+  r = R { n: r.n - t, m: r.m >> t, ..r }
+  if t == 0 { return (r, 0, "") }
+  let s = 1 << t
+  var x = (r.a >> r.n) & (s - 1)
+  if x < (1 << (t - 1)) { x = x - s + 1 }
+  (r, x, "")
+}
+
+type H = { n_codes: Int, lut: List<Int>, vals: List<Int>, min_codes: List<Int>, max_codes: List<Int>, vals_indices: List<Int> }
+
+fn empty_h() -> H { H { n_codes: 0, lut: [], vals: [], min_codes: [], max_codes: [], vals_indices: [] } }
+
+fn decode_huffman(r0: R, h: H) -> (R, Int, Str) {
+  if h.n_codes == 0 { return (r0, 0, ferr("uninitialized Huffman table")) }
+  var r = r0
+  var slow = false
+  if r.n < 8 {
+    let (r2, e) = ensure_nbits(r, 8)
+    r = r2
+    if e != "" {
+      if e != ERR_FF00 && e != ERR_SHORT_HUFF { return (r, 0, e) }
+      if r.nun != 0 { r = unread(r) }
+      slow = true
+    }
+  }
+  if !slow {
+    let v = h.lut[(r.a >> (r.n - 8)) & 0xff]
+    if v != 0 {
+      let n = (v & 0xff) - 1
+      return (R { n: r.n - n, m: r.m >> n, ..r }, v >> 8, "")
+    }
+  }
+  var code = 0
+  for i in 0..16 {
+    if r.n == 0 {
+      let (r2, e) = ensure_nbits(r, 1)
+      r = r2
+      if e != "" { return (r, 0, e) }
+    }
+    if r.a & r.m != 0 { code = code | 1 }
+    r = R { n: r.n - 1, m: r.m >> 1, ..r }
+    if code <= h.max_codes[i] { return (r, h.vals[h.vals_indices[i] + code - h.min_codes[i]], "") }
+    code = code << 1
+  }
+  (r, 0, ferr("bad Huffman code"))
+}
+
+fn decode_bit(r0: R) -> (R, Bool, Str) {
+  var r = r0
+  if r.n == 0 {
+    let (r2, e) = ensure_nbits(r, 1)
+    if e != "" { return (r2, false, e) }
+    r = r2
+  }
+  let ret = r.a & r.m != 0
+  (R { n: r.n - 1, m: r.m >> 1, ..r }, ret, "")
+}
+
+fn decode_bits(r0: R, n: Int) -> (R, Int, Str) {
+  var r = r0
+  if r.n < n {
+    let (r2, e) = ensure_nbits(r, n)
+    if e != "" { return (r2, 0, e) }
+    r = r2
+  }
+  let ret = (r.a >> (r.n - n)) & ((1 << n) - 1)
+  (R { n: r.n - n, m: r.m >> n, ..r }, ret, "")
+}
+
+// ───────── 解码器状态 ─────────
+
+type Comp = { h: Int, v: Int, c: Int, tq: Int, eh: Int, ev: Int }
+
+type D = {
+  width: Int, height: Int, n_comp: Int, comps: List<Comp>, max_h: Int, max_v: Int, ri: Int, baseline: Bool, progressive: Bool,
+  jfif: Bool, adobe_valid: Bool, adobe_transform: Int, eob: Int, huff: List<H>, quant: List<List<Int>>, flex: Bool,
+  made: Int, ratio: Int, fw: Int, fh: Int, ys: Int, cs: Int, bs: Int,
+  p0: List<Int>, p1: List<Int>, p2: List<Int>, p3: List<Int>, prog: List<List<Int>>,
+}
+
+fn new_d() -> D {
+  D {
+    width: 0, height: 0, n_comp: 0, comps: map(0..4, (_) => Comp { h: 0, v: 0, c: 0, tq: 0, eh: 0, ev: 0 }), max_h: 0, max_v: 0, ri: 0,
+    baseline: false, progressive: false, jfif: false, adobe_valid: false, adobe_transform: 0, eob: 0,
+    huff: map(0..8, (_) => empty_h()), quant: map(0..4, (_) => map(0..64, (_) => 0)), flex: false,
+    made: 0, ratio: 0, fw: 0, fh: 0, ys: 0, cs: 0, bs: 0, p0: [], p1: [], p2: [], p3: [], prog: [[], [], [], []],
+  }
+}
+
+fn process_dht(r0: R, d0: D, n0: Int) -> (R, D, Str) {
+  var r = r0
+  var d = d0
+  var n = n0
+  while n > 0 {
+    if n < 17 { return (r, d, ferr("DHT has wrong length")) }
+    let (r1, t, e1) = read_full(r, 17)
+    r = r1
+    if e1 != "" { return (r, d, e1) }
+    let tc = t[0] >> 4
+    if tc > 1 { return (r, d, ferr("bad Tc value")) }
+    let th = t[0] & 15
+    if th > 3 || (d.baseline && th > 1) { return (r, d, ferr("bad Th value")) }
+    let ncodes = t[1..17]
+    var total = 0
+    for x in ncodes { total += x }
+    if total == 0 { return (r, d, ferr("Huffman table has zero length")) }
+    if total > 256 { return (r, d, ferr("Huffman table has excessive length")) }
+    n -= total + 17
+    if n < 0 { return (r, d, ferr("DHT has wrong length")) }
+    let (r2, vals, e2) = read_full(r, total)
+    r = r2
+    if e2 != "" { return (r, d, e2) }
+    var lut = map(0..256, (_) => 0)
+    var x = 0
+    var code = 0
+    for i in 0..8 {
+      code = code << 1
+      for _ in 0..ncodes[i] {
+        let base = (code << (7 - i)) & 0xff
+        let lv = (vals[x] << 8) | (2 + i)
+        for k in 0..(1 << (7 - i)) { lut[base | k] = lv }
+        code += 1
+        x += 1
+      }
+    }
+    var minc: List<Int> = []
+    var maxc: List<Int> = []
+    var vidx: List<Int> = []
+    var c = 0
+    var index = 0
+    for i in 0..16 {
+      let nn = ncodes[i]
+      if nn == 0 {
+        minc = push(minc, -1)
+        maxc = push(maxc, -1)
+        vidx = push(vidx, -1)
+      } else {
+        minc = push(minc, c)
+        maxc = push(maxc, c + nn - 1)
+        vidx = push(vidx, index)
+        c += nn
+        index += nn
+      }
+      c = c << 1
+    }
+    var hs = d.huff
+    hs[tc * 4 + th] = H { n_codes: total, lut: lut, vals: vals, min_codes: minc, max_codes: maxc, vals_indices: vidx }
+    d = D { huff: hs, ..d }
+  }
+  (r, d, "")
+}
+
+fn process_sof(r0: R, d0: D, n: Int) -> (R, D, Str) {
+  var d = d0
+  if d.n_comp != 0 { return (r0, d, ferr("multiple SOF markers")) }
+  var nc = 0
+  if n == 9 { nc = 1 } else if n == 15 { nc = 3 } else if n == 18 { nc = 4 } else { return (r0, d, uerr("number of components")) }
+  d = D { n_comp: nc, ..d }
+  let (r, t, e) = read_full(r0, n)
+  if e != "" { return (r, d, e) }
+  if t[0] != 8 { return (r, d, uerr("precision")) }
+  d = D { height: (t[1] << 8) + t[2], width: (t[3] << 8) + t[4], ..d }
+  if t[5] != nc { return (r, d, ferr("SOF has wrong length")) }
+  var comps = d.comps
+  var mh = d.max_h
+  var mv = d.max_v
+  for i in 0..nc {
+    let cid = t[6 + 3 * i]
+    for j in 0..i { if comps[j].c == cid { return (r, d, ferr("repeated component identifier")) } }
+    let tq = t[8 + 3 * i]
+    comps[i] = Comp { c: cid, tq: tq, ..comps[i] }
+    if tq > 3 { return (r, D { comps: comps, ..d }, ferr("bad Tq value")) }
+    let hv = t[7 + 3 * i]
+    var h = hv >> 4
+    var v = hv & 15
+    if h < 1 || 4 < h || v < 1 || 4 < v { return (r, d, ferr("luma/chroma subsampling ratio")) }
+    if h == 3 || v == 3 { return (r, d, ERR_RATIO) }
+    if nc == 1 {
+      h = 1
+      v = 1
+    } else if nc == 4 {
+      if i == 0 { if hv != 0x11 && hv != 0x22 { return (r, d, ERR_RATIO) } }
+      else if i == 1 || i == 2 { if hv != 0x11 { return (r, d, ERR_RATIO) } }
+      else if comps[0].h != h || comps[0].v != v { return (r, d, ERR_RATIO) }
+    }
+    if h > mh { mh = h }
+    if v > mv { mv = v }
+    comps[i] = Comp { h: h, v: v, ..comps[i] }
+  }
+  d = D { comps: comps, max_h: mh, max_v: mv, ..d }
+  if nc == 3 {
+    for i in 0..3 { if mh % comps[i].h != 0 || mv % comps[i].v != 0 { return (r, d, ERR_RATIO) } }
+  }
+  for i in 0..nc { comps[i] = Comp { eh: mh / comps[i].h, ev: mv / comps[i].v, ..comps[i] } }
+  (r, D { comps: comps, ..d }, "")
+}
+
+fn process_dqt(r0: R, d0: D, n0: Int) -> (R, D, Str) {
+  var r = r0
+  var d = d0
+  var n = n0
+  while n > 0 {
+    n -= 1
+    let (r1, x, e) = read_byte(r)
+    r = r1
+    if e != "" { return (r, d, e) }
+    let tq = x & 15
+    if tq > 3 { return (r, d, ferr("bad Tq value")) }
+    let pq = x >> 4
+    if pq == 0 {
+      if n < 64 { break }
+      n -= 64
+      let (r2, t, e2) = read_full(r, 64)
+      r = r2
+      if e2 != "" { return (r, d, e2) }
+      var qs = d.quant
+      qs[tq] = t
+      d = D { quant: qs, ..d }
+    } else if pq == 1 {
+      if n < 128 { break }
+      n -= 128
+      let (r2, t, e2) = read_full(r, 128)
+      r = r2
+      if e2 != "" { return (r, d, e2) }
+      var qs = d.quant
+      qs[tq] = map(0..64, (i) => (t[2 * i] << 8) | t[2 * i + 1])
+      d = D { quant: qs, ..d }
+    } else { return (r, d, ferr("bad Pq value")) }
+  }
+  if n != 0 { return (r, d, ferr("DQT has wrong length")) }
+  (r, d, "")
+}
+
+fn make_img(d0: D, mxx: Int, myy: Int) -> D {
+  var d = d0
+  if d.n_comp == 1 {
+    let w = 8 * mxx
+    return D { made: 1, fw: w, fh: 8 * myy, ys: w, p0: map(0..w * 8 * myy, (_) => 0), ..d }
+  }
+  let c = d.comps
+  var ratio = image.RATIO_444
+  if c[1].h != c[2].h || c[1].v != c[2].v || d.max_h != c[0].h || d.max_v != c[0].v {
+    d = D { flex: true, ..d }
+  } else {
+    let hv = ((d.max_h / c[1].h) << 4) | (d.max_v / c[1].v)
+    if hv == 0x11 { ratio = image.RATIO_444 } else if hv == 0x12 { ratio = image.RATIO_440 } else if hv == 0x21 { ratio = image.RATIO_422 }
+    else if hv == 0x22 { ratio = image.RATIO_420 } else if hv == 0x41 { ratio = image.RATIO_411 } else if hv == 0x42 { ratio = image.RATIO_410 }
+    else { d = D { flex: true, ..d } }
+  }
+  let full = unwrap(image.new_ycbcr(image.rect(0, 0, 8 * d.max_h * mxx, 8 * d.max_v * myy), ratio))
+  d = D { made: 3, ratio: ratio, fw: full.rect.dx(), fh: full.rect.dy(), ys: full.y_stride, cs: full.c_stride, p0: full.y, p1: full.cb, p2: full.cr, ..d }
+  if d.n_comp == 4 {
+    let h3 = c[3].h
+    let v3 = c[3].v
+    d = D { p3: map(0..8 * h3 * mxx * 8 * v3 * myy, (_) => 0), bs: 8 * h3 * mxx, ..d }
+  }
+  d
+}
+
+fn clamp255(x: Int) -> Int { if x < -128 { 0 } else if x > 127 { 255 } else { x + 128 } }
+
+fn find_rst(r0: R, t0: List<Int>, expected: Int) -> (R, Str) {
+  var r = r0
+  var t = t0
+  loop {
+    var i = 0
+    if t[0] == 0xff {
+      if t[1] == expected { return (r, "") }
+      else if t[1] == 0xff { i = 1 }
+      else if t[1] != 0 { return (r, ferr("bad RST marker")) }
+    } else if t[1] == 0xff {
+      t = [0xff, t[1]]
+      i = 1
+    }
+    let (r2, b, e) = read_full(r, 2 - i)
+    r = r2
+    if e != "" { return (r, e) }
+    if i == 1 { t = [t[0], b[0]] } else { t = b }
+  }
+  (r, "")
+}
+
+fn refine_nonzeroes(r0: R, b0: List<Int>, zig0: Int, zig_end: Int, nz0: Int, delta: Int) -> (R, List<Int>, Int, Str) {
+  var r = r0
+  var b = b0
+  var zig = zig0
+  var nz = nz0
+  while zig <= zig_end {
+    let u = UNZIG[zig]
+    if b[u] == 0 {
+      if nz == 0 { break }
+      nz -= 1
+      zig += 1
+      continue
+    }
+    let (r2, bit, e) = decode_bit(r)
+    r = r2
+    if e != "" { return (r, b, 0, e) }
+    if bit {
+      if b[u] >= 0 { b[u] = w32(b[u] + delta) } else { b[u] = w32(b[u] - delta) }
+    }
+    zig += 1
+  }
+  (r, b, zig, "")
+}
+
+fn refine(r0: R, d0: D, b0: List<Int>, h: H, zig_start: Int, zig_end: Int, delta: Int) -> (R, D, List<Int>, Str) {
+  var r = r0
+  var d = d0
+  var b = b0
+  if zig_start == 0 {
+    let (r2, bit, e) = decode_bit(r)
+    if e != "" { return (r2, d, b, e) }
+    if bit { b[0] = b[0] | delta }
+    return (r2, d, b, "")
+  }
+  var zig = zig_start
+  if d.eob == 0 {
+    while zig <= zig_end {
+      var z = 0
+      let (r2, value, e) = decode_huffman(r, h)
+      r = r2
+      if e != "" { return (r, d, b, e) }
+      let val0 = value >> 4
+      let val1 = value & 15
+      if val1 == 0 {
+        if val0 != 15 {
+          var eob = 1 << val0
+          if val0 != 0 {
+            let (r3, bits, e3) = decode_bits(r, val0)
+            r = r3
+            if e3 != "" { return (r, d, b, e3) }
+            eob = eob | bits
+          }
+          d = D { eob: eob & 0xffff, ..d }
+          break
+        }
+      } else if val1 == 1 {
+        z = delta
+        let (r3, bit, e3) = decode_bit(r)
+        r = r3
+        if e3 != "" { return (r, d, b, e3) }
+        if !bit { z = -z }
+      } else { return (r, d, b, ferr("unexpected Huffman code")) }
+      let (r4, b4, z4, e4) = refine_nonzeroes(r, b, zig, zig_end, val0, delta)
+      r = r4
+      b = b4
+      if e4 != "" { return (r, d, b, e4) }
+      zig = z4
+      if zig > zig_end { return (r, d, b, ferr("too many coefficients")) }
+      if z != 0 { b[UNZIG[zig]] = z }
+      zig += 1
+    }
+  }
+  if d.eob > 0 {
+    d = D { eob: d.eob - 1, ..d }
+    let (r5, b5, _, e5) = refine_nonzeroes(r, b, zig, zig_end, -1, delta)
+    r = r5
+    b = b5
+    if e5 != "" { return (r, d, b, e5) }
+  }
+  (r, d, b, "")
+}
+
+// 反量化 + IDCT，返回 8x8 的像素值（已加 128 并截断）
+fn recon_vals(d: D, b0: List<Int>, ci: Int) -> List<Int> {
+  let q = d.quant[d.comps[ci].tq]
+  var b = b0
+  for zig in 0..64 { b[UNZIG[zig]] = w32(b[UNZIG[zig]] * q[zig]) }
+  map(idct(b), (x) => clamp255(x))
+}
+
+// 块在平面里的起点、行宽、横纵扩展倍数
+fn block_geom(d: D, bx0: Int, by0: Int, ci: Int) -> (Int, Int, Int, Int) {
+  var bx = bx0
+  var by = by0
+  var h = 1
+  var v = 1
+  if d.flex {
+    h = d.comps[ci].eh
+    v = d.comps[ci].ev
+    bx = bx * h
+    by = by * v
+  }
+  let stride = if d.n_comp == 1 || ci == 0 { d.ys } else if ci == 3 { d.bs } else { d.cs }
+  (8 * (by * stride + bx), stride, h, v)
+}
+
+// 像素写入在调用方的局部平面上原地进行（避免每块复制整个平面）
+fn process_sos(r0: R, d0: D, n: Int) -> (R, D, Str) {
+  var r = r0
+  var d = d0
+  if d.n_comp == 0 { return (r, d, ferr("missing SOF marker")) }
+  if n < 6 || 4 + 2 * d.n_comp < n || n % 2 != 0 { return (r, d, ferr("SOS has wrong length")) }
+  let (r1, t, e1) = read_full(r, n)
+  r = r1
+  if e1 != "" { return (r, d, e1) }
+  let ncomp = t[0]
+  if n != 4 + 2 * ncomp { return (r, d, ferr("SOS length inconsistent with number of components")) }
+  var sci: List<Int> = []
+  var std_: List<Int> = []
+  var sta: List<Int> = []
+  var total_hv = 0
+  for i in 0..ncomp {
+    let cs = t[1 + 2 * i]
+    var ci = -1
+    for j in 0..d.n_comp { if cs == d.comps[j].c { ci = j } }
+    if ci < 0 { return (r, d, ferr("unknown component selector")) }
+    for j in 0..i { if sci[j] == ci { return (r, d, ferr("repeated component selector")) } }
+    sci = push(sci, ci)
+    total_hv += d.comps[ci].h * d.comps[ci].v
+    let td = t[2 + 2 * i] >> 4
+    if td > 3 || (d.baseline && td > 1) { return (r, d, ferr("bad Td value")) }
+    let ta = t[2 + 2 * i] & 15
+    if ta > 3 || (d.baseline && ta > 1) { return (r, d, ferr("bad Ta value")) }
+    std_ = push(std_, td)
+    sta = push(sta, ta)
+  }
+  if d.n_comp > 1 && total_hv > 10 { return (r, d, ferr("total sampling factors too large")) }
+  var zig_start = 0
+  var zig_end = 63
+  var ah = 0
+  var al = 0
+  if d.progressive {
+    zig_start = t[1 + 2 * ncomp]
+    zig_end = t[2 + 2 * ncomp]
+    ah = t[3 + 2 * ncomp] >> 4
+    al = t[3 + 2 * ncomp] & 15
+    if (zig_start == 0 && zig_end != 0) || zig_start > zig_end || 64 <= zig_end { return (r, d, ferr("bad spectral selection bounds")) }
+    if zig_start != 0 && ncomp != 1 { return (r, d, ferr("progressive AC coefficients for more than one component")) }
+    if ah != 0 && ah != al + 1 { return (r, d, ferr("bad successive approximation values")) }
+  }
+  let mxx = (d.width + 8 * d.max_h - 1) / (8 * d.max_h)
+  let myy = (d.height + 8 * d.max_v - 1) / (8 * d.max_v)
+  if d.made == 0 { d = make_img(d, mxx, myy) }
+  var prog = d.prog
+  if d.progressive {
+    for i in 0..ncomp {
+      let ci = sci[i]
+      if len(prog[ci]) == 0 { prog[ci] = map(0..mxx * myy * d.comps[ci].h * d.comps[ci].v * 64, (_) => 0) }
+    }
+  }
+  var pc0 = prog[0]
+  var pc1 = prog[1]
+  var pc2 = prog[2]
+  var pc3 = prog[3]
+  prog = []
+  var p0 = d.p0
+  var p1 = d.p1
+  var p2 = d.p2
+  var p3 = d.p3
+  d = D { p0: [], p1: [], p2: [], p3: [], prog: [], ..d }
+  r = R { a: 0, m: 0, n: 0, ..r }
+  var mcu = 0
+  var expected = 0xd0
+  var dc = [0, 0, 0, 0]
+  var block_count = 0
+  var err = ""
+  var my = 0
+  while my < myy && err == "" {
+    var mx = 0
+    while mx < mxx && err == "" {
+      for i in 0..ncomp {
+        if err != "" { break }
+        let ci = sci[i]
+        let hi = d.comps[ci].h
+        let vi = d.comps[ci].v
+        for j in 0..hi * vi {
+          var bx = 0
+          var by = 0
+          if ncomp != 1 {
+            bx = hi * mx + j % hi
+            by = vi * my + j / hi
+          } else {
+            let q = mxx * hi
+            bx = block_count % q
+            by = block_count / q
+            block_count += 1
+            if bx * 8 >= d.width || by * 8 >= d.height { continue }
+          }
+          let bi = (by * mxx * hi + bx) * 64
+          var b: List<Int> = []
+          if d.progressive {
+            b = if ci == 0 { pc0[bi..bi + 64] } else if ci == 1 { pc1[bi..bi + 64] } else if ci == 2 { pc2[bi..bi + 64] } else { pc3[bi..bi + 64] }
+          } else {
+            b = map(0..64, (_) => 0)
+          }
+          if ah != 0 {
+            let (r2, d2, b2, e2) = refine(r, d, b, d.huff[4 + sta[i]], zig_start, zig_end, 1 << al)
+            r = r2
+            d = d2
+            b = b2
+            if e2 != "" {
+              err = e2
+              break
+            }
+          } else {
+            var zig = zig_start
+            if zig == 0 {
+              zig += 1
+              let (r2, value, e2) = decode_huffman(r, d.huff[std_[i]])
+              r = r2
+              if e2 != "" {
+                err = e2
+                break
+              }
+              if value > 16 {
+                err = uerr("excessive DC component")
+                break
+              }
+              let (r3, delta, e3) = receive_extend(r, value)
+              r = r3
+              if e3 != "" {
+                err = e3
+                break
+              }
+              dc[ci] = w32(dc[ci] + delta)
+              b[0] = w32(dc[ci] << al)
+            }
+            if zig <= zig_end && d.eob > 0 {
+              d = D { eob: d.eob - 1, ..d }
+            } else {
+              let huff = d.huff[4 + sta[i]]
+              while zig <= zig_end {
+                let (r2, value, e2) = decode_huffman(r, huff)
+                r = r2
+                if e2 != "" {
+                  err = e2
+                  break
+                }
+                let val0 = value >> 4
+                let val1 = value & 15
+                if val1 != 0 {
+                  zig += val0
+                  if zig > zig_end { break }
+                  let (r3, ac, e3) = receive_extend(r, val1)
+                  r = r3
+                  if e3 != "" {
+                    err = e3
+                    break
+                  }
+                  b[UNZIG[zig]] = w32(ac << al)
+                } else {
+                  if val0 != 15 {
+                    var eob = 1 << val0
+                    if val0 != 0 {
+                      let (r3, bits, e3) = decode_bits(r, val0)
+                      r = r3
+                      if e3 != "" {
+                        err = e3
+                        break
+                      }
+                      eob = eob | bits
+                    }
+                    d = D { eob: (eob - 1) & 0xffff, ..d }
+                    break
+                  }
+                  zig += 15
+                }
+                zig += 1
+              }
+              if err != "" { break }
+            }
+          }
+          if d.progressive {
+            for k in 0..64 {
+              if ci == 0 { pc0[bi + k] = b[k] } else if ci == 1 { pc1[bi + k] = b[k] } else if ci == 2 { pc2[bi + k] = b[k] } else { pc3[bi + k] = b[k] }
+            }
+            continue
+          }
+          let vals = recon_vals(d, b, ci)
+          let (base, stride, fh, fv) = block_geom(d, bx, by, ci)
+          for y in 0..8 {
+            for x in 0..8 {
+              let val = vals[y * 8 + x]
+              for yy in 0..fv {
+                for xx in 0..fh {
+                  let o = base + (y * fv + yy) * stride + x * fh + xx
+                  if ci == 0 { p0[o] = val } else if ci == 1 { p1[o] = val } else if ci == 2 { p2[o] = val } else { p3[o] = val }
+                }
+              }
+            }
+          }
+        }
+      }
+      if err == "" {
+        mcu += 1
+        if d.ri > 0 && mcu % d.ri == 0 && mcu < mxx * myy {
+          let (r2, tt, e2) = read_full(r, 2)
+          r = r2
+          if e2 != "" { err = e2 }
+          else if tt[0] != 0xff || tt[1] != expected {
+            let (r3, e3) = find_rst(r, tt, expected)
+            r = r3
+            if e3 != "" { err = e3 }
+          }
+          if err == "" {
+            expected += 1
+            if expected == 0xd8 { expected = 0xd0 }
+            r = R { a: 0, m: 0, n: 0, ..r }
+            dc = [0, 0, 0, 0]
+            d = D { eob: 0, ..d }
+          }
+        }
+      }
+      mx += 1
+    }
+    my += 1
+  }
+  (r, D { p0: p0, p1: p1, p2: p2, p3: p3, prog: [pc0, pc1, pc2, pc3], ..d }, err)
+}
+
+fn reconstruct_progressive(d0: D) -> D {
+  var d = d0
+  let mxx = (d.width + 8 * d.max_h - 1) / (8 * d.max_h)
+  var p0 = d.p0
+  var p1 = d.p1
+  var p2 = d.p2
+  var p3 = d.p3
+  d = D { p0: [], p1: [], p2: [], p3: [], ..d }
+  for i in 0..d.n_comp {
+    let coeffs = d.prog[i]
+    if len(coeffs) == 0 { continue }
+    let v = 8 * d.max_v / d.comps[i].v
+    let h = 8 * d.max_h / d.comps[i].h
+    let stride = mxx * d.comps[i].h
+    var by = 0
+    while by * v < d.height {
+      var bx = 0
+      while bx * h < d.width {
+        let bi = (by * stride + bx) * 64
+        let b = coeffs[bi..bi + 64]
+        let vals = recon_vals(d, b, i)
+          let (base, stride, fh, fv) = block_geom(d, bx, by, i)
+          for y in 0..8 {
+            for x in 0..8 {
+              let val = vals[y * 8 + x]
+              for yy in 0..fv {
+                for xx in 0..fh {
+                  let o = base + (y * fv + yy) * stride + x * fh + xx
+                  if i == 0 { p0[o] = val } else if i == 1 { p1[o] = val } else if i == 2 { p2[o] = val } else { p3[o] = val }
+                }
+              }
+            }
+          }
+        bx += 1
+      }
+      by += 1
+    }
+  }
+  D { p0: p0, p1: p1, p2: p2, p3: p3, ..d }
+}
+
+fn is_rgb(d: D) -> Bool {
+  if d.jfif { return false }
+  if d.adobe_valid && d.adobe_transform == 0 { return true }
+  d.comps[0].c == 82 && d.comps[1].c == 71 && d.comps[2].c == 66
+}
+
+fn ycbcr_img(d: D) -> Image {
+  let full = unwrap(image.new_ycbcr(image.rect(0, 0, d.fw, d.fh), d.ratio))
+  Image { y: d.p0, cb: d.p1, cr: d.p2, ..full }.sub_image(image.rect(0, 0, d.width, d.height))
+}
+
+fn apply_black(d: D) -> Result<Image, Str> {
+  if !d.adobe_valid { return Err(uerr("unknown color model: 4-component JPEG doesn't have Adobe APP14 metadata")) }
+  let y3 = ycbcr_img(d)
+  let bounds = y3.rect
+  let w = bounds.dx()
+  var pix = map(0..4 * w * bounds.dy(), (_) => 0)
+  if d.adobe_transform != 0 {
+    for y in 0..bounds.dy() {
+      for x in 0..w {
+        let yi = y3.y_offset(x, y)
+        let ci = y3.c_offset(x, y)
+        let (rr, gg, bb) = color.ycbcr_to_rgb(y3.y[yi], y3.cb[ci], y3.cr[ci])
+        let o = y * 4 * w + 4 * x
+        pix[o] = rr
+        pix[o + 1] = gg
+        pix[o + 2] = bb
+        pix[o + 3] = 255 - d.p3[y * d.bs + x]
+      }
+    }
+  } else {
+    for t in 0..4 {
+      let sub = d.comps[t].h != d.comps[0].h || d.comps[t].v != d.comps[0].v
+      for y in 0..bounds.dy() {
+        let sy = if sub { y / 2 } else { y }
+        for x in 0..w {
+          let sx = if sub { x / 2 } else { x }
+          let v = if t == 0 { y3.y[sy * y3.y_stride + sx] } else if t == 1 { y3.cb[sy * y3.c_stride + sx] } else if t == 2 { y3.cr[sy * y3.c_stride + sx] } else { d.p3[sy * d.bs + sx] }
+          pix[y * 4 * w + 4 * x + t] = 255 - v
+        }
+      }
+    }
+  }
+  let base = unwrap(image.new(image.CMYK, bounds))
+  Ok(Image { pix: pix, ..base })
+}
+
+fn convert_to_rgb(d: D) -> Result<Image, Str> {
+  let c = d.comps
+  if c[1].h != c[2].h || c[0].h % c[1].h != 0 || c[1].v != c[2].v || c[0].v % c[1].v != 0 { return Err(ERR_RATIO) }
+  let cscale = c[0].h / c[1].h
+  let y3 = ycbcr_img(d)
+  let b = y3.rect
+  let w = b.dx()
+  var pix = map(0..4 * w * b.dy(), (_) => 0)
+  for y in 0..b.dy() {
+    let po = y * 4 * w
+    let yo = y3.y_offset(0, y)
+    let co = y3.c_offset(0, y)
+    for i in 0..w {
+      pix[po + 4 * i] = y3.y[yo + i]
+      pix[po + 4 * i + 1] = y3.cb[co + i / cscale]
+      pix[po + 4 * i + 2] = y3.cr[co + i / cscale]
+      pix[po + 4 * i + 3] = 255
+    }
+  }
+  let base = unwrap(image.new(image.RGBA, b))
+  Ok(Image { pix: pix, ..base })
+}
+
+// 返回 (状态, 解码出的图像（仅 config_only 为假时）, 错误)
+fn run(bs: List<Int>, config_only: Bool) -> (D, Option<Image>, Str) {
+  var r = R { data: bs, off: 0, i: 0, j: 0, rpos: 0, nun: 0, a: 0, m: 0, n: 0 }
+  var d = new_d()
+  let (r0, t0, e0) = read_full(r, 2)
+  r = r0
+  if e0 != "" { return (d, None, e0) }
+  if t0[0] != 0xff || t0[1] != 0xd8 { return (d, None, ferr("missing SOI marker")) }
+  loop {
+    let (r1, t1, e1) = read_full(r, 2)
+    r = r1
+    if e1 != "" { return (d, None, e1) }
+    var tmp = t1
+    while tmp[0] != 0xff {
+      let (r2, x, e2) = read_byte(r)
+      r = r2
+      if e2 != "" { return (d, None, e2) }
+      tmp = [tmp[1], x]
+    }
+    var marker = tmp[1]
+    if marker == 0 { continue }
+    while marker == 0xff {
+      let (r2, x, e2) = read_byte(r)
+      r = r2
+      if e2 != "" { return (d, None, e2) }
+      marker = x
+    }
+    if marker == 0xd9 { break }
+    if 0xd0 <= marker && marker <= 0xd7 { continue }
+    let (r3, t3, e3) = read_full(r, 2)
+    r = r3
+    if e3 != "" { return (d, None, e3) }
+    let n = (t3[0] << 8) + t3[1] - 2
+    if n < 0 { return (d, None, ferr("short segment length")) }
+    var err = ""
+    if marker == 0xc0 || marker == 0xc1 || marker == 0xc2 {
+      d = D { baseline: marker == 0xc0, progressive: marker == 0xc2, ..d }
+      let (r4, d4, e4) = process_sof(r, d, n)
+      r = r4
+      d = d4
+      err = e4
+      if config_only && d.jfif { return (d, None, err) }
+    } else if marker == 0xc4 {
+      if config_only {
+        let (r4, e4) = ignore(r, n)
+        r = r4
+        err = e4
+      } else {
+        let (r4, d4, e4) = process_dht(r, d, n)
+        r = r4
+        d = d4
+        err = e4
+      }
+    } else if marker == 0xdb {
+      if config_only {
+        let (r4, e4) = ignore(r, n)
+        r = r4
+        err = e4
+      } else {
+        let (r4, d4, e4) = process_dqt(r, d, n)
+        r = r4
+        d = d4
+        err = e4
+      }
+    } else if marker == 0xda {
+      if config_only { return (d, None, "") }
+      let (r4, d4, e4) = process_sos(r, d, n)
+      r = r4
+      d = d4
+      err = e4
+    } else if marker == 0xdd {
+      if config_only {
+        let (r4, e4) = ignore(r, n)
+        r = r4
+        err = e4
+      } else if n != 2 { err = ferr("DRI has wrong length") }
+      else {
+        let (r4, t4, e4) = read_full(r, 2)
+        r = r4
+        err = e4
+        if e4 == "" { d = D { ri: (t4[0] << 8) + t4[1], ..d } }
+      }
+    } else if marker == 0xe0 {
+      if n < 5 {
+        let (r4, e4) = ignore(r, n)
+        r = r4
+        err = e4
+      } else {
+        let (r4, t4, e4) = read_full(r, 5)
+        r = r4
+        err = e4
+        if e4 == "" {
+          d = D { jfif: t4 == [74, 70, 73, 70, 0], ..d }
+          if n > 5 {
+            let (r5, e5) = ignore(r, n - 5)
+            r = r5
+            err = e5
+          }
+        }
+      }
+    } else if marker == 0xee {
+      if n < 12 {
+        let (r4, e4) = ignore(r, n)
+        r = r4
+        err = e4
+      } else {
+        let (r4, t4, e4) = read_full(r, 12)
+        r = r4
+        err = e4
+        if e4 == "" {
+          if t4[0..5] == [65, 100, 111, 98, 101] { d = D { adobe_valid: true, adobe_transform: t4[11], ..d } }
+          if n > 12 {
+            let (r5, e5) = ignore(r, n - 12)
+            r = r5
+            err = e5
+          }
+        }
+      }
+    } else {
+      if (0xe0 <= marker && marker <= 0xef) || marker == 0xfe {
+        let (r4, e4) = ignore(r, n)
+        r = r4
+        err = e4
+      } else if marker < 0xc0 { err = ferr("unknown marker") }
+      else { err = uerr("unknown marker") }
+    }
+    if err != "" { return (d, None, err) }
+  }
+  if d.progressive { d = reconstruct_progressive(d) }
+  if d.made == 1 {
+    let full = unwrap(image.new(image.GRAY, image.rect(0, 0, d.fw, d.fh)))
+    return (d, Some(Image { pix: d.p0, ..full }.sub_image(image.rect(0, 0, d.width, d.height))), "")
+  }
+  if d.made == 3 {
+    if d.n_comp == 4 {
+      return match apply_black(d) { Ok(m) => (d, Some(m), ""), Err(e) => (d, None, e) }
+    }
+    if is_rgb(d) {
+      return match convert_to_rgb(d) { Ok(m) => (d, Some(m), ""), Err(e) => (d, None, e) }
+    }
+    return (d, Some(ycbcr_img(d)), "")
+  }
+  (d, None, ferr("missing SOS marker"))
+}
+
+pub fn decode(bs: List<Int>) -> Result<Image, Str> {
+  let (_, m, e) = run(bs, false)
+  if e != "" { return Err(e) }
+  match m { Some(x) => Ok(x), None => Err(ferr("missing SOS marker")) }
+}
+
+pub fn decode_config(bs: List<Int>) -> Result<Config, Str> {
+  let (d, _, e) = run(bs, true)
+  if e != "" { return Err(e) }
+  if d.n_comp == 1 { return Ok(Config { model: color.GRAY_MODEL, width: d.width, height: d.height }) }
+  if d.n_comp == 3 { return Ok(Config { model: if is_rgb(d) { color.RGBA_MODEL } else { color.YCBCR_MODEL }, width: d.width, height: d.height }) }
+  if d.n_comp == 4 { return Ok(Config { model: color.CMYK_MODEL, width: d.width, height: d.height }) }
+  Err(ferr("missing SOF marker"))
+}
+
+// ───────── 编码 ─────────
+
+const QUANT_LUMA: List<Int> = [16, 11, 12, 14, 12, 10, 16, 14, 13, 14, 18, 17, 16, 19, 24, 40, 26, 24, 22, 22, 24, 49, 35, 37, 29, 40, 58, 51, 61, 60, 57, 51,
+  56, 55, 64, 72, 92, 78, 64, 68, 87, 69, 55, 56, 80, 109, 81, 87, 95, 98, 103, 104, 103, 62, 77, 113, 121, 112, 100, 120, 92, 101, 103, 99]
+const QUANT_CHROMA: List<Int> = [17, 18, 18, 24, 21, 24, 47, 26, 26, 47, 99, 66, 56, 66, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99,
+  99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99]
+
+const SPEC_COUNTS: List<List<Int>> = [
+  [0, 1, 5, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0],
+  [0, 2, 1, 3, 3, 2, 4, 3, 5, 5, 4, 4, 0, 0, 1, 125],
+  [0, 3, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0],
+  [0, 2, 1, 2, 4, 4, 3, 4, 7, 5, 4, 4, 0, 1, 2, 119],
+]
+const SPEC_VALUES: List<List<Int>> = [
+  [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11],
+  [0x01, 0x02, 0x03, 0x00, 0x04, 0x11, 0x05, 0x12, 0x21, 0x31, 0x41, 0x06, 0x13, 0x51, 0x61, 0x07, 0x22, 0x71, 0x14, 0x32, 0x81, 0x91, 0xa1, 0x08,
+   0x23, 0x42, 0xb1, 0xc1, 0x15, 0x52, 0xd1, 0xf0, 0x24, 0x33, 0x62, 0x72, 0x82, 0x09, 0x0a, 0x16, 0x17, 0x18, 0x19, 0x1a, 0x25, 0x26, 0x27, 0x28,
+   0x29, 0x2a, 0x34, 0x35, 0x36, 0x37, 0x38, 0x39, 0x3a, 0x43, 0x44, 0x45, 0x46, 0x47, 0x48, 0x49, 0x4a, 0x53, 0x54, 0x55, 0x56, 0x57, 0x58, 0x59,
+   0x5a, 0x63, 0x64, 0x65, 0x66, 0x67, 0x68, 0x69, 0x6a, 0x73, 0x74, 0x75, 0x76, 0x77, 0x78, 0x79, 0x7a, 0x83, 0x84, 0x85, 0x86, 0x87, 0x88, 0x89,
+   0x8a, 0x92, 0x93, 0x94, 0x95, 0x96, 0x97, 0x98, 0x99, 0x9a, 0xa2, 0xa3, 0xa4, 0xa5, 0xa6, 0xa7, 0xa8, 0xa9, 0xaa, 0xb2, 0xb3, 0xb4, 0xb5, 0xb6,
+   0xb7, 0xb8, 0xb9, 0xba, 0xc2, 0xc3, 0xc4, 0xc5, 0xc6, 0xc7, 0xc8, 0xc9, 0xca, 0xd2, 0xd3, 0xd4, 0xd5, 0xd6, 0xd7, 0xd8, 0xd9, 0xda, 0xe1, 0xe2,
+   0xe3, 0xe4, 0xe5, 0xe6, 0xe7, 0xe8, 0xe9, 0xea, 0xf1, 0xf2, 0xf3, 0xf4, 0xf5, 0xf6, 0xf7, 0xf8, 0xf9, 0xfa],
+  [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11],
+  [0x00, 0x01, 0x02, 0x03, 0x11, 0x04, 0x05, 0x21, 0x31, 0x06, 0x12, 0x41, 0x51, 0x07, 0x61, 0x71, 0x13, 0x22, 0x32, 0x81, 0x08, 0x14, 0x42, 0x91,
+   0xa1, 0xb1, 0xc1, 0x09, 0x23, 0x33, 0x52, 0xf0, 0x15, 0x62, 0x72, 0xd1, 0x0a, 0x16, 0x24, 0x34, 0xe1, 0x25, 0xf1, 0x17, 0x18, 0x19, 0x1a, 0x26,
+   0x27, 0x28, 0x29, 0x2a, 0x35, 0x36, 0x37, 0x38, 0x39, 0x3a, 0x43, 0x44, 0x45, 0x46, 0x47, 0x48, 0x49, 0x4a, 0x53, 0x54, 0x55, 0x56, 0x57, 0x58,
+   0x59, 0x5a, 0x63, 0x64, 0x65, 0x66, 0x67, 0x68, 0x69, 0x6a, 0x73, 0x74, 0x75, 0x76, 0x77, 0x78, 0x79, 0x7a, 0x82, 0x83, 0x84, 0x85, 0x86, 0x87,
+   0x88, 0x89, 0x8a, 0x92, 0x93, 0x94, 0x95, 0x96, 0x97, 0x98, 0x99, 0x9a, 0xa2, 0xa3, 0xa4, 0xa5, 0xa6, 0xa7, 0xa8, 0xa9, 0xaa, 0xb2, 0xb3, 0xb4,
+   0xb5, 0xb6, 0xb7, 0xb8, 0xb9, 0xba, 0xc2, 0xc3, 0xc4, 0xc5, 0xc6, 0xc7, 0xc8, 0xc9, 0xca, 0xd2, 0xd3, 0xd4, 0xd5, 0xd6, 0xd7, 0xd8, 0xd9, 0xda,
+   0xe2, 0xe3, 0xe4, 0xe5, 0xe6, 0xe7, 0xe8, 0xe9, 0xea, 0xf2, 0xf3, 0xf4, 0xf5, 0xf6, 0xf7, 0xf8, 0xf9, 0xfa],
+]
+
+fn huff_lut(k: Int) -> List<Int> {
+  let vals = SPEC_VALUES[k]
+  var mx = 0
+  for v in vals { if v > mx { mx = v } }
+  var lut = map(0..mx + 1, (_) => 0)
+  var code = 0
+  var idx = 0
+  for i in 0..16 {
+    let nb = (i + 1) << 24
+    for _ in 0..SPEC_COUNTS[k][i] {
+      lut[vals[idx]] = nb | code
+      code += 1
+      idx += 1
+    }
+    code = code << 1
+  }
+  lut
+}
+
+fn bit_count(a: Int) -> Int {
+  var n = 0
+  var v = a
+  while v > 0 {
+    n += 1
+    v = v >> 1
+  }
+  n
+}
+
+fn div_round(a: Int, b: Int) -> Int { if a >= 0 { (a + (b >> 1)) / b } else { -((-a + (b >> 1)) / b) } }
+
+type E = { out: List<Int>, bits: Int, nbits: Int }
+
+fn emit(e: E, bits0: Int, nb0: Int) -> E {
+  var out = e.out
+  let nb1 = nb0 + e.nbits
+  var nb = nb1
+  var bits = ((bits0 << (32 - nb)) & 0xffffffff) | e.bits
+  while nb >= 8 {
+    let b = bits >> 24
+    out = push(out, b)
+    if b == 0xff { out = push(out, 0) }
+    bits = (bits << 8) & 0xffffffff
+    nb -= 8
+  }
+  E { out: out, bits: bits, nbits: nb }
+}
+
+fn emit_huff(e: E, luts: List<List<Int>>, h: Int, value: Int) -> E {
+  let x = luts[h][value]
+  emit(e, x & 0xffffff, x >> 24)
+}
+
+fn emit_huff_rle(e0: E, luts: List<List<Int>>, h: Int, run: Int, value: Int) -> E {
+  var a = value
+  var b = value
+  if a < 0 {
+    a = -value
+    b = value - 1
+  }
+  let nb = if a < 0x100 { bit_count(a) } else { 8 + bit_count(a >> 8) }
+  var e = emit_huff(e0, luts, h, (run << 4) | nb)
+  if nb > 0 { e = emit(e, b & ((1 << nb) - 1), nb) }
+  e
+}
+
+fn write_block(e0: E, luts: List<List<Int>>, b0: List<Int>, q: Int, quant: List<Int>, prev: Int) -> (E, Int) {
+  let b = fdct(b0)
+  let dc = div_round(b[0], 8 * quant[0])
+  var e = emit_huff_rle(e0, luts, 2 * q, 0, dc - prev)
+  let h = 2 * q + 1
+  var run = 0
+  for zig in 1..64 {
+    let ac = div_round(b[UNZIG[zig]], 8 * quant[zig])
+    if ac == 0 { run += 1 } else {
+      while run > 15 {
+        e = emit_huff(e, luts, h, 0xf0)
+        run -= 16
+      }
+      e = emit_huff_rle(e, luts, h, run, ac)
+      run = 0
+    }
+  }
+  if run > 0 { e = emit_huff(e, luts, h, 0) }
+  (e, dc)
+}
+
+fn imin(a: Int, b: Int) -> Int { if a < b { a } else { b } }
+
+// 取 8x8 块的 Y / Cb / Cr（按 Go 的 rgbaToYCbCr / yCbCrToYCbCr / toYCbCr）
+fn to_ycbcr(m: Image, px: Int, py: Int) -> (List<Int>, List<Int>, List<Int>) {
+  let b = m.rect
+  let xmax = b.max.x - 1
+  let ymax = b.max.y - 1
+  var yb = map(0..64, (_) => 0)
+  var cbb = map(0..64, (_) => 0)
+  var crb = map(0..64, (_) => 0)
+  for j in 0..8 {
+    let sy = imin(py + j, ymax)
+    for i in 0..8 {
+      let sx = imin(px + i, xmax)
+      var yy = 0
+      var cb = 0
+      var cr = 0
+      if m.kind == image.RGBA {
+        let o = m.pix_offset(sx, sy)
+        let (a1, a2, a3) = color.rgb_to_ycbcr(m.pix[o], m.pix[o + 1], m.pix[o + 2])
+        yy = a1
+        cb = a2
+        cr = a3
+      } else if m.kind == image.YCBCR {
+        let ci = m.c_offset(sx, sy)
+        yy = m.y[m.y_offset(sx, sy)]
+        cb = m.cb[ci]
+        cr = m.cr[ci]
+      } else {
+        let (r, g, bb, _) = m.rgba64_at(sx, sy)
+        let (a1, a2, a3) = color.rgb_to_ycbcr(r >> 8, g >> 8, bb >> 8)
+        yy = a1
+        cb = a2
+        cr = a3
+      }
+      yb[8 * j + i] = yy
+      cbb[8 * j + i] = cb
+      crb[8 * j + i] = cr
+    }
+  }
+  (yb, cbb, crb)
+}
+
+fn scale4(src: List<List<Int>>) -> List<Int> {
+  var dst = map(0..64, (_) => 0)
+  for i in 0..4 {
+    let off = ((i & 2) << 4) | ((i & 1) << 2)
+    for y in 0..4 {
+      for x in 0..4 {
+        let j = 16 * y + 2 * x
+        let s = src[i][j] + src[i][j + 1] + src[i][j + 8] + src[i][j + 9]
+        dst[8 * y + x + off] = (s + 2) >> 2
+      }
+    }
+  }
+  dst
+}
+
+pub fn encode(m: Image, quality0: Int) -> Result<List<Int>, Str> {
+  let b = m.bounds()
+  if b.dx() >= 65536 || b.dy() >= 65536 { return Err("jpeg: image is too large to encode") }
+  var quality = quality0
+  if quality < 1 { quality = 1 } else if quality > 100 { quality = 100 }
+  let sc = if quality < 50 { 5000 / quality } else { 200 - quality * 2 }
+  let qs = map([QUANT_LUMA, QUANT_CHROMA], (t) => map(t, (x0) => {
+    let x = (x0 * sc + 50) / 100
+    if x < 1 { 1 } else if x > 255 { 255 } else { x }
+  }))
+  let gray = m.kind == image.GRAY
+  let nc = if gray { 1 } else { 3 }
+  var out: List<Int> = [0xff, 0xd8, 0xff, 0xdb, 0, 132, 0] + qs[0] + [1] + qs[1]
+  let mlen = 8 + 3 * nc
+  out = out + [0xff, 0xc0, mlen >> 8, mlen & 255, 8, (b.dy() >> 8) & 255, b.dy() & 255, (b.dx() >> 8) & 255, b.dx() & 255, nc]
+  if gray { out = out + [1, 0x11, 0] } else { out = out + [1, 0x22, 0, 2, 0x11, 1, 3, 0x11, 1] }
+  let nspec = if gray { 2 } else { 4 }
+  var dlen = 2
+  for k in 0..nspec { dlen += 17 + len(SPEC_VALUES[k]) }
+  out = out + [0xff, 0xc4, dlen >> 8, dlen & 255]
+  for k in 0..nspec { out = out + [[0, 0x10, 1, 0x11][k]] + SPEC_COUNTS[k] + SPEC_VALUES[k] }
+  if gray { out = out + [0xff, 0xda, 0, 8, 1, 1, 0, 0, 0x3f, 0] } else { out = out + [0xff, 0xda, 0, 12, 3, 1, 0, 2, 0x11, 3, 0x11, 0, 0x3f, 0] }
+  let luts = map(0..4, (k) => huff_lut(k))
+  var e = E { out: out, bits: 0, nbits: 0 }
+  var pdy = 0
+  var pdcb = 0
+  var pdcr = 0
+  if gray {
+    var y = b.min.y
+    while y < b.max.y {
+      var x = b.min.x
+      while x < b.max.x {
+        var blk = map(0..64, (_) => 0)
+        for j in 0..8 {
+          for i in 0..8 { blk[8 * j + i] = m.pix[m.pix_offset(imin(x + i, b.max.x - 1), imin(y + j, b.max.y - 1))] }
+        }
+        let (e2, dc) = write_block(e, luts, blk, 0, qs[0], pdy)
+        e = e2
+        pdy = dc
+        x += 8
+      }
+      y += 8
+    }
+  } else {
+    var y = b.min.y
+    while y < b.max.y {
+      var x = b.min.x
+      while x < b.max.x {
+        var cbs: List<List<Int>> = []
+        var crs: List<List<Int>> = []
+        for i in 0..4 {
+          let (yb, cbb, crb) = to_ycbcr(m, x + (i & 1) * 8, y + (i & 2) * 4)
+          cbs = push(cbs, cbb)
+          crs = push(crs, crb)
+          let (e2, dc) = write_block(e, luts, yb, 0, qs[0], pdy)
+          e = e2
+          pdy = dc
+        }
+        let (e3, dcb) = write_block(e, luts, scale4(cbs), 1, qs[1], pdcb)
+        e = e3
+        pdcb = dcb
+        let (e4, dcr) = write_block(e, luts, scale4(crs), 1, qs[1], pdcr)
+        e = e4
+        pdcr = dcr
+        x += 16
+      }
+      y += 16
+    }
+  }
+  e = emit(e, 0x7f, 7)
+  Ok(e.out + [0xff, 0xd9])
+}

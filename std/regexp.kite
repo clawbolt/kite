@@ -1,0 +1,766 @@
+// std.regexp：正则表达式（对齐 Go 的 regexp / RE2 语法）
+// 用 Pike VM 实现：匹配时间和 输入长度 × 模式长度 成正比，不会因为回溯爆炸；语义是最左优先（同 Go、Perl）
+//
+// 语法：字面字符  .  [abc] [^a-z] [[:alpha:]]  \d \D \w \W \s \S  \b \B  ^ $ \A \z
+//       (…) 捕获组  (?:…) 不捕获  (?P<名字>…) / (?<名字>…) 命名组  a|b
+//       * + ? {n} {n,} {n,m}，后面加 ? 是非贪婪
+//       \pL \p{Lu} \p{Han} \PL \p{^Greek}：Unicode 分类和文字（见 std.unicode）
+//       标志 (?i) 忽略大小写（单个字符按 Unicode 简单映射；[a-z] 这样的区间只折叠 ASCII）、(?s) . 也匹配换行、(?m) ^ $ 匹配每一行，也可以写 (?i:…)
+//       转义 \n \t \r \f \v \0 \xHH \x{…} \u{…} 以及 \ 加任意标点
+// 位置和长度都按字符计（和 Kite 的 Str 一致）
+//
+//   let re = regexp.must_compile("(\\w+)@(\\w+)\\.com")
+//   regexp.is_match(re, s)、find、find_index、find_all、captures、named、replace_all（$1 / ${名字}）、split
+
+enum Rx {
+  RLit(c: Int)
+  RSet(rs: List<(Int, Int)>, neg: Bool)
+  RDot(nl: Bool)
+  RCat(xs: List<Rx>)
+  RAlt(xs: List<Rx>)
+  RRep(x: Rx, lo: Int, hi: Int, greedy: Bool)
+  RGrp(x: Rx, idx: Int)
+  RAsrt(k: Int)
+  REmpty
+}
+
+enum Inst {
+  IChar(c: Int)
+  ISet(rs: List<(Int, Int)>, neg: Bool)
+  IAny
+  IAnyNL
+  ISplit(x: Int, y: Int)
+  IJmp(x: Int)
+  ISave(n: Int)
+  IAssert(k: Int)
+  IMatch
+}
+
+use std.unicode
+
+pub type Regex = { src: Str, prog: List<Inst>, ncap: Int, names: List<Str> }
+
+// 解析状态：位置、已分配的组号、各组名字（下标 = 组号，未命名为 ""）
+type PS = { cs: List<Str>, pos: Int, ncap: Int, names: List<Str> }
+
+// 标志：i 忽略大小写、s 点匹配换行、m 多行
+type Fl = { i: Bool, s: Bool, m: Bool }
+
+fn cp(c: Str) -> Int { __ord(c) }
+
+fn peekc(p: PS) -> Str { if p.pos < len(p.cs) { p.cs[p.pos] } else { "" } }
+
+fn adv(p: PS, k: Int) -> PS { PS { pos: p.pos + k, ..p } }
+
+fn err(p: PS, msg: Str) -> Str { "regexp: {msg}（第 {p.pos} 个字符）" }
+
+// ── 字符类 ──
+fn r_digit() -> List<(Int, Int)> { [(48, 57)] }
+
+fn r_word() -> List<(Int, Int)> { [(48, 57), (65, 90), (95, 95), (97, 122)] }
+
+fn r_space() -> List<(Int, Int)> { [(9, 10), (12, 13), (32, 32)] }
+
+fn posix(name: Str) -> Option<List<(Int, Int)>> {
+  if name == "alpha" { Some([(65, 90), (97, 122)]) } else if name == "digit" { Some(r_digit()) } else if name == "alnum" { Some([(48, 57), (65, 90), (97, 122)]) } else if name == "space" { Some([(9, 13), (32, 32)]) } else if name == "upper" { Some([(65, 90)]) } else if name == "lower" { Some([(97, 122)]) } else if name == "punct" { Some([(33, 47), (58, 64), (91, 96), (123, 126)]) } else if name == "xdigit" { Some([(48, 57), (65, 70), (97, 102)]) } else if name == "word" { Some(r_word()) } else if name == "blank" { Some([(9, 9), (32, 32)]) } else if name == "cntrl" { Some([(0, 31), (127, 127)]) } else if name == "print" { Some([(32, 126)]) } else if name == "graph" { Some([(33, 126)]) } else { None }
+}
+
+// 取反：在 0..0x10FFFF 上求补集
+fn negate(rs: List<(Int, Int)>) -> List<(Int, Int)> {
+  let srt = sort_by(rs, (r) => r.0)
+  var out: List<(Int, Int)> = []
+  var next = 0
+  for (a, b) in srt {
+    if a > next { out = push(out, (next, a - 1)) }
+    if b + 1 > next { next = b + 1 }
+  }
+  if next <= 1114111 { out = push(out, (next, 1114111)) }
+  out
+}
+
+// ASCII 字母补上另一种大小写
+fn fold_case(rs: List<(Int, Int)>) -> List<(Int, Int)> {
+  var out = rs
+  for (a, b) in rs {
+    let lo = if a > 65 { a } else { 65 }
+    let hi = if b < 90 { b } else { 90 }
+    if lo <= hi { out = push(out, (lo + 32, hi + 32)) }
+    let lo2 = if a > 97 { a } else { 97 }
+    let hi2 = if b < 122 { b } else { 122 }
+    if lo2 <= hi2 { out = push(out, (lo2 - 32, hi2 - 32)) }
+  }
+  out
+}
+
+fn hexval(c: Str) -> Int {
+  let o = __ord(c)
+  if o >= 48 && o <= 57 { o - 48 } else if o >= 97 && o <= 102 { o - 87 } else if o >= 65 && o <= 70 { o - 55 } else { -1 }
+}
+
+// 解析 \ 后面的转义：(单个码点或字符类, 新状态)；码点为 -1 时用字符类
+fn escape(p0: PS) -> Result<((Int, List<(Int, Int)>, Bool, Int), PS), Str> {
+  // 返回 ((码点, 字符类, 字符类是否取反, 断言种类), 状态)；断言种类 -1 表示不是断言
+  let p = adv(p0, 1)
+  let c = peekc(p)
+  if c == "" { return Err(err(p, "模式以 \\ 结尾")) }
+  let q = adv(p, 1)
+  if c == "d" { return Ok(((-1, r_digit(), false, -1), q)) }
+  if c == "D" { return Ok(((-1, r_digit(), true, -1), q)) }
+  if c == "w" { return Ok(((-1, r_word(), false, -1), q)) }
+  if c == "W" { return Ok(((-1, r_word(), true, -1), q)) }
+  if c == "s" { return Ok(((-1, r_space(), false, -1), q)) }
+  if c == "S" { return Ok(((-1, r_space(), true, -1), q)) }
+  if c == "b" { return Ok(((-1, [], false, 2), q)) }
+  if c == "B" { return Ok(((-1, [], false, 3), q)) }
+  if c == "A" { return Ok(((-1, [], false, 4), q)) }
+  if c == "z" { return Ok(((-1, [], false, 5), q)) }
+  if c == "p" || c == "P" {
+    // \pL、\p{Han}、\p{^Lu}、\PL
+    var name = ""
+    var r = q
+    if peekc(r) == "\{" {
+      r = adv(r, 1)
+      while peekc(r) != "\}" && peekc(r) != "" {
+        name = name + peekc(r)
+        r = adv(r, 1)
+      }
+      if peekc(r) == "" { return Err(err(r, "\\{c}\{ 没有闭合")) }
+      r = adv(r, 1)
+    } else {
+      name = peekc(r)
+      r = adv(r, 1)
+    }
+    var neg = c == "P"
+    if starts_with(name, "^") {
+      neg = !neg
+      name = __str_slice(name, 1, len(name))
+    }
+    if name == "Any" { return Ok(((-1, [(0, 1114111)], neg, -1), r)) }
+    let Some(t) = unicode.table(name) else { return Err(err(p, "未知的 Unicode 类 {name}")) }
+    return Ok(((-1, t, neg, -1), r))
+  }
+  if c == "n" { return Ok(((10, [], false, -1), q)) }
+  if c == "t" { return Ok(((9, [], false, -1), q)) }
+  if c == "r" { return Ok(((13, [], false, -1), q)) }
+  if c == "f" { return Ok(((12, [], false, -1), q)) }
+  if c == "v" { return Ok(((11, [], false, -1), q)) }
+  if c == "0" { return Ok(((0, [], false, -1), q)) }
+  if c == "x" || c == "u" {
+    var r = q
+    var v = 0
+    if peekc(r) == "\{" {
+      r = adv(r, 1)
+      var nd = 0
+      while peekc(r) != "\}" {
+        let h = hexval(peekc(r))
+        if h < 0 { return Err(err(r, "\\{c}\{…\} 里有非十六进制字符")) }
+        v = v * 16 + h
+        nd += 1
+        if v > 1114111 { return Err(err(r, "码点超出范围")) }
+        r = adv(r, 1)
+      }
+      if nd == 0 { return Err(err(r, "\\{c}\{\} 是空的")) }
+      r = adv(r, 1)
+    } else {
+      let w = if c == "x" { 2 } else { 4 }
+      for _ in 0..w {
+        let h = hexval(peekc(r))
+        if h < 0 { return Err(err(r, "\\{c} 后面需要 {w} 位十六进制数")) }
+        v = v * 16 + h
+        r = adv(r, 1)
+      }
+    }
+    return Ok(((v, [], false, -1), r))
+  }
+  let o = cp(c)
+  if (o >= 48 && o <= 57) || (o >= 65 && o <= 90) || (o >= 97 && o <= 122) { return Err(err(p, "不支持的转义 \\{c}")) }
+  Ok(((o, [], false, -1), q))
+}
+
+// [ … ]，p 指向 [
+fn class(p0: PS, f: Fl) -> Result<(Rx, PS), Str> {
+  var p = adv(p0, 1)
+  var neg = false
+  if peekc(p) == "^" {
+    neg = true
+    p = adv(p, 1)
+  }
+  var rs: List<(Int, Int)> = []
+  var first = true
+  while true {
+    let c = peekc(p)
+    if c == "" { return Err(err(p0, "字符类 [ 没有闭合")) }
+    if c == "]" && !first { break }
+    first = false
+    if c == "[" && p.pos + 1 < len(p.cs) && p.cs[p.pos + 1] == ":" {
+      var j = p.pos + 2
+      var nm = ""
+      while j < len(p.cs) && p.cs[j] != ":" {
+        nm = nm + p.cs[j]
+        j += 1
+      }
+      let pneg = starts_with(nm, "^")
+      let nm2 = if pneg { __str_slice(nm, 1, len(nm)) } else { nm }
+      if j + 1 >= len(p.cs) || p.cs[j + 1] != "]" { return Err(err(p, "[: 没有闭合")) }
+      let Some(pr) = posix(nm2) else { return Err(err(p, "未知的字符类 [:{nm}:]")) }
+      rs = rs + if pneg { negate(pr) } else { pr }
+      p = PS { pos: j + 2, ..p }
+      continue
+    }
+    var lo = cp(c)
+    if c == "\\" {
+      let ((v, cls, cneg, ak), q) = escape(p)?
+      if ak >= 0 { return Err(err(p, "字符类里不能用断言")) }
+      p = q
+      if v < 0 {
+        rs = rs + if cneg { negate(cls) } else { cls }
+        continue
+      }
+      lo = v
+    } else {
+      p = adv(p, 1)
+    }
+    var hi = lo
+    if peekc(p) == "-" && p.pos + 1 < len(p.cs) && p.cs[p.pos + 1] != "]" {
+      let p2 = adv(p, 1)
+      let c2 = peekc(p2)
+      if c2 == "\\" {
+        let ((v2, _, _, _), q2) = escape(p2)?
+        if v2 < 0 { return Err(err(p2, "区间的终点不能是字符类")) }
+        hi = v2
+        p = q2
+      } else {
+        hi = cp(c2)
+        p = adv(p2, 1)
+      }
+      if hi < lo { return Err(err(p, "区间顺序颠倒")) }
+    }
+    rs = push(rs, (lo, hi))
+  }
+  let rs2 = if f.i { fold_case(rs) } else { rs }
+  Ok((RSet(rs2, neg), adv(p, 1)))
+}
+
+fn lit(c: Int, f: Fl) -> Rx {
+  if !f.i { return RLit(c) }
+  let u = unicode.map_case(c, 0)
+  let l = unicode.map_case(c, 1)
+  if u == c && l == c { RLit(c) } else { RSet([(c, c), (u, u), (l, l)], false) }
+}
+
+fn parse_alt(p0: PS, f: Fl) -> Result<(Rx, PS), Str> {
+  var (x, p) = parse_cat(p0, f)?
+  var xs = [x]
+  while peekc(p) == "|" {
+    let (y, q) = parse_cat(adv(p, 1), f)?
+    xs = push(xs, y)
+    p = q
+  }
+  Ok((if len(xs) == 1 { xs[0] } else { RAlt(xs) }, p))
+}
+
+fn parse_cat(p0: PS, f0: Fl) -> Result<(Rx, PS), Str> {
+  var p = p0
+  var f = f0
+  var xs: List<Rx> = []
+  while true {
+    let c = peekc(p)
+    if c == "" || c == "|" || c == ")" { break }
+    // (?flags) 改变后面的标志
+    if c == "(" && p.pos + 2 < len(p.cs) && p.cs[p.pos + 1] == "?" {
+      var j = p.pos + 2
+      var nf = f
+      var on = true
+      var ok = true
+      while j < len(p.cs) && p.cs[j] != ")" && p.cs[j] != ":" {
+        let fc = p.cs[j]
+        if fc == "-" { on = false } else if fc == "i" { nf = Fl { i: on, ..nf } } else if fc == "s" { nf = Fl { s: on, ..nf } } else if fc == "m" { nf = Fl { m: on, ..nf } } else { ok = false }
+        j += 1
+      }
+      if ok && j < len(p.cs) && p.cs[j] == ")" && j > p.pos + 2 {
+        f = nf
+        p = PS { pos: j + 1, ..p }
+        continue
+      }
+    }
+    let (a, q) = parse_atom(p, f)?
+    let (r, q2) = parse_quant(a, q)?
+    xs = push(xs, r)
+    p = q2
+  }
+  Ok((if len(xs) == 0 { REmpty } else if len(xs) == 1 { xs[0] } else { RCat(xs) }, p))
+}
+
+fn read_int(p0: PS) -> (Int, PS) {
+  var p = p0
+  var v = -1
+  while peekc(p) != "" && cp(peekc(p)) >= 48 && cp(peekc(p)) <= 57 {
+    v = (if v < 0 { 0 } else { v }) * 10 + cp(peekc(p)) - 48
+    if v > 100000 { v = 100000 }
+    p = adv(p, 1)
+  }
+  (v, p)
+}
+
+fn parse_quant(a: Rx, p0: PS) -> Result<(Rx, PS), Str> {
+  let c = peekc(p0)
+  var lo = 0
+  var hi = 0
+  var p = p0
+  if c == "*" {
+    lo = 0
+    hi = -1
+    p = adv(p, 1)
+  } else if c == "+" {
+    lo = 1
+    hi = -1
+    p = adv(p, 1)
+  } else if c == "?" {
+    lo = 0
+    hi = 1
+    p = adv(p, 1)
+  } else if c == "\{" {
+    let (n, q) = read_int(adv(p, 1))
+    if n < 0 { return Ok((a, p0)) }
+    var m = n
+    var r = q
+    if peekc(r) == "," {
+      let (m2, r2) = read_int(adv(r, 1))
+      m = m2
+      r = r2
+    }
+    if peekc(r) != "\}" { return Ok((a, p0)) }
+    if m >= 0 && m < n { return Err(err(p0, "重复次数 \{{n},{m}\} 不对")) }
+    if n > 1000 || m > 1000 { return Err(err(p0, "重复次数不能超过 1000")) }
+    lo = n
+    hi = m
+    p = adv(r, 1)
+  } else {
+    return Ok((a, p0))
+  }
+  var greedy = true
+  if peekc(p) == "?" {
+    greedy = false
+    p = adv(p, 1)
+  }
+  let n = peekc(p)
+  if n == "*" || n == "+" || n == "?" { return Err(err(p, "不能连续使用重复运算符")) }
+  match a {
+    RAsrt(_) => Err(err(p0, "断言不能重复")),
+    REmpty => Err(err(p0, "重复运算符前面没有内容")),
+    _ => Ok((RRep(a, lo, hi, greedy), p)),
+  }
+}
+
+fn parse_atom(p: PS, f: Fl) -> Result<(Rx, PS), Str> {
+  let c = peekc(p)
+  if c == "*" || c == "+" || c == "?" { return Err(err(p, "重复运算符 {c} 前面没有内容")) }
+  if c == "." { return Ok((RDot(f.s), adv(p, 1))) }
+  if c == "^" { return Ok((RAsrt(if f.m { 6 } else { 0 }), adv(p, 1))) }
+  if c == "$" { return Ok((RAsrt(if f.m { 7 } else { 1 }), adv(p, 1))) }
+  if c == "[" { return class(p, f) }
+  if c == "\\" {
+    let ((v, cls, neg, ak), q) = escape(p)?
+    if ak >= 0 { return Ok((RAsrt(ak), q)) }
+    if v < 0 { return Ok((RSet(cls, neg), q)) }
+    return Ok((lit(v, f), q))
+  }
+  if c == "(" {
+    var q = adv(p, 1)
+    var idx = -1
+    var nf = f
+    var name = ""
+    if peekc(q) == "?" {
+      let rest = join(q.cs[q.pos..if q.pos + 3 < len(q.cs) { q.pos + 3 } else { len(q.cs) }], "")
+      if starts_with(rest, "?P<") || starts_with(rest, "?<") {
+        var j = q.pos + (if starts_with(rest, "?P<") { 3 } else { 2 })
+        while j < len(q.cs) && q.cs[j] != ">" {
+          name = name + q.cs[j]
+          j += 1
+        }
+        if j >= len(q.cs) || name == "" { return Err(err(q, "组名没有闭合")) }
+        if contains(q.names, name) { return Err(err(q, "组名 {name} 重复")) }
+        q = PS { pos: j + 1, ..q }
+        idx = q.ncap
+      } else {
+        // (?flags:…)
+        var j = q.pos + 1
+        var on = true
+        while j < len(q.cs) && q.cs[j] != ":" {
+          let fc = q.cs[j]
+          if fc == "-" { on = false } else if fc == "i" { nf = Fl { i: on, ..nf } } else if fc == "s" { nf = Fl { s: on, ..nf } } else if fc == "m" { nf = Fl { m: on, ..nf } } else { return Err(err(q, "不支持的组语法 (?{fc}")) }
+          j += 1
+        }
+        if j >= len(q.cs) { return Err(err(q, "组没有闭合")) }
+        q = PS { pos: j + 1, ..q }
+      }
+    } else {
+      idx = q.ncap
+    }
+    if idx >= 0 { q = PS { ncap: q.ncap + 1, names: push(q.names, name), ..q } }
+    let (x, r) = parse_alt(q, nf)?
+    if peekc(r) != ")" { return Err(err(p, "括号 ( 没有闭合")) }
+    return Ok((if idx >= 0 { RGrp(x, idx) } else { x }, adv(r, 1)))
+  }
+  if c == ")" { return Err(err(p, "多余的 )")) }
+  Ok((lit(cp(c), f), adv(p, 1)))
+}
+
+// ── 编译成指令 ──
+fn emit(x: Rx, base: Int) -> List<Inst> {
+  match x {
+    RLit(c) => [IChar(c)],
+    RSet(rs, neg) => [ISet(rs, neg)],
+    RDot(nl) => [if nl { IAnyNL } else { IAny }],
+    RAsrt(k) => [IAssert(k)],
+    REmpty => [],
+    RGrp(y, idx) => {
+      let body = emit(y, base + 1)
+      [ISave(2 * idx + 2)] + body + [ISave(2 * idx + 3)]
+    },
+    RCat(xs) => {
+      var out: List<Inst> = []
+      for y in xs { out = out + emit(y, base + len(out)) }
+      out
+    },
+    RAlt(xs) => emit_alt(xs, 0, base),
+    RRep(y, lo, hi, greedy) => emit_rep(y, lo, hi, greedy, base),
+  }
+}
+
+fn emit_alt(xs: List<Rx>, i: Int, base: Int) -> List<Inst> {
+  if i == len(xs) - 1 { return emit(xs[i], base) }
+  let a = emit(xs[i], base + 1)
+  let rest = emit_alt(xs, i + 1, base + 2 + len(a))
+  let end = base + 2 + len(a) + len(rest)
+  [ISplit(base + 1, base + 2 + len(a))] + a + [IJmp(end)] + rest
+}
+
+fn emit_rep(y: Rx, lo: Int, hi: Int, greedy: Bool, base: Int) -> List<Inst> {
+  var out: List<Inst> = []
+  for _ in 0..lo { out = out + emit(y, base + len(out)) }
+  if hi < 0 {
+    // x*
+    let l = base + len(out)
+    let body = emit(y, l + 1)
+    let end = l + 2 + len(body)
+    out = out + [if greedy { ISplit(l + 1, end) } else { ISplit(end, l + 1) }] + body + [IJmp(l)]
+  } else {
+    // (x(x(x)?)?)? 共 hi - lo 层
+    out = out + emit_opt(y, hi - lo, greedy, base + len(out))
+  }
+  out
+}
+
+fn emit_opt(y: Rx, k: Int, greedy: Bool, base: Int) -> List<Inst> {
+  if k == 0 { return [] }
+  let body = emit(y, base + 1)
+  let inner = emit_opt(y, k - 1, greedy, base + 1 + len(body))
+  let end = base + 1 + len(body) + len(inner)
+  [if greedy { ISplit(base + 1, end) } else { ISplit(end, base + 1) }] + body + inner
+}
+
+pub fn compile(pattern: Str) -> Result<Regex, Str> {
+  let p0 = PS { cs: chars(pattern), pos: 0, ncap: 0, names: [] }
+  let (x, p) = parse_alt(p0, Fl { i: false, s: false, m: false })?
+  if p.pos < len(p.cs) { return Err(err(p, "多余的 )")) }
+  let body = emit(x, 1)
+  Ok(Regex { src: pattern, prog: [ISave(0)] + body + [ISave(1), IMatch], ncap: p.ncap, names: p.names })
+}
+
+pub fn must_compile(pattern: Str) -> Regex {
+  match compile(pattern) {
+    Ok(r) => r,
+    Err(e) => panic(e),
+  }
+}
+
+// ── Pike VM ──
+fn is_w(cps: List<Int>, i: Int) -> Bool {
+  if i < 0 || i >= len(cps) { return false }
+  let c = cps[i]
+  (c >= 48 && c <= 57) || (c >= 65 && c <= 90) || (c >= 97 && c <= 122) || c == 95
+}
+
+fn assert_ok(k: Int, cps: List<Int>, i: Int) -> Bool {
+  let n = len(cps)
+  if k == 0 || k == 4 { i == 0 } else if k == 1 || k == 5 { i == n } else if k == 2 { is_w(cps, i - 1) != is_w(cps, i) } else if k == 3 { is_w(cps, i - 1) == is_w(cps, i) } else if k == 6 { i == 0 || cps[i - 1] == 10 } else { i == n || cps[i] == 10 }
+}
+
+fn in_set(rs: List<(Int, Int)>, c: Int) -> Bool {
+  for (a, b) in rs {
+    if c >= a && c <= b { return true }
+  }
+  false
+}
+
+type Thr = { pc: Int, caps: List<Int> }
+
+// 把 pc 及其 ε 闭包按优先级加进线程表
+fn addthr(prog: List<Inst>, ts: List<Thr>, seen: Set<Int>, pc: Int, caps: List<Int>, cps: List<Int>, i: Int) -> (List<Thr>, Set<Int>) {
+  if contains(seen, pc) { return (ts, seen) }
+  let sn = union(seen, Set([pc]))
+  match prog[pc] {
+    IJmp(x) => addthr(prog, ts, sn, x, caps, cps, i),
+    ISplit(x, y) => {
+      let (t1, s1) = addthr(prog, ts, sn, x, caps, cps, i)
+      addthr(prog, t1, s1, y, caps, cps, i)
+    },
+    ISave(n) => addthr(prog, ts, sn, pc + 1, if n < len(caps) { set(caps, n, i) } else { caps }, cps, i),
+    IAssert(k) => if assert_ok(k, cps, i) { addthr(prog, ts, sn, pc + 1, caps, cps, i) } else { (ts, sn) },
+    _ => (push(ts, Thr { pc: pc, caps: caps }), sn),
+  }
+}
+
+// 从 start 开始找最左边的匹配，返回各组的 [开始, 结束]（-1 表示没参与）
+fn exec(re: Regex, cps: List<Int>, start: Int) -> Option<List<Int>> {
+  let n = len(cps)
+  let empty = __repeat(-1, 2 * re.ncap + 2)
+  var clist: List<Thr> = []
+  var cseen: Set<Int> = Set()
+  var matched: Option<List<Int>> = None
+  var i = start
+  while i <= n {
+    if is_none(matched) {
+      let (t2, _) = addthr(re.prog, clist, cseen, 0, empty, cps, i)
+      clist = t2
+    }
+    if len(clist) == 0 && is_some(matched) { break }
+    var nlist: List<Thr> = []
+    var nseen: Set<Int> = Set()
+    for t in clist {
+      var stop = false
+      match re.prog[t.pc] {
+        IMatch => {
+          matched = Some(t.caps)
+          stop = true
+        },
+        IChar(c) => {
+          if i < n && cps[i] == c {
+            let (a, b) = addthr(re.prog, nlist, nseen, t.pc + 1, t.caps, cps, i + 1)
+            nlist = a
+            nseen = b
+          }
+        },
+        ISet(rs, neg) => {
+          if i < n && in_set(rs, cps[i]) != neg {
+            let (a, b) = addthr(re.prog, nlist, nseen, t.pc + 1, t.caps, cps, i + 1)
+            nlist = a
+            nseen = b
+          }
+        },
+        IAny => {
+          if i < n && cps[i] != 10 {
+            let (a, b) = addthr(re.prog, nlist, nseen, t.pc + 1, t.caps, cps, i + 1)
+            nlist = a
+            nseen = b
+          }
+        },
+        IAnyNL => {
+          if i < n {
+            let (a, b) = addthr(re.prog, nlist, nseen, t.pc + 1, t.caps, cps, i + 1)
+            nlist = a
+            nseen = b
+          }
+        },
+        _ => {},
+      }
+      if stop { break }
+    }
+    clist = nlist
+    cseen = nseen
+    i += 1
+  }
+  matched
+}
+
+fn runes(s: Str) -> List<Int> { map(chars(s), (c) => __ord(c)) }
+
+// ── 对外接口 ──
+pub fn is_match(re: Regex, s: Str) -> Bool { is_some(exec(re, runes(s), 0)) }
+
+// 一次性：编译并匹配；模式不合法时为 Err
+pub fn matches(pattern: Str, s: Str) -> Result<Bool, Str> {
+  let re = compile(pattern)?
+  Ok(is_match(re, s))
+}
+
+pub fn find_index(re: Regex, s: Str) -> Option<(Int, Int)> {
+  let caps = exec(re, runes(s), 0)?
+  Some((caps[0], caps[1]))
+}
+
+pub fn find(re: Regex, s: Str) -> Option<Str> {
+  let (a, b) = find_index(re, s)?
+  Some(__str_slice(s, a, b))
+}
+
+fn all_caps(re: Regex, s: Str, limit: Int) -> List<List<Int>> {
+  let cps = runes(s)
+  var out: List<List<Int>> = []
+  var pos = 0
+  var prev = -1
+  while pos <= len(cps) && (limit < 0 || len(out) < limit) {
+    let Some(caps) = exec(re, cps, pos) else { break }
+    let a = caps[0]
+    let b = caps[1]
+    if a == b && a == prev {
+      pos = a + 1
+      continue
+    }
+    out = push(out, caps)
+    prev = b
+    pos = if b > a { b } else { b + 1 }
+  }
+  out
+}
+
+// 所有不重叠的匹配；limit < 0 表示不限
+pub fn find_all_index(re: Regex, s: Str, limit: Int) -> List<(Int, Int)> { map(all_caps(re, s, limit), (c) => (c[0], c[1])) }
+
+pub fn find_all(re: Regex, s: Str, limit: Int) -> List<Str> { map(all_caps(re, s, limit), (c) => __str_slice(s, c[0], c[1])) }
+
+fn groups_of(caps: List<Int>, s: Str) -> List<Option<Str>> {
+  var out: List<Option<Str>> = []
+  var k = 0
+  while k + 1 < len(caps) {
+    out = push(out, if caps[k] < 0 { None } else { Some(__str_slice(s, caps[k], caps[k + 1])) })
+    k += 2
+  }
+  out
+}
+
+// 第 0 项是整个匹配，之后是各捕获组；没参与匹配的组为 None
+pub fn captures(re: Regex, s: Str) -> Option<List<Option<Str>>> {
+  let caps = exec(re, runes(s), 0)?
+  Some(groups_of(caps, s))
+}
+
+pub fn captures_all(re: Regex, s: Str, limit: Int) -> List<List<Option<Str>>> { map(all_caps(re, s, limit), (c) => groups_of(c, s)) }
+
+// 命名组 → 匹配到的文本（没参与的组不出现）
+pub fn named(re: Regex, s: Str) -> Option<Map<Str, Str>> {
+  let gs = captures(re, s)?
+  var m: Map<Str, Str> = Map()
+  var k = 0
+  while k < len(re.names) {
+    if re.names[k] != "" {
+      match gs[k + 1] {
+        Some(v) => { m = set(m, re.names[k], v) },
+        None => {},
+      }
+    }
+    k += 1
+  }
+  Some(m)
+}
+
+pub fn num_groups(re: Regex) -> Int { re.ncap }
+
+// 各组名字，未命名的组为 ""
+pub fn group_names(re: Regex) -> List<Str> { re.names }
+
+pub fn source(re: Regex) -> Str { re.src }
+
+// 展开替换模板：$1 / ${1} / $name / ${name} / $$
+fn expand(re: Regex, tmpl: Str, gs: List<Option<Str>>) -> Str {
+  let cs = chars(tmpl)
+  var out = ""
+  var i = 0
+  while i < len(cs) {
+    let c = cs[i]
+    if c != "$" || i + 1 >= len(cs) {
+      out = out + c
+      i += 1
+      continue
+    }
+    if cs[i + 1] == "$" {
+      out = out + "$"
+      i += 2
+      continue
+    }
+    var name = ""
+    var j = i + 1
+    if cs[j] == "\{" {
+      j += 1
+      while j < len(cs) && cs[j] != "\}" {
+        name = name + cs[j]
+        j += 1
+      }
+      if j >= len(cs) {
+        out = out + c
+        i += 1
+        continue
+      }
+      j += 1
+    } else {
+      while j < len(cs) && (is_w(map(cs[j..j + 1], (x) => __ord(x)), 0)) {
+        name = name + cs[j]
+        j += 1
+      }
+    }
+    if name == "" {
+      out = out + c
+      i += 1
+      continue
+    }
+    var idx = -1
+    match parse_int(name) {
+      Ok(v) => { idx = v },
+      Err(_) => {
+        var k = 0
+        while k < len(re.names) {
+          if re.names[k] == name && idx < 0 { idx = k + 1 }
+          k += 1
+        }
+      },
+    }
+    if idx >= 0 && idx < len(gs) { out = out + unwrap_or(gs[idx], "") }
+    i = j
+  }
+  out
+}
+
+fn replace_with(re: Regex, s: Str, f: fn(List<Int>) -> Str) -> Str {
+  var out = ""
+  var last = 0
+  for caps in all_caps(re, s, -1) {
+    out = out + __str_slice(s, last, caps[0]) + f(caps)
+    last = caps[1]
+  }
+  out + __str_slice(s, last, len(s))
+}
+
+// 替换所有匹配；repl 里可以用 $1、${name}、$$
+pub fn replace_all(re: Regex, s: Str, repl: Str) -> Str { replace_with(re, s, (caps) => expand(re, repl, groups_of(caps, s))) }
+
+// repl 原样替换，不展开 $
+pub fn replace_all_literal(re: Regex, s: Str, repl: Str) -> Str { replace_with(re, s, (caps) => repl) }
+
+// 用函数计算替换文本（参数是匹配到的整段）
+pub fn replace_all_func(re: Regex, s: Str, f: fn(Str) -> Str) -> Str { replace_with(re, s, (caps) => f(__str_slice(s, caps[0], caps[1]))) }
+
+// 按匹配拆分；limit < 0 不限，否则最多 limit 段
+pub fn split(re: Regex, s: Str, limit: Int) -> List<Str> {
+  // 和 Go 的 Regexp.Split 逐条对应
+  if limit == 0 { return [] }
+  if s == "" { return [""] }
+  var out: List<Str> = []
+  var beg = 0
+  var end = 0
+  for caps in all_caps(re, s, limit) {
+    if limit > 0 && len(out) == limit - 1 { break }
+    end = caps[0]
+    if caps[1] != 0 { out = push(out, __str_slice(s, beg, end)) }
+    beg = caps[1]
+  }
+  if end != len(s) { out = push(out, __str_slice(s, beg, len(s))) }
+  out
+}
+
+// 把正则元字符转义成字面量
+pub fn quote_meta(s: Str) -> Str {
+  var out = ""
+  for c in chars(s) { out = out + (if contains("\\.+*?()|[]\{\}^$", c) { "\\" + c } else { c }) }
+  out
+}

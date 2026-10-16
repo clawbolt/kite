@@ -1,0 +1,112 @@
+// std.html：HTML 文本转义（对齐 Go 的 html 包）
+//   escape_string：转义 < > & ' "（' 写成 &#39;，" 写成 &#34;，和 Go 相同）
+//   unescape_string：还原全部 HTML5 命名字符引用（2231 个，含两个码点的）和数字引用 &#123; &#x7b;；
+//   规则和 Go 一致：0x80–0x9F 按 Windows-1252 映射，非法码点变成 U+FFFD，常见实体可以省略分号
+
+use std.internal.html_entities
+
+pub fn escape_string(s: Str) -> Str {
+  var out = ""
+  for c in chars(s) {
+    out = out + match c {
+      "&"  => "&amp;",
+      "'"  => "&#39;",
+      "<"  => "&lt;",
+      ">"  => "&gt;",
+      "\"" => "&#34;",
+      _    => c,
+    }
+  }
+  out
+}
+
+fn replacement(x: Int) -> Int {
+  [0x20AC, 0x0081, 0x201A, 0x0192, 0x201E, 0x2026, 0x2020, 0x2021, 0x02C6, 0x2030, 0x0160, 0x2039, 0x0152, 0x008D, 0x017D, 0x008F,
+   0x0090, 0x2018, 0x2019, 0x201C, 0x201D, 0x2022, 0x2013, 0x2014, 0x02DC, 0x2122, 0x0161, 0x203A, 0x0153, 0x009D, 0x017E, 0x0178][x - 0x80]
+}
+
+fn is_alnum(c: Str) -> Bool { (c >= "a" && c <= "z") || (c >= "A" && c <= "Z") || (c >= "0" && c <= "9") }
+
+fn hexval(c: Str) -> Int {
+  if c >= "0" && c <= "9" { __ord(c) - 48 } else if c >= "a" && c <= "f" { __ord(c) - 87 } else if c >= "A" && c <= "F" { __ord(c) - 55 } else { -1 }
+}
+
+// s[src] 是 &；返回 (替换文本, 消耗的字符数)
+fn unescape_entity(s: List<Str>, src: Int) -> (Str, Int) {
+  let n = len(s) - src
+  if n <= 1 { return ("&", 1) }
+  var i = 1
+  if s[src + 1] == "#" {
+    if n <= 3 { return ("&", 1) }
+    i = 2
+    var hex = false
+    if s[src + 2] == "x" || s[src + 2] == "X" {
+      hex = true
+      i = 3
+    }
+    var x = 0
+    while i < n {
+      let c = s[src + i]
+      i += 1
+      if hex {
+        let h = hexval(c)
+        if h >= 0 {
+          x = (16 * x + h) & 0xffffffff
+          continue
+        }
+      } else if c >= "0" && c <= "9" {
+        x = (10 * x + __ord(c) - 48) & 0xffffffff
+        continue
+      }
+      if c != ";" { i -= 1 }
+      break
+    }
+    if i <= 3 { return ("&", 1) }
+    if x >= 0x80000000 { x = x - 0x100000000 }
+    if 0x80 <= x && x <= 0x9F {
+      x = replacement(x)
+    } else if x <= 0 || (0xD800 <= x && x <= 0xDFFF) || x > 0x10FFFF {
+      x = 0xFFFD
+    }
+    return (__chr(x), i)
+  }
+  while i < n {
+    let c = s[src + i]
+    i += 1
+    if is_alnum(c) { continue }
+    if c != ";" { i -= 1 }
+    break
+  }
+  let name = join(s[src + 1..src + i], "")
+  if name != "" {
+    let x = html_entities.entity(name)
+    if x != 0 { return (__chr(x), i) }
+    let (a, b) = html_entities.entity2(name)
+    if a != 0 { return (__chr(a) + __chr(b), i) }
+    var j = if len(name) - 1 > 6 { 6 } else { len(name) - 1 }
+    while j > 1 {
+      let y = html_entities.entity(__str_slice(name, 0, j))
+      if y != 0 { return (__chr(y), j + 1) }
+      j -= 1
+    }
+  }
+  (join(s[src..src + i], ""), i)
+}
+
+pub fn unescape_string(s: Str) -> Str {
+  if !contains(s, "&") { return s }
+  let cs = chars(s)
+  var out = ""
+  var i = 0
+  while i < len(cs) {
+    if cs[i] == "&" {
+      let (t, k) = unescape_entity(cs, i)
+      out = out + t
+      i += k
+    } else {
+      out = out + cs[i]
+      i += 1
+    }
+  }
+  out
+}

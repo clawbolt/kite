@@ -1,0 +1,36 @@
+use std.math.big
+use std.math.big.{ BigInt }
+fn s(x: BigInt) -> Str { x.string() }
+fn os(x: Option<BigInt>) -> Str {
+  match x {
+    Some(v) => v.string(),
+    None    => "nil",
+  }
+}
+fn main() {
+  let strs = ["0", "1", "-1", "7", "-12", "1000000007", "-4294967296", "1073741824", "123456789012345678901234567890", "-98765432109876543210987654321098765432", "340282366920938463463374607431768211457", "-18446744073709551616", "9223372036854775807", "-9223372036854775808", "99999999999999999999999999999999999999999999999999"]
+  var xs: List<BigInt> = []
+  for t in strs { xs = push(xs, unwrap(big.parse(t, 10))) }
+  for x in xs {
+    print(s(x), x.text(2), x.text(16), x.text(36), x.text(62), x.bit_len(), x.trailing_zero_bits(), x.sign(), x.is_int64(), x.int64(), x.is_uint64(), s(x.not()), s(x.lsh(37)), s(x.rsh(5)), s(x.rsh(70)), x.bit(3), x.bit(100), s(x.set_bit(64, 1)), s(x.set_bit(0, 0)), x.bytes())
+    if x.sign() >= 0 { print(s(x.sqrt()), x.probably_prime(10), x.probably_prime(0)) }
+    for y in xs {
+      var line = "{s(x.add(y))} {s(x.sub(y))} {s(x.mul(y))} {x.cmp(y)} {x.cmp_abs(y)} {s(x.and(y))} {s(x.or(y))} {s(x.xor(y))} {s(x.and_not(y))}"
+      if y.sign() != 0 {
+        let (q, r) = x.quo_rem(y)
+        let (d, m) = x.div_mod(y)
+        line = line + " {s(q)} {s(r)} {s(d)} {s(m)} {os(x.mod_inverse(y))}"
+      }
+      let (g, a, b) = x.gcd_ext(y)
+      line = line + " {s(g)} {s(a)} {s(b)}"
+      print(line)
+    }
+    print(os(x.exp(big.new_int(5), big.zero())), os(x.exp(big.new_int(65537), big.new_int(1000000007))), os(x.exp(big.new_int(-3), big.new_int(1000000007))), os(x.exp(big.new_int(12), big.new_int(-97))), os(x.exp(big.new_int(-2), big.zero())))
+  }
+  for t in ["0x_1F", "0b1011", "0o17", "017", "0", "-0x10", "+42", "1_000_000", "1__0", "_1", "1_", "0x", "zz", "Zz", "0_7", "08", ""] {
+    print(t, os(big.parse(t, 0)), os(big.parse(t, 36)), os(big.parse(t, 62)), os(big.parse(t, 16)))
+  }
+  print(s(big.binomial(100, 50)), s(big.mul_range(1, 30)), s(big.mul_range(-3, 3)), s(big.mul_range(-5, -2)), s(big.set_bytes([1, 0, 255])), s(big.new_uint64(-1)))
+  var p = big.one().lsh(127).sub(big.one())
+  print(p.probably_prime(20), p.add(big.new_int(2)).probably_prime(20), big.new_int(561).probably_prime(5), big.new_int(3215031751).probably_prime(0), unwrap(big.parse("170141183460469231731687303715884105727", 10)).probably_prime(1))
+}

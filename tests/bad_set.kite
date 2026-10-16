@@ -1,0 +1,12 @@
+fn main() {
+  let s = Set([1, 2])
+  let t = insert(s, "x")
+  let u = insert([1], 2)
+  let v = union(s, Set(["a"]))
+  for x in s { print(x + "!") }
+}
+
+fn ops() {
+  let n = 1 | 2
+  let m = Set{1} & Set{"a"}
+}

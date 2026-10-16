@@ -1,0 +1,32 @@
+const START: Int = 0
+
+fn add(a: Int, b: Int) -> Int {
+  a + b
+}
+
+fn test_add() {
+  var counter = START
+  assert_eq(counter + 1, 1, "顶层常量")
+  assert_eq(add(2, 2), 4)
+}
+
+fn test_isolated() {
+  let counter = START + 1
+  assert_eq(counter, 1)
+}
+
+fn test_fail() {
+  print("调试输出")
+  assert_eq(add(2, 2), 5, "加法")
+}
+
+fn test_panic() {
+  let xs = [1]
+  unwrap(get(xs, 3))
+}
+
+fn helper_not_test(x: Int) {}
+
+fn main() {
+  print("不应运行")
+}

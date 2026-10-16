@@ -1,0 +1,2 @@
+use net.http
+pub fn fetch() -> Str { http.helper() + " via client" }

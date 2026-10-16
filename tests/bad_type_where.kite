@@ -1,0 +1,8 @@
+type P = { a: Int }
+type Sorted<T> where T: Ord = { items: List<T> }
+enum Tree<T: Ord> { Leaf, Node(T) }
+type Bad<T> where T: Nope = { v: T }
+fn main() {
+  let s = Sorted { items: [P { a: 1 }] }
+  let t = Node(P { a: 1 })
+}

@@ -1,0 +1,31 @@
+ |  | true
+plain | plain | true
+a&lt;b&gt;c&amp;d&#39;e&#34;f | a<b>c&d'e"f | true
+&amp;amp;&amp;lt;&amp;gt;&amp;quot;&amp;#39;&amp;#34; | &<>"'" | true
+&amp;amp | & | true
+&amp;ampx | &x | true
+&amp;amp;x | &x | true
+&amp;notit; | ¬it; | true
+&amp;notin; | ∉ | true
+&amp;noti | ¬i | true
+&amp;copy2018 | ©2018 | true
+&amp;#65;&amp;#x42;&amp;#X43;&amp;#x;&amp;#;&amp;# | ABC�&#;&# | true
+&amp;#128;&amp;#x9f;&amp;#0;&amp;#xD800;&amp;#1114112;&amp;#99999999999; | €Ÿ���� | true
+&amp;#12345 | 〹 | true
+&amp;#x1F600; | 😀 | true
+&amp;NotEqualTilde; | ≂̸ | true
+&amp;nvlt; | <⃒ | true
+&amp;acE;x | ∾̳x | true
+&amp;bogus; | &bogus; | true
+&amp;&amp;&amp; | &&& | true
+&amp; | & | true
+a&amp; | a& | true
+&amp;; | &; | true
+&amp;#x41g | Ag | true
+&amp;lt3 | <3 | true
+&amp;ltt; | <t; | true
+中&amp;eacute;文&amp;Eacute | 中é文É | true
+&amp;AMP;&amp;Amp; | &&Amp; | true
+&amp;thetasym;&amp;ThickSpace; | ϑ   | true
+&amp;#9;&amp;#10; | 	
+ | true

@@ -1,0 +1,1569 @@
+// std.encoding.xml：XML 1.0 词法分析与写出（对齐 Go 1.23 的 encoding/xml，按 xml.go / marshal.go 逐行移植）
+//
+// 一、解析（Decoder，对应 Go 的 xml.Decoder）
+//   let d = xml.new_decoder_str(text)（或 new_decoder(bytes)）；可选设置：
+//     d.with_strict(false)、d.with_auto_close(xml.html_auto_close())、d.with_entity(xml.html_entity())、
+//     d.with_default_space(url)、d.with_charset_reader(f)（f(charset, 剩余字节) -> Result<List<Int>, Str>）
+//   let (d2, r) = d.token()      // 名字空间翻译、元素配对检查、AutoClose，等同 Go 的 Token()
+//   let (d2, r) = d.raw_token()  // 不做配对和名字空间翻译，等同 Go 的 RawToken()
+//   r : Result<Token, XmlError>；输入结束时是 Err，e.kind == EOF（e.error() 为 "EOF"）
+//   d.input_offset()、d.input_pos() -> (行, 列)
+//   Token 是枚举：XStart(start: StartElement) XEnd(name: Name) XCharData(data) XComment(data)
+//                 XProcInst(target, inst) XDirective(data)；数据部分是字节列表 List<Int>（Go 的 []byte）
+//   XmlError：kind 为 EOF / SYNTAX / OTHER；SYNTAX 的 error() 为 "XML syntax error on line N: ..."，
+//             msg 和 line 与 Go 的 SyntaxError 相同；OTHER 是 Go 的 fmt.Errorf 错误（版本、编码声明）
+//   html_entity()（Go 的 HTMLEntity）、html_auto_close()（Go 的 HTMLAutoClose）
+//
+// 二、写出（Encoder，对应 Go 的 xml.Encoder；值不可变，方法返回新的 Encoder）
+//   var e = xml.new_encoder()；e = e.indent(prefix, indent)
+//   let (e2, err) = e.encode_token(tok)   // err : Option<Str>，文字与 Go 的错误相同
+//   e = e.flush()；e.output() 取已经写到底层的文本（Go 里 Encoder 先写进 4096 字节的 bufio 缓冲区，
+//   没 flush 的部分不出现在 output() 里，这一点也照搬了，包括缓冲区满了自动写出）
+//   let (e2, err) = e.close()
+//   escape_text(bs) / escape(bs) / escape_string(s)：Go 的 EscapeText / Escape（结果作为字节返回）
+//
+// 三、元素树（Go 用反射实现 Marshal/Unmarshal，Kite 没有反射，用元素树代替）
+//   xml.parse(text) -> Result<Element, XmlError>：用 Token() 读到第一个根元素结束（之前的注释、处理指令、
+//     空白跳过，之后的内容继续读完以报告语法错误）；没有根元素时报 OTHER 错误 "xml: no root element"
+//   Element = { name, attr, children: List<Node> }；Node = XElem(e) | XText(text) | XComm(data)
+//   el.text()、el.attr_value(local)、el.find(local)、el.find_all(local)
+//   xml.marshal(el) / xml.marshal_indent(el, prefix, indent) -> Result<Str, Str>：用 Encoder 写出
+//
+// 和 Go 的差别：
+//   * Name.Space 等是 Str；名字和属性值总是合法 UTF-8（Go 也会校验）；错误信息里如果要放非法 UTF-8 字节
+//     （比如 "invalid XML name: " 后跟非法字节）会被替换成 U+FFFD。
+//   * 没有 NewTokenDecoder / Skip / DecodeElement / Unmarshal / Marshal 的反射部分；InputPos 的列号算法与 Go 一致。
+//   * CharsetReader 拿到的是剩余的全部输入字节，返回转码后的字节。
+//   * %q 的引号转义只处理 ASCII 控制字符和非法字节（Go 还会转义不可打印的 Unicode 字符）。
+
+use std.unicode.utf8
+use std.strings
+
+pub const EOF: Int = 0
+
+pub const SYNTAX: Int = 1
+
+pub const OTHER: Int = 2
+
+pub type XmlError = { kind: Int, msg: Str, line: Int }
+
+impl XmlError {
+  fn error(self) -> Str {
+    if self.kind == EOF { "EOF" } else if self.kind == SYNTAX { "XML syntax error on line {self.line}: {self.msg}" } else { self.msg }
+  }
+}
+
+pub type Name = { space: Str, local: Str }
+
+pub type Attr = { name: Name, value: Str }
+
+pub type StartElement = { name: Name, attr: List<Attr> }
+
+impl StartElement {
+  fn end(self) -> Token { XEnd(self.name) }
+}
+
+pub enum Token {
+  XStart(start: StartElement)
+  XEnd(name: Name)
+  XCharData(data: List<Int>)
+  XComment(data: List<Int>)
+  XProcInst(target: Str, inst: List<Int>)
+  XDirective(data: List<Int>)
+}
+
+pub fn name(space: Str, local: Str) -> Name { Name { space: space, local: local } }
+
+pub fn attr(n: Name, value: Str) -> Attr { Attr { name: n, value: value } }
+
+pub fn start(n: Name, attrs: List<Attr>) -> Token { XStart(StartElement { name: n, attr: attrs }) }
+
+pub fn end(n: Name) -> Token { XEnd(n) }
+
+pub fn char_data(s: Str) -> Token { XCharData(__bytes(s)) }
+
+pub fn comment(s: Str) -> Token { XComment(__bytes(s)) }
+
+pub fn proc_inst(target: Str, inst: Str) -> Token { XProcInst(target, __bytes(inst)) }
+
+pub fn directive(s: Str) -> Token { XDirective(__bytes(s)) }
+
+// 字节转字符串；非法 UTF-8 换成 U+FFFD
+pub fn bstr(bs: List<Int>) -> Str {
+  match __from_bytes(bs) {
+    Some(s) => s,
+    None    => {
+      var out = ""
+      var i = 0
+      while i < len(bs) {
+        let (r, k) = utf8.decode_rune_at(bs, i)
+        out = out + __chr(r)
+        i += k
+      }
+      out
+    },
+  }
+}
+
+const XML_URL: Str = "http://www.w3.org/XML/1998/namespace"
+
+const HEXD: Str = "0123456789ABCDEF"
+
+fn hexn(n: Int, width: Int) -> Str {
+  var s = ""
+  var v = n
+  while v > 0 {
+    s = __str_slice(HEXD, v % 16, v % 16 + 1) + s
+    v = v / 16
+  }
+  while len(s) < width { s = "0" + s }
+  s
+}
+
+// Go 的 %q（只转义 ASCII 控制字符、引号、反斜杠和非法字节）
+fn quote(bs: List<Int>) -> Str {
+  var out = "\""
+  var i = 0
+  while i < len(bs) {
+    let (r, k) = utf8.decode_rune_at(bs, i)
+    if r == 0xfffd && k == 1 {
+      out = out + "\\x" + strings.to_lower(hexn(bs[i], 2))
+    } else if r == 34 {
+      out = out + "\\\""
+    } else if r == 92 {
+      out = out + "\\\\"
+    } else if r == 7 {
+      out = out + "\\a"
+    } else if r == 8 {
+      out = out + "\\b"
+    } else if r == 12 {
+      out = out + "\\f"
+    } else if r == 10 {
+      out = out + "\\n"
+    } else if r == 13 {
+      out = out + "\\r"
+    } else if r == 9 {
+      out = out + "\\t"
+    } else if r == 11 {
+      out = out + "\\v"
+    } else if r < 32 || r == 127 {
+      out = out + "\\x" + strings.to_lower(hexn(r, 2))
+    } else {
+      out = out + __chr(r)
+    }
+    i += k
+  }
+  out + "\""
+}
+
+// ---- 词法分析（Go 的 getc / ungetc / text / name / rawToken）----
+
+type Lx = { src: List<Int>, pos: Int, line: Int, linestart: Int, err: Option<XmlError>, c: Int }
+
+fn is_eof_err(l: Lx) -> Bool {
+  match l.err {
+    Some(e) => e.kind == EOF,
+    None    => false,
+  }
+}
+
+fn getc(l: Lx) -> Lx {
+  if is_some(l.err) { return Lx { c: -1, ..l } }
+  if l.pos >= len(l.src) { return Lx { c: -1, err: Some(XmlError { kind: EOF, msg: "EOF", line: 0 }), ..l } }
+  let b = l.src[l.pos]
+  if b == 10 { return Lx { pos: l.pos + 1, line: l.line + 1, linestart: l.pos + 1, c: b, ..l } }
+  Lx { pos: l.pos + 1, c: b, ..l }
+}
+
+fn mustgetc(l: Lx) -> Lx {
+  let l2 = getc(l)
+  if l2.c < 0 && is_eof_err(l2) { return seterr(l2, "unexpected EOF") }
+  l2
+}
+
+fn ungetc(l: Lx) -> Lx {
+  let b = l.src[l.pos - 1]
+  Lx { pos: l.pos - 1, line: if b == 10 { l.line - 1 } else { l.line }, ..l }
+}
+
+fn seterr(l: Lx, msg: Str) -> Lx { Lx { err: Some(XmlError { kind: SYNTAX, msg: msg, line: l.line }), c: -1, ..l } }
+
+fn space(l0: Lx) -> Lx {
+  var l = l0
+  loop {
+    l = getc(l)
+    let b = l.c
+    if b < 0 { return l }
+    if b != 32 && b != 13 && b != 10 && b != 9 { return ungetc(l) }
+  }
+}
+
+fn read_name(l0: Lx, buf0: List<Int>) -> (Lx, List<Int>, Bool) {
+  var l = mustgetc(l0)
+  var buf = buf0
+  if l.c < 0 { return (l, buf, false) }
+  if l.c < 128 && !is_name_byte(l.c) { return (ungetc(l), buf, false) }
+  buf = push(buf, l.c)
+  loop {
+    l = mustgetc(l)
+    if l.c < 0 { return (l, buf, false) }
+    if l.c < 128 && !is_name_byte(l.c) {
+      l = ungetc(l)
+      break
+    }
+    buf = push(buf, l.c)
+  }
+  (l, buf, true)
+}
+
+fn lex_name(l0: Lx) -> (Lx, Str, Bool) {
+  let (l, b, ok) = read_name(l0, [])
+  if !ok { return (l, "", false) }
+  if !is_name(b) { return (seterr(l, "invalid XML name: " + bstr(b)), "", false) }
+  (l, bstr(b), true)
+}
+
+fn nsname(l0: Lx) -> (Lx, Name, Bool) {
+  let (l, s, ok) = lex_name(l0)
+  let none = Name { space: "", local: "" }
+  if !ok { return (l, none, false) }
+  if strings.count(s, ":") > 1 { return (l, none, false) }
+  let i = __str_find(s, ":", 0)
+  if i < 0 { return (l, Name { space: "", local: s }, true) }
+  let sp = __str_slice(s, 0, i)
+  let lo = __str_slice(s, i + 1, len(s))
+  if sp == "" || lo == "" { return (l, Name { space: "", local: s }, true) }
+  (l, Name { space: sp, local: lo }, true)
+}
+
+fn attrval(l0: Lx, strict: Bool, entity: Map<Str, Str>) -> (Lx, Option<List<Int>>) {
+  var l = mustgetc(l0)
+  if l.c < 0 { return (l, None) }
+  if l.c == 34 || l.c == 39 { return text(l, l.c, false, strict, entity) }
+  if strict { return (seterr(l, "unquoted or missing attribute value in element"), None) }
+  l = ungetc(l)
+  var buf: List<Int> = []
+  loop {
+    l = mustgetc(l)
+    let b = l.c
+    if b < 0 { return (l, None) }
+    if (97 <= b && b <= 122) || (65 <= b && b <= 90) || (48 <= b && b <= 57) || b == 95 || b == 58 || b == 45 {
+      buf = push(buf, b)
+    } else {
+      l = ungetc(l)
+      break
+    }
+  }
+  (l, Some(buf))
+}
+
+fn builtin_entity(s: Str) -> Option<Str> {
+  if s == "lt" { Some("<") } else if s == "gt" { Some(">") } else if s == "amp" { Some("&") } else if s == "apos" { Some("'") } else if s == "quot" { Some("\"") } else { None }
+}
+
+fn is_digit_in(b: Int, base: Int) -> Bool { (48 <= b && b <= 57) || (base == 16 && ((97 <= b && b <= 102) || (65 <= b && b <= 70))) }
+
+fn digit_val(b: Int) -> Int { if b <= 57 { b - 48 } else if b >= 97 { b - 87 } else { b - 55 } }
+
+fn text(l0: Lx, quote: Int, cdata: Bool, strict: Bool, entity: Map<Str, Str>) -> (Lx, Option<List<Int>>) {
+  var l = l0
+  var b0 = 0
+  var b1 = 0
+  var trunc = 0
+  var buf: List<Int> = []
+  loop {
+    l = getc(l)
+    var b = l.c
+    if b < 0 {
+      if cdata {
+        if is_eof_err(l) { l = seterr(l, "unexpected EOF in CDATA section") }
+        return (l, None)
+      }
+      break
+    }
+    if b0 == 93 && b1 == 93 && b == 62 {
+      if cdata {
+        trunc = 2
+        break
+      }
+      return (seterr(l, "unescaped ]]> not in CDATA section"), None)
+    }
+    if b == 60 && !cdata {
+      if quote >= 0 { return (seterr(l, "unescaped < inside quoted string"), None) }
+      l = ungetc(l)
+      break
+    }
+    if quote >= 0 && b == quote { break }
+    if b == 38 && !cdata {
+      let before = len(buf)
+      buf = push(buf, 38)
+      var txt: List<Int> = []
+      var have = false
+      l = mustgetc(l)
+      b = l.c
+      if b < 0 { return (l, None) }
+      if b == 35 {
+        buf = push(buf, b)
+        l = mustgetc(l)
+        b = l.c
+        if b < 0 { return (l, None) }
+        var base = 10
+        if b == 120 {
+          base = 16
+          buf = push(buf, b)
+          l = mustgetc(l)
+          b = l.c
+          if b < 0 { return (l, None) }
+        }
+        let start = len(buf)
+        while is_digit_in(b, base) {
+          buf = push(buf, b)
+          l = mustgetc(l)
+          b = l.c
+          if b < 0 { return (l, None) }
+        }
+        if b != 59 {
+          l = ungetc(l)
+        } else {
+          var n = 0
+          var big = false
+          var i = start
+          while i < len(buf) {
+            if !big {
+              n = n * base + digit_val(buf[i])
+              if n > 0x10ffff { big = true }
+            }
+            i += 1
+          }
+          buf = push(buf, 59)
+          if len(buf) - 1 > start && !big {
+            txt = utf8.encode_rune(n)
+            have = true
+          }
+        }
+      } else {
+        l = ungetc(l)
+        let (l2, buf2, ok) = read_name(l, buf)
+        l = l2
+        buf = buf2
+        if !ok && is_some(l.err) { return (l, None) }
+        l = mustgetc(l)
+        b = l.c
+        if b < 0 { return (l, None) }
+        if b != 59 {
+          l = ungetc(l)
+        } else {
+          let nm = buf[before + 1..]
+          buf = push(buf, 59)
+          if is_name(nm) {
+            let s = bstr(nm)
+            match builtin_entity(s) {
+              Some(t) => {
+                txt = __bytes(t)
+                have = true
+              },
+              None => {
+                match get(entity, s) {
+                  Some(t) => {
+                    txt = __bytes(t)
+                    have = true
+                  },
+                  None => {},
+                }
+              },
+            }
+          }
+        }
+      }
+      if have {
+        buf = buf[..before] + txt
+        b0 = 0
+        b1 = 0
+        continue
+      }
+      if !strict {
+        b0 = 0
+        b1 = 0
+        continue
+      }
+      var ent = bstr(buf[before..])
+      if buf[len(buf) - 1] != 59 { ent = ent + " (no semicolon)" }
+      return (seterr(l, "invalid character entity " + ent), None)
+    }
+    if b == 13 {
+      buf = push(buf, 10)
+    } else if b1 == 13 && b == 10 {
+    } else {
+      buf = push(buf, b)
+    }
+    b0 = b1
+    b1 = b
+  }
+  let data = buf[..len(buf) - trunc]
+  var i = 0
+  while i < len(data) {
+    let (r, size) = utf8.decode_rune_at(data, i)
+    if r == 0xfffd && size == 1 { return (seterr(l, "invalid UTF-8"), None) }
+    i += size
+    if !is_in_character_range(r) { return (seterr(l, "illegal character code U+" + hexn(r, 4)), None) }
+  }
+  (l, Some(data))
+}
+
+fn bindex(s: List<Int>, sub: List<Int>, from: Int) -> Int {
+  let n = len(sub)
+  var i = from
+  while i + n <= len(s) {
+    var j = 0
+    while j < n && s[i + j] == sub[j] { j += 1 }
+    if j == n { return i }
+    i += 1
+  }
+  -1
+}
+
+// Go 的 procInst：从 <?xml ...?> 的内容里取参数值
+fn proc_inst_param(param0: Str, s: List<Int>) -> List<Int> {
+  let param = __bytes(param0 + "=")
+  let lenp = len(param)
+  var i = 0
+  var sep = 0
+  while i < len(s) {
+    let k0 = bindex(s, param, i)
+    if k0 < 0 { return [] }
+    let k = k0 - i
+    if lenp + k >= len(s) - i { return [] }
+    i += lenp + k + 1
+    let c = s[i - 1]
+    if c == 39 || c == 34 {
+      sep = c
+      break
+    }
+  }
+  if sep == 0 { return [] }
+  var j = i
+  while j < len(s) && s[j] != sep { j += 1 }
+  if j >= len(s) { return [] }
+  s[i..j]
+}
+
+// ---- Decoder ----
+
+const STK_START: Int = 0
+
+const STK_NS: Int = 1
+
+type Stk = { kind: Int, name: Name, ok: Bool }
+
+pub type Decoder = {
+  strict: Bool, auto_close: List<Str>, entity: Map<Str, Str>, default_space: Str,
+  charset_reader: Option<fn(Str, List<Int>) -> Result<List<Int>, Str>>,
+  lx: Lx, stk: List<Stk>, need_close: Bool, to_close: Name, next_token: Option<Token>, ns: Map<Str, Str>,
+}
+
+pub fn new_decoder(src: List<Int>) -> Decoder {
+  Decoder {
+    strict: true, auto_close: [], entity: Map(), default_space: "", charset_reader: None,
+    lx: Lx { src: src, pos: 0, line: 1, linestart: 0, err: None, c: 0 },
+    stk: [], need_close: false, to_close: Name { space: "", local: "" }, next_token: None, ns: Map(),
+  }
+}
+
+pub fn new_decoder_str(s: Str) -> Decoder { new_decoder(__bytes(s)) }
+
+fn fail(d: Decoder, l: Lx) -> (Decoder, Result<Token, XmlError>) {
+  let e = unwrap_or(l.err, XmlError { kind: SYNTAX, msg: "internal error", line: l.line })
+  (Decoder { lx: l, ..d }, Err(e))
+}
+
+fn ok_tok(d: Decoder, l: Lx, t: Token) -> (Decoder, Result<Token, XmlError>) { (Decoder { lx: l, ..d }, Ok(t)) }
+
+fn other_err(d: Decoder, l: Lx, msg: Str) -> (Decoder, Result<Token, XmlError>) {
+  let e = XmlError { kind: OTHER, msg: msg, line: l.line }
+  (Decoder { lx: Lx { err: Some(e), ..l }, ..d }, Err(e))
+}
+
+fn raw(d: Decoder) -> (Decoder, Result<Token, XmlError>) {
+  match d.lx.err {
+    Some(e) => { return (d, Err(e)) },
+    None    => {},
+  }
+  if d.need_close { return (Decoder { need_close: false, ..d }, Ok(XEnd(d.to_close))) }
+  var l = getc(d.lx)
+  if l.c < 0 { return fail(d, l) }
+  if l.c != 60 {
+    l = ungetc(l)
+    let (l2, data) = text(l, -1, false, d.strict, d.entity)
+    match data {
+      Some(bs) => { return ok_tok(d, l2, XCharData(bs)) },
+      None     => { return fail(d, l2) },
+    }
+  }
+  l = mustgetc(l)
+  if l.c < 0 { return fail(d, l) }
+  let b = l.c
+  if b == 47 {
+    let (l2, nm, ok) = nsname(l)
+    l = l2
+    if !ok {
+      if is_none(l.err) { l = seterr(l, "expected element name after </") }
+      return fail(d, l)
+    }
+    l = mustgetc(space(l))
+    if l.c < 0 { return fail(d, l) }
+    if l.c != 62 { return fail(d, seterr(l, "invalid characters between </" + nm.local + " and >")) }
+    return ok_tok(d, l, XEnd(nm))
+  }
+  if b == 63 {
+    let (l2, target, ok) = lex_name(l)
+    l = l2
+    if !ok {
+      if is_none(l.err) { l = seterr(l, "expected target name after <?") }
+      return fail(d, l)
+    }
+    l = space(l)
+    var buf: List<Int> = []
+    var p0 = 0
+    loop {
+      l = mustgetc(l)
+      if l.c < 0 { return fail(d, l) }
+      buf = push(buf, l.c)
+      if p0 == 63 && l.c == 62 { break }
+      p0 = l.c
+    }
+    let data = buf[..len(buf) - 2]
+    var dd = d
+    if target == "xml" {
+      let ver = proc_inst_param("version", data)
+      if len(ver) > 0 && ver != [49, 46, 48] { return other_err(d, l, "xml: unsupported version " + quote(ver) + "; only version 1.0 is supported") }
+      let enc = proc_inst_param("encoding", data)
+      if len(enc) > 0 && !strings.equal_fold(bstr(enc), "utf-8") {
+        match d.charset_reader {
+          None    => { return other_err(d, l, "xml: encoding " + quote(enc) + " declared but Decoder.CharsetReader is nil") },
+          Some(f) => {
+            match f(bstr(enc), l.src[l.pos..]) {
+              Err(m)   => { return other_err(d, l, "xml: opening charset " + quote(enc) + ": " + m) },
+              Ok(rest) => { l = Lx { src: l.src[..l.pos] + rest, ..l } },
+            }
+          },
+        }
+      }
+    }
+    return ok_tok(dd, l, XProcInst(target, data))
+  }
+  if b == 33 {
+    l = mustgetc(l)
+    if l.c < 0 { return fail(d, l) }
+    if l.c == 45 {
+      l = mustgetc(l)
+      if l.c < 0 { return fail(d, l) }
+      if l.c != 45 { return fail(d, seterr(l, "invalid sequence <!- not part of <!--")) }
+      var buf: List<Int> = []
+      var c0 = 0
+      var c1 = 0
+      loop {
+        l = mustgetc(l)
+        if l.c < 0 { return fail(d, l) }
+        buf = push(buf, l.c)
+        if c0 == 45 && c1 == 45 {
+          if l.c != 62 { return fail(d, seterr(l, "invalid sequence \"--\" not allowed in comments")) }
+          break
+        }
+        c0 = c1
+        c1 = l.c
+      }
+      return ok_tok(d, l, XComment(buf[..len(buf) - 3]))
+    }
+    if l.c == 91 {
+      let want = [67, 68, 65, 84, 65, 91]
+      for w in want {
+        l = mustgetc(l)
+        if l.c < 0 { return fail(d, l) }
+        if l.c != w { return fail(d, seterr(l, "invalid <![ sequence")) }
+      }
+      let (l2, data) = text(l, -1, true, d.strict, d.entity)
+      match data {
+        Some(bs) => { return ok_tok(d, l2, XCharData(bs)) },
+        None     => { return fail(d, l2) },
+      }
+    }
+    // 其他 <! 开头的是 DTD 之类的指令；跟踪引号和尖括号深度，内嵌注释换成一个空格
+    var buf: List<Int> = [l.c]
+    var inquote = 0
+    var depth = 0
+    loop {
+      l = mustgetc(l)
+      if l.c < 0 { return fail(d, l) }
+      var c = l.c
+      if inquote == 0 && c == 62 && depth == 0 { break }
+      var handle = true
+      while handle {
+        handle = false
+        buf = push(buf, c)
+        if c == inquote {
+          inquote = 0
+        } else if inquote != 0 {
+        } else if c == 39 || c == 34 {
+          inquote = c
+        } else if c == 62 {
+          depth -= 1
+        } else if c == 60 {
+          let s = [33, 45, 45]
+          var matched = true
+          var i = 0
+          while i < 3 {
+            l = mustgetc(l)
+            if l.c < 0 { return fail(d, l) }
+            c = l.c
+            if c != s[i] {
+              buf = buf + s[..i]
+              depth += 1
+              handle = true
+              matched = false
+              break
+            }
+            i += 1
+          }
+          if matched {
+            buf = buf[..len(buf) - 1]
+            var c0 = 0
+            var c1 = 0
+            loop {
+              l = mustgetc(l)
+              if l.c < 0 { return fail(d, l) }
+              if c0 == 45 && c1 == 45 && l.c == 62 { break }
+              c0 = c1
+              c1 = l.c
+            }
+            buf = push(buf, 32)
+          }
+        }
+      }
+    }
+    return ok_tok(d, l, XDirective(buf))
+  }
+  // 开始标签
+  l = ungetc(l)
+  let (l2, nm, ok) = nsname(l)
+  l = l2
+  if !ok {
+    if is_none(l.err) { l = seterr(l, "expected element name after <") }
+    return fail(d, l)
+  }
+  var attrs: List<Attr> = []
+  var empty = false
+  loop {
+    l = mustgetc(space(l))
+    if l.c < 0 { return fail(d, l) }
+    if l.c == 47 {
+      empty = true
+      l = mustgetc(l)
+      if l.c < 0 { return fail(d, l) }
+      if l.c != 62 { return fail(d, seterr(l, "expected /> in element")) }
+      break
+    }
+    if l.c == 62 { break }
+    l = ungetc(l)
+    let (l3, an, aok) = nsname(l)
+    l = l3
+    if !aok {
+      if is_none(l.err) { l = seterr(l, "expected attribute name in element") }
+      return fail(d, l)
+    }
+    l = mustgetc(space(l))
+    if l.c < 0 { return fail(d, l) }
+    var value = ""
+    if l.c != 61 {
+      if d.strict { return fail(d, seterr(l, "attribute name without = in element")) }
+      l = ungetc(l)
+      value = an.local
+    } else {
+      let (l4, data) = attrval(space(l), d.strict, d.entity)
+      l = l4
+      match data {
+        Some(bs) => { value = bstr(bs) },
+        None     => { return fail(d, l) },
+      }
+    }
+    attrs = push(attrs, Attr { name: an, value: value })
+  }
+  let t = XStart(StartElement { name: nm, attr: attrs })
+  if empty { return (Decoder { lx: l, need_close: true, to_close: nm, ..d }, Ok(t)) }
+  ok_tok(d, l, t)
+}
+
+fn translate(d: Decoder, n: Name, is_element: Bool) -> Name {
+  var sp = n.space
+  if sp == "xmlns" { return n }
+  if sp == "" && !is_element { return n }
+  if sp == "xml" {
+    sp = XML_URL
+  } else if sp == "" && n.local == "xmlns" {
+    return n
+  }
+  match get(d.ns, sp) {
+    Some(v) => Name { space: v, local: n.local },
+    None    => if sp == "" { Name { space: d.default_space, local: n.local } } else { Name { space: sp, local: n.local } },
+  }
+}
+
+fn auto_close_tok(d: Decoder, t: Token) -> Option<Token> {
+  let n = len(d.stk)
+  if n == 0 || d.stk[n - 1].kind != STK_START { return None }
+  let top = d.stk[n - 1].name
+  for s in d.auto_close {
+    if strings.equal_fold(s, top.local) {
+      let closes = match t {
+        XEnd(en) => strings.equal_fold(en.local, top.local),
+        _        => false,
+      }
+      if !closes { return Some(XEnd(top)) }
+      break
+    }
+  }
+  None
+}
+
+fn pop_element(d0: Decoder, nm: Name) -> (Decoder, Result<Token, XmlError>) {
+  var d = d0
+  let n = len(d.stk)
+  if n == 0 || d.stk[n - 1].kind != STK_START {
+    if n > 0 { d = Decoder { stk: d.stk[..n - 1], ..d } }
+    return fail(d, seterr(d.lx, "unexpected end element </" + nm.local + ">"))
+  }
+  let s = d.stk[n - 1]
+  d = Decoder { stk: d.stk[..n - 1], ..d }
+  if s.name.local != nm.local {
+    if !d.strict { return (Decoder { need_close: true, to_close: nm, ..d }, Ok(XEnd(s.name))) }
+    return fail(d, seterr(d.lx, "element <" + s.name.local + "> closed by </" + nm.local + ">"))
+  }
+  if s.name.space != nm.space {
+    let ns = if nm.space == "" { "\"\"" } else { nm.space }
+    return fail(d, seterr(d.lx, "element <" + s.name.local + "> in space " + s.name.space + " closed by </" + nm.local + "> in space " + ns))
+  }
+  let tn = translate(d, nm, true)
+  var stk = d.stk
+  var ns = d.ns
+  while len(stk) > 0 && stk[len(stk) - 1].kind != STK_START {
+    let e = stk[len(stk) - 1]
+    stk = stk[..len(stk) - 1]
+    if e.ok { ns = set(ns, e.name.local, e.name.space) } else { ns = remove(ns, e.name.local) }
+  }
+  (Decoder { stk: stk, ns: ns, ..d }, Ok(XEnd(tn)))
+}
+
+impl Decoder {
+  fn with_strict(self, b: Bool) -> Decoder { Decoder { strict: b, ..self } }
+
+  fn with_auto_close(self, names: List<Str>) -> Decoder { Decoder { auto_close: names, ..self } }
+
+  fn with_entity(self, m: Map<Str, Str>) -> Decoder { Decoder { entity: m, ..self } }
+
+  fn with_default_space(self, s: Str) -> Decoder { Decoder { default_space: s, ..self } }
+
+  fn with_charset_reader(self, f: fn(Str, List<Int>) -> Result<List<Int>, Str>) -> Decoder { Decoder { charset_reader: Some(f), ..self } }
+
+  fn input_offset(self) -> Int { self.lx.pos }
+
+  fn input_pos(self) -> (Int, Int) { (self.lx.line, self.lx.pos - self.lx.linestart + 1) }
+
+  fn raw_token(self) -> (Decoder, Result<Token, XmlError>) { raw(self) }
+
+  fn token(self) -> (Decoder, Result<Token, XmlError>) {
+    var d = self
+    var t = XCharData([])
+    match d.next_token {
+      Some(nt) => {
+        t = nt
+        d = Decoder { next_token: None, ..d }
+      },
+      None => {
+        let (d2, r) = raw(d)
+        d = d2
+        match r {
+          Err(e) => {
+            if e.kind == EOF && len(d.stk) > 0 { return (d, Err(XmlError { kind: SYNTAX, msg: "unexpected EOF", line: d.lx.line })) }
+            return (d, Err(e))
+          },
+          Ok(t2) => { t = t2 },
+        }
+      },
+    }
+    if !d.strict {
+      match auto_close_tok(d, t) {
+        Some(t1) => {
+          d = Decoder { next_token: Some(t), ..d }
+          t = t1
+        },
+        None => {},
+      }
+    }
+    match t {
+      XStart(se) => {
+        var stk = d.stk
+        var ns = d.ns
+        for a in se.attr {
+          if a.name.space == "xmlns" {
+            let v = get(ns, a.name.local)
+            stk = push(stk, Stk { kind: STK_NS, name: Name { space: unwrap_or(v, ""), local: a.name.local }, ok: is_some(v) })
+            ns = set(ns, a.name.local, a.value)
+          }
+          if a.name.space == "" && a.name.local == "xmlns" {
+            let v = get(ns, "")
+            stk = push(stk, Stk { kind: STK_NS, name: Name { space: unwrap_or(v, ""), local: "" }, ok: is_some(v) })
+            ns = set(ns, "", a.value)
+          }
+        }
+        stk = push(stk, Stk { kind: STK_START, name: se.name, ok: false })
+        d = Decoder { stk: stk, ns: ns, ..d }
+        let tn = translate(d, se.name, true)
+        let ta = map(se.attr, (a) => Attr { name: translate(d, a.name, false), value: a.value })
+        (d, Ok(XStart(StartElement { name: tn, attr: ta })))
+      },
+      XEnd(nm) => pop_element(d, nm),
+      _        => (d, Ok(t)),
+    }
+  }
+}
+
+// ---- 转义（Go 的 EscapeText / escapeText / printer.EscapeString）----
+
+fn escape_bytes(s: List<Int>, escape_newline: Bool) -> List<Int> {
+  var out: List<Int> = []
+  var i = 0
+  var last = 0
+  let n = len(s)
+  while i < n {
+    let (r, width) = utf8.decode_rune_at(s, i)
+    i += width
+    var esc: List<Int> = []
+    if r == 34 {
+      esc = [38, 35, 51, 52, 59]
+    } else if r == 39 {
+      esc = [38, 35, 51, 57, 59]
+    } else if r == 38 {
+      esc = [38, 97, 109, 112, 59]
+    } else if r == 60 {
+      esc = [38, 108, 116, 59]
+    } else if r == 62 {
+      esc = [38, 103, 116, 59]
+    } else if r == 9 {
+      esc = [38, 35, 120, 57, 59]
+    } else if r == 10 {
+      if !escape_newline { continue }
+      esc = [38, 35, 120, 65, 59]
+    } else if r == 13 {
+      esc = [38, 35, 120, 68, 59]
+    } else if !is_in_character_range(r) || (r == 0xfffd && width == 1) {
+      esc = [239, 191, 189]
+    } else {
+      continue
+    }
+    out = out + s[last..i - width] + esc
+    last = i
+  }
+  out + s[last..]
+}
+
+// Go 的 EscapeText：转义 " ' & < > \t \n \r，非法字符换成 U+FFFD
+pub fn escape_text(s: List<Int>) -> List<Int> { escape_bytes(s, true) }
+
+// Go 的 Escape（同 EscapeText）
+pub fn escape(s: List<Int>) -> List<Int> { escape_bytes(s, true) }
+
+pub fn escape_string(s: Str) -> Str { bstr(escape_bytes(__bytes(s), true)) }
+
+// ---- Encoder（Go 的 Encoder + printer，bufio.Writer 缓冲区 4096 字节）----
+
+const BUF_SIZE: Int = 4096
+
+pub type Encoder = {
+  out: List<Int>, buf: List<Int>,
+  seq: Int, indent_s: Str, prefix: Str, depth: Int, indented_in: Bool, put_newline: Bool,
+  attr_ns: Map<Str, Str>, attr_prefix: Map<Str, Str>, prefixes: List<Str>, tags: List<Name>,
+  closed: Bool, err: Option<Str>,
+}
+
+pub fn new_encoder() -> Encoder {
+  Encoder {
+    out: [], buf: [], seq: 0, indent_s: "", prefix: "", depth: 0, indented_in: false, put_newline: false,
+    attr_ns: Map(), attr_prefix: Map(), prefixes: [], tags: [], closed: false, err: None,
+  }
+}
+
+fn flush_buf(p: Encoder) -> Encoder { Encoder { out: p.out + p.buf, buf: [], ..p } }
+
+impl Encoder {
+  fn indent(self, prefix: Str, indent: Str) -> Encoder { Encoder { prefix: prefix, indent_s: indent, ..self } }
+
+  // 已经写到底层 Writer 的文本（没 flush 的不算）
+  fn output(self) -> Str { bstr(self.out) }
+
+  fn output_bytes(self) -> List<Int> { self.out }
+
+  fn buffered(self) -> Int { len(self.buf) }
+
+  fn flush(self) -> Encoder { flush_buf(self) }
+
+  fn close(self) -> (Encoder, Option<Str>) {
+    if self.closed { return (self, None) }
+    let p = flush_buf(Encoder { closed: true, ..self })
+    let n = len(p.tags)
+    if n > 0 { return (p, Some("unclosed tag <" + p.tags[n - 1].local + ">")) }
+    (p, None)
+  }
+
+  fn write(self, bs: List<Int>) -> Encoder {
+    var p = self
+    if p.closed && is_none(p.err) { p = Encoder { err: Some("use of closed Encoder"), ..p } }
+    if is_some(p.err) { return p }
+    var rest = bs
+    while len(rest) > BUF_SIZE - len(p.buf) {
+      if len(p.buf) == 0 {
+        p = Encoder { out: p.out + rest, ..p }
+        rest = []
+      } else {
+        let k = BUF_SIZE - len(p.buf)
+        p = flush_buf(Encoder { buf: p.buf + rest[..k], ..p })
+        rest = rest[k..]
+      }
+    }
+    Encoder { buf: p.buf + rest, ..p }
+  }
+
+  fn write_str(self, s: Str) -> Encoder { self.write(__bytes(s)) }
+
+  fn write_indent(self, depth_delta: Int) -> Encoder {
+    var p = self
+    if len(p.prefix) == 0 && len(p.indent_s) == 0 { return p }
+    if depth_delta < 0 {
+      p = Encoder { depth: p.depth - 1, ..p }
+      if p.indented_in { return Encoder { indented_in: false, ..p } }
+      p = Encoder { indented_in: false, ..p }
+    }
+    if p.put_newline { p = p.write([10]) } else { p = Encoder { put_newline: true, ..p } }
+    if len(p.prefix) > 0 { p = p.write_str(p.prefix) }
+    if len(p.indent_s) > 0 {
+      var i = 0
+      while i < p.depth {
+        p = p.write_str(p.indent_s)
+        i += 1
+      }
+    }
+    if depth_delta > 0 { p = Encoder { depth: p.depth + 1, indented_in: true, ..p } }
+    p
+  }
+
+  fn create_attr_prefix(self, url: Str) -> (Encoder, Str) {
+    var p = self
+    let have = unwrap_or(get(p.attr_prefix, url), "")
+    if have != "" { return (p, have) }
+    if url == XML_URL { return (p, "xml") }
+    var prefix = strings.trim_right(url, "/")
+    let i = strings.last_index(prefix, "/")
+    if i >= 0 { prefix = __str_slice(prefix, i + 1, len(prefix)) }
+    if prefix == "" || !is_name_string(prefix) || contains(prefix, ":") { prefix = "_" }
+    let pb = __bytes(prefix)
+    if len(pb) >= 3 {
+      match __from_bytes(pb[..3]) {
+        Some(h) => {
+          if strings.equal_fold(h, "xml") { prefix = "_" + prefix }
+        },
+        None => {},
+      }
+    }
+    if unwrap_or(get(p.attr_ns, prefix), "") != "" {
+      var seq = p.seq + 1
+      loop {
+        let id = prefix + "_" + "{seq}"
+        if unwrap_or(get(p.attr_ns, id), "") == "" {
+          prefix = id
+          break
+        }
+        seq += 1
+      }
+      p = Encoder { seq: seq, ..p }
+    }
+    p = Encoder { attr_prefix: set(p.attr_prefix, url, prefix), attr_ns: set(p.attr_ns, prefix, url), ..p }
+    p = p.write_str("xmlns:").write_str(prefix).write_str("=\"").write(escape_text(__bytes(url))).write_str("\" ")
+    p = Encoder { prefixes: push(p.prefixes, prefix), ..p }
+    (p, prefix)
+  }
+
+  fn pop_prefix(self) -> Encoder {
+    var ps = self.prefixes
+    var an = self.attr_ns
+    var ap = self.attr_prefix
+    while len(ps) > 0 {
+      let prefix = ps[len(ps) - 1]
+      ps = ps[..len(ps) - 1]
+      if prefix == "" { break }
+      ap = remove(ap, unwrap_or(get(an, prefix), ""))
+      an = remove(an, prefix)
+    }
+    Encoder { prefixes: ps, attr_ns: an, attr_prefix: ap, ..self }
+  }
+
+  fn write_start(self, se: StartElement) -> (Encoder, Option<Str>) {
+    if se.name.local == "" { return (self, Some("xml: start tag with no name")) }
+    var p = Encoder { tags: push(self.tags, se.name), prefixes: push(self.prefixes, ""), ..self }
+    p = p.write_indent(1).write([60]).write_str(se.name.local)
+    if se.name.space != "" { p = p.write_str(" xmlns=\"").write(escape_text(__bytes(se.name.space))).write([34]) }
+    for a in se.attr {
+      if a.name.local == "" { continue }
+      p = p.write([32])
+      if a.name.space != "" {
+        let (p2, prefix) = p.create_attr_prefix(a.name.space)
+        p = p2.write_str(prefix).write([58])
+      }
+      p = p.write_str(a.name.local).write_str("=\"").write(escape_text(__bytes(a.value))).write([34])
+    }
+    (p.write([62]), None)
+  }
+
+  fn write_end(self, nm: Name) -> (Encoder, Option<Str>) {
+    if nm.local == "" { return (self, Some("xml: end tag with no name")) }
+    let n = len(self.tags)
+    if n == 0 || self.tags[n - 1].local == "" { return (self, Some("xml: end tag </" + nm.local + "> without start tag")) }
+    let top = self.tags[n - 1]
+    if top != nm {
+      if top.local != nm.local { return (self, Some("xml: end tag </" + nm.local + "> does not match start tag <" + top.local + ">")) }
+      return (self, Some("xml: end tag </" + nm.local + "> in namespace " + nm.space + " does not match start tag <" + top.local + "> in namespace " + top.space))
+    }
+    var p = Encoder { tags: self.tags[..n - 1], ..self }
+    p = p.write_indent(-1).write([60, 47]).write_str(nm.local).write([62]).pop_prefix()
+    (p, None)
+  }
+
+  fn cached(self) -> (Encoder, Option<Str>) {
+    let p = self.write([])
+    (p, p.err)
+  }
+
+  // Go 的 EncodeToken（不会自动 flush）
+  fn encode_token(self, t: Token) -> (Encoder, Option<Str>) {
+    match t {
+      XStart(se) => {
+        let (p, e) = self.write_start(se)
+        if is_some(e) { return (p, e) }
+        p.cached()
+      },
+      XEnd(nm) => {
+        let (p, e) = self.write_end(nm)
+        if is_some(e) { return (p, e) }
+        p.cached()
+      },
+      XCharData(bs) => self.write(escape_bytes(bs, false)).cached(),
+      XComment(bs)  => {
+        if bindex(bs, [45, 45, 62], 0) >= 0 { return (self, Some("xml: EncodeToken of Comment containing --> marker")) }
+        self.write_str("<!--").write(bs).write_str("-->").cached()
+      },
+      XProcInst(target, inst) => {
+        if target == "xml" && len(self.buf) != 0 { return (self, Some("xml: EncodeToken of ProcInst xml target only valid for xml declaration, first token encoded")) }
+        if !is_name_string(target) { return (self, Some("xml: EncodeToken of ProcInst with invalid Target")) }
+        if bindex(inst, [63, 62], 0) >= 0 { return (self, Some("xml: EncodeToken of ProcInst containing ?> marker")) }
+        var p = self.write_str("<?").write_str(target)
+        if len(inst) > 0 { p = p.write([32]).write(inst) }
+        p.write_str("?>").cached()
+      },
+      XDirective(bs) => {
+        if !is_valid_directive(bs) { return (self, Some("xml: EncodeToken of Directive containing wrong < or > markers")) }
+        self.write_str("<!").write(bs).write_str(">").cached()
+      },
+    }
+  }
+}
+
+fn is_valid_directive(dir: List<Int>) -> Bool {
+  var depth = 0
+  var inquote = 0
+  var incomment = false
+  var i = 0
+  let n = len(dir)
+  while i < n {
+    let c = dir[i]
+    if incomment {
+      if c == 62 {
+        let k = 1 + i - 3
+        if k >= 0 && dir[k] == 45 && dir[k + 1] == 45 { incomment = false }
+      }
+    } else if inquote != 0 {
+      if c == inquote { inquote = 0 }
+    } else if c == 39 || c == 34 {
+      inquote = c
+    } else if c == 60 {
+      if i + 4 < n && dir[i + 1] == 33 && dir[i + 2] == 45 && dir[i + 3] == 45 { incomment = true } else { depth += 1 }
+    } else if c == 62 {
+      if depth == 0 { return false }
+      depth -= 1
+    }
+    i += 1
+  }
+  depth == 0 && inquote == 0 && !incomment
+}
+
+// ---- 元素树（代替 Go 基于反射的 Marshal / Unmarshal）----
+
+pub type Element = { name: Name, attr: List<Attr>, children: List<Node> }
+
+pub enum Node {
+  XElem(e: Element)
+  XText(text: Str)
+  XComm(data: List<Int>)
+}
+
+pub fn element(n: Name, attrs: List<Attr>, children: List<Node>) -> Element { Element { name: n, attr: attrs, children: children } }
+
+impl Element {
+  // 直接子节点里的文本拼起来
+  fn text(self) -> Str {
+    var s = ""
+    for c in self.children {
+      match c {
+        XText(t) => { s = s + t },
+        _        => {},
+      }
+    }
+    s
+  }
+
+  fn attr_value(self, local: Str) -> Option<Str> {
+    for a in self.attr {
+      if a.name.local == local { return Some(a.value) }
+    }
+    None
+  }
+
+  fn elements(self) -> List<Element> {
+    var out: List<Element> = []
+    for c in self.children {
+      match c {
+        XElem(e) => { out = push(out, e) },
+        _        => {},
+      }
+    }
+    out
+  }
+
+  fn find(self, local: Str) -> Option<Element> {
+    for e in self.elements() {
+      if e.name.local == local { return Some(e) }
+    }
+    None
+  }
+
+  fn find_all(self, local: Str) -> List<Element> { filter(self.elements(), (e) => e.name.local == local) }
+}
+
+fn parse_children(d0: Decoder, se: StartElement) -> (Decoder, Result<Element, XmlError>) {
+  var d = d0
+  var kids: List<Node> = []
+  loop {
+    let (d2, r) = d.token()
+    d = d2
+    match r {
+      Err(e) => { return (d, Err(e)) },
+      Ok(t)  => {
+        match t {
+          XStart(s2) => {
+            let (d3, r2) = parse_children(d, s2)
+            d = d3
+            match r2 {
+              Err(e) => { return (d, Err(e)) },
+              Ok(el) => { kids = push(kids, XElem(el)) },
+            }
+          },
+          XEnd(_)       => { return (d, Ok(Element { name: se.name, attr: se.attr, children: kids })) },
+          XCharData(bs) => {
+            let s = bstr(bs)
+            let n = len(kids)
+            if n > 0 {
+              match kids[n - 1] {
+                XText(prev) => { kids = set(kids, n - 1, XText(prev + s)) },
+                _           => { kids = push(kids, XText(s)) },
+              }
+            } else {
+              kids = push(kids, XText(s))
+            }
+          },
+          XComment(bs) => { kids = push(kids, XComm(bs)) },
+          _            => {},
+        }
+      },
+    }
+  }
+}
+
+// 用给定的 Decoder（可以先设置 strict、entity 等）读出根元素
+pub fn parse_with(d0: Decoder) -> Result<Element, XmlError> {
+  var d = d0
+  var root: Option<Element> = None
+  loop {
+    let (d2, r) = d.token()
+    d = d2
+    match r {
+      Err(e) => {
+        if e.kind == EOF {
+          match root {
+            Some(el) => { return Ok(el) },
+            None     => { return Err(XmlError { kind: OTHER, msg: "xml: no root element", line: d.lx.line }) },
+          }
+        }
+        return Err(e)
+      },
+      Ok(t) => {
+        match t {
+          XStart(se) => {
+            let (d3, r2) = parse_children(d, se)
+            d = d3
+            match r2 {
+              Err(e) => { return Err(e) },
+              Ok(el) => {
+                if is_none(root) { root = Some(el) }
+              },
+            }
+          },
+          _ => {},
+        }
+      },
+    }
+  }
+}
+
+pub fn parse(s: Str) -> Result<Element, XmlError> { parse_with(new_decoder_str(s)) }
+
+fn encode_element(p0: Encoder, el: Element) -> (Encoder, Option<Str>) {
+  let se = StartElement { name: el.name, attr: el.attr }
+  let (p1, e1) = p0.encode_token(XStart(se))
+  if is_some(e1) { return (p1, e1) }
+  var p = p1
+  for c in el.children {
+    let (p2, e2) = match c {
+      XElem(ch) => encode_element(p, ch),
+      XText(t)  => p.encode_token(XCharData(__bytes(t))),
+      XComm(bs) => p.encode_token(XComment(bs)),
+    }
+    p = p2
+    if is_some(e2) { return (p, e2) }
+  }
+  p.encode_token(XEnd(el.name))
+}
+
+// 写出元素树；Go 的 Encoder 写出名字空间的方式：元素上写 xmlns="空间"，属性用自动生成的前缀
+pub fn marshal_indent(el: Element, prefix: Str, indent: Str) -> Result<Str, Str> {
+  let (p, e) = encode_element(new_encoder().indent(prefix, indent), el)
+  match e {
+    Some(m) => Err(m),
+    None    => Ok(p.flush().output()),
+  }
+}
+
+pub fn marshal(el: Element) -> Result<Str, Str> { marshal_indent(el, "", "") }
+
+// ---- 名字字符表（Go xml.go 里的 first / second，三元组：起点、终点、步长）----
+
+fn in_table(t: List<Int>, r: Int) -> Bool {
+  var i = 0
+  let n = len(t)
+  while i < n {
+    let lo = t[i]
+    if r < lo { return false }
+    if r <= t[i + 1] { return (r - lo) % t[i + 2] == 0 }
+    i += 3
+  }
+  false
+}
+
+fn is_first(r: Int) -> Bool {
+  if r < 128 { return (r >= 65 && r <= 90) || (r >= 97 && r <= 122) || r == 95 || r == 58 }
+  in_table(FIRST_RANGES, r)
+}
+
+fn is_second(r: Int) -> Bool {
+  if r < 128 { return (r >= 48 && r <= 57) || r == 45 || r == 46 }
+  in_table(SECOND_RANGES, r)
+}
+
+fn is_name(s: List<Int>) -> Bool {
+  if len(s) == 0 { return false }
+  let (c, n) = utf8.decode_rune_at(s, 0)
+  if c == 0xfffd && n == 1 { return false }
+  if !is_first(c) { return false }
+  var i = n
+  while i < len(s) {
+    let (c2, n2) = utf8.decode_rune_at(s, i)
+    if c2 == 0xfffd && n2 == 1 { return false }
+    if !is_first(c2) && !is_second(c2) { return false }
+    i += n2
+  }
+  true
+}
+
+fn is_name_string(s: Str) -> Bool { is_name(__bytes(s)) }
+
+fn is_name_byte(c: Int) -> Bool { (65 <= c && c <= 90) || (97 <= c && c <= 122) || (48 <= c && c <= 57) || c == 95 || c == 58 || c == 46 || c == 45 }
+
+fn is_in_character_range(r: Int) -> Bool { r == 9 || r == 10 || r == 13 || (r >= 0x20 && r <= 0xd7ff) || (r >= 0xe000 && r <= 0xfffd) || (r >= 0x10000 && r <= 0x10ffff) }
+
+pub fn html_auto_close() -> List<Str> { ["basefont", "br", "area", "link", "img", "param", "hr", "input", "col", "frame", "isindex", "base", "meta"] }
+
+const FIRST_RANGES: List<Int> = [58, 58, 1, 65, 90, 1, 95, 95, 1, 97, 122, 1, 192, 214, 1, 216, 246, 1, 248, 255, 1, 256, 305, 1, 308, 318, 1, 321, 328, 1, 330, 382, 1, 384, 451, 1, 461, 496, 1, 500, 501, 1, 506, 535, 1, 592, 680, 1, 699, 705, 1, 902, 902, 1, 904, 906, 1, 908, 908, 1, 910, 929, 1, 931, 974, 1, 976, 982, 1, 986, 992, 2, 994, 1011, 1, 1025, 1036, 1, 1038, 1103, 1, 1105, 1116, 1, 1118, 1153, 1, 1168, 1220, 1, 1223, 1224, 1, 1227, 1228, 1, 1232, 1259, 1, 1262, 1269, 1, 1272, 1273, 1, 1329, 1366, 1, 1369, 1369, 1, 1377, 1414, 1, 1488, 1514, 1, 1520, 1522, 1, 1569, 1594, 1, 1601, 1610, 1, 1649, 1719, 1, 1722, 1726, 1, 1728, 1742, 1, 1744, 1747, 1, 1749, 1749, 1, 1765, 1766, 1, 2309, 2361, 1, 2365, 2365, 1, 2392, 2401, 1, 2437, 2444, 1, 2447, 2448, 1, 2451, 2472, 1, 2474, 2480, 1, 2482, 2482, 1, 2486, 2489, 1, 2524, 2525, 1, 2527, 2529, 1, 2544, 2545, 1, 2565, 2570, 1, 2575, 2576, 1, 2579, 2600, 1, 2602, 2608, 1, 2610, 2611, 1, 2613, 2614, 1, 2616, 2617, 1, 2649, 2652, 1, 2654, 2654, 1, 2674, 2676, 1, 2693, 2699, 1, 2701, 2701, 1, 2703, 2705, 1, 2707, 2728, 1, 2730, 2736, 1, 2738, 2739, 1, 2741, 2745, 1, 2821, 2828, 1, 2831, 2832, 1, 2835, 2856, 1, 2858, 2864, 1, 2866, 2867, 1, 2870, 2873, 1, 2877, 2877, 1, 2908, 2909, 1, 2911, 2913, 1, 2949, 2954, 1, 2958, 2960, 1, 2962, 2965, 1, 2969, 2970, 1, 2972, 2972, 1, 2974, 2975, 1, 2979, 2980, 1, 2984, 2986, 1, 2990, 2997, 1, 2999, 3001, 1, 3077, 3084, 1, 3086, 3088, 1, 3090, 3112, 1, 3114, 3123, 1, 3125, 3129, 1, 3168, 3169, 1, 3205, 3212, 1, 3214, 3216, 1, 3218, 3240, 1, 3242, 3251, 1, 3253, 3257, 1, 3294, 3294, 1, 3296, 3297, 1, 3333, 3340, 1, 3342, 3344, 1, 3346, 3368, 1, 3370, 3385, 1, 3424, 3425, 1, 3585, 3630, 1, 3632, 3632, 1, 3634, 3635, 1, 3648, 3653, 1, 3713, 3714, 1, 3716, 3716, 1, 3719, 3720, 1, 3722, 3725, 3, 3732, 3735, 1, 3737, 3743, 1, 3745, 3747, 1, 3749, 3751, 2, 3754, 3755, 1, 3757, 3758, 1, 3760, 3760, 1, 3762, 3763, 1, 3773, 3773, 1, 3776, 3780, 1, 3904, 3911, 1, 3913, 3945, 1, 4256, 4293, 1, 4304, 4342, 1, 4352, 4352, 1, 4354, 4355, 1, 4357, 4359, 1, 4361, 4361, 1, 4363, 4364, 1, 4366, 4370, 1, 4412, 4416, 2, 4428, 4432, 2, 4436, 4437, 1, 4441, 4441, 1, 4447, 4449, 1, 4451, 4457, 2, 4461, 4462, 1, 4466, 4467, 1, 4526, 4527, 1, 4535, 4536, 1, 4538, 4538, 1, 4540, 4546, 1, 4601, 4601, 1, 7680, 7835, 1, 7840, 7929, 1, 7936, 7957, 1, 7960, 7965, 1, 7968, 8005, 1, 8008, 8013, 1, 8016, 8023, 1, 8029, 8029, 1, 8031, 8061, 1, 8064, 8116, 1, 8118, 8124, 1, 8126, 8126, 1, 8130, 8132, 1, 8134, 8140, 1, 8144, 8147, 1, 8150, 8155, 1, 8160, 8172, 1, 8178, 8180, 1, 8182, 8188, 1, 8486, 8486, 1, 8490, 8491, 1, 8494, 8494, 1, 8576, 8578, 1, 12295, 12295, 1, 12321, 12329, 1, 12353, 12436, 1, 12449, 12538, 1, 12549, 12588, 1, 19968, 40869, 1, 44032, 55203, 1]
+
+const SECOND_RANGES: List<Int> = [45, 46, 1, 48, 57, 1, 183, 183, 1, 720, 721, 1, 768, 837, 1, 864, 865, 1, 903, 903, 1, 1155, 1158, 1, 1425, 1441, 1, 1443, 1465, 1, 1467, 1469, 1, 1471, 1471, 1, 1473, 1474, 1, 1611, 1618, 1, 1632, 1641, 1, 1648, 1648, 1, 1750, 1756, 1, 1757, 1759, 1, 1760, 1764, 1, 1767, 1768, 1, 1770, 1773, 1, 1776, 1785, 1, 2305, 2307, 1, 2364, 2364, 1, 2366, 2380, 1, 2381, 2381, 1, 2385, 2388, 1, 2402, 2403, 1, 2406, 2415, 1, 2433, 2435, 1, 2492, 2492, 1, 2494, 2495, 1, 2496, 2500, 1, 2503, 2504, 1, 2507, 2509, 1, 2519, 2519, 1, 2530, 2531, 1, 2534, 2543, 1, 2622, 2623, 1, 2624, 2626, 1, 2631, 2632, 1, 2635, 2637, 1, 2662, 2671, 1, 2672, 2673, 1, 2689, 2691, 1, 2748, 2748, 1, 2750, 2757, 1, 2759, 2761, 1, 2763, 2765, 1, 2790, 2799, 1, 2817, 2819, 1, 2876, 2876, 1, 2878, 2883, 1, 2887, 2888, 1, 2891, 2893, 1, 2902, 2903, 1, 2918, 2927, 1, 2946, 2947, 1, 3006, 3010, 1, 3014, 3016, 1, 3018, 3021, 1, 3031, 3031, 1, 3047, 3055, 1, 3073, 3075, 1, 3134, 3140, 1, 3142, 3144, 1, 3146, 3149, 1, 3157, 3158, 1, 3174, 3183, 1, 3202, 3203, 1, 3262, 3268, 1, 3270, 3272, 1, 3274, 3277, 1, 3285, 3286, 1, 3302, 3311, 1, 3330, 3331, 1, 3390, 3395, 1, 3398, 3400, 1, 3402, 3405, 1, 3415, 3415, 1, 3430, 3439, 1, 3633, 3633, 1, 3636, 3642, 1, 3654, 3654, 1, 3655, 3662, 1, 3664, 3673, 1, 3761, 3761, 1, 3764, 3769, 1, 3771, 3772, 1, 3782, 3782, 1, 3784, 3789, 1, 3792, 3801, 1, 3864, 3865, 1, 3872, 3881, 1, 3893, 3897, 2, 3902, 3903, 1, 3953, 3972, 1, 3974, 3979, 1, 3984, 3989, 1, 3991, 3991, 1, 3993, 4013, 1, 4017, 4023, 1, 4025, 4025, 1, 8400, 8412, 1, 12330, 12335, 1, 12337, 12341, 1, 12441, 12442, 1, 12445, 12446, 1, 12540, 12542, 1]
+
+pub fn html_entity() -> Map<Str, Str> {
+  Map([
+    ("nbsp", "\u{00a0}"),
+    ("iexcl", "\u{00a1}"),
+    ("cent", "\u{00a2}"),
+    ("pound", "\u{00a3}"),
+    ("curren", "\u{00a4}"),
+    ("yen", "\u{00a5}"),
+    ("brvbar", "\u{00a6}"),
+    ("sect", "\u{00a7}"),
+    ("uml", "\u{00a8}"),
+    ("copy", "\u{00a9}"),
+    ("ordf", "\u{00aa}"),
+    ("laquo", "\u{00ab}"),
+    ("not", "\u{00ac}"),
+    ("shy", "\u{00ad}"),
+    ("reg", "\u{00ae}"),
+    ("macr", "\u{00af}"),
+    ("deg", "\u{00b0}"),
+    ("plusmn", "\u{00b1}"),
+    ("sup2", "\u{00b2}"),
+    ("sup3", "\u{00b3}"),
+    ("acute", "\u{00b4}"),
+    ("micro", "\u{00b5}"),
+    ("para", "\u{00b6}"),
+    ("middot", "\u{00b7}"),
+    ("cedil", "\u{00b8}"),
+    ("sup1", "\u{00b9}"),
+    ("ordm", "\u{00ba}"),
+    ("raquo", "\u{00bb}"),
+    ("frac14", "\u{00bc}"),
+    ("frac12", "\u{00bd}"),
+    ("frac34", "\u{00be}"),
+    ("iquest", "\u{00bf}"),
+    ("Agrave", "\u{00c0}"),
+    ("Aacute", "\u{00c1}"),
+    ("Acirc", "\u{00c2}"),
+    ("Atilde", "\u{00c3}"),
+    ("Auml", "\u{00c4}"),
+    ("Aring", "\u{00c5}"),
+    ("AElig", "\u{00c6}"),
+    ("Ccedil", "\u{00c7}"),
+    ("Egrave", "\u{00c8}"),
+    ("Eacute", "\u{00c9}"),
+    ("Ecirc", "\u{00ca}"),
+    ("Euml", "\u{00cb}"),
+    ("Igrave", "\u{00cc}"),
+    ("Iacute", "\u{00cd}"),
+    ("Icirc", "\u{00ce}"),
+    ("Iuml", "\u{00cf}"),
+    ("ETH", "\u{00d0}"),
+    ("Ntilde", "\u{00d1}"),
+    ("Ograve", "\u{00d2}"),
+    ("Oacute", "\u{00d3}"),
+    ("Ocirc", "\u{00d4}"),
+    ("Otilde", "\u{00d5}"),
+    ("Ouml", "\u{00d6}"),
+    ("times", "\u{00d7}"),
+    ("Oslash", "\u{00d8}"),
+    ("Ugrave", "\u{00d9}"),
+    ("Uacute", "\u{00da}"),
+    ("Ucirc", "\u{00db}"),
+    ("Uuml", "\u{00dc}"),
+    ("Yacute", "\u{00dd}"),
+    ("THORN", "\u{00de}"),
+    ("szlig", "\u{00df}"),
+    ("agrave", "\u{00e0}"),
+    ("aacute", "\u{00e1}"),
+    ("acirc", "\u{00e2}"),
+    ("atilde", "\u{00e3}"),
+    ("auml", "\u{00e4}"),
+    ("aring", "\u{00e5}"),
+    ("aelig", "\u{00e6}"),
+    ("ccedil", "\u{00e7}"),
+    ("egrave", "\u{00e8}"),
+    ("eacute", "\u{00e9}"),
+    ("ecirc", "\u{00ea}"),
+    ("euml", "\u{00eb}"),
+    ("igrave", "\u{00ec}"),
+    ("iacute", "\u{00ed}"),
+    ("icirc", "\u{00ee}"),
+    ("iuml", "\u{00ef}"),
+    ("eth", "\u{00f0}"),
+    ("ntilde", "\u{00f1}"),
+    ("ograve", "\u{00f2}"),
+    ("oacute", "\u{00f3}"),
+    ("ocirc", "\u{00f4}"),
+    ("otilde", "\u{00f5}"),
+    ("ouml", "\u{00f6}"),
+    ("divide", "\u{00f7}"),
+    ("oslash", "\u{00f8}"),
+    ("ugrave", "\u{00f9}"),
+    ("uacute", "\u{00fa}"),
+    ("ucirc", "\u{00fb}"),
+    ("uuml", "\u{00fc}"),
+    ("yacute", "\u{00fd}"),
+    ("thorn", "\u{00fe}"),
+    ("yuml", "\u{00ff}"),
+    ("fnof", "\u{0192}"),
+    ("Alpha", "\u{0391}"),
+    ("Beta", "\u{0392}"),
+    ("Gamma", "\u{0393}"),
+    ("Delta", "\u{0394}"),
+    ("Epsilon", "\u{0395}"),
+    ("Zeta", "\u{0396}"),
+    ("Eta", "\u{0397}"),
+    ("Theta", "\u{0398}"),
+    ("Iota", "\u{0399}"),
+    ("Kappa", "\u{039a}"),
+    ("Lambda", "\u{039b}"),
+    ("Mu", "\u{039c}"),
+    ("Nu", "\u{039d}"),
+    ("Xi", "\u{039e}"),
+    ("Omicron", "\u{039f}"),
+    ("Pi", "\u{03a0}"),
+    ("Rho", "\u{03a1}"),
+    ("Sigma", "\u{03a3}"),
+    ("Tau", "\u{03a4}"),
+    ("Upsilon", "\u{03a5}"),
+    ("Phi", "\u{03a6}"),
+    ("Chi", "\u{03a7}"),
+    ("Psi", "\u{03a8}"),
+    ("Omega", "\u{03a9}"),
+    ("alpha", "\u{03b1}"),
+    ("beta", "\u{03b2}"),
+    ("gamma", "\u{03b3}"),
+    ("delta", "\u{03b4}"),
+    ("epsilon", "\u{03b5}"),
+    ("zeta", "\u{03b6}"),
+    ("eta", "\u{03b7}"),
+    ("theta", "\u{03b8}"),
+    ("iota", "\u{03b9}"),
+    ("kappa", "\u{03ba}"),
+    ("lambda", "\u{03bb}"),
+    ("mu", "\u{03bc}"),
+    ("nu", "\u{03bd}"),
+    ("xi", "\u{03be}"),
+    ("omicron", "\u{03bf}"),
+    ("pi", "\u{03c0}"),
+    ("rho", "\u{03c1}"),
+    ("sigmaf", "\u{03c2}"),
+    ("sigma", "\u{03c3}"),
+    ("tau", "\u{03c4}"),
+    ("upsilon", "\u{03c5}"),
+    ("phi", "\u{03c6}"),
+    ("chi", "\u{03c7}"),
+    ("psi", "\u{03c8}"),
+    ("omega", "\u{03c9}"),
+    ("thetasym", "\u{03d1}"),
+    ("upsih", "\u{03d2}"),
+    ("piv", "\u{03d6}"),
+    ("bull", "\u{2022}"),
+    ("hellip", "\u{2026}"),
+    ("prime", "\u{2032}"),
+    ("Prime", "\u{2033}"),
+    ("oline", "\u{203e}"),
+    ("frasl", "\u{2044}"),
+    ("weierp", "\u{2118}"),
+    ("image", "\u{2111}"),
+    ("real", "\u{211c}"),
+    ("trade", "\u{2122}"),
+    ("alefsym", "\u{2135}"),
+    ("larr", "\u{2190}"),
+    ("uarr", "\u{2191}"),
+    ("rarr", "\u{2192}"),
+    ("darr", "\u{2193}"),
+    ("harr", "\u{2194}"),
+    ("crarr", "\u{21b5}"),
+    ("lArr", "\u{21d0}"),
+    ("uArr", "\u{21d1}"),
+    ("rArr", "\u{21d2}"),
+    ("dArr", "\u{21d3}"),
+    ("hArr", "\u{21d4}"),
+    ("forall", "\u{2200}"),
+    ("part", "\u{2202}"),
+    ("exist", "\u{2203}"),
+    ("empty", "\u{2205}"),
+    ("nabla", "\u{2207}"),
+    ("isin", "\u{2208}"),
+    ("notin", "\u{2209}"),
+    ("ni", "\u{220b}"),
+    ("prod", "\u{220f}"),
+    ("sum", "\u{2211}"),
+    ("minus", "\u{2212}"),
+    ("lowast", "\u{2217}"),
+    ("radic", "\u{221a}"),
+    ("prop", "\u{221d}"),
+    ("infin", "\u{221e}"),
+    ("ang", "\u{2220}"),
+    ("and", "\u{2227}"),
+    ("or", "\u{2228}"),
+    ("cap", "\u{2229}"),
+    ("cup", "\u{222a}"),
+    ("int", "\u{222b}"),
+    ("there4", "\u{2234}"),
+    ("sim", "\u{223c}"),
+    ("cong", "\u{2245}"),
+    ("asymp", "\u{2248}"),
+    ("ne", "\u{2260}"),
+    ("equiv", "\u{2261}"),
+    ("le", "\u{2264}"),
+    ("ge", "\u{2265}"),
+    ("sub", "\u{2282}"),
+    ("sup", "\u{2283}"),
+    ("nsub", "\u{2284}"),
+    ("sube", "\u{2286}"),
+    ("supe", "\u{2287}"),
+    ("oplus", "\u{2295}"),
+    ("otimes", "\u{2297}"),
+    ("perp", "\u{22a5}"),
+    ("sdot", "\u{22c5}"),
+    ("lceil", "\u{2308}"),
+    ("rceil", "\u{2309}"),
+    ("lfloor", "\u{230a}"),
+    ("rfloor", "\u{230b}"),
+    ("lang", "\u{2329}"),
+    ("rang", "\u{232a}"),
+    ("loz", "\u{25ca}"),
+    ("spades", "\u{2660}"),
+    ("clubs", "\u{2663}"),
+    ("hearts", "\u{2665}"),
+    ("diams", "\u{2666}"),
+    ("quot", "\u{0022}"),
+    ("amp", "\u{0026}"),
+    ("lt", "\u{003c}"),
+    ("gt", "\u{003e}"),
+    ("OElig", "\u{0152}"),
+    ("oelig", "\u{0153}"),
+    ("Scaron", "\u{0160}"),
+    ("scaron", "\u{0161}"),
+    ("Yuml", "\u{0178}"),
+    ("circ", "\u{02c6}"),
+    ("tilde", "\u{02dc}"),
+    ("ensp", "\u{2002}"),
+    ("emsp", "\u{2003}"),
+    ("thinsp", "\u{2009}"),
+    ("zwnj", "\u{200c}"),
+    ("zwj", "\u{200d}"),
+    ("lrm", "\u{200e}"),
+    ("rlm", "\u{200f}"),
+    ("ndash", "\u{2013}"),
+    ("mdash", "\u{2014}"),
+    ("lsquo", "\u{2018}"),
+    ("rsquo", "\u{2019}"),
+    ("sbquo", "\u{201a}"),
+    ("ldquo", "\u{201c}"),
+    ("rdquo", "\u{201d}"),
+    ("bdquo", "\u{201e}"),
+    ("dagger", "\u{2020}"),
+    ("Dagger", "\u{2021}"),
+    ("permil", "\u{2030}"),
+    ("lsaquo", "\u{2039}"),
+    ("rsaquo", "\u{203a}"),
+    ("euro", "\u{20ac}"),
+  ])
+}

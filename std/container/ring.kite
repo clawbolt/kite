@@ -1,0 +1,57 @@
+// std.container.ring：环形链表（对齐 Go 的 container/ring）
+//   Ring 记录全部值和“当前位置”；move / next / prev 只是换当前位置，返回新的 Ring
+//   new(vals)：按顺序成环，当前位置在第一个；Go 的 ring.New(n) 对应 new 一个有 n 个零值的列表
+//   link(r, s)：把 s 整个环接在 r 的当前元素后面；unlink(r, n)：拿掉当前元素后面的 n 个，返回 (剩下的环, 拿掉的环)
+
+pub type Ring<T> = { vals: List<T>, at: Int }
+
+pub fn new<T>(vals: List<T>) -> Ring<T> {
+  if len(vals) == 0 { panic("ring.new: 环至少要有一个元素") }
+  Ring { vals: vals, at: 0 }
+}
+
+fn md(a: Int, n: Int) -> Int { ((a % n) + n) % n }
+
+impl<T> Ring<T> {
+  fn len(self) -> Int { len(self.vals) }
+
+  fn value(self) -> T { self.vals[self.at] }
+
+  fn set_value(self, v: T) -> Ring<T> { Ring { vals: set(self.vals, self.at, v), at: self.at } }
+
+  fn next(self) -> Ring<T> { Ring { at: md(self.at + 1, len(self.vals)), ..self } }
+
+  fn prev(self) -> Ring<T> { Ring { at: md(self.at - 1, len(self.vals)), ..self } }
+
+  fn move(self, n: Int) -> Ring<T> { Ring { at: md(self.at + n, len(self.vals)), ..self } }
+
+  // 从当前元素开始，按 next 的顺序列出所有值（Go 的 Do）
+  fn values(self) -> List<T> {
+    let n = len(self.vals)
+    var out: List<T> = []
+    var i = 0
+    while i < n {
+      out = push(out, self.vals[md(self.at + i, n)])
+      i += 1
+    }
+    out
+  }
+
+  fn each(self, f: fn(T) -> ()) { for v in self.values() { f(v) } }
+
+  // 当前元素后面接上 s 的整个环（从 s 的当前元素开始）；结果的当前位置还是原来的元素
+  fn link(self, s: Ring<T>) -> Ring<T> {
+    let mine = self.values()
+    Ring { vals: [mine[0]] + s.values() + mine[1..], at: 0 }
+  }
+
+  // 拿掉当前元素后面的 n % len 个元素；n <= 0 时不变
+  fn unlink(self, n: Int) -> (Ring<T>, Option<Ring<T>>) {
+    let total = len(self.vals)
+    if n <= 0 { return (self, None) }
+    let k = n % total
+    if k == 0 { return (self, None) }
+    let vs = self.values()
+    (Ring { vals: [vs[0]] + vs[k + 1..], at: 0 }, Some(Ring { vals: vs[1..k + 1], at: 0 }))
+  }
+}

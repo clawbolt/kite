@@ -1,0 +1,5 @@
+trait Shape {
+  const SIDES: Int
+}
+fn bad<T>() -> Int { T.SIDES }
+fn main() { print(bad.<Int>()) }

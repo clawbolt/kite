@@ -1,0 +1,45 @@
+// KIR：签名只含标量的函数会被编译成不装箱的原生代码（kite kir 查看中间表示）
+fn gcd(a: Int, b: Int) -> Int {
+  var x = a
+  var y = b
+  while y != 0 {
+    let t = x % y
+    x = y
+    y = t
+  }
+  x
+}
+
+fn classify(n: Int) -> Int {
+  match n {
+    0          => 0
+    1..=9      => 1
+    x if x < 0 => -1
+    _          => 2
+  }
+}
+
+fn collatz(n: Int) -> Int {
+  var steps = 0
+  var m = n
+  loop {
+    if m == 1 { break }
+    m = if m % 2 == 0 { m / 2 } else { 3 * m + 1 }
+    steps += 1
+  }
+  steps
+}
+
+fn hyp(a: Float, b: Float) -> Float {
+  let k = 2 * 3 + 1
+  if a < 0.0 || b < 0.0 { return -1.0 }
+  float(k) * 0.0 + (a * a + b * b) / max(1.0, 1.0)
+}
+
+fn even(n: Int) -> Bool { n == 0 || odd(n - 1) }
+fn odd(n: Int) -> Bool { n != 0 && even(n - 1) }
+
+fn main() {
+  print(gcd(48, 18), classify(5), classify(-3), classify(100), collatz(27), hyp(3.0, 4.0), even(10), odd(7))
+  print(abs(-5), int(2.9), [1, 2].len())
+}

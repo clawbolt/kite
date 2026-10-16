@@ -1,0 +1,651 @@
+// std.net.netip：IP 地址值类型（对齐 Go 的 net/netip，算法逐行移植）
+//   Addr：parse_addr(s) -> Result<Addr, Str>（错误信息和 Go 相同）、must_parse_addr、addr_from4([4]字节)、addr_from16([16]字节)、
+//         addr_from_slice、ipv4_unspecified / ipv6_unspecified / ipv6_loopback / ipv6_link_local_all_nodes / ipv6_link_local_all_routers；
+//         方法 string / string_expanded / is4 / is6 / is4in6 / unmap / zone / with_zone / is_valid / bit_len /
+//         is_loopback / is_private / is_multicast / is_link_local_unicast / is_global_unicast / is_unspecified /
+//         is_link_local_multicast / is_interface_local_multicast / compare / less / next / prev / as4 / as16 / as_slice /
+//         prefix(bits) -> Result<Prefix, Str>
+//   AddrPort：parse_addr_port、must_parse_addr_port、addr_port_from；方法 addr / port / is_valid / compare / string
+//   Prefix：parse_prefix、must_parse_prefix、prefix_from；方法 addr / bits / is_valid / is_single_ip / masked / contains /
+//         overlaps / string
+//   和 Go 的差别：Addr 内部用 16 个字节表示（Go 用 uint128 + unique.Handle）；零值 Addr 用 zero_addr() 得到；
+//   Go 里 MustParse* 失败时 panic 的是 error 值，这里 panic 的是错误信息字符串；As4 对非 IPv4 地址同样 panic。
+
+pub type Addr = { b: List<Int>, z: Int, zone: Str }
+
+pub type AddrPort = { ip: Addr, port_: Int }
+
+pub type Prefix = { ip: Addr, bits1: Int }
+
+const Z0: Int = 0
+
+const Z4: Int = 4
+
+const Z6: Int = 6
+
+fn zeros(n: Int) -> List<Int> {
+  var out: List<Int> = []
+  for _ in 0..n { out = push(out, 0) }
+  out
+}
+
+pub fn zero_addr() -> Addr { Addr { b: zeros(16), z: Z0, zone: "" } }
+
+pub fn addr_from4(a: List<Int>) -> Addr { Addr { b: zeros(10) + [255, 255, a[0] & 255, a[1] & 255, a[2] & 255, a[3] & 255], z: Z4, zone: "" } }
+
+pub fn addr_from16(a: List<Int>) -> Addr { Addr { b: map(a[..16], (x) => x & 255), z: Z6, zone: "" } }
+
+pub fn addr_from_slice(s: List<Int>) -> Option<Addr> {
+  if len(s) == 4 { return Some(addr_from4(s)) }
+  if len(s) == 16 { return Some(addr_from16(s)) }
+  None
+}
+
+pub fn ipv6_link_local_all_nodes() -> Addr { addr_from16([0xff, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]) }
+
+pub fn ipv6_link_local_all_routers() -> Addr { addr_from16([0xff, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2]) }
+
+pub fn ipv6_loopback() -> Addr { addr_from16(zeros(15) + [1]) }
+
+pub fn ipv6_unspecified() -> Addr { Addr { b: zeros(16), z: Z6, zone: "" } }
+
+pub fn ipv4_unspecified() -> Addr { addr_from4([0, 0, 0, 0]) }
+
+// ───────── strconv.Quote ─────────
+const HEXL: Str = "0123456789abcdef"
+
+fn hexc(n: Int) -> Str { __str_slice(HEXL, n, n + 1) }
+
+fn is_print_rune(r: Int) -> Bool {
+  if r < 0x20 || r == 0x7f { return false }
+  if r < 0x7f { return true }
+  if r < 0xa1 || r == 0xad { return false }
+  if r >= 0xd800 && r <= 0xdfff { return false }
+  if r == 0xfeff || r == 0xfffe || r == 0xffff { return false }
+  if r >= 0xe000 && r <= 0xf8ff { return false }
+  if r == 0x2028 || r == 0x2029 || r == 0x200b || r == 0x200e || r == 0x200f { return false }
+  true
+}
+
+fn gquote(s: Str) -> Str {
+  var out = "\""
+  for c in chars(s) {
+    let o = __ord(c)
+    out = out + if c == "\"" { "\\\"" } else if c == "\\" { "\\\\" } else if o == 7 { "\\a" } else if o == 8 { "\\b" } else if o == 12 { "\\f" } else if o == 10 { "\\n" } else if o == 13 { "\\r" } else if o == 9 { "\\t" } else if o == 11 { "\\v" } else if is_print_rune(o) { c } else if o < 0x80 { "\\x" + hexc(o / 16) + hexc(o % 16) } else if o < 0x10000 { "\\u" + hexc(o >> 12) + hexc((o >> 8) & 15) + hexc((o >> 4) & 15) + hexc(o & 15) } else { "\\U00" + hexc(o >> 20) + hexc((o >> 16) & 15) + hexc((o >> 12) & 15) + hexc((o >> 8) & 15) + hexc((o >> 4) & 15) + hexc(o & 15) }
+  }
+  out + "\""
+}
+
+// ───────── 解析 ─────────
+fn addr_err(inp: Str, msg: Str, at: Str) -> Str {
+  if at != "" { "ParseAddr(" + gquote(inp) + "): " + msg + " (at " + gquote(at) + ")" } else { "ParseAddr(" + gquote(inp) + "): " + msg }
+}
+
+fn bstr(bs: List<Int>) -> Str { unwrap_or(__from_bytes(bs), "") }
+
+pub fn parse_addr(s: Str) -> Result<Addr, Str> {
+  for b in __bytes(s) {
+    if b == 46 { return parse_ipv4(s) }
+    if b == 58 { return parse_ipv6(s) }
+    if b == 37 { return Err(addr_err(s, "missing IPv6 address", "")) }
+  }
+  Err(addr_err(s, "unable to parse IP", ""))
+}
+
+pub fn must_parse_addr(s: Str) -> Addr {
+  match parse_addr(s) {
+    Ok(a)  => a,
+    Err(e) => panic(e),
+  }
+}
+
+// in 的字节 [off, end) 解析成 4 个字段
+fn parse_ipv4_fields(inp: Str, bs: List<Int>, off: Int, end: Int) -> Result<List<Int>, Str> {
+  let s = bs[off..end]
+  var fields: List<Int> = []
+  var val = 0
+  var dig = 0
+  var i = 0
+  while i < len(s) {
+    let c = s[i]
+    if c >= 48 && c <= 57 {
+      if dig == 1 && val == 0 { return Err(addr_err(inp, "IPv4 field has octet with leading zero", "")) }
+      val = val * 10 + c - 48
+      dig += 1
+      if val > 255 { return Err(addr_err(inp, "IPv4 field has value >255", "")) }
+    } else if c == 46 {
+      if i == 0 || i == len(s) - 1 || s[i - 1] == 46 { return Err(addr_err(inp, "IPv4 field must have at least one digit", bstr(s[i..]))) }
+      if len(fields) == 3 { return Err(addr_err(inp, "IPv4 address too long", "")) }
+      fields = push(fields, val)
+      val = 0
+      dig = 0
+    } else {
+      return Err(addr_err(inp, "unexpected character", bstr(s[i..])))
+    }
+    i += 1
+  }
+  if len(fields) < 3 { return Err(addr_err(inp, "IPv4 address too short", "")) }
+  Ok(push(fields, val))
+}
+
+fn parse_ipv4(s: Str) -> Result<Addr, Str> {
+  let bs = __bytes(s)
+  let f = parse_ipv4_fields(s, bs, 0, len(bs))?
+  Ok(addr_from4(f))
+}
+
+fn hexval(c: Int) -> Int { if c >= 48 && c <= 57 { c - 48 } else if c >= 97 && c <= 102 { c - 87 } else if c >= 65 && c <= 70 { c - 55 } else { -1 } }
+
+fn parse_ipv6(inp: Str) -> Result<Addr, Str> {
+  let all = __bytes(inp)
+  var s = all
+  var zone: List<Int> = []
+  var zi = -1
+  var k = 0
+  while k < len(all) {
+    if all[k] == 37 {
+      zi = k
+      break
+    }
+    k += 1
+  }
+  if zi >= 0 {
+    s = all[..zi]
+    zone = all[zi + 1..]
+    if len(zone) == 0 { return Err(addr_err(inp, "zone must be a non-empty string", "")) }
+  }
+  let zs = bstr(zone)
+  var ip: List<Int> = []
+  var ellipsis = -1
+  if len(s) >= 2 && s[0] == 58 && s[1] == 58 {
+    ellipsis = 0
+    s = s[2..]
+    if len(s) == 0 { return Ok(ipv6_unspecified().with_zone(zs)) }
+  }
+  var i = 0
+  while i < 16 {
+    var off = 0
+    var acc = 0
+    while off < len(s) {
+      let h = hexval(s[off])
+      if h < 0 { break }
+      acc = acc * 16 + h
+      if off > 3 { return Err(addr_err(inp, "each group must have 4 or less digits", bstr(s))) }
+      if acc > 0xffff { return Err(addr_err(inp, "IPv6 field has value >=2^16", bstr(s))) }
+      off += 1
+    }
+    if off == 0 { return Err(addr_err(inp, "each colon-separated field must have at least one digit", bstr(s))) }
+    if off < len(s) && s[off] == 46 {
+      if ellipsis < 0 && i != 12 { return Err(addr_err(inp, "embedded IPv4 address must replace the final 2 fields of the address", bstr(s))) }
+      if i + 4 > 16 { return Err(addr_err(inp, "too many hex fields to fit an embedded IPv4 at the end of the address", bstr(s))) }
+      var end = len(all)
+      if len(zone) > 0 { end -= len(zone) + 1 }
+      let f = parse_ipv4_fields(inp, all, end - len(s), end)?
+      ip = ip + f
+      s = []
+      i += 4
+      break
+    }
+    ip = ip + [acc >> 8, acc & 255]
+    i += 2
+    s = s[off..]
+    if len(s) == 0 { break }
+    if s[0] != 58 {
+      return Err(addr_err(inp, "unexpected character, want colon", bstr(s)))
+    } else if len(s) == 1 {
+      return Err(addr_err(inp, "colon must be followed by more characters", bstr(s)))
+    }
+    s = s[1..]
+    if s[0] == 58 {
+      if ellipsis >= 0 { return Err(addr_err(inp, "multiple :: in address", bstr(s))) }
+      ellipsis = i
+      s = s[1..]
+      if len(s) == 0 { break }
+    }
+  }
+  if len(s) != 0 { return Err(addr_err(inp, "trailing garbage after address", bstr(s))) }
+  if i < 16 {
+    if ellipsis < 0 { return Err(addr_err(inp, "address string too short", "")) }
+    ip = ip[..ellipsis] + zeros(16 - i) + ip[ellipsis..]
+  } else if ellipsis >= 0 {
+    return Err(addr_err(inp, "the :: must expand to at least one field of zeros", ""))
+  }
+  Ok(addr_from16(ip).with_zone(zs))
+}
+
+// ───────── 格式化辅助 ─────────
+fn dec(x: Int) -> Str { "{x}" }
+
+fn hexw(x: Int) -> Str {
+  var out = ""
+  if x >= 0x1000 { out = out + hexc(x >> 12) }
+  if x >= 0x100 { out = out + hexc((x >> 8) & 15) }
+  if x >= 0x10 { out = out + hexc((x >> 4) & 15) }
+  out + hexc(x & 15)
+}
+
+fn hexpad(x: Int) -> Str { hexc(x >> 12) + hexc((x >> 8) & 15) + hexc((x >> 4) & 15) + hexc(x & 15) }
+
+fn cmp_bytes(a: List<Int>, b: List<Int>) -> Int {
+  var i = 0
+  while i < 16 {
+    if a[i] < b[i] { return -1 }
+    if a[i] > b[i] { return 1 }
+    i += 1
+  }
+  0
+}
+
+fn cmp_str(a: Str, b: Str) -> Int {
+  let x = __bytes(a)
+  let y = __bytes(b)
+  var i = 0
+  while i < len(x) && i < len(y) {
+    if x[i] != y[i] { return if x[i] < y[i] { -1 } else { 1 } }
+    i += 1
+  }
+  if len(x) < len(y) { -1 } else if len(x) > len(y) { 1 } else { 0 }
+}
+
+fn cmp_int(a: Int, b: Int) -> Int { if a < b { -1 } else if a > b { 1 } else { 0 } }
+
+// 只保留前 n 位
+fn mask_bytes(b: List<Int>, n: Int) -> List<Int> {
+  var out: List<Int> = []
+  var i = 0
+  while i < 16 {
+    let lo = i * 8
+    if n >= lo + 8 { out = push(out, b[i]) } else if n <= lo { out = push(out, 0) } else { out = push(out, b[i] & ((0xff << (8 - (n - lo))) & 0xff)) }
+    i += 1
+  }
+  out
+}
+
+fn addr_eq(a: Addr, b: Addr) -> Bool { a.z == b.z && a.zone == b.zone && a.b == b.b }
+
+impl Addr {
+  fn v4(self, i: Int) -> Int { self.b[12 + i] }
+
+  fn v6(self, i: Int) -> Int { self.b[i] }
+
+  fn v6u16(self, i: Int) -> Int { self.b[2 * i] * 256 + self.b[2 * i + 1] }
+
+  fn is_valid(self) -> Bool { self.z != Z0 }
+
+  fn bit_len(self) -> Int { if self.z == Z0 { 0 } else if self.z == Z4 { 32 } else { 128 } }
+
+  fn zone(self) -> Str { self.zone }
+
+  fn compare(self, o: Addr) -> Int {
+    let c = cmp_int(self.bit_len(), o.bit_len())
+    if c != 0 { return c }
+    let c2 = cmp_bytes(self.b, o.b)
+    if c2 != 0 { return c2 }
+    if self.is6() { return cmp_str(self.zone, o.zone) }
+    0
+  }
+
+  fn less(self, o: Addr) -> Bool { self.compare(o) == -1 }
+
+  fn equal(self, o: Addr) -> Bool { addr_eq(self, o) }
+
+  fn is4(self) -> Bool { self.z == Z4 }
+
+  fn is6(self) -> Bool { self.z == Z6 }
+
+  fn is4in6(self) -> Bool { self.is6() && self.b[..12] == zeros(10) + [255, 255] }
+
+  fn unmap(self) -> Addr { if self.is4in6() { Addr { z: Z4, zone: "", ..self } } else { self } }
+
+  fn with_zone(self, zone: Str) -> Addr { if !self.is6() { self } else { Addr { zone: zone, ..self } } }
+
+  fn without_zone(self) -> Addr { if !self.is6() { self } else { Addr { zone: "", ..self } } }
+
+  fn has_zone(self) -> Bool { self.z == Z6 && self.zone != "" }
+
+  fn is_link_local_unicast(self) -> Bool {
+    let ip = self.unmap()
+    if ip.is4() { return ip.v4(0) == 169 && ip.v4(1) == 254 }
+    if ip.is6() { return (ip.v6u16(0) & 0xffc0) == 0xfe80 }
+    false
+  }
+
+  fn is_loopback(self) -> Bool {
+    let ip = self.unmap()
+    if ip.is4() { return ip.v4(0) == 127 }
+    if ip.is6() { return ip.b == zeros(15) + [1] }
+    false
+  }
+
+  fn is_multicast(self) -> Bool {
+    let ip = self.unmap()
+    if ip.is4() { return (ip.v4(0) & 0xf0) == 0xe0 }
+    if ip.is6() { return ip.b[0] == 0xff }
+    false
+  }
+
+  fn is_interface_local_multicast(self) -> Bool {
+    if self.is6() && !self.is4in6() { return (self.v6u16(0) & 0xff0f) == 0xff01 }
+    false
+  }
+
+  fn is_link_local_multicast(self) -> Bool {
+    let ip = self.unmap()
+    if ip.is4() { return ip.v4(0) == 224 && ip.v4(1) == 0 && ip.v4(2) == 0 }
+    if ip.is6() { return (ip.v6u16(0) & 0xff0f) == 0xff02 }
+    false
+  }
+
+  fn is_global_unicast(self) -> Bool {
+    if self.z == Z0 { return false }
+    let ip = self.unmap()
+    if ip.is4() && (addr_eq(ip, ipv4_unspecified()) || addr_eq(ip, addr_from4([255, 255, 255, 255]))) { return false }
+    !addr_eq(ip, ipv6_unspecified()) && !ip.is_loopback() && !ip.is_multicast() && !ip.is_link_local_unicast()
+  }
+
+  fn is_private(self) -> Bool {
+    let ip = self.unmap()
+    if ip.is4() { return ip.v4(0) == 10 || (ip.v4(0) == 172 && (ip.v4(1) & 0xf0) == 16) || (ip.v4(0) == 192 && ip.v4(1) == 168) }
+    if ip.is6() { return (ip.v6(0) & 0xfe) == 0xfc }
+    false
+  }
+
+  fn is_unspecified(self) -> Bool { addr_eq(self, ipv4_unspecified()) || addr_eq(self, ipv6_unspecified()) }
+
+  fn prefix(self, b: Int) -> Result<Prefix, Str> {
+    if b < 0 { return Err("negative Prefix bits") }
+    var eff = b
+    if self.z == Z0 { return Ok(zero_prefix()) }
+    if self.z == Z4 {
+      if b > 32 { return Err("prefix length {b} too large for IPv4") }
+      eff += 96
+    } else if b > 128 {
+      return Err("prefix length {b} too large for IPv6")
+    }
+    Ok(prefix_from(Addr { b: mask_bytes(self.b, eff), ..self }, b))
+  }
+
+  fn as16(self) -> List<Int> { self.b }
+
+  fn as4(self) -> List<Int> {
+    if self.z == Z4 || self.is4in6() { return self.b[12..] }
+    if self.z == Z0 { panic("As4 called on IP zero value") }
+    panic("As4 called on IPv6 address")
+  }
+
+  fn as_slice(self) -> List<Int> { if self.z == Z0 { [] } else if self.z == Z4 { self.b[12..] } else { self.b } }
+
+  fn next(self) -> Addr {
+    var nb = self.b
+    var i = 15
+    var carry = true
+    while i >= 0 && carry {
+      if nb[i] == 255 { nb = set(nb, i, 0) } else {
+        nb = set(nb, i, nb[i] + 1)
+        carry = false
+      }
+      i -= 1
+    }
+    if self.is4() {
+      if nb[12..] == [0, 0, 0, 0] { return zero_addr() }
+    } else if nb == zeros(16) {
+      return zero_addr()
+    }
+    Addr { b: nb, ..self }
+  }
+
+  fn prev(self) -> Addr {
+    if self.is4() {
+      if self.b[12..] == [0, 0, 0, 0] { return zero_addr() }
+    } else if self.b == zeros(16) {
+      return zero_addr()
+    }
+    var nb = self.b
+    var i = 15
+    var borrow = true
+    while i >= 0 && borrow {
+      if nb[i] == 0 { nb = set(nb, i, 255) } else {
+        nb = set(nb, i, nb[i] - 1)
+        borrow = false
+      }
+      i -= 1
+    }
+    Addr { b: nb, ..self }
+  }
+
+  fn string4(self) -> Str { dec(self.v4(0)) + "." + dec(self.v4(1)) + "." + dec(self.v4(2)) + "." + dec(self.v4(3)) }
+
+  fn string4in6(self) -> Str {
+    var out = "::ffff:" + self.string4()
+    if self.zone != "" { out = out + "%" + self.zone }
+    out
+  }
+
+  fn string6(self) -> Str {
+    var zs = 255
+    var ze = 255
+    var i = 0
+    while i < 8 {
+      var j = i
+      while j < 8 && self.v6u16(j) == 0 { j += 1 }
+      let l = j - i
+      if l >= 2 && l > ze - zs {
+        zs = i
+        ze = j
+      }
+      i += 1
+    }
+    var out = ""
+    i = 0
+    while i < 8 {
+      if i == zs {
+        out = out + "::"
+        i = ze
+        if i >= 8 { break }
+      } else if i > 0 {
+        out = out + ":"
+      }
+      out = out + hexw(self.v6u16(i))
+      i += 1
+    }
+    if self.zone != "" { out = out + "%" + self.zone }
+    out
+  }
+
+  fn string(self) -> Str {
+    if self.z == Z0 { return "invalid IP" }
+    if self.z == Z4 { return self.string4() }
+    if self.is4in6() { return self.string4in6() }
+    self.string6()
+  }
+
+  fn string_expanded(self) -> Str {
+    if self.z != Z6 { return self.string() }
+    var out = ""
+    var i = 0
+    while i < 8 {
+      if i > 0 { out = out + ":" }
+      out = out + hexpad(self.v6u16(i))
+      i += 1
+    }
+    if self.zone != "" { out = out + "%" + self.zone }
+    out
+  }
+
+  // MarshalText：零值是空串，其余同 string()
+  fn marshal_text(self) -> Str { if self.z == Z0 { "" } else { self.string() } }
+}
+
+// ───────── AddrPort ─────────
+pub fn addr_port_from(ip: Addr, port: Int) -> AddrPort { AddrPort { ip: ip, port_: port & 0xffff } }
+
+fn split_addr_port(s: Str) -> Result<(Str, Str, Bool), Str> {
+  let bs = __bytes(s)
+  var i = len(bs) - 1
+  while i >= 0 && bs[i] != 58 { i -= 1 }
+  if i == -1 { return Err("not an ip:port") }
+  var ip = bs[..i]
+  let port = bs[i + 1..]
+  if len(ip) == 0 { return Err("no IP") }
+  if len(port) == 0 { return Err("no port") }
+  var v6 = false
+  if ip[0] == 91 {
+    if len(ip) < 2 || ip[len(ip) - 1] != 93 { return Err("missing ]") }
+    ip = ip[1..len(ip) - 1]
+    v6 = true
+  }
+  Ok((bstr(ip), bstr(port), v6))
+}
+
+pub fn parse_addr_port(s: Str) -> Result<AddrPort, Str> {
+  let (ip, port, v6) = split_addr_port(s)?
+  let pb = __bytes(port)
+  var pv = 0
+  var ok = len(pb) > 0
+  for c in pb {
+    if c < 48 || c > 57 {
+      ok = false
+      break
+    }
+    pv = pv * 10 + c - 48
+    if pv > 0xffff {
+      ok = false
+      break
+    }
+  }
+  if !ok { return Err("invalid port " + gquote(port) + " parsing " + gquote(s)) }
+  let a = parse_addr(ip)?
+  if v6 && a.is4() { return Err("invalid ip:port " + gquote(s) + ", square brackets can only be used with IPv6 addresses") }
+  if !v6 && a.is6() { return Err("invalid ip:port " + gquote(s) + ", IPv6 addresses must be surrounded by square brackets") }
+  Ok(AddrPort { ip: a, port_: pv })
+}
+
+pub fn must_parse_addr_port(s: Str) -> AddrPort {
+  match parse_addr_port(s) {
+    Ok(a)  => a,
+    Err(e) => panic(e),
+  }
+}
+
+impl AddrPort {
+  fn addr(self) -> Addr { self.ip }
+
+  fn port(self) -> Int { self.port_ }
+
+  fn is_valid(self) -> Bool { self.ip.is_valid() }
+
+  fn compare(self, o: AddrPort) -> Int {
+    let c = self.ip.compare(o.ip)
+    if c != 0 { return c }
+    cmp_int(self.port_, o.port_)
+  }
+
+  fn string(self) -> Str {
+    let ip = self.ip
+    if ip.z == Z0 { return "invalid AddrPort" }
+    let h = if ip.z == Z4 { ip.string4() } else if ip.is4in6() { "[" + ip.string4in6() + "]" } else { "[" + ip.string6() + "]" }
+    h + ":" + dec(self.port_)
+  }
+}
+
+// ───────── Prefix ─────────
+pub fn zero_prefix() -> Prefix { Prefix { ip: zero_addr(), bits1: 0 } }
+
+pub fn prefix_from(ip: Addr, bits: Int) -> Prefix {
+  var b1 = 0
+  if ip.z != Z0 && bits >= 0 && bits <= ip.bit_len() { b1 = bits + 1 }
+  Prefix { ip: ip.without_zone(), bits1: b1 }
+}
+
+fn prefix_err(inp: Str, msg: Str) -> Str { "netip.ParsePrefix(" + gquote(inp) + "): " + msg }
+
+// strconv.Atoi：成功返回值，越界或格式错返回 None
+fn atoi(s: List<Int>) -> Option<Int> {
+  if len(s) == 0 { return None }
+  var i = 0
+  var neg = false
+  if s[0] == 43 || s[0] == 45 {
+    neg = s[0] == 45
+    i = 1
+    if len(s) == 1 { return None }
+  }
+  var v = 0
+  while i < len(s) {
+    let c = s[i]
+    if c < 48 || c > 57 { return None }
+    if v > 922337203685477580 || (v == 922337203685477580 && c - 48 > 7 + (if neg { 1 } else { 0 })) { return None }
+    if v == 922337203685477580 && c - 48 == 8 && neg { return Some(-9223372036854775807 - 1) }
+    v = v * 10 + c - 48
+    i += 1
+  }
+  Some(if neg { -v } else { v })
+}
+
+pub fn parse_prefix(s: Str) -> Result<Prefix, Str> {
+  let bs = __bytes(s)
+  var i = len(bs) - 1
+  while i >= 0 && bs[i] != 47 { i -= 1 }
+  if i < 0 { return Err(prefix_err(s, "no '/'")) }
+  let ip = match parse_addr(bstr(bs[..i])) {
+    Ok(a)  => a,
+    Err(e) => { return Err(prefix_err(s, e)) },
+  }
+  if ip.is6() && ip.zone != "" { return Err(prefix_err(s, "IPv6 zones cannot be present in a prefix")) }
+  let bb = bs[i + 1..]
+  if len(bb) > 1 && (bb[0] < 49 || bb[0] > 57) { return Err(prefix_err(s, "bad bits after slash: " + gquote(bstr(bb)))) }
+  let Some(bits) = atoi(bb) else { return Err(prefix_err(s, "bad bits after slash: " + gquote(bstr(bb)))) }
+  let maxb = if ip.is6() { 128 } else { 32 }
+  if bits < 0 || bits > maxb { return Err(prefix_err(s, "prefix length out of range")) }
+  Ok(prefix_from(ip, bits))
+}
+
+pub fn must_parse_prefix(s: Str) -> Prefix {
+  match parse_prefix(s) {
+    Ok(p)  => p,
+    Err(e) => panic(e),
+  }
+}
+
+impl Prefix {
+  fn addr(self) -> Addr { self.ip }
+
+  fn bits(self) -> Int { self.bits1 - 1 }
+
+  fn is_valid(self) -> Bool { self.bits1 > 0 }
+
+  fn is_single_ip(self) -> Bool { self.is_valid() && self.bits() == self.ip.bit_len() }
+
+  fn equal(self, o: Prefix) -> Bool { self.bits1 == o.bits1 && addr_eq(self.ip, o.ip) }
+
+  fn masked(self) -> Prefix {
+    match self.ip.prefix(self.bits()) {
+      Ok(p)  => p,
+      Err(_) => zero_prefix(),
+    }
+  }
+
+  fn contains(self, ip: Addr) -> Bool {
+    if !self.is_valid() || ip.has_zone() { return false }
+    let f1 = self.ip.bit_len()
+    let f2 = ip.bit_len()
+    if f1 == 0 || f2 == 0 || f1 != f2 { return false }
+    let off = if ip.is4() { 96 } else { 0 }
+    mask_bytes(ip.b, self.bits() + off) == mask_bytes(self.ip.b, self.bits() + off)
+  }
+
+  fn overlaps(self, o: Prefix) -> Bool {
+    if !self.is_valid() || !o.is_valid() { return false }
+    if self.equal(o) { return true }
+    if self.ip.is4() != o.ip.is4() { return false }
+    let minb = if self.bits() < o.bits() { self.bits() } else { o.bits() }
+    if minb == 0 { return true }
+    let Ok(p) = self.ip.prefix(minb) else { return false }
+    let Ok(q) = o.ip.prefix(minb) else { return false }
+    addr_eq(p.ip, q.ip)
+  }
+
+  fn string(self) -> Str {
+    if !self.is_valid() { return "invalid Prefix" }
+    self.ip.string() + "/" + dec(self.bits())
+  }
+}

@@ -1,0 +1,20 @@
+// mathx：被 geom 依赖的底层库（演示传递依赖）
+pub fn sq(x: Float) -> Float {
+  x * x
+}
+
+pub fn clamp(x: Float, lo: Float, hi: Float) -> Float {
+  if x < lo { lo } else if x > hi { hi } else { x }
+}
+
+// 私有：其他包无法访问
+fn helper() -> Str {
+  "mathx 内部"
+}
+
+fn test_clamp() {
+  assert_eq(clamp(5.0, 0.0, 1.0), 1.0)
+  assert_eq(clamp(-5.0, 0.0, 1.0), 0.0)
+  assert_eq(clamp(0.5, 0.0, 1.0), 0.5)
+  assert_ne(helper(), "")
+}

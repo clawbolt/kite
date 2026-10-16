@@ -1,0 +1,7 @@
+fn a() -> Int {
+  mod m {
+    pub fn f() -> Int { 1 }
+  }
+  m.f()
+}
+fn main() { print(m.f()) }

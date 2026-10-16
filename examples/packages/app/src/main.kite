@@ -1,0 +1,20 @@
+use geom
+use geom.{ Point, dist }
+use geom.shapes.Shape
+use util.banner
+use report
+
+fn helper() -> Str {
+  "app 自己的 helper"
+}
+
+fn main() {
+  print(banner("几何报告"))
+  let a = Point { x: 0.0, y: 0.0 }
+  let b = Point { x: 3.0, y: 4.0 }
+  print("距离:", dist(a, b))
+  let shapes = [Circle(1.0), Square(2.0)]
+  each(report.lines(shapes), l => print(l))
+  print("总面积:", shapes |> map(s => geom.area(s)) |> sum)
+  print(helper())
+}

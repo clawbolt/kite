@@ -1,0 +1,40 @@
+// 文法 v0.6 第三批（三）：关联类型
+trait Source {
+  type Item: Show
+  fn next(self) -> Option<Self.Item>
+  fn peek_all(self) -> List<Self.Item> {
+    match self.next() {
+      Some(x) => [x]
+      None    => []
+    }
+  }
+}
+type Counter = { n: Int }
+type Words = { ws: List<Str> }
+impl Source for Counter {
+  type Item = Int
+  fn next(self) -> Option<Int> {
+    if self.n > 0 { Some(self.n) } else { None }
+  }
+}
+impl Source for Words {
+  type Item = Str
+  fn next(self) -> Option<Self.Item> {
+    if self.ws.len() > 0 { Some(self.ws[0]) } else { None }
+  }
+}
+fn first<S: Source>(s: S) -> S.Item {
+  s.next().unwrap()
+}
+fn show_first<S>(s: S) -> Str where S: Source {
+  match s.next() {
+    Some(x) => "首个: {x}"
+    None    => "空"
+  }
+}
+fn main() {
+  let c = Counter { n: 3 }
+  let n: Int = first(c) + 1
+  let w: Str = first(Words { ws: ["hi"] })
+  print(n, w, c.peek_all(), show_first(Words { ws: [] }), show_first(c))
+}

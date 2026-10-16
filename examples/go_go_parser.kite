@@ -1,0 +1,132 @@
+// 对拍 tests/go/go_parser.go：go/parser + go/ast（Fprint、Pos/End、Inspect、标识符解析）
+//   数据：Go 的 short_test.go（valids / invalids）、go/parser/testdata、4 个标准库源文件和一组表达式
+use std.go.token as token
+use std.go.scanner as scanner
+use std.go.ast as ast
+use std.go.ast.{Node}
+use std.go.parser as parser
+use std.strconv
+use std.encoding.hex
+use std.os
+
+fn chop(s: Str) -> Str { if ends_with(s, "\n") { __str_slice(s, 0, len(s) - 1) } else { s } }
+
+fn hsh(s: Str) -> Int {
+  var x = 0
+  for c in __bytes(s) { x = (x * 31 + c) % 1000000007 }
+  x
+}
+
+fn show(full: Bool, label: Str, s: Str) {
+  if full { print("  " + label + ":\n" + chop(s)) } else { print("  " + label + ": len={__byte_len(s)} hash={hsh(s)}") }
+}
+
+fn errs(es: List<scanner.Error>) {
+  if len(es) == 0 {
+    print("  ok")
+    return
+  }
+  print("  {len(es)} errors: " + strconv.quote_go(scanner.list_string(es)))
+  for e in es { print("    " + strconv.quote_go(scanner.error_string(e))) }
+}
+
+fn posdump(f: Node) -> Str {
+  let parts = ast.inspect(f, [], (acc, n) => {
+    if n == Node.Nil { return (push(acc, ")"), true) }
+    (push(acc, "(*ast." + ast.type_name(n) + " {ast.pos(n)} {ast.end(n)}"), true)
+  })
+  join(parts, "")
+}
+
+fn resdump(f: Node) -> Str {
+  let (objects, unresolved, scope) = match f { File { objects, unresolved, scope, .. } => (objects, unresolved, scope), _ => ([], [], None) }
+  var parts = ast.inspect(f, [], (acc, n) => {
+    match n {
+      Ident { name, name_pos, obj } => {
+        if obj >= 0 {
+          let o = objects[obj]
+          return (push(acc, name + "@{name_pos}->" + ast.obj_kind_string(o.kind) + " " + o.name + " {ast.object_pos(o)}|"), true)
+        }
+        return (push(acc, name + "@{name_pos}->nil|"), true)
+      },
+      _ => (acc, true),
+    }
+  })
+  for id in unresolved {
+    match id { Ident { name, name_pos, .. } => { parts = push(parts, "U " + name + "@{name_pos}|") }, _ => {} }
+  }
+  match scope {
+    Some(sc) => {
+      for k in sort(keys(sc.objects)) {
+        let o = objects[unwrap(get(sc.objects, k))]
+        let d = match o.data { Some(v) => "{v}", None => "<nil>" }
+        parts = push(parts, "S " + k + " " + ast.obj_kind_string(o.kind) + " " + d + "|")
+      }
+    },
+    None => {},
+  }
+  join(parts, "")
+}
+
+fn no_scope(f: Node) -> Node {
+  match f {
+    File { doc, package_pos, name, decls, file_start, file_end, imports, unresolved, comments, go_version, unresolved_set, objects, .. } =>
+      Node.File { doc: doc, package_pos: package_pos, name: name, decls: decls, file_start: file_start, file_end: file_end, scope: None,
+        imports: imports, unresolved: unresolved, comments: comments, go_version: go_version, unresolved_set: unresolved_set, objects: objects },
+    _ => f,
+  }
+}
+
+fn run(full: Bool, name: Str, src: List<Int>) {
+  let (fs, f, es) = parser.parse_file(token.new_file_set(), name, src, parser.PARSE_COMMENTS | parser.SKIP_OBJECT_RESOLUTION | parser.ALL_ERRORS)
+  let gv = match f { File { go_version, .. } => go_version, _ => "" }
+  print("  A goversion=" + strconv.quote_go(gv))
+  errs(es)
+  show(full, "A fprint", ast.fprint(Some(fs), f, true))
+  show(full, "A pos", posdump(f))
+  if len(src) < 400 { show(full, "A fprint-nil", ast.fprint(Some(fs), f, false)) }
+  let (fs2, f2, es2) = parser.parse_file(token.new_file_set(), name, src, 0)
+  errs(es2)
+  show(full, "B res", resdump(f2))
+  show(full, "B fprint", ast.fprint(Some(fs2), no_scope(f2), true))
+  let (_, _, es3) = parser.parse_file(token.new_file_set(), name, src, parser.DECLARATION_ERRORS | parser.ALL_ERRORS)
+  errs(es3)
+  let (fs4, f4, es4) = parser.parse_file(token.new_file_set(), name, src, parser.IMPORTS_ONLY | parser.PARSE_COMMENTS)
+  errs(es4)
+  show(full, "D fprint", ast.fprint(Some(fs4), f4, true))
+  let (fs5, f5, es5) = parser.parse_file(token.new_file_set(), name, src, parser.PACKAGE_CLAUSE_ONLY)
+  errs(es5)
+  show(full, "E fprint", ast.fprint(Some(fs5), f5, true))
+}
+
+fn main() {
+  let full = is_some(os.getenv("FULL"))
+  let text = unwrap(__from_bytes(unwrap(__read_bytes("tests/go/testdata/go_parser.txt"))))
+  var k = 0
+  for line in split(text, "\n") {
+    if line == "" { continue }
+    let sp = __str_find(line, " ", 0)
+    let name = __str_slice(line, 0, sp)
+    let src = unwrap(hex.decode(__str_slice(line, sp + 1, len(line))))
+    k += 1
+    print("#{k} " + name)
+    run(full, name, src)
+  }
+  for name in ["scanner.go", "quote.go", "position.go", "walk.go"] {
+    let src = unwrap(__read_bytes("tests/go/testdata/gosrc/" + name + ".txt"))
+    print("# " + name)
+    run(full, name, src)
+  }
+  let q = __chr(34)
+  let exprs = ["a + b*c", "x[1:2:3]", "f(a, b...)", "<-chan <-chan int", "<-chan chan<- int", "func(x int) int {{ return x }}",
+    "map[string][]int{{" + q + "a" + q + ": {{1}}}}", "a.(type)", "struct{{ x int `tag` }}", "[...]int{{1,2}}", "(", "a +", "x.(T)\n", "1 2", "~int | string",
+    "interface{{ M(); ~int }}", "a[b, c]", "*p++", "a = b", "x = = y", "<-x", "-x.y[z](w)", "T[int]{{}}"]
+  for e in exprs {
+    print("# expr " + strconv.quote_go(e))
+    let (x, es) = parser.parse_expr(e)
+    errs(es)
+    print(chop(ast.fprint(None, x, true)))
+    let (fs, x2, _) = parser.parse_expr_from(token.new_file_set(), "e.go", __bytes(e), 0)
+    show(full, "from", ast.fprint(Some(fs), x2, false))
+  }
+}

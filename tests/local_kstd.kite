@@ -1,0 +1,8 @@
+fn shout(s: Str) -> Str {
+  use std.strings
+  strings.repeat(s, 2) + "!"
+}
+
+fn main() {
+  print(shout("ab"))
+}

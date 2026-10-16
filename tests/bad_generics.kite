@@ -1,0 +1,11 @@
+fn id<T>(x: T) -> T { x }
+fn wrong<T>(x: T) -> Int { x }
+fn main() {
+  let a: Str = id(5)
+  let xs = [1, 2] |> map(x => x.len())
+  let f = maybe()?
+  match true {
+    true => 1
+  }
+}
+fn maybe() -> Option<Int> { None }

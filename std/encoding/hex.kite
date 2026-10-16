@@ -1,0 +1,70 @@
+// std.encoding.hex：十六进制编码（对齐 Go 的 encoding/hex）。字符串按 UTF-8 字节编码
+
+pub fn encode_bytes(bs: List<Int>) -> Str {
+  let ds = chars("0123456789abcdef")
+  var out = ""
+  for b in bs { out = out + ds[(b >> 4) & 15] + ds[b & 15] }
+  out
+}
+
+pub fn encode(s: Str) -> Str { encode_bytes(__bytes(s)) }
+
+fn nib(c: Str) -> Int {
+  let o = __ord(c)
+  if o >= 48 && o <= 57 { o - 48 } else if o >= 97 && o <= 102 { o - 87 } else if o >= 65 && o <= 70 { o - 55 } else { -1 }
+}
+
+pub fn decode(s: Str) -> Result<List<Int>, Str> {
+  let cs = chars(s)
+  if len(cs) % 2 != 0 { return Err("hex: 长度必须是偶数") }
+  var out: List<Int> = []
+  var i = 0
+  while i < len(cs) {
+    let a = nib(cs[i])
+    let b = nib(cs[i + 1])
+    if a < 0 || b < 0 { return Err("hex: 第 {i} 个字符附近有非十六进制字符") }
+    out = push(out, a * 16 + b)
+    i += 2
+  }
+  Ok(out)
+}
+
+// 解码后按 UTF-8 转成 Str
+pub fn decode_str(s: Str) -> Result<Str, Str> {
+  let bs = decode(s)?
+  match __from_bytes(bs) {
+    Some(t) => Ok(t),
+    None => Err("hex: 解码结果不是合法的 UTF-8"),
+  }
+}
+
+// 类似 hexdump -C 的输出
+pub fn dump(s: Str) -> Str {
+  let bs = __bytes(s)
+  let ds = chars("0123456789abcdef")
+  var out = ""
+  var off = 0
+  while off < len(bs) {
+    var line2 = ""
+    var x = off
+    for _ in 0..8 {
+      line2 = ds[x & 15] + line2
+      x = x >> 4
+    }
+    var hexs = ""
+    var asc = ""
+    for k in 0..16 {
+      if off + k < len(bs) {
+        let b = bs[off + k]
+        hexs = hexs + ds[(b >> 4) & 15] + ds[b & 15] + " "
+        asc = asc + if b >= 32 && b < 127 { __chr(b) } else { "." }
+      } else {
+        hexs = hexs + "   "
+      }
+      if k == 7 { hexs = hexs + " " }
+    }
+    out = out + line2 + "  " + hexs + " |" + asc + "|\n"
+    off += 16
+  }
+  out
+}

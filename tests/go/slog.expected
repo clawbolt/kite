@@ -1,0 +1,160 @@
+-9 DEBUG-5
+-8 DEBUG-4
+-7 DEBUG-3
+-6 DEBUG-2
+-5 DEBUG-1
+-4 DEBUG
+-3 DEBUG+1
+-2 DEBUG+2
+-1 DEBUG+3
+0 INFO
+1 INFO+1
+2 INFO+2
+3 INFO+3
+4 WARN
+5 WARN+1
+6 WARN+2
+7 WARN+3
+8 ERROR
+9 ERROR+1
+10 ERROR+2
+11 ERROR+3
+12 ERROR+4
+13 ERROR+5
+debug -4 <nil>
+INFO 0 <nil>
+Warn+3 7 <nil>
+error-2 6 <nil>
+info+x 0 slog: level string "info+x": strconv.Atoi: parsing "+x": invalid syntax
+bogus 0 slog: level string "bogus": unknown name
+warn-10 -6 <nil>
+level=INFO msg=hello s=v i=-42 u=7 f=3.25 b=true d=1.5s n=<nil>
+{"level":"INFO","msg":"hello","s":"v","i":-42,"u":7,"f":3.25,"b":true,"d":1500000000,"n":null}
+level=WARN msg="" ""=""
+{"level":"WARN","msg":"","":""}
+level=WARN msg="a b" "a b"="a b"
+{"level":"WARN","msg":"a b","a b":"a b"}
+level=WARN msg="a=b" "a=b"="a=b"
+{"level":"WARN","msg":"a=b","a=b":"a=b"}
+level=WARN msg="q\"x" "q\"x"="q\"x"
+{"level":"WARN","msg":"q\"x","q\"x":"q\"x"}
+level=WARN msg="tab\tx" "tab\tx"="tab\tx"
+{"level":"WARN","msg":"tab\tx","tab\tx":"tab\tx"}
+level=WARN msg=π π=π
+{"level":"WARN","msg":"π","π":"π"}
+level=WARN msg="a\u00a0b" "a\u00a0b"="a\u00a0b"
+{"level":"WARN","msg":"a b","a b":"a b"}
+level=WARN msg=back\slash back\slash=back\slash
+{"level":"WARN","msg":"back\\slash","back\\slash":"back\\slash"}
+level=WARN msg=é é=é
+{"level":"WARN","msg":"é","é":"é"}
+level=WARN msg=<&> <&>=<&>
+{"level":"WARN","msg":"<&>","<&>":"<&>"}
+level=WARN msg="\u2028" "\u2028"="\u2028"
+{"level":"WARN","msg":"\u2028","\u2028":"\u2028"}
+level=WARN msg="\x01" "\x01"="\x01"
+{"level":"WARN","msg":"\u0001","\u0001":"\u0001"}
+level=WARN msg= =
+{"level":"WARN","msg":"","":""}
+level=WARN msg="�" "�"="�"
+{"level":"WARN","msg":"�","�":"�"}
+level=WARN msg=ok ok=ok
+{"level":"WARN","msg":"ok","ok":"ok"}
+level=INFO msg=f x=0
+{"level":"INFO","msg":"f","x":0}
+level=INFO msg=f x=1
+{"level":"INFO","msg":"f","x":1}
+level=INFO msg=f x=-1.5
+{"level":"INFO","msg":"f","x":-1.5}
+level=INFO msg=f x=1e+20
+{"level":"INFO","msg":"f","x":100000000000000000000}
+level=INFO msg=f x=1e+21
+{"level":"INFO","msg":"f","x":1e+21}
+level=INFO msg=f x=1.5e-06
+{"level":"INFO","msg":"f","x":0.0000015}
+level=INFO msg=f x=1e-07
+{"level":"INFO","msg":"f","x":1e-7}
+level=INFO msg=f x=1.23456789125e+08
+{"level":"INFO","msg":"f","x":123456789.125}
+level=INFO msg=f x=0.1
+{"level":"INFO","msg":"f","x":0.1}
+level=INFO msg=f x=1e+100
+{"level":"INFO","msg":"f","x":1e+100}
+level=INFO msg=f x=-2.5e-10
+{"level":"INFO","msg":"f","x":-2.5e-10}
+level=INFO msg=d x=0s
+{"level":"INFO","msg":"d","x":0}
+level=INFO msg=d x=1ns
+{"level":"INFO","msg":"d","x":1}
+level=INFO msg=d x=999ns
+{"level":"INFO","msg":"d","x":999}
+level=INFO msg=d x=1µs
+{"level":"INFO","msg":"d","x":1000}
+level=INFO msg=d x=1.5µs
+{"level":"INFO","msg":"d","x":1500}
+level=INFO msg=d x=1ms
+{"level":"INFO","msg":"d","x":1000000}
+level=INFO msg=d x=2.5ms
+{"level":"INFO","msg":"d","x":2500000}
+level=INFO msg=d x=1s
+{"level":"INFO","msg":"d","x":1000000000}
+level=INFO msg=d x=1m30s
+{"level":"INFO","msg":"d","x":90000000000}
+level=INFO msg=d x=1h2m3.005s
+{"level":"INFO","msg":"d","x":3723005000000}
+level=INFO msg=d x=-1.5s
+{"level":"INFO","msg":"d","x":-1500000000}
+level=INFO msg=d x=26h0m0s
+{"level":"INFO","msg":"d","x":93600000000000}
+(disabled)
+(disabled)
+(disabled)
+(disabled)
+level=DEBUG msg=dbg g.a=1 g.h.b="x y"
+{"level":"DEBUG","msg":"dbg","g":{"a":1,"h":{"b":"x y"}}}
+level=ERROR msg=groups inl=1 z=9
+{"level":"ERROR","msg":"groups","inl":1,"z":9}
+level=INFO msg=emptyonly
+{"level":"INFO","msg":"emptyonly"}
+level=INFO msg=nested app=kite req.id=5 req.sub.k=v
+{"level":"INFO","msg":"nested","app":"kite","req":{"id":5,"sub":{"k":"v"}}}
+level=INFO msg=nested-empty app=kite req.id=5
+{"level":"INFO","msg":"nested-empty","app":"kite","req":{"id":5}}
+level=INFO msg=nogroup
+{"level":"INFO","msg":"nogroup"}
+level=INFO msg=withgroup a.b.x=1
+{"level":"INFO","msg":"withgroup","a":{"b":{"x":1}}}
+level=INFO msg=w3 a.p=1 a.x=2
+{"level":"INFO","msg":"w3","a":{"p":1,"x":2}}
+level=INFO msg=w4 "a b.c=d"=1 "a b.e"=f
+{"level":"INFO","msg":"w4","a b":{"c=d":1,"e":"f"}}
+|n|Int64
+g|secret|String
+g|n|Int64
+|level|Any
+|msg|String
+g|secret|String
+g|n|Int64
+g.h|n|Int64
+g.h|hide|String
+g|ok|String
+sev=WARN message=REP n=10 g.n=20 g.n=30 g.h.n=40 g.ok=y
+|n|Int64
+g|secret|String
+g|n|Int64
+|level|Any
+|msg|String
+g|secret|String
+g|n|Int64
+g.h|n|Int64
+g.h|hide|String
+g|ok|String
+{"sev":"WARN","message":"REP","n":10,"g":{"n":20,"n":30,"h":{"n":40},"ok":"y"}}
+|level|Any
+|msg|String
+|secret|String
+sev=INFO message=ALLGONE
+|level|Any
+|msg|String
+|secret|String
+{"sev":"INFO","message":"ALLGONE"}

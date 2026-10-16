@@ -1,0 +1,26 @@
+unsafe fn raw_double(x: Int) -> Int { x * 2 }
+fn safe_inc(x: Int) -> Int { x + 1 }
+
+type Op = { name: Str, run: unsafe fn(Int) -> Int }
+
+fn apply_all(ops: List<Op>, x: Int) -> List<Int> {
+  var out = []
+  for op in ops {
+    out = out + [unsafe { (op.run)(x) }]
+  }
+  out
+}
+
+fn call_it(f: unsafe fn(Int) -> Int, x: Int) -> Int {
+  unsafe { f(x) }
+}
+
+fn main() {
+  let f: unsafe fn(Int) -> Int = raw_double   // 取值是安全的
+  let g: unsafe fn(Int) -> Int = safe_inc     // 普通函数可以当 unsafe fn 用
+  let h: unsafe fn(Int) -> Int = x => x * 10
+  print(unsafe { f(5) }, unsafe { g(5) }, unsafe { h(5) })
+  print(call_it(raw_double, 7), call_it(safe_inc, 7))
+  let ops = [Op { name: "double", run: raw_double }, Op { name: "inc", run: safe_inc }]
+  print(apply_all(ops, 3))
+}

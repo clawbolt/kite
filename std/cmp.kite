@@ -1,0 +1,20 @@
+// std.cmp：比较（对齐 Go 的 cmp 包）
+//   compare(x, y)：-1 / 0 / 1；浮点 NaN 比任何数都小，两个 NaN 相等（和 Go 相同）
+//   less(x, y)：同样的 NaN 规则；or(xs)：第一个不等于 zero 的值（Go 的 cmp.Or 用类型零值，Kite 要显式给出）
+
+fn nan<T: Ord>(x: T) -> Bool { x != x }
+
+pub fn compare<T: Ord>(x: T, y: T) -> Int {
+  let xn = nan(x)
+  let yn = nan(y)
+  if xn { return if yn { 0 } else { -1 } }
+  if yn { return 1 }
+  if x < y { -1 } else if x > y { 1 } else { 0 }
+}
+
+pub fn less<T: Ord>(x: T, y: T) -> Bool { (nan(x) && !nan(y)) || x < y }
+
+pub fn or<T: Eq>(zero: T, xs: List<T>) -> T {
+  for x in xs { if x != zero { return x } }
+  zero
+}

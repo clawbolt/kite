@@ -1,0 +1,99 @@
+// std.encoding.csv：CSV 读写（对齐 Go 的 encoding/csv 和 RFC 4180）
+//   parse(text)：字段可以用双引号包起来，里面的 "" 表示一个引号，可以跨行；\r\n 和 \n 都算换行；空行跳过
+//   format(rows)：含逗号、引号、换行或首尾空格的字段自动加引号；行尾用 \n
+//   parse_with / format_with 可以换分隔符（比如制表符）
+
+pub fn parse(text: Str) -> Result<List<List<Str>>, Str> { parse_with(text, ",") }
+
+pub fn parse_with(text: Str, sep: Str) -> Result<List<List<Str>>, Str> {
+  let cs = chars(text)
+  let n = len(cs)
+  let cr = __chr(13)
+  var rows: List<List<Str>> = []
+  var row: List<Str> = []
+  var field = ""
+  var i = 0
+  var line = 1
+  var any = false
+  while i < n {
+    let c = cs[i]
+    if c == "\"" && field == "" {
+      let start = line
+      i += 1
+      var closed = false
+      while i < n {
+        let d = cs[i]
+        if d == "\"" {
+          if i + 1 < n && cs[i + 1] == "\"" {
+            field = field + "\""
+            i += 2
+          } else {
+            closed = true
+            i += 1
+            break
+          }
+        } else {
+          if d == "\n" { line += 1 }
+          if !(d == cr && i + 1 < n && cs[i + 1] == "\n") { field = field + d }
+          i += 1
+        }
+      }
+      if !closed { return Err("csv: 第 {start} 行的引号没有闭合") }
+      if i < n && cs[i] != sep && cs[i] != "\n" && cs[i] != cr { return Err("csv: 第 {line} 行引号后面多了字符") }
+      any = true
+      continue
+    }
+    if c == sep {
+      row = push(row, field)
+      field = ""
+      any = true
+      i += 1
+    } else if c == "\n" || c == cr {
+      if c == cr && i + 1 < n && cs[i + 1] == "\n" { i += 1 }
+      if any || field != "" { rows = push(rows, push(row, field)) }
+      row = []
+      field = ""
+      any = false
+      line += 1
+      i += 1
+    } else {
+      if c == "\"" { return Err("csv: 第 {line} 行字段中间有裸引号") }
+      field = field + c
+      i += 1
+    }
+  }
+  if any || field != "" { rows = push(rows, push(row, field)) }
+  Ok(rows)
+}
+
+pub fn format(rows: List<List<Str>>) -> Str { format_with(rows, ",") }
+
+pub fn format_with(rows: List<List<Str>>, sep: Str) -> Str {
+  var out = ""
+  for r in rows {
+    var first = true
+    for f in r {
+      if !first { out = out + sep }
+      first = false
+      let need = f != "" && (contains(f, sep) || contains(f, "\"") || contains(f, "\n") || contains(f, __chr(13)) || starts_with(f, " ") || ends_with(f, " "))
+      out = out + if need { "\"" + replace(f, "\"", "\"\"") + "\"" } else { f }
+    }
+    out = out + "\n"
+  }
+  out
+}
+
+// 第一行当表头，其余每行转成 表头 → 值 的 Map
+pub fn parse_records(text: Str) -> Result<List<Map<Str, Str>>, Str> {
+  let rows = parse(text)?
+  if len(rows) == 0 { return Ok([]) }
+  let head = rows[0]
+  var out: List<Map<Str, Str>> = []
+  var k = 2
+  for r in rows[1..] {
+    if len(r) != len(head) { return Err("csv: 第 {k} 条记录有 {len(r)} 个字段，表头有 {len(head)} 个") }
+    out = push(out, Map(zip(head, r)))
+    k += 1
+  }
+  Ok(out)
+}

@@ -1,0 +1,48 @@
+// 标准库与运行时覆盖测试：三个引擎（解释器 / 虚拟机 / 原生）输出必须一致
+use std.math
+use std.io
+
+type Item = { name: Str, price: Float, qty: Int }
+
+fn main() {
+  let items = [
+    Item { name: "茶", price: 12.5, qty: 3 },
+    Item { name: "coffee", price: 30.0, qty: 1 },
+    Item { name: "Bread", price: 8.25, qty: 4 },
+  ]
+  let total = items |> map(i => i.price * float(i.qty)) |> sum
+  print("总价:", total, "均价:", total / float(len(items)))
+  print(sort_by(items, i => i.price) |> map(i => i.name))
+  print(items |> filter(i => i.qty > 1) |> map(i => upper(i.name)) |> join(", "))
+
+  // 字符串
+  let s = "  Hello, Kite 世界  "
+  let t = trim(s)
+  print(len(t), reverse("abc世"), t.contains("Kite"), starts_with(t, "He"), ends_with(t, "界"))
+  print(split("a,b,,c", ","), split(" x  y z "), replace(t, "Kite", "风筝"), chars("风筝"))
+  print(lower("ABC"), "引号 \"q\"", ["带\"引号"], parse_int(" 1_000 "), parse_float("2.5e3"), parse_float("x"))
+
+  // 数值
+  print(7 / 2, -7 / 2, 7 % 3, -7 % 3, 7.5 % 2.0, 1.0 / 3.0, 2.0 * 100000000000000000000.0, 0.1 + 0.2, 0.0000001)
+  print(math.sqrt(2.0), math.floor(2.7), math.ceil(2.1), math.pi, abs(-3), abs(-2.5), max(3, 9), min([5, 2, 8]))
+  print(int(3.9), int("42"), float(7), str(12) + "!", type_of(1.5), type_of(items[0]))
+
+  // 集合
+  var m = Map([("a", 1), ("b", 2)])
+  m["c"] = 3
+  m = set(m, "a", 10)
+  print(m, keys(m), values(m), get(m, "b"), get(m, "z"), contains(m, "c"))
+  let xs = [5, 3, 8, 1, 9, 2]
+  print(sort(xs), take(xs, 2), skip(xs, 4), first([]), last(xs), get(xs, -1), reverse(xs))
+  print(zip(xs, ["a", "b"]), enumerate(["x", "y"]), concat(xs, [0]), any(xs, x => x > 8), all(xs, x => x > 0))
+  print(reduce(xs, 0, (a, x) => a + x), count(xs, x => x % 2 == 0), find(xs, x => x > 7), xs.len())
+  var grid = [[0, 0], [0, 0]]
+  grid[1][0] = 7
+  print(grid, (1, "two", 3.0), [(1, 2), (3, 4)] |> map(p => p.0 + p.1))
+
+  // 排序稳定性、元组比较
+  print(sort([(2, "b"), (1, "z"), (2, "a")]), sort_by(["bb", "a", "ccc", "dd"], w => len(w)))
+  let r: Result<Int, Str> = Ok(3)
+  print(unwrap(r), unwrap_or(Err("x"), 0), is_ok(r), is_none(Some(1)), Some([1]) == Some([1]), (1, 2) != (1, 3))
+  io.print("完成", 1..4, 1..=0)
+}

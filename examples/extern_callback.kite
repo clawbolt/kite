@@ -1,0 +1,57 @@
+// extern C 回调：把 Kite 函数（含闭包）当作 C 函数指针传给 qsort / bsearch
+use std.ptr
+
+extern "C" {
+  fn qsort(base: Ptr, n: Int, size: Int, cmp: fn(Ptr, Ptr) -> Int)
+  fn bsearch(key: Ptr, base: Ptr, n: Int, size: Int, cmp: fn(Ptr, Ptr) -> Int) -> Ptr
+}
+
+fn by_value(a: Ptr, b: Ptr) -> Int {
+  let x = unsafe { ptr.read_int(a, 0) }
+  let y = unsafe { ptr.read_int(b, 0) }
+  if x < y { -1 } else if x > y { 1 } else { 0 }
+}
+
+fn to_buf(xs: List<Int>) -> Ptr {
+  unsafe {
+    let buf = ptr.alloc(xs.len() * 8)
+    for (i, x) in xs.enumerate() {
+      ptr.write_int(buf, i * 8, x)
+    }
+    buf
+  }
+}
+
+fn from_buf(buf: Ptr, n: Int) -> List<Int> {
+  var out = []
+  for i in 0..n {
+    out = out + [unsafe { ptr.read_int(buf, i * 8) }]
+  }
+  out
+}
+
+fn main() {
+  let xs = [42, 7, 19, -3, 100, 7, 0]
+  let n = xs.len()
+  let buf = to_buf(xs)
+  unsafe { qsort(buf, n, 8, by_value) }
+  print(from_buf(buf, n))
+  // 闭包回调：倒序，并数一数比较了几次
+  var calls = 0
+  unsafe {
+    qsort(buf, n, 8, (a: Ptr, b: Ptr) => {
+      calls += 1
+      by_value(b, a)
+    })
+  }
+  print(from_buf(buf, n), calls > 0)
+  unsafe { qsort(buf, n, 8, by_value) }
+  let key = to_buf([19])
+  let hit = unsafe { bsearch(key, buf, n, 8, by_value) }
+  let miss = unsafe { bsearch(to_buf([5]), buf, n, 8, by_value) }
+  print((ptr.addr(hit) - ptr.addr(buf)) / 8, ptr.is_null(miss))
+  unsafe {
+    ptr.free(key)
+    ptr.free(buf)
+  }
+}

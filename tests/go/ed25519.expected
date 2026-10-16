@@ -1,0 +1,73 @@
+KEY 6e340b9cffb37a989ca544e6bb780a2c78901d3fb33738768511a30617afa01d04d3be256c58caa83f87008d3537fe3928b814f2ef6fe09d0a00cd090a74cfa1
+KEY 4bf5122f344554c53bde2ebb8cd2b7e3d1600ad631c385a5d7cce23c7785459a4eeaaadf130120ede39396a95a48a46377e1a81503b1161a777116e56c9c8174
+KEY dbc1b4c900ffe48d575b5da5c638040125f65db0fe3e24494b76ea986457d9865710507df12263139fcd4a386e6fa441ee7242f772fbea5227de8f3c00742b21
+KEY 084fed08b978af4d7d196a7446a86b58009e636b611db16211b65a9aadff29c593fbce7316450a74e8a7f12dfb32131096cc06f4f08b63cbf649317b21869db8
+KEY e52d9c508c502347344d8c07ad91cbd6068afc75ff6292f062a09ca381c89e71b84b18824fcd1f89d54f7cf656b51339007b935fddfe170933e97c83bba2d0a5
+KEY e77b9a9ae9e30b0dbdb6f510a264ef9de781501d7b6b92ae89eb059c5ab743db80fed1b8cff04e77a07dcfd4dd26a5b649081249ffa14db6abcebd0339c45432
+SIG d0f8cf4fcefb1998e98e7aa6766c11753ca979644ccfa0d22a1a149d7ad87c50936b04b1c15ee0ad21cda3d2bfe298ad00bd13760eefd4bf1907c412b3d32d03
+V true false
+M 0 false
+M 31 false
+M 32 false
+M 63 false
+W false
+SIG aef8bb01d4c1184b3c1c25e46a28ba36451d3c26bf4f33c47c474092e53dc9a7a2b26a3df492e454be1fe28beac12e35329a634ec42d703ce448953f171f2105
+V true false
+M 0 false
+M 31 false
+M 32 false
+M 63 false
+W false
+SIG 438fe98d245f224c2f12c7aff54082d9cf82d50d572f3f16175baa5c3bb751bd530fa61b718ad0bc4de758944e50a6db831ab1f2cefec4cd7add098f9a492b0f
+V true false
+M 0 false
+M 31 false
+M 32 false
+M 63 false
+W false
+SIG b6c8dd352a327150fe7d4a3c9181550d19c5aa91e38d4db8cdb91e1a3b2811ad34ef2ac2169005d4863badd0b7abf33e43db153948757e5660b1fdd1a216a304
+V true false
+M 0 false
+M 31 false
+M 32 false
+M 63 false
+W false
+SIG 0482e1fb76284b8ab4fd1871a9e7ab2193b22d26388a57e0faf41274efe446b583e62481cb6644e2f01fc046942e723caeb87ebe9bdc49d795afd16e2c3d050a
+V true false
+M 0 false
+M 31 false
+M 32 false
+M 63 false
+W false
+SIG 78a56de66333ef3c904c5580f85cc42de46f6078923cdd305317b37f55587caa083b734c584d3829c830e5c28954dd38bc137525d587fe42a561f0f911e4230d
+V true false
+M 0 false
+M 31 false
+M 32 false
+M 63 false
+W false
+SL d0f8cf4fcefb1998e98e7aa6766c11753ca979644ccfa0d22a1a149d7ad87c50803ffa0ddcc1f205f8699b759edc77c200bd13760eefd4bf1907c412b3d32d13 ed25519: invalid signature
+O 0 b4bb79e69d98979be480d4b6668a23842d3ca3771927da8d92826f1138f51709ccf6d1b0b7f28c3df15e246ab3060e76d79301f45e08a2810b7724f563f9db06 ok
+OV ok ed25519: invalid signature
+OV2 ed25519: bad Ed25519ph message hash length: 10
+O 1 0474be983201473a8f71c19478430fb84f7c78fe416ded18853cc354cf3ee6bc525ae223c7bd541de2804d3dd82b3761bc88ebf3a2aaf27d43c0c091c7c8c906 ok
+OV ok ed25519: invalid signature
+OV2 ed25519: bad Ed25519ph message hash length: 10
+O 2 cc275fd34d3dc1c91e011261b98cae8c15f950db07a7cbab49ed6805720e0d178ea1f349fdcd9399c8d18fc3e198d718f596be02871b710ded58de24d2072f05 ok
+OV ok ed25519: invalid signature
+OV2 ed25519: invalid signature
+O 3  ed25519: expected opts.HashFunc() zero (unhashed message, for standard Ed25519) or SHA-512 (for Ed25519ph)
+O 4  ed25519: bad Ed25519ctx context length: 256
+O 5  ed25519: bad Ed25519ph context length: 256
+panic: ed25519: bad seed length: 31
+panic: ed25519: bad private key: ed25519: bad private key length: 63
+ed25519: bad private key length: 10
+panic: ed25519: bad public key length: 31
+ed25519: bad signature length: 63
+ed25519: invalid signature
+PK 0200000000000000000000000000000000000000000000000000000000000000 ed25519: bad public key
+PK 0100000000000000000000000000000000000000000000000000000000000080 ed25519: invalid signature
+PK edffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7f ed25519: invalid signature
+PK eeffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff ed25519: invalid signature
+PK ecffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7f ed25519: invalid signature
+BAD 17b4ae658a41872c7acc14ae645d924da11a9316f3d2ef1eb3a455613f35f4b62d41ec9fe47af5de4846d1f88ace0dc326645412077f7c557082d89ea10e660b

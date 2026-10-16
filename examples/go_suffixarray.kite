@@ -1,0 +1,50 @@
+// 对齐 Go 1.27 的 index/suffixarray：tests/go/suffixarray.go
+use std.index.suffixarray
+use std.crypto.sha256
+use std.encoding.hex
+use std.strconv
+
+fn ints(xs: List<Int>) -> Str { "[" + join(map(xs, (x) => "{x}"), " ") + "]" }
+
+fn es<T>(r: Result<T, Str>) -> Str {
+  match r {
+    Ok(_) => "<nil>",
+    Err(e) => e,
+  }
+}
+
+fn rep(s: Str, n: Int) -> Str {
+  var o = ""
+  for _ in 0..n { o = o + s }
+  o
+}
+
+fn main() {
+  var texts = ["", "a", "banana", "mississippi", "abracadabra abracadabra", rep("ab", 50) + "x", "the quick brown fox jumps over the lazy dog; the dog sleeps"]
+  var bin: List<Int> = []
+  for i in 0..400 { bin = push(bin, sha256.digest([i])[0] & 3) }
+  texts = push(texts, unwrap(__from_bytes(bin)))
+  for t in texts {
+    let x = suffixarray.new(__bytes(t))
+    print("TEXT " + strconv.quote_go(t))
+    for q in map(["", "a", "an", "ana", "s", "ssi", "abra", "the", "dog", "zz", "ab"], (w) => __bytes(w)) + [[1, 2], [0, 0, 0]] {
+      var line = ""
+      for n in [-1, 0, 1, 3] { line = line + ints(x.lookup(q, n)) + " " }
+      print(line)
+    }
+    let b = x.write()
+    print("WRITE {len(b)} " + hex.encode_bytes(sha256.digest(b)[..8]))
+    match suffixarray.read(b) {
+      Ok(y) => print("READ <nil> {y.bytes() == __bytes(t)}"),
+      Err(e) => print("READ " + e + " false"),
+    }
+    for cut in [0, 5, 10, len(b) - 1] {
+      if cut < 0 || cut >= len(b) { continue }
+      print("CUT {cut} " + es(suffixarray.read(b[..cut])))
+    }
+  }
+  let big = map(0..9000, (i) => i * 7 % 251)
+  let x = suffixarray.new(big)
+  let w = x.write()
+  print("BIG {len(w)} " + hex.encode_bytes(sha256.digest(w)) + " " + ints(x.lookup([7, 14], -1)))
+}

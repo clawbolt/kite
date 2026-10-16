@@ -1,0 +1,10 @@
+type P = { x: Int }
+
+fn g<T>(xs: List<T>) -> List<T> { sort(xs) }
+
+fn main() {
+  let ps = [P { x: 2 }, P { x: 1 }]
+  print(sort(ps))
+  print(max(ps[0], ps[1]))
+  print(sort_with([1, 2], (a, b) => a < b))
+}

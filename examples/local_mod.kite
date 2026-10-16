@@ -1,0 +1,54 @@
+// 函数体里的 mod：只在这个函数里可见，super 指向所在的模块
+const BASE: Int = 100
+
+fn helper(x: Int) -> Int { x * 2 }
+
+fn report() -> Str {
+  mod shapes {
+    pub type Pt = { x: Int, y: Int }
+
+    pub enum Shape {
+      Dot(Pt),
+      Box(Pt, Pt),
+    }
+
+    pub fn area(s: Shape) -> Int {
+      match s {
+        Shape.Dot(_)    => 0,
+        Shape.Box(a, b) => (b.x - a.x) * (b.y - a.y),
+      }
+    }
+
+    pub fn scaled(n: Int) -> Int { super.helper(n) + super.BASE }
+
+    pub mod inner {
+      pub fn tag() -> Str { "inner:" + str(super.scaled(1)) }
+    }
+  }
+
+  use shapes.Shape
+  let a = shapes.Pt { x: 1, y: 2 }
+  let b = shapes.Pt { x: 4, y: 6 }
+  let s = Shape.Box(a, b)
+  "{shapes.area(s)} {shapes.area(Shape.Dot(a))} {shapes.inner.tag()}"
+}
+
+fn other() -> Int {
+  // 同名的局部 mod 互不冲突
+  mod shapes {
+    pub fn area() -> Int { 7 }
+  }
+  shapes.area()
+}
+
+fn main() {
+  print(report())
+  print(other())
+  let f = (n: Int) => {
+    mod m {
+      pub fn twice(k: Int) -> Int { k + k }
+    }
+    m.twice(n)
+  }
+  print(f(21))
+}

@@ -1,0 +1,10 @@
+fn id<T>(x: T) -> T { x }
+fn sum<T: Num>(xs: List<T>) -> T { xs[0] }
+fn plain(x: Int) -> Int { x }
+fn main() {
+  let a = id.<Int, Str>(1)
+  let b = plain.<Int>(1)
+  let c: Str = id.<Int>(1)
+  let d = sum.<Str>(["a"])
+  let e = id.<Int>("x")
+}

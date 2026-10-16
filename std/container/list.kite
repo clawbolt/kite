@@ -1,0 +1,129 @@
+// std.container.list：双向链表（对齐 Go 的 container/list）
+//   类型叫 LinkedList（List 是 Kite 的内建列表）。Kite 的值不可变：修改链表的方法都返回新的 LinkedList；元素用 Element（一个编号）引用，在后续版本的 List 里一直有效
+//   let (l1, e) = list.new().push_back(1)；l1.front()、l1.next(e)、l1.value(e)、l1.remove(e) ……
+//   Element 不属于这个 List 时（已经删掉或来自别的 List），和 Go 一样，各操作不做任何事
+
+pub type Element = Int
+
+pub type LinkedList<T> = { order: List<Int>, vals: Map<Int, T>, next_id: Int }
+
+pub fn new<T>() -> LinkedList<T> { LinkedList { order: [], vals: Map(), next_id: 1 } }
+
+fn pos<T>(l: LinkedList<T>, e: Int) -> Int {
+  var i = 0
+  while i < len(l.order) {
+    if l.order[i] == e { return i }
+    i += 1
+  }
+  -1
+}
+
+impl<T> LinkedList<T> {
+  fn len(self) -> Int { len(self.order) }
+
+  fn init(self) -> LinkedList<T> { LinkedList { order: [], vals: Map(), next_id: self.next_id } }
+
+  fn front(self) -> Option<Element> { if len(self.order) == 0 { None } else { Some(self.order[0]) } }
+
+  fn back(self) -> Option<Element> { if len(self.order) == 0 { None } else { Some(self.order[len(self.order) - 1]) } }
+
+  fn next(self, e: Element) -> Option<Element> {
+    let i = pos(self, e)
+    if i < 0 || i + 1 >= len(self.order) { None } else { Some(self.order[i + 1]) }
+  }
+
+  fn prev(self, e: Element) -> Option<Element> {
+    let i = pos(self, e)
+    if i <= 0 { None } else { Some(self.order[i - 1]) }
+  }
+
+  fn contains(self, e: Element) -> Bool { contains(self.vals, e) }
+
+  fn value(self, e: Element) -> T { self.vals[e] }
+
+  fn set_value(self, e: Element, v: T) -> LinkedList<T> { if contains(self.vals, e) { LinkedList { vals: set(self.vals, e, v), ..self } } else { self } }
+
+  fn insert_at(self, i: Int, v: T) -> (LinkedList<T>, Element) {
+    let id = self.next_id
+    let o = self.order[..i] + [id] + self.order[i..]
+    (LinkedList { order: o, vals: set(self.vals, id, v), next_id: id + 1 }, id)
+  }
+
+  fn push_front(self, v: T) -> (LinkedList<T>, Element) { self.insert_at(0, v) }
+
+  fn push_back(self, v: T) -> (LinkedList<T>, Element) { self.insert_at(len(self.order), v) }
+
+  // mark 不在链表里时返回 (原链表, None)
+  fn insert_before(self, v: T, mark: Element) -> (LinkedList<T>, Option<Element>) {
+    let i = pos(self, mark)
+    if i < 0 { return (self, None) }
+    let (l, e) = self.insert_at(i, v)
+    (l, Some(e))
+  }
+
+  fn insert_after(self, v: T, mark: Element) -> (LinkedList<T>, Option<Element>) {
+    let i = pos(self, mark)
+    if i < 0 { return (self, None) }
+    let (l, e) = self.insert_at(i + 1, v)
+    (l, Some(e))
+  }
+
+  // 删掉 e；返回新链表和 e 的值（e 不在链表里时返回 None）
+  fn remove(self, e: Element) -> (LinkedList<T>, Option<T>) {
+    let i = pos(self, e)
+    if i < 0 { return (self, None) }
+    let v = self.vals[e]
+    (LinkedList { order: self.order[..i] + self.order[i + 1..], vals: remove(self.vals, e), ..self }, Some(v))
+  }
+
+  fn move_to(self, e: Element, j0: Int) -> LinkedList<T> {
+    let i = pos(self, e)
+    if i < 0 { return self }
+    let rest = self.order[..i] + self.order[i + 1..]
+    let j = if j0 > len(rest) { len(rest) } else { j0 }
+    LinkedList { order: rest[..j] + [e] + rest[j..], ..self }
+  }
+
+  fn move_to_front(self, e: Element) -> LinkedList<T> { self.move_to(e, 0) }
+
+  fn move_to_back(self, e: Element) -> LinkedList<T> { self.move_to(e, len(self.order)) }
+
+  // 把 e 移到 mark 前面；e == mark 或任一不在链表里时不变
+  fn move_before(self, e: Element, mark: Element) -> LinkedList<T> {
+    if e == mark || pos(self, e) < 0 || pos(self, mark) < 0 { return self }
+    let rest = filter(self.order, (x) => x != e)
+    var j = 0
+    while rest[j] != mark { j += 1 }
+    LinkedList { order: rest[..j] + [e] + rest[j..], ..self }
+  }
+
+  fn move_after(self, e: Element, mark: Element) -> LinkedList<T> {
+    if e == mark || pos(self, e) < 0 || pos(self, mark) < 0 { return self }
+    let rest = filter(self.order, (x) => x != e)
+    var j = 0
+    while rest[j] != mark { j += 1 }
+    LinkedList { order: rest[..j + 1] + [e] + rest[j + 1..], ..self }
+  }
+
+  // 把 other 的值依次追加到末尾 / 插到开头（other 不变）
+  fn push_back_list(self, other: LinkedList<T>) -> LinkedList<T> {
+    var l = self
+    for id in other.order { l = l.push_back(other.vals[id]).0 }
+    l
+  }
+
+  fn push_front_list(self, other: LinkedList<T>) -> LinkedList<T> {
+    var l = self
+    var i = len(other.order) - 1
+    while i >= 0 {
+      l = l.push_front(other.vals[other.order[i]]).0
+      i -= 1
+    }
+    l
+  }
+
+  // 按顺序取出所有值
+  fn values(self) -> List<T> { map(self.order, (id) => self.vals[id]) }
+}
+
+pub fn from_list<T>(xs: List<T>) -> LinkedList<T> { fold(xs, new(), (l, x) => l.push_back(x).0) }

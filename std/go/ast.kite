@@ -1,0 +1,1002 @@
+// std.go.ast：对齐 Go 1.27 的 go/ast
+//   所有节点是一个枚举 Node（变体名和 Go 的类型名相同，字段名改成小写下划线；Go 里的 nil 是 Nil）。
+//   和 Go 字段名不同的几处：Type → typ，Len → length，Init → init_s，Else → else_s，Chan → chan_x，
+//   关键字位置字段加 _pos（struct_pos、func_pos、if_pos、for_pos、package_pos …）。
+//   pos(n) / end(n)、comment_text、is_exported、new_ident、unparen、num_fields、children（Walk 的顺序）、
+//   preorder、inspect（折叠：f(状态, 节点) -> (状态, 是否进入)，子节点之后同 Go 一样再调用一次 f(状态, Nil)）、
+//   fprint（ast.Fprint 的输出格式，not_nil 对应 NotNilFilter）。
+//   Object / Scope：Ident.obj 是 File.objects 里的编号（-1 表示 nil）；Object.decl 是声明节点的副本。
+//   与 Go 的差异：没有 CommentMap、Filter、MergePackageFiles、NewPackage、ParseDirective。
+//   fprint 判断“同一个指针”用的是 (类型, pos, end)，而且只对 Go 里会被共享的几类节点判断。
+
+use std.go.token as token
+use std.strconv
+use std.sort
+
+pub const BAD: Int = 0
+pub const PKG: Int = 1
+pub const CON: Int = 2
+pub const TYP: Int = 3
+pub const VAR: Int = 4
+pub const FUN: Int = 5
+pub const LBL: Int = 6
+
+pub fn obj_kind_string(k: Int) -> Str { ["bad", "package", "const", "type", "var", "func", "label"][k] }
+
+pub const SEND: Int = 1
+pub const RECV: Int = 2
+
+pub type Object = { kind: Int, name: Str, decl: Node, data: Option<Int> }
+
+// File 的包作用域（Outer 总是 nil）；objects 是名字到 File.objects 编号
+pub type Scope = { objects: Map<Str, Int> }
+
+enum FV {
+  FPos(Str, Int)
+  FStr(Str, Str)
+  FTok(Str, Int)
+  FInt(Str, Int)
+  FBool(Str, Bool)
+  FNode(Str, Node)
+  FObj(Str, Int)
+  FScope(Str, Option<Scope>)
+  FList(Str, List<Node>, Str, Bool)
+}
+
+fn nn(n: Node) -> List<Node> { if n == Nil { [] } else { [n] } }
+
+pub fn is_nil(n: Node) -> Bool { n == Nil }
+
+pub fn new_ident(name: Str) -> Node { Node.Ident { name_pos: 0, name: name, obj: -1 } }
+
+pub fn is_exported(name: Str) -> Bool { token.is_exported(name) }
+
+pub fn unparen(e: Node) -> Node {
+  var x = e
+  loop {
+    match x {
+      ParenExpr { x: y, .. } => { x = y },
+      _ => { return x },
+    }
+  }
+  x
+}
+
+pub fn num_fields(fl: Node) -> Int {
+  var n = 0
+  match fl {
+    FieldList { list, .. } => {
+      for g in list {
+        match g { Field { names, .. } => { n += if len(names) == 0 { 1 } else { len(names) } }, _ => {} }
+      }
+    },
+    _ => {},
+  }
+  n
+}
+
+pub fn pos(n: Node) -> Int {
+  match n {
+    Nil => 0,
+    Comment { slash, .. } => slash,
+    CommentGroup { list } => pos(list[0]),
+    Field { names, typ, .. } => if len(names) > 0 { pos(names[0]) } else if typ != Nil { pos(typ) } else { 0 },
+    FieldList { opening, list, .. } => if opening != 0 { opening } else if len(list) > 0 { pos(list[0]) } else { 0 },
+    BadExpr { from, .. } => from,
+    Ident { name_pos, .. } => name_pos,
+    Ellipsis { ellipsis, .. } => ellipsis,
+    BasicLit { value_pos, .. } => value_pos,
+    FuncLit { typ, .. } => pos(typ),
+    CompositeLit { typ, lbrace, .. } => if typ != Nil { pos(typ) } else { lbrace },
+    ParenExpr { lparen, .. } => lparen,
+    SelectorExpr { x, .. } => pos(x),
+    IndexExpr { x, .. } => pos(x),
+    IndexListExpr { x, .. } => pos(x),
+    SliceExpr { x, .. } => pos(x),
+    TypeAssertExpr { x, .. } => pos(x),
+    CallExpr { fun, .. } => pos(fun),
+    StarExpr { star, .. } => star,
+    UnaryExpr { op_pos, .. } => op_pos,
+    BinaryExpr { x, .. } => pos(x),
+    KeyValueExpr { key, .. } => pos(key),
+    ArrayType { lbrack, .. } => lbrack,
+    StructType { struct_pos, .. } => struct_pos,
+    FuncType { func_pos, params, .. } => if func_pos != 0 || params == Nil { func_pos } else { pos(params) },
+    InterfaceType { interface_pos, .. } => interface_pos,
+    MapType { map_pos, .. } => map_pos,
+    ChanType { begin, .. } => begin,
+    BadStmt { from, .. } => from,
+    DeclStmt { decl } => pos(decl),
+    EmptyStmt { semicolon, .. } => semicolon,
+    LabeledStmt { label, .. } => pos(label),
+    ExprStmt { x } => pos(x),
+    SendStmt { chan_x, .. } => pos(chan_x),
+    IncDecStmt { x, .. } => pos(x),
+    AssignStmt { lhs, .. } => pos(lhs[0]),
+    GoStmt { go_pos, .. } => go_pos,
+    DeferStmt { defer_pos, .. } => defer_pos,
+    ReturnStmt { return_pos, .. } => return_pos,
+    BranchStmt { tok_pos, .. } => tok_pos,
+    BlockStmt { lbrace, .. } => lbrace,
+    IfStmt { if_pos, .. } => if_pos,
+    CaseClause { case_pos, .. } => case_pos,
+    SwitchStmt { switch_pos, .. } => switch_pos,
+    TypeSwitchStmt { switch_pos, .. } => switch_pos,
+    CommClause { case_pos, .. } => case_pos,
+    SelectStmt { select_pos, .. } => select_pos,
+    ForStmt { for_pos, .. } => for_pos,
+    RangeStmt { for_pos, .. } => for_pos,
+    ImportSpec { name, path, .. } => if name != Nil { pos(name) } else { pos(path) },
+    ValueSpec { names, .. } => pos(names[0]),
+    TypeSpec { name, .. } => pos(name),
+    BadDecl { from, .. } => from,
+    GenDecl { tok_pos, .. } => tok_pos,
+    FuncDecl { typ, .. } => pos(typ),
+    File { package_pos, .. } => package_pos,
+  }
+}
+
+fn last(xs: List<Node>) -> Node { xs[len(xs) - 1] }
+
+pub fn end(n: Node) -> Int {
+  match n {
+    Nil => 0,
+    Comment { slash, text } => slash + __byte_len(text),
+    CommentGroup { list } => end(last(list)),
+    Field { names, typ, tag, .. } => if tag != Nil { end(tag) } else if typ != Nil { end(typ) } else if len(names) > 0 { end(last(names)) } else { 0 },
+    FieldList { list, closing, .. } => if closing != 0 { closing + 1 } else if len(list) > 0 { end(last(list)) } else { 0 },
+    BadExpr { to, .. } => to,
+    Ident { name_pos, name, .. } => name_pos + __byte_len(name),
+    Ellipsis { ellipsis, elt } => if elt != Nil { end(elt) } else { ellipsis + 3 },
+    BasicLit { value_pos, value_end, value, .. } => if value_end == 0 { value_pos + __byte_len(value) } else { value_end },
+    FuncLit { body, .. } => end(body),
+    CompositeLit { rbrace, .. } => rbrace + 1,
+    ParenExpr { rparen, .. } => rparen + 1,
+    SelectorExpr { sel, .. } => end(sel),
+    IndexExpr { rbrack, .. } => rbrack + 1,
+    IndexListExpr { rbrack, .. } => rbrack + 1,
+    SliceExpr { rbrack, .. } => rbrack + 1,
+    TypeAssertExpr { rparen, .. } => rparen + 1,
+    CallExpr { rparen, .. } => rparen + 1,
+    StarExpr { x, .. } => end(x),
+    UnaryExpr { x, .. } => end(x),
+    BinaryExpr { y, .. } => end(y),
+    KeyValueExpr { value, .. } => end(value),
+    ArrayType { elt, .. } => end(elt),
+    StructType { fields, .. } => end(fields),
+    FuncType { params, results, .. } => if results != Nil { end(results) } else { end(params) },
+    InterfaceType { methods, .. } => end(methods),
+    MapType { value, .. } => end(value),
+    ChanType { value, .. } => end(value),
+    BadStmt { to, .. } => to,
+    DeclStmt { decl } => end(decl),
+    EmptyStmt { semicolon, implicit } => if implicit { semicolon } else { semicolon + 1 },
+    LabeledStmt { stmt, .. } => end(stmt),
+    ExprStmt { x } => end(x),
+    SendStmt { value, .. } => end(value),
+    IncDecStmt { tok_pos, .. } => tok_pos + 2,
+    AssignStmt { rhs, .. } => end(last(rhs)),
+    GoStmt { call, .. } => end(call),
+    DeferStmt { call, .. } => end(call),
+    ReturnStmt { return_pos, results } => if len(results) > 0 { end(last(results)) } else { return_pos + 6 },
+    BranchStmt { tok_pos, tok, label } => if label != Nil { end(label) } else { tok_pos + __byte_len(token.token_string(tok)) },
+    BlockStmt { lbrace, list, rbrace } => if rbrace != 0 { rbrace + 1 } else if len(list) > 0 { end(last(list)) } else { lbrace + 1 },
+    IfStmt { body, else_s, .. } => if else_s != Nil { end(else_s) } else { end(body) },
+    CaseClause { colon, body, .. } => if len(body) > 0 { end(last(body)) } else { colon + 1 },
+    SwitchStmt { body, .. } => end(body),
+    TypeSwitchStmt { body, .. } => end(body),
+    CommClause { colon, body, .. } => if len(body) > 0 { end(last(body)) } else { colon + 1 },
+    SelectStmt { body, .. } => end(body),
+    ForStmt { body, .. } => end(body),
+    RangeStmt { body, .. } => end(body),
+    ImportSpec { path, end_pos, .. } => if end_pos != 0 { end_pos } else { end(path) },
+    ValueSpec { names, typ, values, .. } => if len(values) > 0 { end(last(values)) } else if typ != Nil { end(typ) } else { end(last(names)) },
+    TypeSpec { typ, .. } => end(typ),
+    BadDecl { to, .. } => to,
+    GenDecl { rparen, specs, .. } => if rparen != 0 { rparen + 1 } else { end(specs[0]) },
+    FuncDecl { typ, body, .. } => if body != Nil { end(body) } else { end(typ) },
+    File { decls, name, .. } => if len(decls) > 0 { end(last(decls)) } else { end(name) },
+  }
+}
+
+pub fn object_pos(obj: Object) -> Int {
+  let name = obj.name
+  match obj.decl {
+    Field { names, .. } => { for n in names { if n is Ident { name: nm, .. } && nm == name { return pos(n) } } },
+    ImportSpec { name: nm, path, .. } => { if nm is Ident { name: s, .. } && s == name { return pos(nm) }; return pos(path) },
+    ValueSpec { names, .. } => { for n in names { if n is Ident { name: nm, .. } && nm == name { return pos(n) } } },
+    TypeSpec { name: nm, .. } => { if nm is Ident { name: s, .. } && s == name { return pos(nm) } },
+    FuncDecl { name: nm, .. } => { if nm is Ident { name: s, .. } && s == name { return pos(nm) } },
+    LabeledStmt { label, .. } => { if label is Ident { name: s, .. } && s == name { return pos(label) } },
+    AssignStmt { lhs, .. } => { for x in lhs { if x is Ident { name: nm, .. } && nm == name { return pos(x) } } },
+    _ => {},
+  }
+  0
+}
+
+fn is_ws(c: Str) -> Bool { c == " " || c == "\t" || c == "\n" || c == "\r" }
+
+fn strip_trailing_ws(s: Str) -> Str {
+  var i = len(s)
+  while i > 0 && is_ws(__str_slice(s, i - 1, i)) { i -= 1 }
+  __str_slice(s, 0, i)
+}
+
+fn is_directive(c: Str) -> Bool {
+  if starts_with(c, "line ") || starts_with(c, "extern ") || starts_with(c, "export ") { return true }
+  let bs = __bytes(c)
+  var colon = -1
+  var i = 0
+  while i < len(bs) {
+    if bs[i] == 58 { colon = i; break }
+    i += 1
+  }
+  if colon <= 0 || colon + 1 >= len(bs) { return false }
+  i = 0
+  while i <= colon + 1 {
+    if i != colon {
+      let b = bs[i]
+      if !(b >= 97 && b <= 122 || b >= 48 && b <= 57) { return false }
+    }
+    i += 1
+  }
+  true
+}
+
+// CommentGroup.Text；参数是 Nil 时返回 ""
+pub fn comment_text(g: Node) -> Str {
+  let list = match g { CommentGroup { list } => list, _ => [] }
+  var lines: List<Str> = []
+  for cn in list {
+    var c = match cn { Comment { text, .. } => text, _ => "" }
+    let c1 = __str_slice(c, 1, 2)
+    if c1 == "/" {
+      c = __str_slice(c, 2, len(c))
+      if len(c) == 0 {
+      } else if __str_slice(c, 0, 1) == " " {
+        c = __str_slice(c, 1, len(c))
+      } else if is_directive(c) {
+        continue
+      }
+    } else if c1 == "*" {
+      c = __str_slice(c, 2, len(c) - 2)
+    }
+    for l in split(c, "\n") { lines = push(lines, strip_trailing_ws(l)) }
+  }
+  var out: List<Str> = []
+  for line in lines {
+    if line != "" || len(out) > 0 && out[len(out) - 1] != "" { out = push(out, line) }
+  }
+  if len(out) > 0 && out[len(out) - 1] != "" { out = push(out, "") }
+  join(out, "\n")
+}
+
+pub fn preorder(n: Node) -> List<Node> {
+  if n == Nil { return [] }
+  var out = [n]
+  for c in children(n) { out = out + preorder(c) }
+  out
+}
+
+pub fn inspect<S>(n: Node, s0: S, f: fn(S, Node) -> (S, Bool)) -> S {
+  let (s1, go_on) = f(s0, n)
+  if !go_on { return s1 }
+  var s = s1
+  for c in children(n) { s = inspect(c, s, f) }
+  let (s2, _) = f(s, Nil)
+  s2
+}
+
+// ── ast.Fprint ──
+type PW = { out: List<Str>, last_nl: Bool, indent: Int, line: Int, ptrs: Map<Str, Int> }
+
+fn pw(p: PW, s: Str) -> PW {
+  var out = p.out
+  var last_nl = p.last_nl
+  var line = p.line
+  let parts = split(s, "\n")
+  var i = 0
+  while i < len(parts) {
+    let part = parts[i]
+    if part != "" {
+      if last_nl {
+        var ln = "{line}"
+        while len(ln) < 6 { ln = " " + ln }
+        out = push(out, ln + "  ")
+        var j = p.indent
+        while j > 0 { out = push(out, ".  "); j -= 1 }
+      }
+      out = push(out, part)
+      last_nl = false
+    }
+    if i < len(parts) - 1 {
+      out = push(out, "\n")
+      line += 1
+      last_nl = true
+    }
+    i += 1
+  }
+  PW { out: out, last_nl: last_nl, line: line, ..p }
+}
+
+type FP = { fset: Option<token.FileSet>, not_nil: Bool, objects: List<Object> }
+
+fn fmt_pos(c: FP, p: Int) -> Str {
+  match c.fset { Some(fs) => fs.position(p).to_string(), None => "{p}" }
+}
+
+const SHARED: List<Str> = ["CommentGroup", "ImportSpec", "Ident", "Field", "ValueSpec", "TypeSpec", "FuncDecl", "LabeledStmt", "AssignStmt"]
+
+fn node_key(n: Node) -> Str {
+  match n { Ident { name_pos, name, .. } => "Ident@{name_pos}:" + name, _ => type_name(n) + "@{pos(n)}-{end(n)}" }
+}
+
+fn print_node(c: FP, p0: PW, n: Node) -> PW {
+  var p = p0
+  if n == Nil { return pw(p, "nil") }
+  p = pw(p, "*")
+  // 只有 Go 里真的会被共享的指针才登记：注释组（Doc / File.Comments）、ImportSpec（File.Imports）、
+  // Ident（File.Unresolved）以及可能成为 Object.Decl 的节点
+  let tn = type_name(n)
+  if contains(SHARED, tn) {
+    let key = node_key(n)
+    match get(p.ptrs, key) {
+      Some(l) => { return pw(p, "(obj @ {l})") },
+      None => {},
+    }
+    p = PW { ptrs: set(p.ptrs, key, p.line), ..p }
+  }
+  p = pw(p, "ast." + tn + " {{")
+  p = PW { indent: p.indent + 1, ..p }
+  var first = true
+  for fv in fields(n) {
+    let (name, show) = field_show(c, fv)
+    if !show { continue }
+    if first { p = pw(p, "\n"); first = false }
+    p = pw(p, name + ": ")
+    // 解析 range 语句时，Go 造的 AssignStmt（Object.Decl）和 RangeStmt 共用同一个 X 指针
+    let range_x = name == "X" && (tn == "RangeStmt" || n is UnaryExpr { op_pos: 0, .. })
+    match fv {
+      FNode(_, x) => {
+        if range_x && x != Nil {
+          let k = "rx:" + node_key(x)
+          match get(p.ptrs, k) {
+            Some(l) => { p = pw(p, "*(obj @ {l})") },
+            None => {
+              p = PW { ptrs: set(p.ptrs, k, p.line), ..p }
+              p = print_node(c, p, x)
+            },
+          }
+        } else {
+          p = print_value(c, p, fv)
+        }
+      },
+      _ => { p = print_value(c, p, fv) },
+    }
+    p = pw(p, "\n")
+  }
+  p = PW { indent: p.indent - 1, ..p }
+  pw(p, "}}")
+}
+
+fn field_show(c: FP, fv: FV) -> (Str, Bool) {
+  match fv {
+    FPos(n, _) => (n, true),
+    FStr(n, _) => (n, true),
+    FTok(n, _) => (n, true),
+    FInt(n, _) => (n, true),
+    FBool(n, _) => (n, true),
+    FNode(n, x) => (n, !c.not_nil || x != Nil),
+    FObj(n, o) => (n, !c.not_nil || o >= 0),
+    FScope(n, s) => (n, !c.not_nil || is_some(s)),
+    FList(n, _, _, nonnil) => (n, !c.not_nil || nonnil),
+  }
+}
+
+fn print_object(c: FP, p0: PW, id: Int) -> PW {
+  var p = p0
+  if id < 0 { return pw(p, "nil") }
+  p = pw(p, "*")
+  let key = "obj#{id}"
+  match get(p.ptrs, key) {
+    Some(l) => { return pw(p, "(obj @ {l})") },
+    None => {},
+  }
+  p = PW { ptrs: set(p.ptrs, key, p.line), ..p }
+  let o = c.objects[id]
+  p = pw(p, "ast.Object {{")
+  p = PW { indent: p.indent + 1, ..p }
+  p = pw(p, "\nKind: " + obj_kind_string(o.kind) + "\nName: " + strconv.quote_go(o.name) + "\n")
+  if !c.not_nil || o.decl != Nil {
+    p = pw(p, "Decl: ")
+    p = print_node(c, p, o.decl)
+    p = pw(p, "\n")
+  }
+  match o.data {
+    Some(d) => { p = pw(p, "Data: {d}\n") },
+    None => { if !c.not_nil { p = pw(p, "Data: nil\n") } },
+  }
+  if !c.not_nil { p = pw(p, "Type: nil\n") }
+  p = PW { indent: p.indent - 1, ..p }
+  pw(p, "}}")
+}
+
+fn print_value(c: FP, p0: PW, fv: FV) -> PW {
+  var p = p0
+  match fv {
+    FPos(_, v) => pw(p, fmt_pos(c, v)),
+    FStr(_, v) => pw(p, strconv.quote_go(v)),
+    FTok(_, v) => pw(p, token.token_string(v)),
+    FInt(_, v) => pw(p, "{v}"),
+    FBool(_, v) => pw(p, if v { "true" } else { "false" }),
+    FNode(_, x) => print_node(c, p, x),
+    FObj(_, o) => print_object(c, p, o),
+    FScope(_, s) => match s {
+      None => pw(p, "nil"),
+      Some(sc) => {
+        p = pw(p, "*ast.Scope {{")
+        p = PW { indent: p.indent + 1, ..p }
+        p = pw(p, "\n")
+        if !c.not_nil { p = pw(p, "Outer: nil\n") }
+        let keys = sort(keys(sc.objects))
+        p = pw(p, "Objects: map[string]*ast.Object (len = {len(keys)}) {{")
+        if len(keys) > 0 {
+          p = PW { indent: p.indent + 1, ..p }
+          p = pw(p, "\n")
+          for k in keys {
+            p = pw(p, strconv.quote_go(k) + ": ")
+            p = print_object(c, p, unwrap(get(sc.objects, k)))
+            p = pw(p, "\n")
+          }
+          p = PW { indent: p.indent - 1, ..p }
+        }
+        p = pw(p, "}}\n")
+        p = PW { indent: p.indent - 1, ..p }
+        pw(p, "}}")
+      },
+    },
+    FList(_, xs, ty, nonnil) => {
+      if !nonnil { return pw(p, "nil") }
+      p = pw(p, ty + " (len = {len(xs)}) {{")
+      if len(xs) > 0 {
+        p = PW { indent: p.indent + 1, ..p }
+        p = pw(p, "\n")
+        var i = 0
+        for x in xs {
+          p = pw(p, "{i}: ")
+          p = print_node(c, p, x)
+          p = pw(p, "\n")
+          i += 1
+        }
+        p = PW { indent: p.indent - 1, ..p }
+      }
+      pw(p, "}}")
+    },
+  }
+}
+
+// ast.Fprint(w, fset, x, f)：not_nil = true 对应 NotNilFilter，false 对应 nil 过滤器；fset 为 None 时位置按整数打印
+pub fn fprint(fset: Option<token.FileSet>, x: Node, not_nil: Bool) -> Str {
+  let objects = match x { File { objects, .. } => objects, _ => [] }
+  let c = FP { fset: fset, not_nil: not_nil, objects: objects }
+  var p = PW { out: [], last_nl: true, indent: 0, line: 0, ptrs: Map() }
+  if x == Nil {
+    p = pw(p, "nil\n")
+  } else {
+    p = print_node(c, p, x)
+    p = pw(p, "\n")
+  }
+  join(p.out, "")
+}
+
+pub enum Node {
+  Nil
+  Comment { slash: Int, text: Str }
+  CommentGroup { list: List<Node> }
+  Field { doc: Node, names: List<Node>, typ: Node, tag: Node, comment: Node }
+  FieldList { opening: Int, list: List<Node>, closing: Int }
+  BadExpr { from: Int, to: Int }
+  Ident { name_pos: Int, name: Str, obj: Int }
+  Ellipsis { ellipsis: Int, elt: Node }
+  BasicLit { value_pos: Int, value_end: Int, kind: Int, value: Str }
+  FuncLit { typ: Node, body: Node }
+  CompositeLit { typ: Node, lbrace: Int, elts: List<Node>, rbrace: Int, incomplete: Bool }
+  ParenExpr { lparen: Int, x: Node, rparen: Int }
+  SelectorExpr { x: Node, sel: Node }
+  IndexExpr { x: Node, lbrack: Int, index: Node, rbrack: Int }
+  IndexListExpr { x: Node, lbrack: Int, indices: List<Node>, rbrack: Int }
+  SliceExpr { x: Node, lbrack: Int, low: Node, high: Node, max: Node, slice3: Bool, rbrack: Int }
+  TypeAssertExpr { x: Node, lparen: Int, typ: Node, rparen: Int }
+  CallExpr { fun: Node, lparen: Int, args: List<Node>, ellipsis: Int, rparen: Int }
+  StarExpr { star: Int, x: Node }
+  UnaryExpr { op_pos: Int, op: Int, x: Node }
+  BinaryExpr { x: Node, op_pos: Int, op: Int, y: Node }
+  KeyValueExpr { key: Node, colon: Int, value: Node }
+  ArrayType { lbrack: Int, length: Node, elt: Node }
+  StructType { struct_pos: Int, fields: Node, incomplete: Bool }
+  FuncType { func_pos: Int, type_params: Node, params: Node, results: Node }
+  InterfaceType { interface_pos: Int, methods: Node, incomplete: Bool }
+  MapType { map_pos: Int, key: Node, value: Node }
+  ChanType { begin: Int, arrow: Int, dir: Int, value: Node }
+  BadStmt { from: Int, to: Int }
+  DeclStmt { decl: Node }
+  EmptyStmt { semicolon: Int, implicit: Bool }
+  LabeledStmt { label: Node, colon: Int, stmt: Node }
+  ExprStmt { x: Node }
+  SendStmt { chan_x: Node, arrow: Int, value: Node }
+  IncDecStmt { x: Node, tok_pos: Int, tok: Int }
+  AssignStmt { lhs: List<Node>, tok_pos: Int, tok: Int, rhs: List<Node> }
+  GoStmt { go_pos: Int, call: Node }
+  DeferStmt { defer_pos: Int, call: Node }
+  ReturnStmt { return_pos: Int, results: List<Node> }
+  BranchStmt { tok_pos: Int, tok: Int, label: Node }
+  BlockStmt { lbrace: Int, list: List<Node>, rbrace: Int }
+  IfStmt { if_pos: Int, init_s: Node, cond: Node, body: Node, else_s: Node }
+  CaseClause { case_pos: Int, list: List<Node>, colon: Int, body: List<Node> }
+  SwitchStmt { switch_pos: Int, init_s: Node, tag: Node, body: Node }
+  TypeSwitchStmt { switch_pos: Int, init_s: Node, assign: Node, body: Node }
+  CommClause { case_pos: Int, comm: Node, colon: Int, body: List<Node> }
+  SelectStmt { select_pos: Int, body: Node }
+  ForStmt { for_pos: Int, init_s: Node, cond: Node, post: Node, body: Node }
+  RangeStmt { for_pos: Int, key: Node, value: Node, tok_pos: Int, tok: Int, range_pos: Int, x: Node, body: Node }
+  ImportSpec { doc: Node, name: Node, path: Node, comment: Node, end_pos: Int }
+  ValueSpec { doc: Node, names: List<Node>, typ: Node, values: List<Node>, comment: Node }
+  TypeSpec { doc: Node, name: Node, type_params: Node, assign: Int, typ: Node, comment: Node }
+  BadDecl { from: Int, to: Int }
+  GenDecl { doc: Node, tok_pos: Int, tok: Int, lparen: Int, specs: List<Node>, rparen: Int }
+  FuncDecl { doc: Node, recv: Node, name: Node, typ: Node, body: Node }
+  File { doc: Node, package_pos: Int, name: Node, decls: List<Node>, file_start: Int, file_end: Int, scope: Option<Scope>, imports: List<Node>, unresolved: List<Node>, comments: List<Node>, go_version: Str, unresolved_set: Bool, objects: List<Object> }
+}
+
+pub fn type_name(n: Node) -> Str {
+  match n {
+    Nil => "nil",
+    Comment { .. } => "Comment",
+    CommentGroup { .. } => "CommentGroup",
+    Field { .. } => "Field",
+    FieldList { .. } => "FieldList",
+    BadExpr { .. } => "BadExpr",
+    Ident { .. } => "Ident",
+    Ellipsis { .. } => "Ellipsis",
+    BasicLit { .. } => "BasicLit",
+    FuncLit { .. } => "FuncLit",
+    CompositeLit { .. } => "CompositeLit",
+    ParenExpr { .. } => "ParenExpr",
+    SelectorExpr { .. } => "SelectorExpr",
+    IndexExpr { .. } => "IndexExpr",
+    IndexListExpr { .. } => "IndexListExpr",
+    SliceExpr { .. } => "SliceExpr",
+    TypeAssertExpr { .. } => "TypeAssertExpr",
+    CallExpr { .. } => "CallExpr",
+    StarExpr { .. } => "StarExpr",
+    UnaryExpr { .. } => "UnaryExpr",
+    BinaryExpr { .. } => "BinaryExpr",
+    KeyValueExpr { .. } => "KeyValueExpr",
+    ArrayType { .. } => "ArrayType",
+    StructType { .. } => "StructType",
+    FuncType { .. } => "FuncType",
+    InterfaceType { .. } => "InterfaceType",
+    MapType { .. } => "MapType",
+    ChanType { .. } => "ChanType",
+    BadStmt { .. } => "BadStmt",
+    DeclStmt { .. } => "DeclStmt",
+    EmptyStmt { .. } => "EmptyStmt",
+    LabeledStmt { .. } => "LabeledStmt",
+    ExprStmt { .. } => "ExprStmt",
+    SendStmt { .. } => "SendStmt",
+    IncDecStmt { .. } => "IncDecStmt",
+    AssignStmt { .. } => "AssignStmt",
+    GoStmt { .. } => "GoStmt",
+    DeferStmt { .. } => "DeferStmt",
+    ReturnStmt { .. } => "ReturnStmt",
+    BranchStmt { .. } => "BranchStmt",
+    BlockStmt { .. } => "BlockStmt",
+    IfStmt { .. } => "IfStmt",
+    CaseClause { .. } => "CaseClause",
+    SwitchStmt { .. } => "SwitchStmt",
+    TypeSwitchStmt { .. } => "TypeSwitchStmt",
+    CommClause { .. } => "CommClause",
+    SelectStmt { .. } => "SelectStmt",
+    ForStmt { .. } => "ForStmt",
+    RangeStmt { .. } => "RangeStmt",
+    ImportSpec { .. } => "ImportSpec",
+    ValueSpec { .. } => "ValueSpec",
+    TypeSpec { .. } => "TypeSpec",
+    BadDecl { .. } => "BadDecl",
+    GenDecl { .. } => "GenDecl",
+    FuncDecl { .. } => "FuncDecl",
+    File { .. } => "File",
+  }
+}
+
+fn fields(n: Node) -> List<FV> {
+  match n {
+    Nil => [],
+    Comment { slash, text, .. } => [FPos("Slash", slash), FStr("Text", text)],
+    CommentGroup { list, .. } => [FList("List", list, "[]*ast.Comment", len(list) > 0)],
+    Field { doc, names, typ, tag, comment, .. } => [FNode("Doc", doc), FList("Names", names, "[]*ast.Ident", len(names) > 0), FNode("Type", typ), FNode("Tag", tag), FNode("Comment", comment)],
+    FieldList { opening, list, closing, .. } => [FPos("Opening", opening), FList("List", list, "[]*ast.Field", len(list) > 0), FPos("Closing", closing)],
+    BadExpr { from, to, .. } => [FPos("From", from), FPos("To", to)],
+    Ident { name_pos, name, obj, .. } => [FPos("NamePos", name_pos), FStr("Name", name), FObj("Obj", obj)],
+    Ellipsis { ellipsis, elt, .. } => [FPos("Ellipsis", ellipsis), FNode("Elt", elt)],
+    BasicLit { value_pos, value_end, kind, value, .. } => [FPos("ValuePos", value_pos), FPos("ValueEnd", value_end), FTok("Kind", kind), FStr("Value", value)],
+    FuncLit { typ, body, .. } => [FNode("Type", typ), FNode("Body", body)],
+    CompositeLit { typ, lbrace, elts, rbrace, incomplete, .. } => [FNode("Type", typ), FPos("Lbrace", lbrace), FList("Elts", elts, "[]ast.Expr", len(elts) > 0), FPos("Rbrace", rbrace), FBool("Incomplete", incomplete)],
+    ParenExpr { lparen, x, rparen, .. } => [FPos("Lparen", lparen), FNode("X", x), FPos("Rparen", rparen)],
+    SelectorExpr { x, sel, .. } => [FNode("X", x), FNode("Sel", sel)],
+    IndexExpr { x, lbrack, index, rbrack, .. } => [FNode("X", x), FPos("Lbrack", lbrack), FNode("Index", index), FPos("Rbrack", rbrack)],
+    IndexListExpr { x, lbrack, indices, rbrack, .. } => [FNode("X", x), FPos("Lbrack", lbrack), FList("Indices", indices, "[]ast.Expr", len(indices) > 0), FPos("Rbrack", rbrack)],
+    SliceExpr { x, lbrack, low, high, max, slice3, rbrack, .. } => [FNode("X", x), FPos("Lbrack", lbrack), FNode("Low", low), FNode("High", high), FNode("Max", max), FBool("Slice3", slice3), FPos("Rbrack", rbrack)],
+    TypeAssertExpr { x, lparen, typ, rparen, .. } => [FNode("X", x), FPos("Lparen", lparen), FNode("Type", typ), FPos("Rparen", rparen)],
+    CallExpr { fun, lparen, args, ellipsis, rparen, .. } => [FNode("Fun", fun), FPos("Lparen", lparen), FList("Args", args, "[]ast.Expr", len(args) > 0), FPos("Ellipsis", ellipsis), FPos("Rparen", rparen)],
+    StarExpr { star, x, .. } => [FPos("Star", star), FNode("X", x)],
+    UnaryExpr { op_pos, op, x, .. } => [FPos("OpPos", op_pos), FTok("Op", op), FNode("X", x)],
+    BinaryExpr { x, op_pos, op, y, .. } => [FNode("X", x), FPos("OpPos", op_pos), FTok("Op", op), FNode("Y", y)],
+    KeyValueExpr { key, colon, value, .. } => [FNode("Key", key), FPos("Colon", colon), FNode("Value", value)],
+    ArrayType { lbrack, length, elt, .. } => [FPos("Lbrack", lbrack), FNode("Len", length), FNode("Elt", elt)],
+    StructType { struct_pos, fields, incomplete, .. } => [FPos("Struct", struct_pos), FNode("Fields", fields), FBool("Incomplete", incomplete)],
+    FuncType { func_pos, type_params, params, results, .. } => [FPos("Func", func_pos), FNode("TypeParams", type_params), FNode("Params", params), FNode("Results", results)],
+    InterfaceType { interface_pos, methods, incomplete, .. } => [FPos("Interface", interface_pos), FNode("Methods", methods), FBool("Incomplete", incomplete)],
+    MapType { map_pos, key, value, .. } => [FPos("Map", map_pos), FNode("Key", key), FNode("Value", value)],
+    ChanType { begin, arrow, dir, value, .. } => [FPos("Begin", begin), FPos("Arrow", arrow), FInt("Dir", dir), FNode("Value", value)],
+    BadStmt { from, to, .. } => [FPos("From", from), FPos("To", to)],
+    DeclStmt { decl, .. } => [FNode("Decl", decl)],
+    EmptyStmt { semicolon, implicit, .. } => [FPos("Semicolon", semicolon), FBool("Implicit", implicit)],
+    LabeledStmt { label, colon, stmt, .. } => [FNode("Label", label), FPos("Colon", colon), FNode("Stmt", stmt)],
+    ExprStmt { x, .. } => [FNode("X", x)],
+    SendStmt { chan_x, arrow, value, .. } => [FNode("Chan", chan_x), FPos("Arrow", arrow), FNode("Value", value)],
+    IncDecStmt { x, tok_pos, tok, .. } => [FNode("X", x), FPos("TokPos", tok_pos), FTok("Tok", tok)],
+    AssignStmt { lhs, tok_pos, tok, rhs, .. } => [FList("Lhs", lhs, "[]ast.Expr", len(lhs) > 0), FPos("TokPos", tok_pos), FTok("Tok", tok), FList("Rhs", rhs, "[]ast.Expr", len(rhs) > 0)],
+    GoStmt { go_pos, call, .. } => [FPos("Go", go_pos), FNode("Call", call)],
+    DeferStmt { defer_pos, call, .. } => [FPos("Defer", defer_pos), FNode("Call", call)],
+    ReturnStmt { return_pos, results, .. } => [FPos("Return", return_pos), FList("Results", results, "[]ast.Expr", len(results) > 0)],
+    BranchStmt { tok_pos, tok, label, .. } => [FPos("TokPos", tok_pos), FTok("Tok", tok), FNode("Label", label)],
+    BlockStmt { lbrace, list, rbrace, .. } => [FPos("Lbrace", lbrace), FList("List", list, "[]ast.Stmt", len(list) > 0), FPos("Rbrace", rbrace)],
+    IfStmt { if_pos, init_s, cond, body, else_s, .. } => [FPos("If", if_pos), FNode("Init", init_s), FNode("Cond", cond), FNode("Body", body), FNode("Else", else_s)],
+    CaseClause { case_pos, list, colon, body, .. } => [FPos("Case", case_pos), FList("List", list, "[]ast.Expr", len(list) > 0), FPos("Colon", colon), FList("Body", body, "[]ast.Stmt", len(body) > 0)],
+    SwitchStmt { switch_pos, init_s, tag, body, .. } => [FPos("Switch", switch_pos), FNode("Init", init_s), FNode("Tag", tag), FNode("Body", body)],
+    TypeSwitchStmt { switch_pos, init_s, assign, body, .. } => [FPos("Switch", switch_pos), FNode("Init", init_s), FNode("Assign", assign), FNode("Body", body)],
+    CommClause { case_pos, comm, colon, body, .. } => [FPos("Case", case_pos), FNode("Comm", comm), FPos("Colon", colon), FList("Body", body, "[]ast.Stmt", len(body) > 0)],
+    SelectStmt { select_pos, body, .. } => [FPos("Select", select_pos), FNode("Body", body)],
+    ForStmt { for_pos, init_s, cond, post, body, .. } => [FPos("For", for_pos), FNode("Init", init_s), FNode("Cond", cond), FNode("Post", post), FNode("Body", body)],
+    RangeStmt { for_pos, key, value, tok_pos, tok, range_pos, x, body, .. } => [FPos("For", for_pos), FNode("Key", key), FNode("Value", value), FPos("TokPos", tok_pos), FTok("Tok", tok), FPos("Range", range_pos), FNode("X", x), FNode("Body", body)],
+    ImportSpec { doc, name, path, comment, end_pos, .. } => [FNode("Doc", doc), FNode("Name", name), FNode("Path", path), FNode("Comment", comment), FPos("EndPos", end_pos)],
+    ValueSpec { doc, names, typ, values, comment, .. } => [FNode("Doc", doc), FList("Names", names, "[]*ast.Ident", len(names) > 0), FNode("Type", typ), FList("Values", values, "[]ast.Expr", len(values) > 0), FNode("Comment", comment)],
+    TypeSpec { doc, name, type_params, assign, typ, comment, .. } => [FNode("Doc", doc), FNode("Name", name), FNode("TypeParams", type_params), FPos("Assign", assign), FNode("Type", typ), FNode("Comment", comment)],
+    BadDecl { from, to, .. } => [FPos("From", from), FPos("To", to)],
+    GenDecl { doc, tok_pos, tok, lparen, specs, rparen, .. } => [FNode("Doc", doc), FPos("TokPos", tok_pos), FTok("Tok", tok), FPos("Lparen", lparen), FList("Specs", specs, "[]ast.Spec", len(specs) > 0), FPos("Rparen", rparen)],
+    FuncDecl { doc, recv, name, typ, body, .. } => [FNode("Doc", doc), FNode("Recv", recv), FNode("Name", name), FNode("Type", typ), FNode("Body", body)],
+    File { doc, package_pos, name, decls, file_start, file_end, scope, imports, unresolved, comments, go_version, unresolved_set, .. } => [FNode("Doc", doc), FPos("Package", package_pos), FNode("Name", name), FList("Decls", decls, "[]ast.Decl", len(decls) > 0), FPos("FileStart", file_start), FPos("FileEnd", file_end), FScope("Scope", scope), FList("Imports", imports, "[]*ast.ImportSpec", len(imports) > 0), FList("Unresolved", unresolved, "[]*ast.Ident", unresolved_set), FList("Comments", comments, "[]*ast.CommentGroup", len(comments) > 0), FStr("GoVersion", go_version)],
+  }
+}
+
+// Walk 访问子节点的顺序（File 只走 Doc、Name、Decls）
+pub fn children(n: Node) -> List<Node> {
+  match n {
+    Nil => [],
+    Comment { .. } => [],
+    CommentGroup { list, .. } => list,
+    Field { doc, names, typ, tag, comment, .. } => nn(doc) + names + nn(typ) + nn(tag) + nn(comment),
+    FieldList { list, .. } => list,
+    BadExpr { .. } => [],
+    Ident { .. } => [],
+    Ellipsis { elt, .. } => nn(elt),
+    BasicLit { .. } => [],
+    FuncLit { typ, body, .. } => nn(typ) + nn(body),
+    CompositeLit { typ, elts, .. } => nn(typ) + elts,
+    ParenExpr { x, .. } => nn(x),
+    SelectorExpr { x, sel, .. } => nn(x) + nn(sel),
+    IndexExpr { x, index, .. } => nn(x) + nn(index),
+    IndexListExpr { x, indices, .. } => nn(x) + indices,
+    SliceExpr { x, low, high, max, .. } => nn(x) + nn(low) + nn(high) + nn(max),
+    TypeAssertExpr { x, typ, .. } => nn(x) + nn(typ),
+    CallExpr { fun, args, .. } => nn(fun) + args,
+    StarExpr { x, .. } => nn(x),
+    UnaryExpr { x, .. } => nn(x),
+    BinaryExpr { x, y, .. } => nn(x) + nn(y),
+    KeyValueExpr { key, value, .. } => nn(key) + nn(value),
+    ArrayType { length, elt, .. } => nn(length) + nn(elt),
+    StructType { fields, .. } => nn(fields),
+    FuncType { type_params, params, results, .. } => nn(type_params) + nn(params) + nn(results),
+    InterfaceType { methods, .. } => nn(methods),
+    MapType { key, value, .. } => nn(key) + nn(value),
+    ChanType { value, .. } => nn(value),
+    BadStmt { .. } => [],
+    DeclStmt { decl, .. } => nn(decl),
+    EmptyStmt { .. } => [],
+    LabeledStmt { label, stmt, .. } => nn(label) + nn(stmt),
+    ExprStmt { x, .. } => nn(x),
+    SendStmt { chan_x, value, .. } => nn(chan_x) + nn(value),
+    IncDecStmt { x, .. } => nn(x),
+    AssignStmt { lhs, rhs, .. } => lhs + rhs,
+    GoStmt { call, .. } => nn(call),
+    DeferStmt { call, .. } => nn(call),
+    ReturnStmt { results, .. } => results,
+    BranchStmt { label, .. } => nn(label),
+    BlockStmt { list, .. } => list,
+    IfStmt { init_s, cond, body, else_s, .. } => nn(init_s) + nn(cond) + nn(body) + nn(else_s),
+    CaseClause { list, body, .. } => list + body,
+    SwitchStmt { init_s, tag, body, .. } => nn(init_s) + nn(tag) + nn(body),
+    TypeSwitchStmt { init_s, assign, body, .. } => nn(init_s) + nn(assign) + nn(body),
+    CommClause { comm, body, .. } => nn(comm) + body,
+    SelectStmt { body, .. } => nn(body),
+    ForStmt { init_s, cond, post, body, .. } => nn(init_s) + nn(cond) + nn(post) + nn(body),
+    RangeStmt { key, value, x, body, .. } => nn(key) + nn(value) + nn(x) + nn(body),
+    ImportSpec { doc, name, path, comment, .. } => nn(doc) + nn(name) + nn(path) + nn(comment),
+    ValueSpec { doc, names, typ, values, comment, .. } => nn(doc) + names + nn(typ) + values + nn(comment),
+    TypeSpec { doc, name, type_params, typ, comment, .. } => nn(doc) + nn(name) + nn(type_params) + nn(typ) + nn(comment),
+    BadDecl { .. } => [],
+    GenDecl { doc, specs, .. } => nn(doc) + specs,
+    FuncDecl { doc, recv, name, typ, body, .. } => nn(doc) + nn(recv) + nn(name) + nn(typ) + nn(body),
+    File { doc, name, decls, .. } => nn(doc) + nn(name) + decls,
+  }
+}
+
+// 对每个子节点字段（含列表）应用 f，重建同一个变体
+pub fn map_children(n: Node, f: fn(Node) -> Node) -> Node {
+  match n {
+    Nil => Nil,
+    Comment { slash, text } => Node.Comment { slash: slash, text: text },
+    CommentGroup { list } => Node.CommentGroup { list: map(list, f) },
+    Field { doc, names, typ, tag, comment } => Node.Field { doc: f(doc), names: map(names, f), typ: f(typ), tag: f(tag), comment: f(comment) },
+    FieldList { opening, list, closing } => Node.FieldList { opening: opening, list: map(list, f), closing: closing },
+    BadExpr { from, to } => Node.BadExpr { from: from, to: to },
+    Ident { name_pos, name, obj } => Node.Ident { name_pos: name_pos, name: name, obj: obj },
+    Ellipsis { ellipsis, elt } => Node.Ellipsis { ellipsis: ellipsis, elt: f(elt) },
+    BasicLit { value_pos, value_end, kind, value } => Node.BasicLit { value_pos: value_pos, value_end: value_end, kind: kind, value: value },
+    FuncLit { typ, body } => Node.FuncLit { typ: f(typ), body: f(body) },
+    CompositeLit { typ, lbrace, elts, rbrace, incomplete } => Node.CompositeLit { typ: f(typ), lbrace: lbrace, elts: map(elts, f), rbrace: rbrace, incomplete: incomplete },
+    ParenExpr { lparen, x, rparen } => Node.ParenExpr { lparen: lparen, x: f(x), rparen: rparen },
+    SelectorExpr { x, sel } => Node.SelectorExpr { x: f(x), sel: f(sel) },
+    IndexExpr { x, lbrack, index, rbrack } => Node.IndexExpr { x: f(x), lbrack: lbrack, index: f(index), rbrack: rbrack },
+    IndexListExpr { x, lbrack, indices, rbrack } => Node.IndexListExpr { x: f(x), lbrack: lbrack, indices: map(indices, f), rbrack: rbrack },
+    SliceExpr { x, lbrack, low, high, max, slice3, rbrack } => Node.SliceExpr { x: f(x), lbrack: lbrack, low: f(low), high: f(high), max: f(max), slice3: slice3, rbrack: rbrack },
+    TypeAssertExpr { x, lparen, typ, rparen } => Node.TypeAssertExpr { x: f(x), lparen: lparen, typ: f(typ), rparen: rparen },
+    CallExpr { fun, lparen, args, ellipsis, rparen } => Node.CallExpr { fun: f(fun), lparen: lparen, args: map(args, f), ellipsis: ellipsis, rparen: rparen },
+    StarExpr { star, x } => Node.StarExpr { star: star, x: f(x) },
+    UnaryExpr { op_pos, op, x } => Node.UnaryExpr { op_pos: op_pos, op: op, x: f(x) },
+    BinaryExpr { x, op_pos, op, y } => Node.BinaryExpr { x: f(x), op_pos: op_pos, op: op, y: f(y) },
+    KeyValueExpr { key, colon, value } => Node.KeyValueExpr { key: f(key), colon: colon, value: f(value) },
+    ArrayType { lbrack, length, elt } => Node.ArrayType { lbrack: lbrack, length: f(length), elt: f(elt) },
+    StructType { struct_pos, fields, incomplete } => Node.StructType { struct_pos: struct_pos, fields: f(fields), incomplete: incomplete },
+    FuncType { func_pos, type_params, params, results } => Node.FuncType { func_pos: func_pos, type_params: f(type_params), params: f(params), results: f(results) },
+    InterfaceType { interface_pos, methods, incomplete } => Node.InterfaceType { interface_pos: interface_pos, methods: f(methods), incomplete: incomplete },
+    MapType { map_pos, key, value } => Node.MapType { map_pos: map_pos, key: f(key), value: f(value) },
+    ChanType { begin, arrow, dir, value } => Node.ChanType { begin: begin, arrow: arrow, dir: dir, value: f(value) },
+    BadStmt { from, to } => Node.BadStmt { from: from, to: to },
+    DeclStmt { decl } => Node.DeclStmt { decl: f(decl) },
+    EmptyStmt { semicolon, implicit } => Node.EmptyStmt { semicolon: semicolon, implicit: implicit },
+    LabeledStmt { label, colon, stmt } => Node.LabeledStmt { label: f(label), colon: colon, stmt: f(stmt) },
+    ExprStmt { x } => Node.ExprStmt { x: f(x) },
+    SendStmt { chan_x, arrow, value } => Node.SendStmt { chan_x: f(chan_x), arrow: arrow, value: f(value) },
+    IncDecStmt { x, tok_pos, tok } => Node.IncDecStmt { x: f(x), tok_pos: tok_pos, tok: tok },
+    AssignStmt { lhs, tok_pos, tok, rhs } => Node.AssignStmt { lhs: map(lhs, f), tok_pos: tok_pos, tok: tok, rhs: map(rhs, f) },
+    GoStmt { go_pos, call } => Node.GoStmt { go_pos: go_pos, call: f(call) },
+    DeferStmt { defer_pos, call } => Node.DeferStmt { defer_pos: defer_pos, call: f(call) },
+    ReturnStmt { return_pos, results } => Node.ReturnStmt { return_pos: return_pos, results: map(results, f) },
+    BranchStmt { tok_pos, tok, label } => Node.BranchStmt { tok_pos: tok_pos, tok: tok, label: f(label) },
+    BlockStmt { lbrace, list, rbrace } => Node.BlockStmt { lbrace: lbrace, list: map(list, f), rbrace: rbrace },
+    IfStmt { if_pos, init_s, cond, body, else_s } => Node.IfStmt { if_pos: if_pos, init_s: f(init_s), cond: f(cond), body: f(body), else_s: f(else_s) },
+    CaseClause { case_pos, list, colon, body } => Node.CaseClause { case_pos: case_pos, list: map(list, f), colon: colon, body: map(body, f) },
+    SwitchStmt { switch_pos, init_s, tag, body } => Node.SwitchStmt { switch_pos: switch_pos, init_s: f(init_s), tag: f(tag), body: f(body) },
+    TypeSwitchStmt { switch_pos, init_s, assign, body } => Node.TypeSwitchStmt { switch_pos: switch_pos, init_s: f(init_s), assign: f(assign), body: f(body) },
+    CommClause { case_pos, comm, colon, body } => Node.CommClause { case_pos: case_pos, comm: f(comm), colon: colon, body: map(body, f) },
+    SelectStmt { select_pos, body } => Node.SelectStmt { select_pos: select_pos, body: f(body) },
+    ForStmt { for_pos, init_s, cond, post, body } => Node.ForStmt { for_pos: for_pos, init_s: f(init_s), cond: f(cond), post: f(post), body: f(body) },
+    RangeStmt { for_pos, key, value, tok_pos, tok, range_pos, x, body } => Node.RangeStmt { for_pos: for_pos, key: f(key), value: f(value), tok_pos: tok_pos, tok: tok, range_pos: range_pos, x: f(x), body: f(body) },
+    ImportSpec { doc, name, path, comment, end_pos } => Node.ImportSpec { doc: f(doc), name: f(name), path: f(path), comment: f(comment), end_pos: end_pos },
+    ValueSpec { doc, names, typ, values, comment } => Node.ValueSpec { doc: f(doc), names: map(names, f), typ: f(typ), values: map(values, f), comment: f(comment) },
+    TypeSpec { doc, name, type_params, assign, typ, comment } => Node.TypeSpec { doc: f(doc), name: f(name), type_params: f(type_params), assign: assign, typ: f(typ), comment: f(comment) },
+    BadDecl { from, to } => Node.BadDecl { from: from, to: to },
+    GenDecl { doc, tok_pos, tok, lparen, specs, rparen } => Node.GenDecl { doc: f(doc), tok_pos: tok_pos, tok: tok, lparen: lparen, specs: map(specs, f), rparen: rparen },
+    FuncDecl { doc, recv, name, typ, body } => Node.FuncDecl { doc: f(doc), recv: f(recv), name: f(name), typ: f(typ), body: f(body) },
+    File { doc, package_pos, name, decls, file_start, file_end, scope, imports, unresolved, comments, go_version, unresolved_set, objects } => Node.File { doc: f(doc), package_pos: package_pos, name: f(name), decls: map(decls, f), file_start: file_start, file_end: file_end, scope: scope, imports: map(imports, f), unresolved: map(unresolved, f), comments: map(comments, f), go_version: go_version, unresolved_set: unresolved_set, objects: objects },
+  }
+}
+
+
+// ── ast.SortImports ──
+//   Go 原地修改 File（以及 FileSet 里的行表）；这里返回新的 FileSet 和 File。
+//   和 Go 的细微差别：Go 用 pdqsort（12 个以内是稳定的插入排序），这里一律稳定排序。
+fn line_at(fset: token.FileSet, p: Int) -> Int { fset.position_for(p, false).line }
+
+fn import_path(s: Node) -> Str {
+  match s { ImportSpec { path: BasicLit { value, .. }, .. } => match strconv.unquote_go(value) { Ok(t) => t, Err(_) => "" }, _ => "" }
+}
+fn import_name(s: Node) -> Str { match s { ImportSpec { name: Ident { name, .. }, .. } => name, _ => "" } }
+fn import_comment(s: Node) -> Str { match s { ImportSpec { comment, .. } => comment_text(comment), _ => "" } }
+fn import_has_comment(s: Node) -> Bool { match s { ImportSpec { comment, .. } => comment != Nil, _ => false } }
+
+fn cmp_str(a: Str, b: Str) -> Int { if a < b { -1 } else if a > b { 1 } else { 0 } }
+
+fn merge_line_at(fset: token.FileSet, p: Int, line: Int) -> token.FileSet {
+  match fset.file(p) {
+    Some(f) => match f.merge_line(line) { Ok(f2) => fset.set_file(f2), Err(_) => fset },
+    None => fset,
+  }
+}
+
+fn set_group_slash(g: Node, slash: Int) -> Node {
+  match g {
+    CommentGroup { list } => Node.CommentGroup { list: map(list, (c) => match c { Comment { text, .. } => Node.Comment { slash: slash, text: text }, _ => c }) },
+    _ => g,
+  }
+}
+
+// 返回 (FileSet, 排好的 specs, 新的 File.Comments)
+fn sort_specs(fset0: token.FileSet, comments_all0: List<Node>, rparen: Int, specs0: List<Node>) -> (token.FileSet, List<Node>, List<Node>) {
+  var fset = fset0
+  var all = comments_all0
+  if len(specs0) <= 1 { return (fset, specs0, all) }
+  let starts = map(specs0, (s) => pos(s))
+  let ends = map(specs0, (s) => end(s))
+  let beg_specs = starts[0]
+  let end_specs = ends[len(ends) - 1]
+  let bf = unwrap(fset.file(beg_specs))
+  let beg = unwrap(bf.line_start(line_at(fset, beg_specs)))
+  let end_line = line_at(fset, end_specs)
+  let ef = unwrap(fset.file(end_specs))
+  var endp = 0
+  if end_line == ef.line_count() { endp = end_specs } else { endp = unwrap(ef.line_start(end_line + 1)) }
+  var first = len(all)
+  var lastc = -1
+  var i = 0
+  while i < len(all) {
+    let g = all[i]
+    if end(g) >= endp { break }
+    if beg <= pos(g) {
+      if i < first { first = i }
+      if i > lastc { lastc = i }
+    }
+    i += 1
+  }
+  // 每个注释组：(归属的 spec 下标, 是否在左边, 在 all 里的下标)
+  var assigned: List<(Int, Bool, Int)> = []
+  var spec_index = 0
+  if lastc >= 0 {
+    var k = first
+    while k <= lastc {
+      let g = all[k]
+      while spec_index + 1 < len(specs0) && starts[spec_index + 1] <= pos(g) { spec_index += 1 }
+      var left = false
+      if spec_index == 0 && starts[spec_index] > pos(g) {
+        left = true
+      } else if spec_index + 1 < len(specs0) && line_at(fset, starts[spec_index]) + 1 == line_at(fset, pos(g)) {
+        spec_index += 1
+        left = true
+      }
+      assigned = push(assigned, (spec_index, left, k))
+      k += 1
+    }
+  }
+  // 按 (path, name, comment) 稳定排序；带上原下标
+  var idx: List<Int> = []
+  i = 0
+  while i < len(specs0) { idx = push(idx, i); i += 1 }
+  let sorted = sort.stable(idx, (a, b) => {
+    let x = specs0[a]
+    let y = specs0[b]
+    var r = cmp_str(import_path(x), import_path(y))
+    if r == 0 { r = cmp_str(import_name(x), import_name(y)) }
+    if r == 0 { r = cmp_str(import_comment(x), import_comment(y)) }
+    r < 0
+  })
+  var dedup: List<Int> = []
+  i = 0
+  while i < len(sorted) {
+    let s = specs0[sorted[i]]
+    var coll = false
+    if i < len(sorted) - 1 {
+      let nx = specs0[sorted[i + 1]]
+      coll = import_path(nx) == import_path(s) && import_name(nx) == import_name(s) && !import_has_comment(s)
+    }
+    if !coll {
+      dedup = push(dedup, sorted[i])
+    } else {
+      let p = pos(s)
+      let l = line_at(fset, p)
+      if l != line_at(fset, rparen) { fset = merge_line_at(fset, p, l) }
+    }
+    i += 1
+  }
+  var out: List<Node> = []
+  var repl: Map<Int, Node> = Map()
+  i = 0
+  while i < len(dedup) {
+    let orig = dedup[i]
+    let st = starts[i]
+    let en = ends[i]
+    let s = match specs0[orig] {
+      ImportSpec { doc, name, path, comment, .. } => {
+        let nm = match name { Ident { name: n, obj, .. } => Node.Ident { name_pos: st, name: n, obj: obj }, _ => name }
+        let pt = match path {
+          BasicLit { value_end, kind, value, .. } => {
+            let ln = end(path) - pos(path)
+            Node.BasicLit { value_pos: st, value_end: if value_end != 0 { st + ln } else { 0 }, kind: kind, value: value }
+          },
+          _ => path,
+        }
+        Node.ImportSpec { doc: doc, name: nm, path: pt, comment: comment, end_pos: en }
+      },
+      x => x,
+    }
+    out = push(out, s)
+    for (si, left, k) in assigned {
+      if si == orig {
+        let ng = set_group_slash(all[k], if left { st - 1 } else { en })
+        repl = set(repl, pos(all[k]), ng)
+        all = set(all, k, ng)
+      }
+    }
+    i += 1
+  }
+  // Go 改的是同一个 CommentGroup 指针，spec 的 Doc / Comment 字段也跟着变
+  let fix = (g: Node) => if g == Nil { g } else { match get(repl, pos(g)) { Some(ng) => ng, None => g } }
+  out = map(out, (sp) => match sp {
+    ImportSpec { doc, name, path, comment, end_pos } => Node.ImportSpec { doc: fix(doc), name: name, path: path, comment: fix(comment), end_pos: end_pos },
+    x => x,
+  })
+  // 注释组按位置重排（只动 first..last 这一段）
+  if lastc >= 0 {
+    let seg = sort.stable(all[first..lastc + 1], (a, b) => pos(a) < pos(b))
+    var k = 0
+    while k < len(seg) { all = set(all, first + k, seg[k]); k += 1 }
+  }
+  (fset, out, all)
+}
+
+pub fn sort_imports(fset0: token.FileSet, f: Node) -> (token.FileSet, Node) {
+  var fset = fset0
+  match f {
+    File { doc, package_pos, name, decls, file_start, file_end, scope, unresolved, comments, go_version, unresolved_set, objects, .. } => {
+      var ds = decls
+      var all = comments
+      var di = 0
+      while di < len(ds) {
+        let d = ds[di]
+        match d {
+          GenDecl { doc: gdoc, tok_pos, tok, lparen, specs, rparen } => {
+            if tok != token.IMPORT { break }
+            if lparen != 0 {
+              var i = 0
+              var out: List<Node> = []
+              var j = 0
+              while j < len(specs) {
+                if j > i && line_at(fset, pos(specs[j])) > 1 + line_at(fset, end(specs[j - 1])) {
+                  let (fs2, part, all2) = sort_specs(fset, all, rparen, specs[i..j])
+                  fset = fs2
+                  all = all2
+                  out = out + part
+                  i = j
+                }
+                j += 1
+              }
+              let (fs3, part, all3) = sort_specs(fset, all, rparen, specs[i..len(specs)])
+              fset = fs3
+              all = all3
+              out = out + part
+              if len(out) > 0 {
+                let last_line = line_at(fset, pos(out[len(out) - 1]))
+                var rl = line_at(fset, rparen)
+                while rl > last_line + 1 {
+                  rl -= 1
+                  fset = merge_line_at(fset, rparen, rl)
+                }
+              }
+              ds = set(ds, di, Node.GenDecl { doc: gdoc, tok_pos: tok_pos, tok: tok, lparen: lparen, specs: out, rparen: rparen })
+            }
+          },
+          _ => { break },
+        }
+        di += 1
+      }
+      var imps: List<Node> = []
+      for d in ds {
+        match d { GenDecl { tok, specs, .. } => { if tok == token.IMPORT { imps = imps + specs } }, _ => {} }
+      }
+      (fset, Node.File { doc: doc, package_pos: package_pos, name: name, decls: ds, file_start: file_start, file_end: file_end, scope: scope,
+        imports: imps, unresolved: unresolved, comments: all, go_version: go_version, unresolved_set: unresolved_set, objects: objects })
+    },
+    _ => (fset, f),
+  }
+}

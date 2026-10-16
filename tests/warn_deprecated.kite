@@ -1,0 +1,6 @@
+@deprecated("改用 parse_int")
+fn old_parse(s: Str) -> Int { int(s) }
+
+fn main() {
+  print(old_parse("4"))
+}

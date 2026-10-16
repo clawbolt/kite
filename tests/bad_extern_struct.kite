@@ -1,0 +1,5 @@
+type Named = { name: Str, n: Int }
+extern "C" {
+  fn take(x: Named) -> Int
+}
+fn main() { print(1) }

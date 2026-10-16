@@ -1,0 +1,313 @@
+// std.math.bits：位运算（对齐 Go 的 math/bits）
+//   Kite 只有 64 位有符号 Int：uint64 按同样的 64 位模式存放（2^63 以上显示为负数），
+//   uint8/16/32 的参数只看低 8/16/32 位。
+//   另外提供无符号 64 位运算的辅助函数：wadd / wsub / wmul（回绕）、shr（逻辑右移）、
+//   ult / ule / ucmp（无符号比较）、udiv / urem（无符号除法）、ustr（无符号十进制）
+
+pub const UINT_SIZE: Int = 64
+
+const M32: Int = 0xffffffff
+const MIN: Int = 1 << 63
+
+// ───────── 无符号 64 位辅助 ─────────
+
+// 逻辑右移（Go 里 uint64 的 >>）；n 超过 63 得 0
+pub fn shr(x: Int, n: Int) -> Int {
+  if n <= 0 { x } else if n >= 64 { 0 } else { (x >> n) & ~(-1 << (64 - n)) }
+}
+
+// 64 位回绕加法
+pub fn wadd(a: Int, b: Int) -> Int {
+  let lo = (a & M32) + (b & M32)
+  let hi = ((a >> 32) & M32) + ((b >> 32) & M32) + (lo >> 32)
+  ((hi & M32) << 32) | (lo & M32)
+}
+
+// 64 位回绕减法
+pub fn wsub(a: Int, b: Int) -> Int { wadd(a, wadd(~b, 1)) }
+
+// 两个 0..2^32-1 的数相乘，返回 64 位乘积的位模式
+fn mul32w(a: Int, b: Int) -> Int {
+  let a1 = a >> 16
+  let a0 = a & 0xffff
+  wadd((a1 * b) << 16, a0 * b)
+}
+
+// 64 位回绕乘法
+pub fn wmul(a: Int, b: Int) -> Int {
+  let a0 = a & M32
+  let a1 = shr(a, 32)
+  let b0 = b & M32
+  let b1 = shr(b, 32)
+  wadd(mul32w(a0, b0), wadd(mul32w(a1, b0), mul32w(a0, b1)) << 32)
+}
+
+// 64 位取负（回绕）
+pub fn wneg(a: Int) -> Int { wadd(~a, 1) }
+
+pub fn ult(a: Int, b: Int) -> Bool { (a ^ MIN) < (b ^ MIN) }
+
+pub fn ule(a: Int, b: Int) -> Bool { (a ^ MIN) <= (b ^ MIN) }
+
+// 无符号比较：-1 / 0 / 1
+pub fn ucmp(a: Int, b: Int) -> Int {
+  if a == b { 0 } else if ult(a, b) { -1 } else { 1 }
+}
+
+fn divzero() -> Never { panic("runtime error: integer divide by zero") }
+
+// 无符号 64 位除法
+pub fn udiv(a: Int, b: Int) -> Int {
+  if b == 0 { divzero() }
+  if b < 0 { return if ult(a, b) { 0 } else { 1 } }
+  if a >= 0 { return a / b }
+  var q = (shr(a, 1) / b) << 1
+  let r = wsub(a, wmul(q, b))
+  if !ult(r, b) { q += 1 }
+  q
+}
+
+pub fn urem(a: Int, b: Int) -> Int { wsub(a, wmul(udiv(a, b), b)) }
+
+// 无符号十进制
+pub fn ustr(x: Int) -> Str {
+  if x >= 0 { return "{x}" }
+  let q = udiv(x, 10)
+  "{q}{urem(x, 10)}"
+}
+
+// ───────── LeadingZeros / TrailingZeros / Len / OnesCount ─────────
+
+pub fn len64(x: Int) -> Int {
+  if x < 0 { return 64 }
+  var n = 0
+  var v = x
+  if v >= 1 << 32 {
+    v = v >> 32
+    n += 32
+  }
+  if v >= 1 << 16 {
+    v = v >> 16
+    n += 16
+  }
+  if v >= 1 << 8 {
+    v = v >> 8
+    n += 8
+  }
+  while v > 0 {
+    v = v >> 1
+    n += 1
+  }
+  n
+}
+
+pub fn len32(x: Int) -> Int { len64(x & M32) }
+
+pub fn len16(x: Int) -> Int { len64(x & 0xffff) }
+
+pub fn len8(x: Int) -> Int { len64(x & 0xff) }
+
+pub fn len(x: Int) -> Int { len64(x) }
+
+pub fn leading_zeros64(x: Int) -> Int { 64 - len64(x) }
+
+pub fn leading_zeros32(x: Int) -> Int { 32 - len32(x) }
+
+pub fn leading_zeros16(x: Int) -> Int { 16 - len16(x) }
+
+pub fn leading_zeros8(x: Int) -> Int { 8 - len8(x) }
+
+pub fn leading_zeros(x: Int) -> Int { leading_zeros64(x) }
+
+pub fn trailing_zeros64(x: Int) -> Int {
+  if x == 0 { return 64 }
+  var n = 0
+  var v = x
+  while v & 1 == 0 {
+    v = v >> 1
+    n += 1
+  }
+  n
+}
+
+pub fn trailing_zeros32(x: Int) -> Int { if x & M32 == 0 { 32 } else { trailing_zeros64(x & M32) } }
+
+pub fn trailing_zeros16(x: Int) -> Int { if x & 0xffff == 0 { 16 } else { trailing_zeros64(x & 0xffff) } }
+
+pub fn trailing_zeros8(x: Int) -> Int { if x & 0xff == 0 { 8 } else { trailing_zeros64(x & 0xff) } }
+
+pub fn trailing_zeros(x: Int) -> Int { trailing_zeros64(x) }
+
+pub fn ones_count64(x: Int) -> Int {
+  var n = 0
+  var v = x
+  while v != 0 {
+    v = v & wsub(v, 1)
+    n += 1
+  }
+  n
+}
+
+pub fn ones_count32(x: Int) -> Int { ones_count64(x & M32) }
+
+pub fn ones_count16(x: Int) -> Int { ones_count64(x & 0xffff) }
+
+pub fn ones_count8(x: Int) -> Int { ones_count64(x & 0xff) }
+
+pub fn ones_count(x: Int) -> Int { ones_count64(x) }
+
+// ───────── RotateLeft（k 为负时右转） ─────────
+
+pub fn rotate_left64(x: Int, k: Int) -> Int {
+  let s = k & 63
+  if s == 0 { x } else { (x << s) | shr(x, 64 - s) }
+}
+
+pub fn rotate_left32(x: Int, k: Int) -> Int {
+  let s = k & 31
+  let v = x & M32
+  if s == 0 { v } else { ((v << s) | (v >> (32 - s))) & M32 }
+}
+
+pub fn rotate_left16(x: Int, k: Int) -> Int {
+  let s = k & 15
+  let v = x & 0xffff
+  if s == 0 { v } else { ((v << s) | (v >> (16 - s))) & 0xffff }
+}
+
+pub fn rotate_left8(x: Int, k: Int) -> Int {
+  let s = k & 7
+  let v = x & 0xff
+  if s == 0 { v } else { ((v << s) | (v >> (8 - s))) & 0xff }
+}
+
+pub fn rotate_left(x: Int, k: Int) -> Int { rotate_left64(x, k) }
+
+// ───────── Reverse / ReverseBytes ─────────
+
+fn rev_n(x: Int, n: Int) -> Int {
+  var r = 0
+  var i = 0
+  while i < n {
+    r = (r << 1) | ((x >> i) & 1)
+    i += 1
+  }
+  r
+}
+
+pub fn reverse64(x: Int) -> Int { rev_n(x, 64) }
+
+pub fn reverse32(x: Int) -> Int { rev_n(x, 32) }
+
+pub fn reverse16(x: Int) -> Int { rev_n(x, 16) }
+
+pub fn reverse8(x: Int) -> Int { rev_n(x, 8) }
+
+pub fn reverse(x: Int) -> Int { reverse64(x) }
+
+fn revb_n(x: Int, n: Int) -> Int {
+  var r = 0
+  var i = 0
+  while i < n {
+    r = (r << 8) | ((x >> (8 * i)) & 0xff)
+    i += 1
+  }
+  r
+}
+
+pub fn reverse_bytes64(x: Int) -> Int { revb_n(x, 8) }
+
+pub fn reverse_bytes32(x: Int) -> Int { revb_n(x, 4) }
+
+pub fn reverse_bytes16(x: Int) -> Int { revb_n(x, 2) }
+
+pub fn reverse_bytes(x: Int) -> Int { reverse_bytes64(x) }
+
+// ───────── Add / Sub / Mul / Div / Rem ─────────
+
+// (和, 进位)；carry 只能是 0 或 1
+pub fn add64(x: Int, y: Int, carry: Int) -> (Int, Int) {
+  let sum = wadd(wadd(x, y), carry)
+  (sum, shr((x & y) | ((x | y) & ~sum), 63))
+}
+
+pub fn add32(x: Int, y: Int, carry: Int) -> (Int, Int) {
+  let s = (x & M32) + (y & M32) + carry
+  (s & M32, s >> 32)
+}
+
+pub fn add(x: Int, y: Int, carry: Int) -> (Int, Int) { add64(x, y, carry) }
+
+// (差, 借位)
+pub fn sub64(x: Int, y: Int, borrow: Int) -> (Int, Int) {
+  let diff = wsub(wsub(x, y), borrow)
+  (diff, shr((~x & y) | (~(x ^ y) & diff), 63))
+}
+
+pub fn sub32(x: Int, y: Int, borrow: Int) -> (Int, Int) {
+  let d = (x & M32) - (y & M32) - borrow
+  (d & M32, if d < 0 { 1 } else { 0 })
+}
+
+pub fn sub(x: Int, y: Int, borrow: Int) -> (Int, Int) { sub64(x, y, borrow) }
+
+// 128 位乘积 (hi, lo)
+pub fn mul64(x: Int, y: Int) -> (Int, Int) {
+  let x0 = x & M32
+  let x1 = shr(x, 32)
+  let y0 = y & M32
+  let y1 = shr(y, 32)
+  let w0 = mul32w(x0, y0)
+  let t = wadd(mul32w(x1, y0), shr(w0, 32))
+  let w1 = wadd(t & M32, mul32w(x0, y1))
+  let w2 = shr(t, 32)
+  let hi = wadd(wadd(mul32w(x1, y1), w2), shr(w1, 32))
+  (hi, wmul(x, y))
+}
+
+pub fn mul32(x: Int, y: Int) -> (Int, Int) {
+  let p = mul32w(x & M32, y & M32)
+  (shr(p, 32), p & M32)
+}
+
+pub fn mul(x: Int, y: Int) -> (Int, Int) { mul64(x, y) }
+
+// (hi, lo) / y 的 (商, 余数)；y 为 0 或 y <= hi 时 panic（商溢出）
+pub fn div64(hi: Int, lo: Int, y: Int) -> (Int, Int) {
+  if y == 0 { divzero() }
+  if !ult(hi, y) { panic("runtime error: integer overflow") }
+  var r = hi
+  var q = 0
+  var i = 63
+  while i >= 0 {
+    let carry = r < 0
+    r = (r << 1) | ((lo >> i) & 1)
+    q = q << 1
+    if carry || !ult(r, y) {
+      r = wsub(r, y)
+      q = q | 1
+    }
+    i -= 1
+  }
+  (q, r)
+}
+
+pub fn div32(hi: Int, lo: Int, y: Int) -> (Int, Int) {
+  let yy = y & M32
+  if yy == 0 { divzero() }
+  if yy <= hi & M32 { panic("runtime error: integer overflow") }
+  let z = ((hi & M32) << 32) | (lo & M32)
+  (udiv(z, yy), urem(z, yy))
+}
+
+pub fn div(hi: Int, lo: Int, y: Int) -> (Int, Int) { div64(hi, lo, y) }
+
+// (hi, lo) % y；和 div64 不同，商溢出时不 panic
+pub fn rem64(hi: Int, lo: Int, y: Int) -> Int { div64(urem(hi, y), lo, y).1 }
+
+pub fn rem32(hi: Int, lo: Int, y: Int) -> Int {
+  let yy = y & M32
+  div32((hi & M32) % yy, lo, yy).1
+}
+
+pub fn rem(hi: Int, lo: Int, y: Int) -> Int { rem64(hi, lo, y) }

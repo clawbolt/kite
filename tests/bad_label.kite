@@ -1,0 +1,8 @@
+fn main() {
+  'outer: for i in 0..3 {
+    let f = () => {
+      for j in 0..3 { break 'outer }
+    }
+    if i == 1 { continue 'nope }
+  }
+}

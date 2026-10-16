@@ -1,0 +1,14 @@
+trait Area {
+  fn area(self) -> Float
+  fn scale(self, k: Float) -> Self
+  fn pick<T>(self, x: T) -> T
+}
+type Sq = { s: Float }
+impl Area for Sq {
+  fn area(self) -> Float { 1.0 }
+  fn scale(self, k: Float) -> Sq { self }
+  fn pick<U>(self, x: U) -> Int { 1 }
+}
+fn main() {
+  print(Sq { s: 1.0 }.area())
+}

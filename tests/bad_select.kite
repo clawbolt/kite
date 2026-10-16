@@ -1,0 +1,8 @@
+fn main() {
+  let a: Chan<Int> = chan()
+  let r = select {
+    send(a, "不是整数") => 1,
+    after(10) => 2,
+  }
+  print(r)
+}

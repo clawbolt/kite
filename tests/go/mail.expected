@@ -1,0 +1,1509 @@
+A "=?iso-8859-2?Q?Bogl=E1rka_Tak=E1cs?= <unknown@gmail.com>"
+ single err mail: missing word in phrase: charset not supported: "iso-8859-2"
+ list err mail: missing word in phrase: charset not supported: "iso-8859-2"
+A "charset not supported"
+ single err mail: no angle-addr
+ list err mail: no angle-addr
+A "a@gmail.com b@gmail.com"
+ single err mail: expected single address, got "b@gmail.com"
+ list err mail: expected comma
+A "expected single address"
+ single err mail: no angle-addr
+ list err mail: no angle-addr
+A " <micro@example.net>"
+ single {"" "micro@example.net"} <micro@example.net>
+ list 1
+  {"" "micro@example.net"} <micro@example.net>
+A "invalid utf-8 in address"
+ single err mail: no angle-addr
+ list err mail: no angle-addr
+A "\""
+ single err mail: missing word in phrase: mail: unclosed quoted-string
+ list err mail: missing word in phrase: mail: unclosed quoted-string
+A "\" <half-surrogate@example.com>"
+ single err mail: missing word in phrase: mail: unclosed quoted-string
+ list err mail: missing word in phrase: mail: unclosed quoted-string
+A "invalid utf-8 in quoted-string"
+ single err mail: no angle-addr
+ list err mail: no angle-addr
+A "\"\\"
+ single err mail: missing word in phrase: mail: unclosed quoted-string
+ list err mail: missing word in phrase: mail: unclosed quoted-string
+A "\" <escaped-invalid-unicode@example.net>"
+ single err mail: missing word in phrase: mail: unclosed quoted-string
+ list err mail: missing word in phrase: mail: unclosed quoted-string
+A "\"\x00\" <null@example.net>"
+ single err mail: missing word in phrase: mail: bad character in quoted-string: '\x00'
+ list err mail: missing word in phrase: mail: bad character in quoted-string: '\x00'
+A "bad character in quoted-string"
+ single err mail: no angle-addr
+ list err mail: no angle-addr
+A "\"\\\x00\" <escaped-null@example.net>"
+ single err mail: missing word in phrase: mail: bad character in quoted-string: '\x00'
+ list err mail: missing word in phrase: mail: bad character in quoted-string: '\x00'
+A "John Doe"
+ single err mail: no angle-addr
+ list err mail: no angle-addr
+A "no angle-addr"
+ single err mail: no angle-addr
+ list err mail: no angle-addr
+A "<jdoe#machine.example>"
+ single err mail: missing @ in addr-spec
+ list err mail: missing @ in addr-spec
+A "missing @ in addr-spec"
+ single err mail: missing '@' or angle-addr
+ list err mail: missing '@' or angle-addr
+A "John <middle> Doe <jdoe@machine.example>"
+ single err mail: missing @ in addr-spec
+ list err mail: missing @ in addr-spec
+A "cfws@example.com ("
+ single err mail: misformatted parenthetical comment
+ list err mail: misformatted parenthetical comment
+A "misformatted parenthetical comment"
+ single err mail: no angle-addr
+ list err mail: no angle-addr
+A "empty group: ;"
+ single err mail: empty group
+ list 0
+A "empty group"
+ single err mail: no angle-addr
+ list err mail: no angle-addr
+A "root group: embed group: null@example.com;"
+ single err mail: no angle-addr
+ list err mail: no angle-addr
+A "group not closed: null@example.com"
+ single err mail: expected comma
+ list err mail: expected comma
+A "expected comma"
+ single err mail: no angle-addr
+ list err mail: no angle-addr
+A "group: first@example.com, second@example.com;"
+ single err mail: group with multiple addresses
+ list 2
+  {"" "first@example.com"} <first@example.com>
+  {"" "second@example.com"} <second@example.com>
+A "group with multiple addresses"
+ single err mail: no angle-addr
+ list err mail: no angle-addr
+A "john.doe"
+ single err mail: missing '@' or angle-addr
+ list err mail: missing '@' or angle-addr
+A "missing '@' or angle-addr"
+ single err mail: no angle-addr
+ list err mail: no angle-addr
+A "john.doe@"
+ single err mail: missing '@' or angle-addr
+ list err mail: missing '@' or angle-addr
+A "John Doe@foo.bar"
+ single err mail: no angle-addr
+ list err mail: no angle-addr
+A " group: null@example.com; (asd"
+ single err mail: misformatted parenthetical comment
+ list err mail: misformatted parenthetical comment
+A " group: ; (asd"
+ single err mail: misformatted parenthetical comment
+ list err mail: misformatted parenthetical comment
+A "(John) Doe <jdoe@machine.example>"
+ single err mail: missing word in phrase: mail: invalid string
+ list err mail: missing word in phrase: mail: invalid string
+A "missing word in phrase:"
+ single err mail: no address
+ list err mail: no address
+A "<jdoe@["
+ single err mail: unclosed domain-literal
+ list err mail: unclosed domain-literal
+A "192.168.0.1]>"
+ single err mail: missing '@' or angle-addr
+ list err mail: missing '@' or angle-addr
+A "invalid utf-8 in domain-literal"
+ single err mail: no angle-addr
+ list err mail: no angle-addr
+A "<jdoe@[[192.168.0.1]>"
+ single err mail: bad character in domain-literal: '['
+ list err mail: bad character in domain-literal: '['
+A "bad character in domain-literal"
+ single err mail: no angle-addr
+ list err mail: no angle-addr
+A "<jdoe@[192.168.0.1>"
+ single err mail: unclosed domain-literal
+ list err mail: unclosed domain-literal
+A "unclosed domain-literal"
+ single err mail: no angle-addr
+ list err mail: no angle-addr
+A "<jdoe@[256.0.0.1]>"
+ single err mail: invalid IP address in domain-literal: "256.0.0.1"
+ list err mail: invalid IP address in domain-literal: "256.0.0.1"
+A "invalid IP address in domain-literal"
+ single err mail: no angle-addr
+ list err mail: no angle-addr
+A "mail.ParseAddress(%q) #%d want %q, got %v"
+ single err mail: no angle-addr
+ list err mail: no angle-addr
+A "CustomWordDecoder"
+ single err mail: missing '@' or angle-addr
+ list err mail: missing '@' or angle-addr
+A "p.Parse(%q) #%d want %q, got %v"
+ single err mail: no angle-addr
+ list err mail: no angle-addr
+A "jdoe@machine.example"
+ single {"" "jdoe@machine.example"} <jdoe@machine.example>
+ list 1
+  {"" "jdoe@machine.example"} <jdoe@machine.example>
+A "John Doe <jdoe@machine.example>"
+ single {"John Doe" "jdoe@machine.example"} "John Doe" <jdoe@machine.example>
+ list 1
+  {"John Doe" "jdoe@machine.example"} "John Doe" <jdoe@machine.example>
+A "\"Joe Q. Public\" <john.q.public@example.com>"
+ single {"Joe Q. Public" "john.q.public@example.com"} "Joe Q. Public" <john.q.public@example.com>
+ list 1
+  {"Joe Q. Public" "john.q.public@example.com"} "Joe Q. Public" <john.q.public@example.com>
+A "Joe Q. Public"
+ single err mail: no angle-addr
+ list err mail: no angle-addr
+A "john.q.public@example.com"
+ single {"" "john.q.public@example.com"} <john.q.public@example.com>
+ list 1
+  {"" "john.q.public@example.com"} <john.q.public@example.com>
+A "John (middle) Doe <jdoe@machine.example>"
+ single {"John Doe" "jdoe@machine.example"} "John Doe" <jdoe@machine.example>
+ list 1
+  {"John Doe" "jdoe@machine.example"} "John Doe" <jdoe@machine.example>
+A "\"John (middle) Doe\" <jdoe@machine.example>"
+ single {"John (middle) Doe" "jdoe@machine.example"} "John (middle) Doe" <jdoe@machine.example>
+ list 1
+  {"John (middle) Doe" "jdoe@machine.example"} "John (middle) Doe" <jdoe@machine.example>
+A "John (middle) Doe"
+ single err mail: no angle-addr
+ list err mail: no angle-addr
+A "\"John <middle> Doe\" <jdoe@machine.example>"
+ single {"John <middle> Doe" "jdoe@machine.example"} "John <middle> Doe" <jdoe@machine.example>
+ list 1
+  {"John <middle> Doe" "jdoe@machine.example"} "John <middle> Doe" <jdoe@machine.example>
+A "John <middle> Doe"
+ single err mail: missing @ in addr-spec
+ list err mail: missing @ in addr-spec
+A "Mary Smith <mary@x.test>, jdoe@example.org, Who? <one@y.test>"
+ single err mail: expected single address, got ", jdoe@example.org, Who? <one@y.test>"
+ list 3
+  {"Mary Smith" "mary@x.test"} "Mary Smith" <mary@x.test>
+  {"" "jdoe@example.org"} <jdoe@example.org>
+  {"Who?" "one@y.test"} "Who?" <one@y.test>
+A "Mary Smith"
+ single err mail: no angle-addr
+ list err mail: no angle-addr
+A "mary@x.test"
+ single {"" "mary@x.test"} <mary@x.test>
+ list 1
+  {"" "mary@x.test"} <mary@x.test>
+A "jdoe@example.org"
+ single {"" "jdoe@example.org"} <jdoe@example.org>
+ list 1
+  {"" "jdoe@example.org"} <jdoe@example.org>
+A "Who?"
+ single err mail: missing '@' or angle-addr
+ list err mail: missing '@' or angle-addr
+A "one@y.test"
+ single {"" "one@y.test"} <one@y.test>
+ list 1
+  {"" "one@y.test"} <one@y.test>
+A "<boss@nil.test>, \"Giant; \\\"Big\\\" Box\" <sysservices@example.net>"
+ single err mail: expected single address, got ", \"Giant; \\\"Big\\\" Box\" <sysservices@example.net>"
+ list 2
+  {"" "boss@nil.test"} <boss@nil.test>
+  {"Giant; \"Big\" Box" "sysservices@example.net"} "Giant; \"Big\" Box" <sysservices@example.net>
+A "boss@nil.test"
+ single {"" "boss@nil.test"} <boss@nil.test>
+ list 1
+  {"" "boss@nil.test"} <boss@nil.test>
+A "Giant; \"Big\" Box"
+ single err mail: missing '@' or angle-addr
+ list err mail: missing '@' or angle-addr
+A "sysservices@example.net"
+ single {"" "sysservices@example.net"} <sysservices@example.net>
+ list 1
+  {"" "sysservices@example.net"} <sysservices@example.net>
+A "Joe Q. Public <john.q.public@example.com>"
+ single {"Joe Q. Public" "john.q.public@example.com"} "Joe Q. Public" <john.q.public@example.com>
+ list 1
+  {"Joe Q. Public" "john.q.public@example.com"} "Joe Q. Public" <john.q.public@example.com>
+A "group1: groupaddr1@example.com;"
+ single {"" "groupaddr1@example.com"} <groupaddr1@example.com>
+ list 1
+  {"" "groupaddr1@example.com"} <groupaddr1@example.com>
+A ""
+ single err mail: no address
+ list err mail: no address
+A "groupaddr1@example.com"
+ single {"" "groupaddr1@example.com"} <groupaddr1@example.com>
+ list 1
+  {"" "groupaddr1@example.com"} <groupaddr1@example.com>
+A "A Group:Ed Jones <c@a.test>,joe@where.test,John <jdoe@one.test>;"
+ single err mail: group with multiple addresses
+ list 3
+  {"Ed Jones" "c@a.test"} "Ed Jones" <c@a.test>
+  {"" "joe@where.test"} <joe@where.test>
+  {"John" "jdoe@one.test"} "John" <jdoe@one.test>
+A "Ed Jones"
+ single err mail: no angle-addr
+ list err mail: no angle-addr
+A "c@a.test"
+ single {"" "c@a.test"} <c@a.test>
+ list 1
+  {"" "c@a.test"} <c@a.test>
+A "joe@where.test"
+ single {"" "joe@where.test"} <joe@where.test>
+ list 1
+  {"" "joe@where.test"} <joe@where.test>
+A "John"
+ single err mail: missing '@' or angle-addr
+ list err mail: missing '@' or angle-addr
+A "jdoe@one.test"
+ single {"" "jdoe@one.test"} <jdoe@one.test>
+ list 1
+  {"" "jdoe@one.test"} <jdoe@one.test>
+A " , joe@where.test,,John <jdoe@one.test>,"
+ single err mail: missing word in phrase: mail: invalid string
+ list 2
+  {"" "joe@where.test"} <joe@where.test>
+  {"John" "jdoe@one.test"} "John" <jdoe@one.test>
+A " , joe@where.test,,John <jdoe@one.test>,,"
+ single err mail: missing word in phrase: mail: invalid string
+ list 2
+  {"" "joe@where.test"} <joe@where.test>
+  {"John" "jdoe@one.test"} "John" <jdoe@one.test>
+A "Group1: <addr1@example.com>;, Group 2: addr2@example.com;, John <addr3@example.com>"
+ single err mail: expected single address, got ", Group 2: addr2@example.com;, John <addr3@example.com>"
+ list 3
+  {"" "addr1@example.com"} <addr1@example.com>
+  {"" "addr2@example.com"} <addr2@example.com>
+  {"John" "addr3@example.com"} "John" <addr3@example.com>
+A "addr1@example.com"
+ single {"" "addr1@example.com"} <addr1@example.com>
+ list 1
+  {"" "addr1@example.com"} <addr1@example.com>
+A "addr2@example.com"
+ single {"" "addr2@example.com"} <addr2@example.com>
+ list 1
+  {"" "addr2@example.com"} <addr2@example.com>
+A "addr3@example.com"
+ single {"" "addr3@example.com"} <addr3@example.com>
+ list 1
+  {"" "addr3@example.com"} <addr3@example.com>
+A "=?iso-8859-1?q?J=F6rg_Doe?= <joerg@example.com>"
+ single {"Jörg Doe" "joerg@example.com"} =?utf-8?q?J=C3=B6rg_Doe?= <joerg@example.com>
+ list 1
+  {"Jörg Doe" "joerg@example.com"} =?utf-8?q?J=C3=B6rg_Doe?= <joerg@example.com>
+A "Jörg Doe"
+ single err mail: no angle-addr
+ list err mail: no angle-addr
+A "joerg@example.com"
+ single {"" "joerg@example.com"} <joerg@example.com>
+ list 1
+  {"" "joerg@example.com"} <joerg@example.com>
+A "=?us-ascii?q?J=6Frg_Doe?= <joerg@example.com>"
+ single {"Jorg Doe" "joerg@example.com"} "Jorg Doe" <joerg@example.com>
+ list 1
+  {"Jorg Doe" "joerg@example.com"} "Jorg Doe" <joerg@example.com>
+A "Jorg Doe"
+ single err mail: no angle-addr
+ list err mail: no angle-addr
+A "=?utf-8?q?J=C3=B6rg_Doe?= <joerg@example.com>"
+ single {"Jörg Doe" "joerg@example.com"} =?utf-8?q?J=C3=B6rg_Doe?= <joerg@example.com>
+ list 1
+  {"Jörg Doe" "joerg@example.com"} =?utf-8?q?J=C3=B6rg_Doe?= <joerg@example.com>
+A "=?utf-8?q?J=C3=B6rg?=  =?utf-8?q?Doe?= <joerg@example.com>"
+ single {"JörgDoe" "joerg@example.com"} =?utf-8?q?J=C3=B6rgDoe?= <joerg@example.com>
+ list 1
+  {"JörgDoe" "joerg@example.com"} =?utf-8?q?J=C3=B6rgDoe?= <joerg@example.com>
+A "JörgDoe"
+ single err mail: missing '@' or angle-addr
+ list err mail: missing '@' or angle-addr
+A "=?ISO-8859-1?Q?Andr=E9?= Pirard <PIRARD@vm1.ulg.ac.be>"
+ single {"André Pirard" "PIRARD@vm1.ulg.ac.be"} =?utf-8?q?Andr=C3=A9_Pirard?= <PIRARD@vm1.ulg.ac.be>
+ list 1
+  {"André Pirard" "PIRARD@vm1.ulg.ac.be"} =?utf-8?q?Andr=C3=A9_Pirard?= <PIRARD@vm1.ulg.ac.be>
+A "André Pirard"
+ single err mail: no angle-addr
+ list err mail: no angle-addr
+A "PIRARD@vm1.ulg.ac.be"
+ single {"" "PIRARD@vm1.ulg.ac.be"} <PIRARD@vm1.ulg.ac.be>
+ list 1
+  {"" "PIRARD@vm1.ulg.ac.be"} <PIRARD@vm1.ulg.ac.be>
+A "=?ISO-8859-1?B?SvZyZw==?= <joerg@example.com>"
+ single {"Jörg" "joerg@example.com"} =?utf-8?q?J=C3=B6rg?= <joerg@example.com>
+ list 1
+  {"Jörg" "joerg@example.com"} =?utf-8?q?J=C3=B6rg?= <joerg@example.com>
+A "Jörg"
+ single err mail: missing '@' or angle-addr
+ list err mail: missing '@' or angle-addr
+A "=?UTF-8?B?SsO2cmc=?= <joerg@example.com>"
+ single {"Jörg" "joerg@example.com"} =?utf-8?q?J=C3=B6rg?= <joerg@example.com>
+ list 1
+  {"Jörg" "joerg@example.com"} =?utf-8?q?J=C3=B6rg?= <joerg@example.com>
+A "Asem H. <noreply@example.com>"
+ single {"Asem H." "noreply@example.com"} "Asem H." <noreply@example.com>
+ list 1
+  {"Asem H." "noreply@example.com"} "Asem H." <noreply@example.com>
+A "Asem H."
+ single err mail: no angle-addr
+ list err mail: no angle-addr
+A "noreply@example.com"
+ single {"" "noreply@example.com"} <noreply@example.com>
+ list 1
+  {"" "noreply@example.com"} <noreply@example.com>
+A "\"Gø Pher\" <gopher@example.com>"
+ single {"Gø Pher" "gopher@example.com"} =?utf-8?q?G=C3=B8_Pher?= <gopher@example.com>
+ list 1
+  {"Gø Pher" "gopher@example.com"} =?utf-8?q?G=C3=B8_Pher?= <gopher@example.com>
+A "Gø Pher"
+ single err mail: no angle-addr
+ list err mail: no angle-addr
+A "gopher@example.com"
+ single {"" "gopher@example.com"} <gopher@example.com>
+ list 1
+  {"" "gopher@example.com"} <gopher@example.com>
+A "µ <micro@example.com>"
+ single {"µ" "micro@example.com"} =?utf-8?q?=C2=B5?= <micro@example.com>
+ list 1
+  {"µ" "micro@example.com"} =?utf-8?q?=C2=B5?= <micro@example.com>
+A "µ"
+ single err mail: missing '@' or angle-addr
+ list err mail: missing '@' or angle-addr
+A "micro@example.com"
+ single {"" "micro@example.com"} <micro@example.com>
+ list 1
+  {"" "micro@example.com"} <micro@example.com>
+A "Micro <µ@example.com>"
+ single {"Micro" "µ@example.com"} "Micro" <µ@example.com>
+ list 1
+  {"Micro" "µ@example.com"} "Micro" <µ@example.com>
+A "Micro"
+ single err mail: missing '@' or angle-addr
+ list err mail: missing '@' or angle-addr
+A "µ@example.com"
+ single {"" "µ@example.com"} <µ@example.com>
+ list 1
+  {"" "µ@example.com"} <µ@example.com>
+A "Micro <micro@µ.example.com>"
+ single {"Micro" "micro@µ.example.com"} "Micro" <micro@µ.example.com>
+ list 1
+  {"Micro" "micro@µ.example.com"} "Micro" <micro@µ.example.com>
+A "micro@µ.example.com"
+ single {"" "micro@µ.example.com"} <micro@µ.example.com>
+ list 1
+  {"" "micro@µ.example.com"} <micro@µ.example.com>
+A "\"\" <emptystring@example.com>"
+ single {"" "emptystring@example.com"} <emptystring@example.com>
+ list 1
+  {"" "emptystring@example.com"} <emptystring@example.com>
+A "emptystring@example.com"
+ single {"" "emptystring@example.com"} <emptystring@example.com>
+ list 1
+  {"" "emptystring@example.com"} <emptystring@example.com>
+A "<cfws@example.com> (CFWS (cfws))  (another comment)"
+ single {"" "cfws@example.com"} <cfws@example.com>
+ list 1
+  {"" "cfws@example.com"} <cfws@example.com>
+A "cfws@example.com"
+ single {"" "cfws@example.com"} <cfws@example.com>
+ list 1
+  {"" "cfws@example.com"} <cfws@example.com>
+A "<cfws@example.com> ()  (another comment), <cfws2@example.com> (another)"
+ single err mail: expected single address, got ", <cfws2@example.com> (another)"
+ list 2
+  {"" "cfws@example.com"} <cfws@example.com>
+  {"" "cfws2@example.com"} <cfws2@example.com>
+A "cfws2@example.com"
+ single {"" "cfws2@example.com"} <cfws2@example.com>
+ list 1
+  {"" "cfws2@example.com"} <cfws2@example.com>
+A "john@example.com (John Doe)"
+ single {"John Doe" "john@example.com"} "John Doe" <john@example.com>
+ list 1
+  {"John Doe" "john@example.com"} "John Doe" <john@example.com>
+A "john@example.com"
+ single {"" "john@example.com"} <john@example.com>
+ list 1
+  {"" "john@example.com"} <john@example.com>
+A "John Doe <john@example.com> (Joey)"
+ single {"John Doe" "john@example.com"} "John Doe" <john@example.com>
+ list 1
+  {"John Doe" "john@example.com"} "John Doe" <john@example.com>
+A "john@example.com(John Doe)"
+ single {"John Doe" "john@example.com"} "John Doe" <john@example.com>
+ list 1
+  {"John Doe" "john@example.com"} "John Doe" <john@example.com>
+A "asjo@example.com (Adam =?utf-8?Q?Sj=C3=B8gren?=)"
+ single {"Adam Sjøgren" "asjo@example.com"} =?utf-8?q?Adam_Sj=C3=B8gren?= <asjo@example.com>
+ list 1
+  {"Adam Sjøgren" "asjo@example.com"} =?utf-8?q?Adam_Sj=C3=B8gren?= <asjo@example.com>
+A "Adam Sjøgren"
+ single err mail: no angle-addr
+ list err mail: no angle-addr
+A "asjo@example.com"
+ single {"" "asjo@example.com"} <asjo@example.com>
+ list 1
+  {"" "asjo@example.com"} <asjo@example.com>
+A "asjo@example.com (Adam\t=?utf-8?Q?Sj=C3=B8gren?=)"
+ single {"Adam Sjøgren" "asjo@example.com"} =?utf-8?q?Adam_Sj=C3=B8gren?= <asjo@example.com>
+ list 1
+  {"Adam Sjøgren" "asjo@example.com"} =?utf-8?q?Adam_Sj=C3=B8gren?= <asjo@example.com>
+A "asjo@example.com (Adam =?utf-8?Q?Sj=C3=B8gren?= (Debian))"
+ single {"Adam Sjøgren (Debian)" "asjo@example.com"} =?utf-8?b?QWRhbSBTasO4Z3JlbiAoRGViaWFuKQ==?= <asjo@example.com>
+ list 1
+  {"Adam Sjøgren (Debian)" "asjo@example.com"} =?utf-8?b?QWRhbSBTasO4Z3JlbiAoRGViaWFuKQ==?= <asjo@example.com>
+A "Adam Sjøgren (Debian)"
+ single err mail: no angle-addr
+ list err mail: no angle-addr
+A "group (comment:): a@example.com, b@example.com;"
+ single err mail: group with multiple addresses
+ list 2
+  {"" "a@example.com"} <a@example.com>
+  {"" "b@example.com"} <b@example.com>
+A "a@example.com"
+ single {"" "a@example.com"} <a@example.com>
+ list 1
+  {"" "a@example.com"} <a@example.com>
+A "b@example.com"
+ single {"" "b@example.com"} <b@example.com>
+ list 1
+  {"" "b@example.com"} <b@example.com>
+A "x(:\"):\"@a.example;(\"@b.example;"
+ single {"" "@a.example;(@b.example"} <"@a.example;("@b.example>
+ list 1
+  {"" "@a.example;(@b.example"} <"@a.example;("@b.example>
+A "@a.example;(@b.example"
+ single err mail: missing word in phrase: mail: invalid string
+ list err mail: missing word in phrase: mail: invalid string
+A "jdoe@[192.168.0.1]"
+ single {"" "jdoe@[192.168.0.1]"} <jdoe@[192.168.0.1]>
+ list 1
+  {"" "jdoe@[192.168.0.1]"} <jdoe@[192.168.0.1]>
+A "John Doe <jdoe@[192.168.0.1]>"
+ single {"John Doe" "jdoe@[192.168.0.1]"} "John Doe" <jdoe@[192.168.0.1]>
+ list 1
+  {"John Doe" "jdoe@[192.168.0.1]"} "John Doe" <jdoe@[192.168.0.1]>
+A "Failed parsing (single) %q: %v"
+ single err mail: missing '@' or angle-addr
+ list err mail: missing '@' or angle-addr
+A "Parse (single) of %q: got %+v, want %+v"
+ single err mail: no angle-addr
+ list err mail: no angle-addr
+A "Failed parsing (list) %q: %v"
+ single err mail: missing '@' or angle-addr
+ list err mail: missing '@' or angle-addr
+A "Parse (list) of %q: got %+v, want %+v"
+ single err mail: no angle-addr
+ list err mail: no angle-addr
+A "=?ISO-8859-15?Q?J=F6rg_Doe?= <joerg@example.com>"
+ single err mail: missing word in phrase: charset not supported: "iso-8859-15"
+ list err mail: missing word in phrase: charset not supported: "iso-8859-15"
+A "=?windows-1252?q?Andr=E9?= Pirard <PIRARD@vm1.ulg.ac.be>"
+ single err mail: missing word in phrase: charset not supported: "windows-1252"
+ list err mail: missing word in phrase: charset not supported: "windows-1252"
+A "=?ISO-8859-15?B?SvZyZw==?= <joerg@example.com>"
+ single err mail: missing word in phrase: charset not supported: "iso-8859-15"
+ list err mail: missing word in phrase: charset not supported: "iso-8859-15"
+A "iso-8859-15"
+ single err mail: missing '@' or angle-addr
+ list err mail: missing '@' or angle-addr
+A "ö"
+ single err mail: missing '@' or angle-addr
+ list err mail: missing '@' or angle-addr
+A "windows-1252"
+ single err mail: missing '@' or angle-addr
+ list err mail: missing '@' or angle-addr
+A "é"
+ single err mail: missing '@' or angle-addr
+ list err mail: missing '@' or angle-addr
+A "<Bob@example.com>"
+ single {"" "Bob@example.com"} <Bob@example.com>
+ list 1
+  {"" "Bob@example.com"} <Bob@example.com>
+A "<bob.bob@example.com>"
+ single {"" "bob.bob@example.com"} <bob.bob@example.com>
+ list 1
+  {"" "bob.bob@example.com"} <bob.bob@example.com>
+A "<\".bob\"@example.com>"
+ single {"" ".bob@example.com"} <".bob"@example.com>
+ list 1
+  {"" ".bob@example.com"} <".bob"@example.com>
+A "<\" \"@example.com>"
+ single {"" " @example.com"} <" "@example.com>
+ list 1
+  {"" " @example.com"} <" "@example.com>
+A "<some.mail-with-dash@example.com>"
+ single {"" "some.mail-with-dash@example.com"} <some.mail-with-dash@example.com>
+ list 1
+  {"" "some.mail-with-dash@example.com"} <some.mail-with-dash@example.com>
+A "<\"dot.and space\"@example.com>"
+ single {"" "dot.and space@example.com"} <"dot.and space"@example.com>
+ list 1
+  {"" "dot.and space@example.com"} <"dot.and space"@example.com>
+A "<\"very.unusual.@.unusual.com\"@example.com>"
+ single {"" "very.unusual.@.unusual.com@example.com"} <"very.unusual.@.unusual.com"@example.com>
+ list 1
+  {"" "very.unusual.@.unusual.com@example.com"} <"very.unusual.@.unusual.com"@example.com>
+A "<admin@mailserver1>"
+ single {"" "admin@mailserver1"} <admin@mailserver1>
+ list 1
+  {"" "admin@mailserver1"} <admin@mailserver1>
+A "<postmaster@localhost>"
+ single {"" "postmaster@localhost"} <postmaster@localhost>
+ list 1
+  {"" "postmaster@localhost"} <postmaster@localhost>
+A "<#!$%&'*+-/=?^_`{}|~@example.org>"
+ single {"" "#!$%&'*+-/=?^_`{}|~@example.org"} <#!$%&'*+-/=?^_`{}|~@example.org>
+ list 1
+  {"" "#!$%&'*+-/=?^_`{}|~@example.org"} <#!$%&'*+-/=?^_`{}|~@example.org>
+A "<\"very.(),:;<>[]\\\".VERY.\\\"very@\\\\ \\\"very\\\".unusual\"@strange.example.com>"
+ single {"" "very.(),:;<>[]\".VERY.\"very@\\ \"very\".unusual@strange.example.com"} <"very.(),:;<>[]\".VERY.\"very@\\ \"very\".unusual"@strange.example.com>
+ list 1
+  {"" "very.(),:;<>[]\".VERY.\"very@\\ \"very\".unusual@strange.example.com"} <"very.(),:;<>[]\".VERY.\"very@\\ \"very\".unusual"@strange.example.com>
+A "<\"()<>[]:,;@\\\\\\\"!#$%&'*+-/=?^_{}| ~.a\"@example.org>"
+ single {"" "()<>[]:,;@\\\"!#$%&'*+-/=?^_{}| ~.a@example.org"} <"()<>[]:,;@\\\"!#$%&'*+-/=?^_{}| ~.a"@example.org>
+ list 1
+  {"" "()<>[]:,;@\\\"!#$%&'*+-/=?^_{}| ~.a@example.org"} <"()<>[]:,;@\\\"!#$%&'*+-/=?^_{}| ~.a"@example.org>
+A "<\"Abc\\\\@def\"@example.com>"
+ single {"" "Abc\\@def@example.com"} <"Abc\\@def"@example.com>
+ list 1
+  {"" "Abc\\@def@example.com"} <"Abc\\@def"@example.com>
+A "<\"Joe\\\\Blow\"@example.com>"
+ single {"" "Joe\\Blow@example.com"} <"Joe\\Blow"@example.com>
+ list 1
+  {"" "Joe\\Blow@example.com"} <"Joe\\Blow"@example.com>
+A "<test1/test2=test3@example.com>"
+ single {"" "test1/test2=test3@example.com"} <test1/test2=test3@example.com>
+ list 1
+  {"" "test1/test2=test3@example.com"} <test1/test2=test3@example.com>
+A "<def!xyz%abc@example.com>"
+ single {"" "def!xyz%abc@example.com"} <def!xyz%abc@example.com>
+ list 1
+  {"" "def!xyz%abc@example.com"} <def!xyz%abc@example.com>
+A "<_somename@example.com>"
+ single {"" "_somename@example.com"} <_somename@example.com>
+ list 1
+  {"" "_somename@example.com"} <_somename@example.com>
+A "<joe@uk>"
+ single {"" "joe@uk"} <joe@uk>
+ list 1
+  {"" "joe@uk"} <joe@uk>
+A "<~@example.com>"
+ single {"" "~@example.com"} <~@example.com>
+ list 1
+  {"" "~@example.com"} <~@example.com>
+A "<\"...\"@test.com>"
+ single {"" "...@test.com"} <"..."@test.com>
+ list 1
+  {"" "...@test.com"} <"..."@test.com>
+A "<\"john..doe\"@example.com>"
+ single {"" "john..doe@example.com"} <"john..doe"@example.com>
+ list 1
+  {"" "john..doe@example.com"} <"john..doe"@example.com>
+A "<\"john.doe.\"@example.com>"
+ single {"" "john.doe.@example.com"} <"john.doe."@example.com>
+ list 1
+  {"" "john.doe.@example.com"} <"john.doe."@example.com>
+A "<\".john.doe\"@example.com>"
+ single {"" ".john.doe@example.com"} <".john.doe"@example.com>
+ list 1
+  {"" ".john.doe@example.com"} <".john.doe"@example.com>
+A "<\".\"@example.com>"
+ single {"" ".@example.com"} <"."@example.com>
+ list 1
+  {"" ".@example.com"} <"."@example.com>
+A "<\"..\"@example.com>"
+ single {"" "..@example.com"} <".."@example.com>
+ list 1
+  {"" "..@example.com"} <".."@example.com>
+A "<\"0:\"@0>"
+ single {"" "0:@0"} <"0:"@0>
+ list 1
+  {"" "0:@0"} <"0:"@0>
+A "<Bob@[192.168.0.1]>"
+ single {"" "Bob@[192.168.0.1]"} <Bob@[192.168.0.1]>
+ list 1
+  {"" "Bob@[192.168.0.1]"} <Bob@[192.168.0.1]>
+A "Couldn't parse address %s: %s"
+ single err mail: missing '@' or angle-addr
+ list err mail: missing '@' or angle-addr
+A "ParseAddr(%q) error: %v"
+ single err mail: missing '@' or angle-addr
+ list err mail: missing '@' or angle-addr
+A "String() round-trip = %q; want %q"
+ single err mail: no angle-addr
+ list err mail: no angle-addr
+A "<Abc.example.com>"
+ single err mail: missing @ in addr-spec
+ list err mail: missing @ in addr-spec
+A "<A@b@c@example.com>"
+ single err mail: unclosed angle-addr
+ list err mail: unclosed angle-addr
+A "<a\"b(c)d,e:f;g<h>i[j\\k]l@example.com>"
+ single err mail: missing @ in addr-spec
+ list err mail: missing @ in addr-spec
+A "<just\"not\"right@example.com>"
+ single err mail: missing @ in addr-spec
+ list err mail: missing @ in addr-spec
+A "<this is\"not\\allowed@example.com>"
+ single err mail: missing @ in addr-spec
+ list err mail: missing @ in addr-spec
+A "<this\\ still\\\"not\\\\allowed@example.com>"
+ single err mail: missing @ in addr-spec
+ list err mail: missing @ in addr-spec
+A "<john..doe@example.com>"
+ single err mail: double dot in atom
+ list err mail: double dot in atom
+A "<john.doe@example..com>"
+ single err mail: double dot in atom
+ list err mail: double dot in atom
+A "<john.doe.@example.com>"
+ single err mail: trailing dot in atom
+ list err mail: trailing dot in atom
+A "<john.doe.@.example.com>"
+ single err mail: trailing dot in atom
+ list err mail: trailing dot in atom
+A "<.john.doe@example.com>"
+ single err mail: leading dot in atom
+ list err mail: leading dot in atom
+A "<@example.com>"
+ single err mail: invalid string
+ list err mail: invalid string
+A "<.@example.com>"
+ single err mail: leading dot in atom
+ list err mail: leading dot in atom
+A "<test@.>"
+ single err mail: leading dot in atom
+ list err mail: leading dot in atom
+A "< @example.com>"
+ single err mail: invalid string
+ list err mail: invalid string
+A "<\"\"test\"\"blah\"\"@example.com>"
+ single err mail: empty quoted string in addr-spec
+ list err mail: empty quoted string in addr-spec
+A "<\"\"@0>"
+ single err mail: empty quoted string in addr-spec
+ list err mail: empty quoted string in addr-spec
+A "Should have failed to parse address: %s"
+ single err mail: missing '@' or angle-addr
+ list err mail: missing '@' or angle-addr
+A "   "
+ single err mail: no address
+ list err mail: no address
+A ",,,"
+ single err mail: missing word in phrase: mail: invalid string
+ list err mail: no address
+A "a@b,,c@d,"
+ single err mail: expected single address, got ",,c@d,"
+ list 2
+  {"" "a@b"} <a@b>
+  {"" "c@d"} <c@d>
+A ", a@b"
+ single err mail: missing word in phrase: mail: invalid string
+ list 1
+  {"" "a@b"} <a@b>
+A "a@b c@d"
+ single err mail: expected single address, got "c@d"
+ list err mail: expected comma
+A "a@b; c@d"
+ single err mail: expected single address, got "; c@d"
+ list err mail: expected comma
+A "<a@b"
+ single err mail: unclosed angle-addr
+ list err mail: unclosed angle-addr
+A "<a@b> x"
+ single err mail: expected single address, got "x"
+ list err mail: expected comma
+A "a..b@c"
+ single err mail: missing '@' or angle-addr
+ list err mail: missing '@' or angle-addr
+A ".a@b"
+ single err mail: missing '@' or angle-addr
+ list err mail: missing '@' or angle-addr
+A "a.@b"
+ single err mail: missing '@' or angle-addr
+ list err mail: missing '@' or angle-addr
+A "a@b..c"
+ single err mail: missing '@' or angle-addr
+ list err mail: missing '@' or angle-addr
+A "a@"
+ single err mail: missing '@' or angle-addr
+ list err mail: missing '@' or angle-addr
+A "@b"
+ single err mail: missing word in phrase: mail: invalid string
+ list err mail: missing word in phrase: mail: invalid string
+A "a@b."
+ single err mail: missing '@' or angle-addr
+ list err mail: missing '@' or angle-addr
+A "Jöhn <j@x>"
+ single {"Jöhn" "j@x"} =?utf-8?q?J=C3=B6hn?= <j@x>
+ list 1
+  {"Jöhn" "j@x"} =?utf-8?q?J=C3=B6hn?= <j@x>
+A "\"quoted name\" <q@x>"
+ single {"quoted name" "q@x"} "quoted name" <q@x>
+ list 1
+  {"quoted name" "q@x"} "quoted name" <q@x>
+A "\"unclosed <x@y>"
+ single err mail: missing word in phrase: mail: unclosed quoted-string
+ list err mail: missing word in phrase: mail: unclosed quoted-string
+A "jérôme@example.com"
+ single {"" "jérôme@example.com"} <jérôme@example.com>
+ list 1
+  {"" "jérôme@example.com"} <jérôme@example.com>
+A "user@münchen.de"
+ single {"" "user@münchen.de"} <user@münchen.de>
+ list 1
+  {"" "user@münchen.de"} <user@münchen.de>
+A "日本 <nihon@example.jp>"
+ single {"日本" "nihon@example.jp"} =?utf-8?q?=E6=97=A5=E6=9C=AC?= <nihon@example.jp>
+ list 1
+  {"日本" "nihon@example.jp"} =?utf-8?q?=E6=97=A5=E6=9C=AC?= <nihon@example.jp>
+A "=?utf-8?q?J=C3=B6rg?= <j@x.com>"
+ single {"Jörg" "j@x.com"} =?utf-8?q?J=C3=B6rg?= <j@x.com>
+ list 1
+  {"Jörg" "j@x.com"} =?utf-8?q?J=C3=B6rg?= <j@x.com>
+A "=?us-ascii?q?a=FFb?= <a@b>"
+ single {"a�b" "a@b"} =?utf-8?q?a=EF=BF=BDb?= <a@b>
+ list 1
+  {"a�b" "a@b"} =?utf-8?q?a=EF=BF=BDb?= <a@b>
+A "=?UTF-8?B?w6l0w6k=?= <e@x>"
+ single {"été" "e@x"} =?utf-8?q?=C3=A9t=C3=A9?= <e@x>
+ list 1
+  {"été" "e@x"} =?utf-8?q?=C3=A9t=C3=A9?= <e@x>
+A "=?utf-8?b?bad!?= <x@y>"
+ single {"=?utf-8?b?bad!?=" "x@y"} "=?utf-8?b?bad!?=" <x@y>
+ list 1
+  {"=?utf-8?b?bad!?=" "x@y"} "=?utf-8?b?bad!?=" <x@y>
+A "=?utf-8?b?w6l0w6k?= <x@y>"
+ single {"=?utf-8?b?w6l0w6k?=" "x@y"} "=?utf-8?b?w6l0w6k?=" <x@y>
+ list 1
+  {"=?utf-8?b?w6l0w6k?=" "x@y"} "=?utf-8?b?w6l0w6k?=" <x@y>
+A "=?koi8-r?q?x?= <a@b>"
+ single err mail: missing word in phrase: charset not supported: "koi8-r"
+ list err mail: missing word in phrase: charset not supported: "koi8-r"
+A "Foo =?KOI8-R?q?x?= <a@b>"
+ single {"Foo" "a@b"} "Foo" <a@b>
+ list 1
+  {"Foo" "a@b"} "Foo" <a@b>
+A "=?utf-8?q?a?= =?utf-8?q?b?= <x@y>"
+ single {"ab" "x@y"} "ab" <x@y>
+ list 1
+  {"ab" "x@y"} "ab" <x@y>
+A "=?utf-8?q?a?= plain =?utf-8?q?b?= <x@y>"
+ single {"a plain b" "x@y"} "a plain b" <x@y>
+ list 1
+  {"a plain b" "x@y"} "a plain b" <x@y>
+A "=?utf-8?x?a?= <x@y>"
+ single {"=?utf-8?x?a?=" "x@y"} "=?utf-8?x?a?=" <x@y>
+ list 1
+  {"=?utf-8?x?a?=" "x@y"} "=?utf-8?x?a?=" <x@y>
+A "=?utf-8?q?a=4?= <x@y>"
+ single {"=?utf-8?q?a=4?=" "x@y"} "=?utf-8?q?a=4?=" <x@y>
+ list 1
+  {"=?utf-8?q?a=4?=" "x@y"} "=?utf-8?q?a=4?=" <x@y>
+A "=?utf-8?q?a=4g?= <x@y>"
+ single {"=?utf-8?q?a=4g?=" "x@y"} "=?utf-8?q?a=4g?=" <x@y>
+ list 1
+  {"=?utf-8?q?a=4g?=" "x@y"} "=?utf-8?q?a=4g?=" <x@y>
+A "=??q?a?= <x@y>"
+ single {"=??q?a?=" "x@y"} "=??q?a?=" <x@y>
+ list 1
+  {"=??q?a?=" "x@y"} "=??q?a?=" <x@y>
+A "=?utf-8?qq?a?= <x@y>"
+ single {"=?utf-8?qq?a?=" "x@y"} "=?utf-8?qq?a?=" <x@y>
+ list 1
+  {"=?utf-8?qq?a?=" "x@y"} "=?utf-8?qq?a?=" <x@y>
+A "=?utf-8?q?a_b=5Fc?= <x@y>"
+ single {"a b_c" "x@y"} "a b_c" <x@y>
+ list 1
+  {"a b_c" "x@y"} "a b_c" <x@y>
+A "=?utf-8?q?=c3=a4?= <x@y>"
+ single {"ä" "x@y"} =?utf-8?q?=C3=A4?= <x@y>
+ list 1
+  {"ä" "x@y"} =?utf-8?q?=C3=A4?= <x@y>
+A "=?iso-8859-1?b?5OT2?= <x@y>"
+ single {"ääö" "x@y"} =?utf-8?q?=C3=A4=C3=A4=C3=B6?= <x@y>
+ list 1
+  {"ääö" "x@y"} =?utf-8?q?=C3=A4=C3=A4=C3=B6?= <x@y>
+A "a@b (=?utf-8?q?J=C3=B6rg?= Foo)"
+ single {"Jörg Foo" "a@b"} =?utf-8?q?J=C3=B6rg_Foo?= <a@b>
+ list 1
+  {"Jörg Foo" "a@b"} =?utf-8?q?J=C3=B6rg_Foo?= <a@b>
+A "a@b (=?x-unknown?q?a?=)"
+ single err charset not supported: "x-unknown"
+ list err charset not supported: "x-unknown"
+A "a@b (  spaced\tout  )"
+ single {"spaced out" "a@b"} "spaced out" <a@b>
+ list 1
+  {"spaced out" "a@b"} "spaced out" <a@b>
+A "a@b (=?utf-8?q?bad=?= x)"
+ single {"=?utf-8?q?bad=?= x" "a@b"} "=?utf-8?q?bad=?= x" <a@b>
+ list 1
+  {"=?utf-8?q?bad=?= x" "a@b"} "=?utf-8?q?bad=?= x" <a@b>
+A "a@[127.0.0.1]"
+ single {"" "a@[127.0.0.1]"} <a@[127.0.0.1]>
+ list 1
+  {"" "a@[127.0.0.1]"} <a@[127.0.0.1]>
+A "a@[::1]"
+ single err mail: missing '@' or angle-addr
+ list err mail: missing '@' or angle-addr
+A "a@[IPv6:::1]"
+ single {"" "a@[IPv6:::1]"} <a@[IPv6:::1]>
+ list 1
+  {"" "a@[IPv6:::1]"} <a@[IPv6:::1]>
+A "a@[fe80::1%eth0]"
+ single err mail: missing '@' or angle-addr
+ list err mail: missing '@' or angle-addr
+A "a@[ 1.2.3.4]"
+ single err mail: missing '@' or angle-addr
+ list err mail: missing '@' or angle-addr
+A "a@[01.2.3.4]"
+ single err mail: missing '@' or angle-addr
+ list err mail: missing '@' or angle-addr
+A "a@[1.2.3.4"
+ single err mail: missing '@' or angle-addr
+ list err mail: missing '@' or angle-addr
+A "Name <a@[10.0.0.1]>"
+ single {"Name" "a@[10.0.0.1]"} "Name" <a@[10.0.0.1]>
+ list 1
+  {"Name" "a@[10.0.0.1]"} "Name" <a@[10.0.0.1]>
+A "a@[é]"
+ single err mail: missing '@' or angle-addr
+ list err mail: missing '@' or angle-addr
+A "\"a\x01b\" <x@y>"
+ single err mail: missing word in phrase: mail: bad character in quoted-string: '\x01'
+ list err mail: missing word in phrase: mail: bad character in quoted-string: '\x01'
+A "\"a\\\x7f\" <x@y>"
+ single err mail: missing word in phrase: mail: bad character in quoted-string: '\x7f'
+ list err mail: missing word in phrase: mail: bad character in quoted-string: '\x7f'
+A "<\"\"@x>"
+ single err mail: empty quoted string in addr-spec
+ list err mail: empty quoted string in addr-spec
+A "<\"\x01\"@x>"
+ single err mail: empty quoted string in addr-spec
+ list err mail: empty quoted string in addr-spec
+A "\"a\\ b\\\"c\" <x@y>"
+ single {"a b\"c" "x@y"} "a b\"c" <x@y>
+ list 1
+  {"a b\"c" "x@y"} "a b\"c" <x@y>
+A "\"tab\there\" <x@y>"
+ single {"tab\there" "x@y"} "tab	here" <x@y>
+ list 1
+  {"tab\there" "x@y"} "tab	here" <x@y>
+A "Undisclosed recipients:;"
+ single err mail: empty group
+ list 0
+A "g: a@b, c@d; , e@f"
+ single err mail: expected single address, got ", e@f"
+ list 3
+  {"" "a@b"} <a@b>
+  {"" "c@d"} <c@d>
+  {"" "e@f"} <e@f>
+A "g: a@b"
+ single err mail: expected comma
+ list err mail: expected comma
+A "g: (c) ;"
+ single err mail: missing word in phrase: mail: invalid string
+ list err mail: missing word in phrase: mail: invalid string
+A "g: a@b; extra"
+ single err mail: expected single address, got "extra"
+ list err mail: expected comma
+A "g: a@b (x);(y)"
+ single {"x" "a@b"} "x" <a@b>
+ list 1
+  {"x" "a@b"} "x" <a@b>
+A "g: ;"
+ single err mail: empty group
+ list 0
+A "g:a@b;"
+ single {"" "a@b"} <a@b>
+ list 1
+  {"" "a@b"} <a@b>
+A "x: y: z@w;;"
+ single err mail: missing '@' or angle-addr
+ list err mail: missing '@' or angle-addr
+A "g: a@b c;"
+ single err mail: expected comma
+ list err mail: expected comma
+A "a@b (Comment (nested) here)"
+ single {"Comment (nested) here" "a@b"} "Comment (nested) here" <a@b>
+ list 1
+  {"Comment (nested) here" "a@b"} "Comment (nested) here" <a@b>
+A "a@b (unclosed"
+ single err mail: misformatted parenthetical comment
+ list err mail: misformatted parenthetical comment
+A "Name (c) <a@b>"
+ single {"Name" "a@b"} "Name" <a@b>
+ list 1
+  {"Name" "a@b"} "Name" <a@b>
+A "a@b (a\\)b)"
+ single {"a)b" "a@b"} "a)b" <a@b>
+ list 1
+  {"a)b" "a@b"} "a)b" <a@b>
+A "(lead) a@b"
+ single err mail: missing word in phrase: mail: invalid string
+ list err mail: missing word in phrase: mail: invalid string
+A "a@b(x)(y)"
+ single {"x" "a@b"} "x" <a@b>
+ list 1
+  {"x" "a@b"} "x" <a@b>
+A "a@b  ,  (c) d@e"
+ single err mail: expected single address, got ",  (c) d@e"
+ list err mail: missing word in phrase: mail: invalid string
+A "Name <a@b> (trailing)"
+ single {"Name" "a@b"} "Name" <a@b>
+ list 1
+  {"Name" "a@b"} "Name" <a@b>
+A "Name <a@b> (bad"
+ single err mail: misformatted parenthetical comment
+ list err mail: misformatted parenthetical comment
+A "<>"
+ single err mail: invalid string
+ list err mail: invalid string
+A "< a@b >"
+ single err mail: unclosed angle-addr
+ list err mail: unclosed angle-addr
+A "<a @ b>"
+ single err mail: missing @ in addr-spec
+ list err mail: missing @ in addr-spec
+A "Name <a@b>, \"Q\" <c@d>,e@f"
+ single err mail: expected single address, got ", \"Q\" <c@d>,e@f"
+ list 3
+  {"Name" "a@b"} "Name" <a@b>
+  {"Q" "c@d"} "Q" <c@d>
+  {"" "e@f"} <e@f>
+A "a\x00b@c"
+ single err mail: missing '@' or angle-addr
+ list err mail: missing '@' or angle-addr
+A "a@b\n"
+ single err mail: expected single address, got "\n"
+ list err mail: expected comma
+A "a@b\r\nc@d"
+ single err mail: expected single address, got "\r\nc@d"
+ list err mail: expected comma
+S {"" "jdoe@machine.example"} <jdoe@machine.example>
+ reparse {"" "jdoe@machine.example"} <jdoe@machine.example>
+S {"John Doe" "jdoe@machine.example"} "John Doe" <jdoe@machine.example>
+ reparse {"John Doe" "jdoe@machine.example"} "John Doe" <jdoe@machine.example>
+S {"Joe Q. Public" "john.q.public@example.com"} "Joe Q. Public" <john.q.public@example.com>
+ reparse {"Joe Q. Public" "john.q.public@example.com"} "Joe Q. Public" <john.q.public@example.com>
+S {"John (middle) Doe" "jdoe@machine.example"} "John (middle) Doe" <jdoe@machine.example>
+ reparse {"John (middle) Doe" "jdoe@machine.example"} "John (middle) Doe" <jdoe@machine.example>
+S {"John <middle> Doe" "jdoe@machine.example"} "John <middle> Doe" <jdoe@machine.example>
+ reparse {"John <middle> Doe" "jdoe@machine.example"} "John <middle> Doe" <jdoe@machine.example>
+S {"Mary Smith" "mary@x.test"} "Mary Smith" <mary@x.test>
+ reparse {"Mary Smith" "mary@x.test"} "Mary Smith" <mary@x.test>
+S {"" "jdoe@example.org"} <jdoe@example.org>
+ reparse {"" "jdoe@example.org"} <jdoe@example.org>
+S {"Who?" "one@y.test"} "Who?" <one@y.test>
+ reparse {"Who?" "one@y.test"} "Who?" <one@y.test>
+S {"" "boss@nil.test"} <boss@nil.test>
+ reparse {"" "boss@nil.test"} <boss@nil.test>
+S {"Giant; \"Big\" Box" "sysservices@example.net"} "Giant; \"Big\" Box" <sysservices@example.net>
+ reparse {"Giant; \"Big\" Box" "sysservices@example.net"} "Giant; \"Big\" Box" <sysservices@example.net>
+S {"" "groupaddr1@example.com"} <groupaddr1@example.com>
+ reparse {"" "groupaddr1@example.com"} <groupaddr1@example.com>
+S {"Ed Jones" "c@a.test"} "Ed Jones" <c@a.test>
+ reparse {"Ed Jones" "c@a.test"} "Ed Jones" <c@a.test>
+S {"" "joe@where.test"} <joe@where.test>
+ reparse {"" "joe@where.test"} <joe@where.test>
+S {"John" "jdoe@one.test"} "John" <jdoe@one.test>
+ reparse {"John" "jdoe@one.test"} "John" <jdoe@one.test>
+S {"" "addr1@example.com"} <addr1@example.com>
+ reparse {"" "addr1@example.com"} <addr1@example.com>
+S {"" "addr2@example.com"} <addr2@example.com>
+ reparse {"" "addr2@example.com"} <addr2@example.com>
+S {"John" "addr3@example.com"} "John" <addr3@example.com>
+ reparse {"John" "addr3@example.com"} "John" <addr3@example.com>
+S {"Jörg Doe" "joerg@example.com"} =?utf-8?q?J=C3=B6rg_Doe?= <joerg@example.com>
+ reparse {"Jörg Doe" "joerg@example.com"} =?utf-8?q?J=C3=B6rg_Doe?= <joerg@example.com>
+S {"Jorg Doe" "joerg@example.com"} "Jorg Doe" <joerg@example.com>
+ reparse {"Jorg Doe" "joerg@example.com"} "Jorg Doe" <joerg@example.com>
+S {"JörgDoe" "joerg@example.com"} =?utf-8?q?J=C3=B6rgDoe?= <joerg@example.com>
+ reparse {"JörgDoe" "joerg@example.com"} =?utf-8?q?J=C3=B6rgDoe?= <joerg@example.com>
+S {"André Pirard" "PIRARD@vm1.ulg.ac.be"} =?utf-8?q?Andr=C3=A9_Pirard?= <PIRARD@vm1.ulg.ac.be>
+ reparse {"André Pirard" "PIRARD@vm1.ulg.ac.be"} =?utf-8?q?Andr=C3=A9_Pirard?= <PIRARD@vm1.ulg.ac.be>
+S {"Jörg" "joerg@example.com"} =?utf-8?q?J=C3=B6rg?= <joerg@example.com>
+ reparse {"Jörg" "joerg@example.com"} =?utf-8?q?J=C3=B6rg?= <joerg@example.com>
+S {"Asem H." "noreply@example.com"} "Asem H." <noreply@example.com>
+ reparse {"Asem H." "noreply@example.com"} "Asem H." <noreply@example.com>
+S {"Gø Pher" "gopher@example.com"} =?utf-8?q?G=C3=B8_Pher?= <gopher@example.com>
+ reparse {"Gø Pher" "gopher@example.com"} =?utf-8?q?G=C3=B8_Pher?= <gopher@example.com>
+S {"µ" "micro@example.com"} =?utf-8?q?=C2=B5?= <micro@example.com>
+ reparse {"µ" "micro@example.com"} =?utf-8?q?=C2=B5?= <micro@example.com>
+S {"Micro" "µ@example.com"} "Micro" <µ@example.com>
+ reparse {"Micro" "µ@example.com"} "Micro" <µ@example.com>
+S {"Micro" "micro@µ.example.com"} "Micro" <micro@µ.example.com>
+ reparse {"Micro" "micro@µ.example.com"} "Micro" <micro@µ.example.com>
+S {"" "emptystring@example.com"} <emptystring@example.com>
+ reparse {"" "emptystring@example.com"} <emptystring@example.com>
+S {"" "cfws@example.com"} <cfws@example.com>
+ reparse {"" "cfws@example.com"} <cfws@example.com>
+S {"" "cfws2@example.com"} <cfws2@example.com>
+ reparse {"" "cfws2@example.com"} <cfws2@example.com>
+S {"John Doe" "john@example.com"} "John Doe" <john@example.com>
+ reparse {"John Doe" "john@example.com"} "John Doe" <john@example.com>
+S {"Adam Sjøgren" "asjo@example.com"} =?utf-8?q?Adam_Sj=C3=B8gren?= <asjo@example.com>
+ reparse {"Adam Sjøgren" "asjo@example.com"} =?utf-8?q?Adam_Sj=C3=B8gren?= <asjo@example.com>
+S {"Adam Sjøgren (Debian)" "asjo@example.com"} =?utf-8?b?QWRhbSBTasO4Z3JlbiAoRGViaWFuKQ==?= <asjo@example.com>
+ reparse {"Adam Sjøgren (Debian)" "asjo@example.com"} =?utf-8?b?QWRhbSBTasO4Z3JlbiAoRGViaWFuKQ==?= <asjo@example.com>
+S {"" "a@example.com"} <a@example.com>
+ reparse {"" "a@example.com"} <a@example.com>
+S {"" "b@example.com"} <b@example.com>
+ reparse {"" "b@example.com"} <b@example.com>
+S {"" "@a.example;(@b.example"} <"@a.example;("@b.example>
+ reparse {"" "@a.example;(@b.example"} <"@a.example;("@b.example>
+S {"" "jdoe@[192.168.0.1]"} <jdoe@[192.168.0.1]>
+ reparse {"" "jdoe@[192.168.0.1]"} <jdoe@[192.168.0.1]>
+S {"John Doe" "jdoe@[192.168.0.1]"} "John Doe" <jdoe@[192.168.0.1]>
+ reparse {"John Doe" "jdoe@[192.168.0.1]"} "John Doe" <jdoe@[192.168.0.1]>
+S {"" "bob@example.com"} <bob@example.com>
+ reparse {"" "bob@example.com"} <bob@example.com>
+S {"" "my@idiot@address@example.com"} <"my@idiot@address"@example.com>
+ reparse {"" "my@idiot@address@example.com"} <"my@idiot@address"@example.com>
+S {"" " @example.com"} <" "@example.com>
+ reparse {"" " @example.com"} <" "@example.com>
+S {"Bob" "bob@example.com"} "Bob" <bob@example.com>
+ reparse {"Bob" "bob@example.com"} "Bob" <bob@example.com>
+S {"Böb" "bob@example.com"} =?utf-8?q?B=C3=B6b?= <bob@example.com>
+ reparse {"Böb" "bob@example.com"} =?utf-8?q?B=C3=B6b?= <bob@example.com>
+S {"Bob Jane" "bob@example.com"} "Bob Jane" <bob@example.com>
+ reparse {"Bob Jane" "bob@example.com"} "Bob Jane" <bob@example.com>
+S {"Böb Jacöb" "bob@example.com"} =?utf-8?q?B=C3=B6b_Jac=C3=B6b?= <bob@example.com>
+ reparse {"Böb Jacöb" "bob@example.com"} =?utf-8?q?B=C3=B6b_Jac=C3=B6b?= <bob@example.com>
+S {"Rob" ""} "Rob" <@>
+ reparse err mail: invalid string
+S {"Rob" "@"} "Rob" <@>
+ reparse err mail: invalid string
+S {"Böb, Jacöb" "bob@example.com"} =?utf-8?b?QsO2YiwgSmFjw7Zi?= <bob@example.com>
+ reparse {"Böb, Jacöb" "bob@example.com"} =?utf-8?b?QsO2YiwgSmFjw7Zi?= <bob@example.com>
+S {"=??Q?x?=" "hello@world.com"} "=??Q?x?=" <hello@world.com>
+ reparse {"=??Q?x?=" "hello@world.com"} "=??Q?x?=" <hello@world.com>
+S {"=?hello" "hello@world.com"} "=?hello" <hello@world.com>
+ reparse {"=?hello" "hello@world.com"} "=?hello" <hello@world.com>
+S {"world?=" "hello@world.com"} "world?=" <hello@world.com>
+ reparse {"world?=" "hello@world.com"} "world?=" <hello@world.com>
+S {"" "invalid-utf8@example.net"} <invalid-utf8@example.net>
+ reparse {"" "invalid-utf8@example.net"} <invalid-utf8@example.net>
+S {"" "bob@[192.168.0.1]"} <bob@[192.168.0.1]>
+ reparse {"" "bob@[192.168.0.1]"} <bob@[192.168.0.1]>
+S {"Bob" "bob@[192.168.0.1]"} "Bob" <bob@[192.168.0.1]>
+ reparse {"Bob" "bob@[192.168.0.1]"} "Bob" <bob@[192.168.0.1]>
+S {"@lïce" "alice@example.com"} =?utf-8?b?QGzDr2Nl?= <alice@example.com>
+ reparse {"@lïce" "alice@example.com"} =?utf-8?b?QGzDr2Nl?= <alice@example.com>
+S {"Böb O'Connor" "bob@example.com"} =?utf-8?b?QsO2YiBPJ0Nvbm5vcg==?= <bob@example.com>
+ reparse {"Böb O'Connor" "bob@example.com"} =?utf-8?b?QsO2YiBPJ0Nvbm5vcg==?= <bob@example.com>
+S {"???" "bob@example.com"} "???" <bob@example.com>
+ reparse {"???" "bob@example.com"} "???" <bob@example.com>
+S {"Böb ???" "bob@example.com"} =?utf-8?q?B=C3=B6b_=3F=3F=3F?= <bob@example.com>
+ reparse {"Böb ???" "bob@example.com"} =?utf-8?q?B=C3=B6b_=3F=3F=3F?= <bob@example.com>
+S {"Böb (Jacöb)" "bob@example.com"} =?utf-8?b?QsO2YiAoSmFjw7ZiKQ==?= <bob@example.com>
+ reparse {"Böb (Jacöb)" "bob@example.com"} =?utf-8?b?QsO2YiAoSmFjw7ZiKQ==?= <bob@example.com>
+S {"à#$%&'(),.:;<>@[]^`{|}~'" "bob@example.com"} =?utf-8?b?w6AjJCUmJygpLC46Ozw+QFtdXmB7fH1+Jw==?= <bob@example.com>
+ reparse {"à#$%&'(),.:;<>@[]^`{|}~'" "bob@example.com"} =?utf-8?b?w6AjJCUmJygpLC46Ozw+QFtdXmB7fH1+Jw==?= <bob@example.com>
+S {"\"\\\x1f,\"" "0@0"} =?utf-8?b?IlwfLCI=?= <0@0>
+ reparse {"\"\\\x1f,\"" "0@0"} =?utf-8?b?IlwfLCI=?= <0@0>
+S {"naé, mée" "test.mail@gmail.com"} =?utf-8?b?bmHDqSwgbcOpZQ==?= <test.mail@gmail.com>
+ reparse {"naé, mée" "test.mail@gmail.com"} =?utf-8?b?bmHDqSwgbcOpZQ==?= <test.mail@gmail.com>
+S {"" "local"} <local@>
+ reparse err mail: invalid string
+S {"" "a.b.@c"} <"a.b."@c>
+ reparse {"" "a.b.@c"} <"a.b."@c>
+S {"" ".a@c"} <".a"@c>
+ reparse {"" ".a@c"} <".a"@c>
+S {"" "a..b@c"} <"a..b"@c>
+ reparse {"" "a..b@c"} <"a..b"@c>
+S {"" "\x01@x"} <""@x>
+ reparse err mail: empty quoted string in addr-spec
+S {"" "a\"b@c"} <"a\"b"@c>
+ reparse {"" "a\"b@c"} <"a\"b"@c>
+S {"" "a\\b@c"} <"a\\b"@c>
+ reparse {"" "a\\b@c"} <"a\\b"@c>
+S {"" "ü@x"} <ü@x>
+ reparse {"" "ü@x"} <ü@x>
+S {"\x01abc" "a@b"} =?utf-8?q?=01abc?= <a@b>
+ reparse {"\x01abc" "a@b"} =?utf-8?q?=01abc?= <a@b>
+S {"a\tb" "a@b"} "a	b" <a@b>
+ reparse {"a\tb" "a@b"} "a	b" <a@b>
+S {"Ünïcödé Ñame" "x@y"} =?utf-8?q?=C3=9Cn=C3=AFc=C3=B6d=C3=A9_=C3=91ame?= <x@y>
+ reparse {"Ünïcödé Ñame" "x@y"} =?utf-8?q?=C3=9Cn=C3=AFc=C3=B6d=C3=A9_=C3=91ame?= <x@y>
+S {"éééééééééééééééééééééééééééééééééééééééé" "x@y"} =?utf-8?q?=C3=A9=C3=A9=C3=A9=C3=A9=C3=A9=C3=A9=C3=A9=C3=A9=C3=A9=C3=A9?= =?utf-8?q?=C3=A9=C3=A9=C3=A9=C3=A9=C3=A9=C3=A9=C3=A9=C3=A9=C3=A9=C3=A9?= =?utf-8?q?=C3=A9=C3=A9=C3=A9=C3=A9=C3=A9=C3=A9=C3=A9=C3=A9=C3=A9=C3=A9?= =?utf-8?q?=C3=A9=C3=A9=C3=A9=C3=A9=C3=A9=C3=A9=C3=A9=C3=A9=C3=A9=C3=A9?= <x@y>
+ reparse {"éééééééééééééééééééééééééééééééééééééééé" "x@y"} =?utf-8?q?=C3=A9=C3=A9=C3=A9=C3=A9=C3=A9=C3=A9=C3=A9=C3=A9=C3=A9=C3=A9?= =?utf-8?q?=C3=A9=C3=A9=C3=A9=C3=A9=C3=A9=C3=A9=C3=A9=C3=A9=C3=A9=C3=A9?= =?utf-8?q?=C3=A9=C3=A9=C3=A9=C3=A9=C3=A9=C3=A9=C3=A9=C3=A9=C3=A9=C3=A9?= =?utf-8?q?=C3=A9=C3=A9=C3=A9=C3=A9=C3=A9=C3=A9=C3=A9=C3=A9=C3=A9=C3=A9?= <x@y>
+S {"é.éééééééééééééééééééééééééééééééééééééééé" "x@y"} =?utf-8?b?w6kuw6nDqcOpw6nDqcOpw6nDqcOpw6nDqcOpw6nDqcOpw6nDqcOpw6nDqcOp?= =?utf-8?b?w6nDqcOpw6nDqcOpw6nDqcOpw6nDqcOpw6nDqcOpw6nDqcOpw6k=?= <x@y>
+ reparse {"é.éééééééééééééééééééééééééééééééééééééééé" "x@y"} =?utf-8?b?w6kuw6nDqcOpw6nDqcOpw6nDqcOpw6nDqcOpw6nDqcOpw6nDqcOpw6nDqcOp?= =?utf-8?b?w6nDqcOpw6nDqcOpw6nDqcOpw6nDqcOpw6nDqcOpw6nDqcOpw6k=?= <x@y>
+S {"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAé" "x@y"} =?utf-8?q?AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA?= =?utf-8?q?=C3=A9?= <x@y>
+ reparse {"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAé" "x@y"} =?utf-8?q?AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA?= =?utf-8?q?=C3=A9?= <x@y>
+S {"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxx ü yyyyyyyyyyyyyyyyyyyyyyyyyyyyyy" "x@y"} =?utf-8?q?xxxxxxxxxxxxxxxxxxxxxxxxxxxxxx_=C3=BC_yyyyyyyyyyyyyyyyyyyyyyyyy?= =?utf-8?q?yyyyy?= <x@y>
+ reparse {"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxx ü yyyyyyyyyyyyyyyyyyyyyyyyyyyyyy" "x@y"} =?utf-8?q?xxxxxxxxxxxxxxxxxxxxxxxxxxxxxx_=C3=BC_yyyyyyyyyyyyyyyyyyyyyyyyy?= =?utf-8?q?yyyyy?= <x@y>
+S {"中文名字很长中文名字很长中文名字很长中文名字很长中文名字很长中文名字很长中文名字很长中文名字很长" "x@y"} =?utf-8?q?=E4=B8=AD=E6=96=87=E5=90=8D=E5=AD=97=E5=BE=88=E9=95=BF=E4=B8=AD?= =?utf-8?q?=E6=96=87=E5=90=8D=E5=AD=97=E5=BE=88=E9=95=BF=E4=B8=AD=E6=96=87?= =?utf-8?q?=E5=90=8D=E5=AD=97=E5=BE=88=E9=95=BF=E4=B8=AD=E6=96=87=E5=90=8D?= =?utf-8?q?=E5=AD=97=E5=BE=88=E9=95=BF=E4=B8=AD=E6=96=87=E5=90=8D=E5=AD=97?= =?utf-8?q?=E5=BE=88=E9=95=BF=E4=B8=AD=E6=96=87=E5=90=8D=E5=AD=97=E5=BE=88?= =?utf-8?q?=E9=95=BF=E4=B8=AD=E6=96=87=E5=90=8D=E5=AD=97=E5=BE=88=E9=95=BF?= =?utf-8?q?=E4=B8=AD=E6=96=87=E5=90=8D=E5=AD=97=E5=BE=88=E9=95=BF?= <x@y>
+ reparse {"中文名字很长中文名字很长中文名字很长中文名字很长中文名字很长中文名字很长中文名字很长中文名字很长" "x@y"} =?utf-8?q?=E4=B8=AD=E6=96=87=E5=90=8D=E5=AD=97=E5=BE=88=E9=95=BF=E4=B8=AD?= =?utf-8?q?=E6=96=87=E5=90=8D=E5=AD=97=E5=BE=88=E9=95=BF=E4=B8=AD=E6=96=87?= =?utf-8?q?=E5=90=8D=E5=AD=97=E5=BE=88=E9=95=BF=E4=B8=AD=E6=96=87=E5=90=8D?= =?utf-8?q?=E5=AD=97=E5=BE=88=E9=95=BF=E4=B8=AD=E6=96=87=E5=90=8D=E5=AD=97?= =?utf-8?q?=E5=BE=88=E9=95=BF=E4=B8=AD=E6=96=87=E5=90=8D=E5=AD=97=E5=BE=88?= =?utf-8?q?=E9=95=BF=E4=B8=AD=E6=96=87=E5=90=8D=E5=AD=97=E5=BE=88=E9=95=BF?= =?utf-8?q?=E4=B8=AD=E6=96=87=E5=90=8D=E5=AD=97=E5=BE=88=E9=95=BF?= <x@y>
+S {"中文.名字中文.名字中文.名字中文.名字中文.名字中文.名字" "x@y"} =?utf-8?b?5Lit5paHLuWQjeWtl+S4reaWhy7lkI3lrZfkuK3mlocu5ZCN5a2X5Lit5paH?= =?utf-8?b?LuWQjeWtl+S4reaWhy7lkI3lrZfkuK3mlocu5ZCN5a2X?= <x@y>
+ reparse {"中文.名字中文.名字中文.名字中文.名字中文.名字中文.名字" "x@y"} =?utf-8?b?5Lit5paHLuWQjeWtl+S4reaWhy7lkI3lrZfkuK3mlocu5ZCN5a2X5Lit5paH?= =?utf-8?b?LuWQjeWtl+S4reaWhy7lkI3lrZfkuK3mlocu5ZCN5a2X?= <x@y>
+S {"=?utf-8?q?x?=" "a@b"} "=?utf-8?q?x?=" <a@b>
+ reparse {"=?utf-8?q?x?=" "a@b"} "=?utf-8?q?x?=" <a@b>
+S {"a?b_c=d é" "a@b"} =?utf-8?q?a=3Fb=5Fc=3Dd_=C3=A9?= <a@b>
+ reparse {"a?b_c=d é" "a@b"} =?utf-8?q?a=3Fb=5Fc=3Dd_=C3=A9?= <a@b>
+S {"😀 smile" "s@x"} =?utf-8?q?=F0=9F=98=80_smile?= <s@x>
+ reparse {"😀 smile" "s@x"} =?utf-8?q?=F0=9F=98=80_smile?= <s@x>
+S {"\"quoted\"" "a@b"} "\"quoted\"" <a@b>
+ reparse {"\"quoted\"" "a@b"} "\"quoted\"" <a@b>
+S {"back\\slash" "a@b"} "back\\slash" <a@b>
+ reparse {"back\\slash" "a@b"} "back\\slash" <a@b>
+S {"" ""} <@>
+ reparse err mail: invalid string
+S {"n" ""} "n" <@>
+ reparse err mail: invalid string
+S {"" "@"} <@>
+ reparse err mail: invalid string
+D "Fri, 21 Nov 1997 09:55:06 -0600" 880127706 0 "" -21600
+D "" err mail: header could not be parsed
+D "21 Nov 97 09:55:06 GMT" 880106106 0 "GMT" 0
+D "GMT" err mail: header could not be parsed
+D "Fri, 21 Nov 1997 09:55:06 -0600 (MDT)" 880127706 0 "" -21600
+D "Thu, 20 Nov 1997 09:55:06 -0600 (MDT)" 880041306 0 "" -21600
+D "Thu, 20 Nov 1997 09:55:06 GMT (GMT)" 880019706 0 "GMT" 0
+D "Fri, 21 Nov 1997 09:55:06 +1300 (TOT)" 880059306 0 "" 46800
+D "Date" err mail: header could not be parsed
+D "Header(Date: %s).Date(): %v" err mail: header could not be parsed
+D "Header(Date: %s).Date() = %+v, want %+v" err mail: header could not be parsed
+D "ParseDate(%s): %v" err mail: header could not be parsed
+D "ParseDate(%s) = %+v, want %+v" err mail: header could not be parsed
+D "   " err mail: header could not be parsed
+D "   Fri, 21 Nov 1997 09:55:06 -0600" 880127706 0 "" -21600
+D "21 Nov 1997 09:55:06 -0600" 880127706 0 "" -21600
+D "Fri 21 Nov 1997 09:55:06 -0600" err mail: header could not be parsed
+D "Fri,        21 Nov 1997 09:55:06 -0600" 880127706 0 "" -21600
+D "Fri, 21 Nov       1997     09:55:06 -0600" 880127706 0 "" -21600
+D "Fri, 21 Nov 1997 09:55:06           CST" 880106106 0 "CST" 0
+D "Fri, 21 Nov 1997 09:55:06           CST (no leading FWS and a trailing CRLF) \r\n" 880106106 0 "CST" 0
+D "Fri, 21    Nov 1997    09:55:06 -0600 (MDT and non-US-ASCII signs éèç )" 880127706 0 "" -21600
+D "Fri, 21 Nov 1997 09:55:06 -0600    \r\n (thisisa(valid)cfws)   \t " 880127706 0 "" -21600
+D "Fri, 21 Nov 1997 \r 09:55:06 -0600    \r\n (thisisa(valid)cfws)   \t " err mail: header has a CR without LF
+D "Fri, 21 Nov 199\r\n7  09:55:06 -0600    \r\n (thisisa(valid)cfws)   \t " 880127706 0 "" -21600
+D "Fri, 21 Nov 1997 ù 09:55:06 -0600    \r\n (thisisa(valid)cfws)   \t " err mail: header could not be parsed
+D "Fri, 21 Nov () 1997 09:55:06 -0600    \r\n (thisisa(valid)cfws)   \t " err mail: header could not be parsed
+D "Fri, 21 Nov 1997 09:55:06 -060    \r\n (Thisisa(valid)cfws)   \t " err mail: header could not be parsed
+D "Fri, 21  1997 09:55:06 -0600" err mail: header could not be parsed
+D "Fri, 21 OCT 1997 09:55:06 CST" err mail: header could not be parsed
+D "Fri, 21 Nov 1997 09:55:06 -060" err mail: header could not be parsed
+D "Fri, 21  1997 09:55:06 GT" err mail: header could not be parsed
+D "Tue, 26 May 2020 14:04:40 GMT" 1590501880 0 "GMT" 0
+D "Tue, 26 May 2020 14:04:40 UT" 1590501880 0 "UTC" 0
+D "Thu, 21 May 2020 14:04:40 UT" 1590069880 0 "UTC" 0
+D "Tue, 26 May 2020 14:04:40 XT" err mail: header could not be parsed
+D "Thu, 21 May 2020 14:04:40 XT" err mail: header could not be parsed
+D "Thu, 21 May 2020 14:04:40 UTC" 1590069880 0 "UTC" 0
+D "Fri, 21 Nov 1997 09:55:06 GMT (GMT)" 880106106 0 "GMT" 0
+D "Header(Date: %s).Date() did not return an error but %v" err mail: header could not be parsed
+D "ParseDate(%s) did not return an error but %v" err mail: header could not be parsed
+D "Mon, 2 Jan 2006 15:04:05 +0000" 1136214245 0 "UTC" 0
+D "2 Jan 06 15:04 -0000" 1136214240 0 "UTC" 0
+D "Tue, 30 Feb 2021 10:00:00 +0000" err mail: header could not be parsed
+D "Wed, 31 Dec 1969 23:59:59 GMT" -1 0 "GMT" 0
+D "Sat, 1 Jan 0000 00:00:00 +0000" -62167219200 0 "UTC" 0
+D "Fri, 31 Dec 9999 23:59:59 -2400" 253402387199 0 "" -86400
+D "mon, 02 jan 2006 15:04:05 EST" 1136214245 0 "EST" 0
+D "Mon, 02 Jan 2006 15:04:05.123456789 +0100" 1136210645 123456789 "" 3600
+D "Mon, 02 Jan 2006 15:04:05,5 +0100" 1136210645 500000000 "" 3600
+D "Mon, 02 Jan 2006 15:04:05.1234567891234 +0100" 1136210645 123456789 "" 3600
+D "Mon, 02 Jan 2006 24:00:00 +0000" err mail: header could not be parsed
+D "Mon, 02 Jan 2006 15:60 +0000" err mail: header could not be parsed
+D "Mon, 02 Jan 2006 15:04:05 +2500" err mail: header could not be parsed
+D "Mon, 02 Jan 2006 15:04:05 +2460" 1136124245 0 "" 90000
+D "Mon, 02 Jan 2006 15:04:05 +2361" err mail: header could not be parsed
+D "Mon, 02 Jan 2006 15:04:05 UTC" 1136214245 0 "UTC" 0
+D "Mon, 02 Jan 2006 15:04:05 UT" 1136214245 0 "UTC" 0
+D "Mon, 02 Jan 2006 15:04:05 PST" 1136214245 0 "PST" 0
+D "Mon, 02 Jan 2006 15:04:05 ChST" 1136214245 0 "ChST" 0
+D "Mon, 02 Jan 2006 15:04:05 WITA" 1136214245 0 "WITA" 0
+D "Mon, 02 Jan 2006 15:04:05 CEST" 1136214245 0 "CEST" 0
+D "Mon, 02 Jan 2006 15:04:05 AEDT" 1136214245 0 "AEDT" 0
+D "Mon, 02 Jan 2006 15:04:05 ABCDT" 1136214245 0 "ABCDT" 0
+D "Mon, 02 Jan 2006 15:04:05 +01:00" err mail: header could not be parsed
+D "Mon, 02 Jan 2006 15:04:05" err mail: header could not be parsed
+D "Mon, 02 Jan 2006 15:04:05 (comment" err mail: header could not be parsed
+D "Mon, 02 Jan\r\n 2006 15:04:05 +0000" 1136214245 0 "UTC" 0
+D "Mon, 02 Jan 2006\r 15:04:05 +0000" err mail: header has a CR without LF
+D " Mon, 2 Jan 2006 15:04 -0700" 1136239440 0 "" -25200
+D "Mon,2 Jan 2006 15:04 -0700" err mail: header could not be parsed
+D "2 Jan 2006 15:04:05 -0700 (MST)" 1136239445 0 "" -25200
+D "Fri, 21 Nov 1997 09:55:06 +1300 (TOT" err mail: misformatted parenthetical comment
+D "Thu, 1 Jan 1970 00:00:00 GMT+5" 0 0 "GMT+5" 18000
+D "Mon, 02 Jan 2006 15:04:05 -07" 1136214245 0 "-07" 0
+D "Mon, 02 Jan 2006 15:04:05 x0700" err mail: header could not be parsed
+D "Mon, 02 Jan 69 00:00 +0000" -31449600 0 "UTC" 0
+D "Mon, 02 Jan 68 23:59 +0000" 3092774340 0 "UTC" 0
+D "Sun, 29 Feb 2004 12:00 -0130" 1078061400 0 "" -5400
+D "Sun, 29 Feb 2100 12:00 +0000" err mail: header could not be parsed
+D "Tue, 29 Feb 2000 12:00:00 Z" err mail: header could not be parsed
+D "02 Jan 2006 15:04 PDT" 1136214240 0 "PDT" 0
+D "Mon, 02 Foo 2006 15:04 +0000" err mail: header could not be parsed
+D "Xyz, 02 Jan 2006 15:04 +0000" err mail: header could not be parsed
+D "Monday, 02 Jan 2006 15:04 +0000" err mail: header could not be parsed
+D "Mon, 2 Jan 2006 5:04 +0000" 1136178240 0 "UTC" 0
+D "Mon, 2 Jan 2006 15:4 +0000" err mail: header could not be parsed
+D "Mon, 123 Jan 2006 15:04 +0000" err mail: header could not be parsed
+D "Mon, 0 Jan 2006 15:04 +0000" err mail: header could not be parsed
+D "Mon, 32 Jan 2006 15:04 +0000" err mail: header could not be parsed
+D "Mon, 2 Jan 20066 15:04 +0000" err mail: header could not be parsed
+D "Mon, 2 Jan +5 15:04 +0000" err mail: header could not be parsed
+D "Mon, 2 Jan -1 15:04 GMT" err mail: header could not be parsed
+D "Mon, 2 Jan 2006 15:04 +0000 trailing" 1136214240 0 "UTC" 0
+D "Mon, 2 Jan 2006 15:04 GMT trailing" 1136214240 0 "GMT" 0
+D "Mon, 2 Jan 2006 15:04 E" err mail: header could not be parsed
+D "T" err mail: header could not be parsed
+D "Mon, 2 Jan 2006 15:04 -0000 (x) (y)" 1136214240 0 "UTC" 0
+D "Mon, 2 Jan 2006 15:04 +0000 (a (b) c)" 1136214240 0 "UTC" 0
+D "Thu, 2 Jan 2006 15:04 MDT" 1136214240 0 "MDT" 0
+D "Thu, 2 Jan 2006 15:04 MDT (MDT)" 1136214240 0 "MDT" 0
+D "Mon, 02 Jan 2006 15:04:05 +1400" 1136163845 0 "" 50400
+D "Mon, 02 Jan 2006 15:04:05 -1200" 1136257445 0 "" -43200
+D "Mon, 02 Jan 2006 15:04:05 +0545" 1136193545 0 "" 20700
+D "MON, 02 JAN 2006 15:04:05 GMT" 1136214245 0 "GMT" 0
+K "content-type" "Content-Type"
+K "CONTENT-TYPE" "Content-Type"
+K "x-my-header" "X-My-Header"
+K "foo bar" "foo bar"
+K "foo@bar" "foo@bar"
+K "" ""
+K "-x-" "-X-"
+K "a--b" "A--B"
+K "ÄBC" "ÄBC"
+K "message-id" "Message-Id"
+K "Mime-version" "Mime-Version"
+K "user_agent" "User_agent"
+K "Content-Type" "Content-Type"
+K "cOnTeNt-tYpE" "Content-Type"
+K "x" "X"
+K "X-" "X-"
+K "1abc-def" "1abc-Def"
+K "foo:bar" "foo:bar"
+K "Custom/Header" "Custom/Header"
+K "a.b_c~d" "A.b_c~d"
+M "From: John Doe <jdoe@machine.example>\nTo: Mary Smith <mary@example.net>\nSubject: Saying Hello\nDate: Fri, 21 Nov 1997 09:55:06 -0600\nMessage-ID: <1234@local.machine.example>\n\nThis is a message just to say hello.\nSo, \"Hello\".\n"
+ H "Date" "Fri, 21 Nov 1997 09:55:06 -0600"
+ H "From" "John Doe <jdoe@machine.example>"
+ H "Message-Id" "<1234@local.machine.example>"
+ H "Subject" "Saying Hello"
+ H "To" "Mary Smith <mary@example.net>"
+ get subject "Saying Hello" from "John Doe <jdoe@machine.example>"
+ From 1
+  {"John Doe" "jdoe@machine.example"} "John Doe" <jdoe@machine.example>
+ to 1
+  {"Mary Smith" "mary@example.net"} "Mary Smith" <mary@example.net>
+ Cc err mail: header not in message
+ date 880127706 0 "" -21600
+ body "This is a message just to say hello.\nSo, \"Hello\".\n"
+M "Feedback-Type: abuse\nUser-Agent: SomeGenerator/1.0\nVersion: 1\n"
+ H "Feedback-Type" "abuse"
+ H "User-Agent" "SomeGenerator/1.0"
+ H "Version" "1"
+ get subject "" from ""
+ From err mail: header not in message
+ to err mail: header not in message
+ Cc err mail: header not in message
+ date err mail: header not in message
+ body ""
+M "From: iant@golang.org\nCustom/Header: v\n\nBody\n"
+ H "Custom/Header" "v"
+ H "From" "iant@golang.org"
+ get subject "" from "iant@golang.org"
+ From 1
+  {"" "iant@golang.org"} <iant@golang.org>
+ to err mail: header not in message
+ Cc err mail: header not in message
+ date err mail: header not in message
+ body "Body\n"
+M "From iant@golang.org Mon Jun 19 00:00:00 2023\nFrom: iant@golang.org\n\nHello, gophers!\n"
+ H "From" "iant@golang.org"
+ H "From iant@golang.org Mon Jun 19 00" "00:00 2023"
+ get subject "" from "iant@golang.org"
+ From 1
+  {"" "iant@golang.org"} <iant@golang.org>
+ to err mail: header not in message
+ Cc err mail: header not in message
+ date err mail: header not in message
+ body "Hello, gophers!\n"
+M "From: John Doe <jdoe@machine.example>\r\nTo: Mary Smith <mary@example.net>, \r\n  Bob <bob@example.net>\r\nCc: g: a@b, c@d;\r\nSubject: Saying Hello\r\nDate: Fri, 21 Nov 1997 09:55:06 -0600\r\n\r\nThis is a message.\r\nSo, \"Hello\".\r\n"
+ H "Cc" "g: a@b, c@d;"
+ H "Date" "Fri, 21 Nov 1997 09:55:06 -0600"
+ H "From" "John Doe <jdoe@machine.example>"
+ H "Subject" "Saying Hello"
+ H "To" "Mary Smith <mary@example.net>, Bob <bob@example.net>"
+ get subject "Saying Hello" from "John Doe <jdoe@machine.example>"
+ From 1
+  {"John Doe" "jdoe@machine.example"} "John Doe" <jdoe@machine.example>
+ to 2
+  {"Mary Smith" "mary@example.net"} "Mary Smith" <mary@example.net>
+  {"Bob" "bob@example.net"} "Bob" <bob@example.net>
+ Cc 2
+  {"" "a@b"} <a@b>
+  {"" "c@d"} <c@d>
+ date 880127706 0 "" -21600
+ body "This is a message.\r\nSo, \"Hello\".\r\n"
+M "subject: line one\n  continued\n\tmore   \nX-Empty:\nx-dup: 1\nX-DUP: 2\n\nbody\n"
+ H "Subject" "line one continued more"
+ H "X-Dup" "1"
+ H "X-Dup" "2"
+ H "X-Empty" ""
+ get subject "line one continued more" from ""
+ From err mail: header not in message
+ to err mail: header not in message
+ Cc err mail: header not in message
+ date err mail: header not in message
+ body "body\n"
+M "A: b\n"
+ H "A" "b"
+ get subject "" from ""
+ From err mail: header not in message
+ to err mail: header not in message
+ Cc err mail: header not in message
+ date err mail: header not in message
+ body ""
+M "A: b"
+ H "A" "b"
+ get subject "" from ""
+ From err mail: header not in message
+ to err mail: header not in message
+ Cc err mail: header not in message
+ date err mail: header not in message
+ body ""
+M "A: b\n   "
+ H "A" "b "
+ get subject "" from ""
+ From err mail: header not in message
+ to err mail: header not in message
+ Cc err mail: header not in message
+ date err mail: header not in message
+ body ""
+M ""
+ err EOF
+M "\n"
+ get subject "" from ""
+ From err mail: header not in message
+ to err mail: header not in message
+ Cc err mail: header not in message
+ date err mail: header not in message
+ body ""
+M "\nbody only"
+ get subject "" from ""
+ From err mail: header not in message
+ to err mail: header not in message
+ Cc err mail: header not in message
+ date err mail: header not in message
+ body "body only"
+M " bad: initial\nA: b\n\n"
+ err malformed initial line: " bad: initial"
+M "\tbad\n"
+ err malformed initial line: "\tbad"
+M "noColon\n\n"
+ err malformed header line: "noColon"
+M "A: b\nnoColon\n\n"
+ err malformed header line: "noColon"
+M ": empty key\nB: c\n\n"
+ H "B" "c"
+ get subject "" from ""
+ From err mail: header not in message
+ to err mail: header not in message
+ Cc err mail: header not in message
+ date err mail: header not in message
+ body ""
+M "Key : spaced\n\n"
+ H "Key " "spaced"
+ get subject "" from ""
+ From err mail: header not in message
+ to err mail: header not in message
+ Cc err mail: header not in message
+ date err mail: header not in message
+ body ""
+M "To: bad address\n\nx"
+ H "To" "bad address"
+ get subject "" from ""
+ From err mail: header not in message
+ to err mail: no angle-addr
+ Cc err mail: header not in message
+ date err mail: header not in message
+ body "x"
+M "Date: garbage\n\n"
+ H "Date" "garbage"
+ get subject "" from ""
+ From err mail: header not in message
+ to err mail: header not in message
+ Cc err mail: header not in message
+ date err mail: header could not be parsed
+ body ""
+M "Date: Mon, 2 Jan 2006 15:04 +0100\nFrom: =?utf-8?q?J=C3=B6rg?= <j@x>\n\n"
+ H "Date" "Mon, 2 Jan 2006 15:04 +0100"
+ H "From" "=?utf-8?q?J=C3=B6rg?= <j@x>"
+ get subject "" from "=?utf-8?q?J=C3=B6rg?= <j@x>"
+ From 1
+  {"Jörg" "j@x"} =?utf-8?q?J=C3=B6rg?= <j@x>
+ to err mail: header not in message
+ Cc err mail: header not in message
+ date 1136210640 0 "" 3600
+ body ""
+M "A:b\r"
+ H "A" "b\r"
+ get subject "" from ""
+ From err mail: header not in message
+ to err mail: header not in message
+ Cc err mail: header not in message
+ date err mail: header not in message
+ body ""
+M "A: b\r\n\r\nbody\r\nwith CRLF"
+ H "A" "b"
+ get subject "" from ""
+ From err mail: header not in message
+ to err mail: header not in message
+ Cc err mail: header not in message
+ date err mail: header not in message
+ body "body\r\nwith CRLF"
+M "A:    \t value with spaces  \t\nB:\n\n\n\nbody after blanks"
+ H "A" "value with spaces"
+ H "B" ""
+ get subject "" from ""
+ From err mail: header not in message
+ to err mail: header not in message
+ Cc err mail: header not in message
+ date err mail: header not in message
+ body "\n\nbody after blanks"
+M "X: 1\n \n Y\n\n"
+ H "X" "1  Y"
+ get subject "" from ""
+ From err mail: header not in message
+ to err mail: header not in message
+ Cc err mail: header not in message
+ date err mail: header not in message
+ body ""
+M "subject: héllo wörld\nfrom: 日本 <n@x.jp>\n\nüñí\n"
+ H "From" "日本 <n@x.jp>"
+ H "Subject" "héllo wörld"
+ get subject "héllo wörld" from "日本 <n@x.jp>"
+ From 1
+  {"日本" "n@x.jp"} =?utf-8?q?=E6=97=A5=E6=9C=AC?= <n@x.jp>
+ to err mail: header not in message
+ Cc err mail: header not in message
+ date err mail: header not in message
+ body "üñí\n"
+M "To: a@b,\n c@d,\n\te@f\nCc:\n\n"
+ H "Cc" ""
+ H "To" "a@b, c@d, e@f"
+ get subject "" from ""
+ From err mail: header not in message
+ to 3
+  {"" "a@b"} <a@b>
+  {"" "c@d"} <c@d>
+  {"" "e@f"} <e@f>
+ Cc err mail: header not in message
+ date err mail: header not in message
+ body ""
+M "mime-version: 1.0\ncontent-type: text/plain\nmessage-id: <x@y>\n\n"
+ H "Content-Type" "text/plain"
+ H "Message-Id" "<x@y>"
+ H "Mime-Version" "1.0"
+ get subject "" from ""
+ From err mail: header not in message
+ to err mail: header not in message
+ Cc err mail: header not in message
+ date err mail: header not in message
+ body ""

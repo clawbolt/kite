@@ -1,0 +1,870 @@
+// Kite 自举编译器：字节码编译器（vm.py 的 FnComp / Compiler 的移植，自举第 3b 步）
+// 输入是检查后改写过的语法树（check.check 的第三个结果），输出和 tools/bc_dump.py 逐字节相同
+// 指令的操作码直接用名字（Str），操作数用 V：Proto 引用是 VI(创建序号)，输出时换成 {P@序号}；Unit 是 {U@0}
+
+use ast
+use ast.{ V, nd, kind, line, fld, sv, iv, items, is_nil }
+use modules
+
+type Lp = { breaks: List<Int>, cont: Int, depth: Int, slot: Int, defers: Int, label: V, res: Int }
+
+type FC = {
+  name: Str,
+  np: Int,
+  nl: Int,
+  code: List<(Str, V)>,
+  lines: List<Int>,
+  upd: List<V>,
+  scopes: List<Map<Str, (Int, Bool)>>,
+  ns: Int,
+  upn: Map<Str, (Int, Bool)>,
+  depth: Int,
+  loops: List<Lp>,
+  nd: Int,
+  ln: Int,
+  chunk: Bool,
+  par: Bool,
+  orb: Map<Str, V>,
+  orb_on: Bool,
+}
+
+pub type PR = { name: Str, np: Int, nl: Int, code: List<(Str, V)>, lines: List<Int>, upd: List<V> }
+
+// 全局的值（对应 Python VM globals 里的对象种类，原生后端按种类生成初始化代码）
+pub enum GV {
+  GOther,
+  GFn(Int),
+  GStruct(V),
+  GEnum(V),
+  GBuiltin(Str),
+  GCtor(Str),
+  GEVal(Str, Str),
+  GMod(Str),
+  GMember(Str),
+  GExt(V, V),
+}
+
+pub type S = {
+  f: FC,
+  outer: List<FC>,
+  protos: List<PR>,
+  gmut: Map<Str, Bool>,
+  gord: List<Str>,
+  gval: Map<Str, GV>,
+  mord: List<Str>,
+  mtab: Map<Str, (List<Str>, Map<Str, Int>)>,
+  traits: Map<Str, List<V>>,
+  err: Str,
+}
+
+const DECLS: List<Str> = ["Fn", "Struct", "Enum", "Trait", "Impl", "Alias", "Use", "Mod"]
+
+// 虚拟机启动时已有的全局（kite.py 的内建函数表，顺序有意义：重新定义的名字保持原来的位置）
+const INIT_GLOBALS: Str = "print len str __fmt __repeat int float type_of map par_map __race timeout actor tell ask __recover_raw __repanic __restart_log __restart_log_w supervise actor_supervised chan send recv try_recv close __select sleep now_ms filter each reduce fold sum count any all find first last get take skip reverse sort sort_by sort_with zip enumerate push concat contains join split trim upper lower starts_with ends_with replace chars parse_int parse_float remove keys values set Set __set_lit __set_union __set_intersect __set_difference insert union intersect difference is_subset to_list Map min max abs Ok Err Some unwrap unwrap_or is_ok is_err is_some is_none panic assert assert_eq assert_ne __kite_test __env_get __args __exit __run __ord __chr __unix_ms __slice __band __bor __bxor __bnot __shl __shr __str_slice __str_find __tls_server_ctx __tls_accept __tls_client __tls_handshake __tcp_listen __tcp_port __tcp_accept __tcp_connect __tcp_read_line __tcp_read_bytes __tcp_read_all __tcp_write __tcp_flush __tcp_close __byte_len __bytes __from_bytes __eprint __fs_stat __getcwd __chdir __chmod __env_set __env_unset __environ __hostname __getpid __read_bytes __write_bytes __tz_offset __random_bytes __unix_ns None Result Option"
+
+fn new_fc(name: Str, np: Int, chunk: Bool, par: Bool) -> FC {
+  FC {
+    name: name,
+    np: np,
+    nl: 0,
+    code: [],
+    lines: [],
+    upd: [],
+    scopes: [],
+    ns: 0,
+    upn: Map(),
+    depth: 0,
+    loops: [],
+    nd: 0,
+    ln: 0,
+    chunk: chunk,
+    par: par,
+    orb: Map(),
+    orb_on: false,
+  }
+}
+
+fn new_s() -> S {
+  var gval: Map<Str, GV> = Map()
+  let names = split(INIT_GLOBALS, " ")
+  for n in names { gval = set(gval, n, GBuiltin(n)) }
+  gval = set(gval, "None", GEVal("Option", "None"))
+  gval = set(gval, "Result", GEnum(VL([VT([VS("Ok"), VNil]), VT([VS("Err"), VNil])])))
+  gval = set(gval, "Option", GEnum(VL([VT([VS("Some"), VNil]), VT([VS("None"), VNil])])))
+  S {
+    f: new_fc("<main>", 0, true, false),
+    outer: [],
+    protos: [],
+    gmut: Map(),
+    gord: names,
+    gval: gval,
+    mord: [],
+    mtab: Map(),
+    traits: Map(),
+    err: "",
+  }
+}
+
+fn fail(s: S, ln: Int, msg: Str) -> S { if s.err == "" { S { err: "C {ln} " + msg, ..s } } else { s } }
+
+fn lset<T>(xs: List<T>, i: Int, v: T) -> List<T> { take(xs, i) + [v] + skip(xs, i + 1) }
+
+fn gset(s: S, name: Str, v: GV) -> S {
+  let ord = if contains(s.gval, name) { s.gord } else { push(s.gord, name) }
+  S { gord: ord, gval: set(s.gval, name, v), ..s }
+}
+
+fn setln(s: S, ln: Int) -> S { S { f: FC { ln: ln, ..s.f }, ..s } }
+
+// ───────── 发射 ─────────
+
+fn em(s: S, op: Str, arg: V, eff: Int) -> S {
+  let f = s.f
+  S { f: FC { code: push(f.code, (op, arg)), lines: push(f.lines, f.ln), depth: f.depth + eff, ..f }, ..s }
+}
+
+fn emi(s: S, op: Str, arg: V, eff: Int) -> (S, Int) { (em(s, op, arg, eff), len(s.f.code)) }
+
+fn here(s: S) -> Int { len(s.f.code) }
+
+fn patch(s: S, i: Int, target: Int) -> S {
+  let f = s.f
+  let (op, arg) = f.code[i]
+  let t = if target < 0 { len(f.code) } else { target }
+  let na = if op == "FOR_NEXT" { VT([items(arg)[0], VI(t)]) } else { VI(t) }
+  S { f: FC { code: lset(f.code, i, (op, na)), ..f }, ..s }
+}
+
+fn dec_depth(s: S) -> S { S { f: FC { depth: s.f.depth - 1, ..s.f }, ..s } }
+
+// ───────── 作用域 ─────────
+
+fn push_scope(s: S) -> (S, Int, Int) {
+  let f = s.f
+  (S { f: FC { scopes: push(f.scopes, Map()), ..f }, ..s }, f.ns, f.nd)
+}
+
+fn pop_scope(s0: S, base: Int, dbase: Int, close: Bool) -> S {
+  var s = S { f: FC { scopes: take(s0.f.scopes, len(s0.f.scopes) - 1), ..s0.f }, ..s0 }
+  if s.f.nd > dbase { s = em(s, "RUN_DEFERS", VI(dbase), 0) }
+  if close && s.f.ns > base { s = em(s, "CLOSE", VI(base), 0) }
+  S { f: FC { ns: base, nd: dbase, ..s.f }, ..s }
+}
+
+fn drop_scope(s: S, base: Int) -> S { S { f: FC { scopes: take(s.f.scopes, len(s.f.scopes) - 1), ns: base, ..s.f }, ..s } }
+
+fn alloc(s: S) -> (S, Int) {
+  let f = s.f
+  let n = f.ns
+  (S { f: FC { ns: n + 1, nl: max(f.nl, n + 1), ..f }, ..s }, n)
+}
+
+fn declare(s0: S, name: Str, m: Bool) -> (S, Int) {
+  let (s, slot) = alloc(s0)
+  let f = s.f
+  let k = len(f.scopes) - 1
+  (S { f: FC { scopes: lset(f.scopes, k, set(f.scopes[k], name, (slot, m))), ..f }, ..s }, slot)
+}
+
+// 名字解析：0 局部槽位 / 1 upvalue / 2 全局
+fn res_at(all: List<FC>, i: Int, name: Str, gmut: Map<Str, Bool>) -> (List<FC>, Int, Int, Bool) {
+  let fc = all[i]
+  var j = len(fc.scopes) - 1
+  while j >= 0 {
+    if let Some((slot, m)) = get(fc.scopes[j], name) { return (all, 0, slot, m) }
+    j -= 1
+  }
+  if let Some((u, m)) = get(fc.upn, name) { return (all, 1, u, m) }
+  if fc.par && i > 0 {
+    let (all2, k, slot, m) = res_at(all, i - 1, name, gmut)
+    if k < 2 {
+      let f2 = all2[i]
+      let idx = len(f2.upd)
+      let f3 = FC { upd: push(f2.upd, VT([VB(k == 0), VI(slot)])), upn: set(f2.upn, name, (idx, m)), ..f2 }
+      return (lset(all2, i, f3), 1, idx, m)
+    }
+  }
+  (all, 2, 0, unwrap_or(get(gmut, name), false))
+}
+
+fn resolve(s: S, name: Str) -> (S, Int, V, Bool) {
+  let all = push(s.outer, s.f)
+  let n = len(all)
+  let (all2, k, slot, m) = res_at(all, n - 1, name, s.gmut)
+  let s2 = S { f: all2[n - 1], outer: take(all2, n - 1), ..s }
+  (s2, k, if k == 2 { VS(name) } else { VI(slot) }, m)
+}
+
+fn load(s0: S, name: Str) -> S {
+  let (s, k, a, _) = resolve(s0, name)
+  em(s, if k == 0 { "LOAD_L" } else if k == 1 { "LOAD_U" } else { "LOAD_G" }, a, 1)
+}
+
+fn store(s0: S, name: Str, ln: Int) -> S {
+  let (s, k, a, m) = resolve(s0, name)
+  if !m { return fail(s, ln, "编译错误: 不能给不可变绑定 `{name}` 赋值（用 var 声明）") }
+  em(s, if k == 0 { "STORE_L" } else if k == 1 { "STORE_U" } else { "STORE_G" }, a, -1)
+}
+
+fn bind_target(s: S, name: Str, m: Bool) -> (S, V) {
+  if s.f.chunk && len(s.f.scopes) == 0 { return (S { gmut: set(s.gmut, name, m), ..s }, VT([VS("gbind"), VS(name)])) }
+  let (s2, slot) = declare(s, name, m)
+  (s2, VT([VS("bind"), VI(slot)]))
+}
+
+// ───────── 模式 ─────────
+
+fn cpats(s0: S, ps: List<V>, m: Bool) -> (S, List<V>) {
+  var s = s0
+  var out: List<V> = []
+  for p in ps {
+    let (s2, q) = cpat(s, p, m)
+    s = s2
+    out = push(out, q)
+  }
+  (s, out)
+}
+
+fn cpat(s0: S, p: V, mutable: Bool) -> (S, V) {
+  let xs = items(p)
+  let k = sv(xs[0])
+  if k == "bind" {
+    let m = mutable || len(xs) > 2
+    let nm = sv(xs[1])
+    if !s0.f.orb_on { return bind_target(s0, nm, m) }
+    if let Some(t) = get(s0.f.orb, nm) { return (s0, t) }
+    let (s1, t) = bind_target(s0, nm, m)
+    return (S { f: FC { orb: set(s1.f.orb, nm, t), ..s1.f }, ..s1 }, t)
+  }
+  if k == "at" {
+    let (s1, a) = cpat(s0, xs[1], mutable)
+    let (s2, b) = cpat(s1, xs[2], mutable)
+    return (s2, VT([VS("at"), a, b]))
+  }
+  if k == "or" {
+    let saved = s0.f.orb_on
+    var s = s0
+    if !saved { s = S { f: FC { orb_on: true, orb: Map(), ..s.f }, ..s } }
+    let (s1, alts) = cpats(s, items(xs[1]), mutable)
+    var s2 = s1
+    if !saved { s2 = S { f: FC { orb_on: false, orb: Map(), ..s2.f }, ..s2 } }
+    return (s2, VT([VS("or"), VL(alts)]))
+  }
+  if k == "tuple" {
+    let (s1, ys) = cpats(s0, items(xs[1]), mutable)
+    return (s1, VT([VS("tuple"), VL(ys)]))
+  }
+  if k == "list" {
+    var s = s0
+    var r = VNil
+    if !is_nil(xs[2]) {
+      if sv(xs[2]) == "_" { r = VT([VS("wild")]) } else {
+        let (s1, t) = bind_target(s, sv(xs[2]), mutable)
+        s = s1
+        r = t
+      }
+    }
+    let (s2, pre) = cpats(s, items(xs[1]), mutable)
+    if len(xs) > 3 {
+      let (s3, post) = cpats(s2, items(xs[3]), mutable)
+      return (s3, VT([VS("list"), VL(pre), r, VL(post)]))
+    }
+    return (s2, VT([VS("list"), VL(pre), r]))
+  }
+  if k == "variant" {
+    if is_nil(xs[2]) { return (s0, VT([VS("variant"), xs[1], VNil])) }
+    let (s1, ys) = cpats(s0, items(xs[2]), mutable)
+    return (s1, VT([VS("variant"), xs[1], VL(ys)]))
+  }
+  if k == "struct" {
+    var s = s0
+    var out: List<V> = []
+    for fp in items(xs[2]) {
+      let fx = items(fp)
+      let (s1, q) = cpat(s, fx[1], mutable)
+      s = s1
+      out = push(out, VT([fx[0], q]))
+    }
+    return (s, VT([VS("struct"), xs[1], VL(out)]))
+  }
+  (s0, p)
+}
+
+// ───────── 函数 ─────────
+
+fn compile_fn(s0: S, name: Str, params: List<V>, body: V, par: Bool) -> (S, Int) {
+  var fc = new_fc(name, len(params), false, par)
+  fc = FC { ln: line(body), scopes: [Map()], ..fc }
+  var s = S { f: fc, outer: push(s0.outer, s0.f), ..s0 }
+  for p in params {
+    let (s1, _) = declare(s, sv(items(p)[0]), false)
+    s = s1
+  }
+  if kind(body) == "Block" { s = block(s, body, false) } else { s = expr(s, body) }
+  s = em(s, "RET", VNil, -1)
+  let f = s.f
+  let idx = len(s.protos)
+  let pr = PR { name: f.name, np: f.np, nl: f.nl, code: f.code, lines: f.lines, upd: f.upd }
+  (S { f: s.outer[len(s.outer) - 1], outer: take(s.outer, len(s.outer) - 1), protos: push(s.protos, pr), ..s }, idx)
+}
+
+// ───────── 块与语句 ─────────
+
+fn hoist(s0: S, stmts: List<V>) -> S {
+  let decls = filter(stmts, (x) => contains(DECLS, kind(x)))
+  if len(decls) == 0 { return s0 }
+  var s = declare_types(s0, decls)
+  let fns = filter(decls, (x) => kind(x) == "Fn" && !is_nil(fld(x, "body")))
+  if s.f.chunk && len(s.f.scopes) == 0 { return s }
+  var slots: List<(V, Int)> = []
+  for fnv in fns {
+    let (s1, slot) = declare(s, sv(fld(fnv, "name")), false)
+    s = s1
+    slots = push(slots, (fnv, slot))
+  }
+  for (fnv, slot) in slots {
+    s = setln(s, line(fnv))
+    let (s2, pi) = compile_fn(s, sv(fld(fnv, "name")), items(fld(fnv, "params")), fld(fnv, "body"), true)
+    s = em(em(s2, "CLOSURE", VI(pi), 1), "STORE_L", VI(slot), -1)
+  }
+  s
+}
+
+fn block(s0: S, b: V, close: Bool) -> S {
+  let (s1, base, dbase) = push_scope(s0)
+  let stmts = items(fld(b, "stmts"))
+  var s = hoist(s1, stmts)
+  let body = filter(stmts, (x) => !contains(DECLS, kind(x)))
+  if len(body) == 0 { s = em(s, "CONST", unit_v(), 1) }
+  var i = 0
+  for st in body {
+    let last = i == len(body) - 1
+    if kind(st) == "ExprStmt" {
+      s = expr(s, fld(st, "expr"))
+      if !last { s = em(s, "POP", VNil, -1) }
+    } else {
+      s = stmt(s, st)
+      if last { s = em(s, "CONST", unit_v(), 1) }
+    }
+    i += 1
+  }
+  pop_scope(s, base, dbase, close)
+}
+
+fn unit_v() -> V { VN("U", 0, Map()) }
+
+fn new_loop(s: S, cont: Int, slot: Int, label: V, res: Int) -> Lp {
+  Lp { breaks: [], cont: cont, depth: s.f.depth, slot: slot, defers: s.f.nd, label: label, res: res }
+}
+
+fn push_loop(s: S, lp: Lp) -> S { S { f: FC { loops: push(s.f.loops, lp), ..s.f }, ..s } }
+
+fn pop_loop(s: S) -> (S, Lp) {
+  let ls = s.f.loops
+  (S { f: FC { loops: take(ls, len(ls) - 1), ..s.f }, ..s }, ls[len(ls) - 1])
+}
+
+fn patch_all(s0: S, js: List<Int>) -> S {
+  var s = s0
+  for j in js { s = patch(s, j, -1) }
+  s
+}
+
+fn stmt(s0: S, st: V) -> S {
+  let ln = line(st)
+  var s = setln(s0, ln)
+  let k = kind(st)
+  if k == "ExprStmt" { return em(expr(s, fld(st, "expr")), "POP", VNil, -1) }
+  if k == "Let" {
+    s = expr(s, fld(st, "value"))
+    let pat = fld(st, "pat")
+    let mt = ast.truthy(fld(st, "mutable"))
+    if sv(items(pat)[0]) == "bind" {
+      let (s1, t) = bind_target(s, sv(items(pat)[1]), mt)
+      let tx = items(t)
+      return if sv(tx[0]) == "gbind" { em(s1, "DEF_G", tx[1], -1) } else { em(s1, "STORE_L", tx[1], -1) }
+    }
+    let (s2, cp) = cpat(s, pat, mt)
+    return em(s2, "MATCH_OR_FAIL", cp, -1)
+  }
+  if k == "Assign" { return assign(s, st) }
+  if k == "Return" {
+    s = if is_nil(fld(st, "value")) { em(s, "CONST", unit_v(), 1) } else { expr(s, fld(st, "value")) }
+    return em(s, "RET", VNil, -1)
+  }
+  if k == "Break" || k == "Continue" {
+    if len(s.f.loops) == 0 { return fail(s, ln, "编译错误: " + lower(k) + " 只能出现在循环里") }
+    let lab = fld(st, "label")
+    var li = len(s.f.loops) - 1
+    if !is_nil(lab) {
+      while li >= 0 && !(!is_nil(s.f.loops[li].label) && sv(s.f.loops[li].label) == sv(lab)) { li -= 1 }
+      if li < 0 { return fail(s, ln, "编译错误: 找不到循环标签 '{sv(lab)}") }
+    }
+    let lp = s.f.loops[li]
+    let val = fld(st, "value")
+    if k == "Break" && lp.res >= 0 {
+      s = if is_nil(val) { em(s, "CONST", unit_v(), 1) } else { expr(s, val) }
+      s = em(s, "STORE_L", VI(lp.res), -1)
+    } else if !is_nil(val) {
+      return fail(s, ln, "编译错误: 只有 loop 的 break 能带值")
+    }
+    let extra = s.f.depth - lp.depth
+    if extra != 0 { s = em(s, "POPN", VI(extra), 0) }
+    if s.f.nd > lp.defers { s = em(s, "RUN_DEFERS", VI(lp.defers), 0) }
+    s = em(s, "CLOSE", VI(lp.slot), 0)
+    if k == "Break" {
+      let (s3, j) = emi(s, "JUMP", VNil, 0)
+      let lp2 = s3.f.loops[li]
+      return S { f: FC { loops: lset(s3.f.loops, li, Lp { breaks: push(lp2.breaks, j), ..lp2 }), ..s3.f }, ..s3 }
+    }
+    return em(s, "JUMP", VI(lp.cont), 0)
+  }
+  if k == "While" {
+    let top = here(s)
+    var exit_j = -1
+    if !is_nil(fld(st, "cond")) {
+      let (s1, j) = emi(expr(s, fld(st, "cond")), "JIF", VNil, -1)
+      s = s1
+      exit_j = j
+    }
+    s = push_loop(s, new_loop(s, top, s.f.ns, fld(st, "label"), -1))
+    s = em(block(s, fld(st, "body"), true), "POP", VNil, -1)
+    let (s2, lp) = pop_loop(s)
+    s = em(s2, "JUMP", VI(top), 0)
+    if exit_j >= 0 { s = patch(s, exit_j, -1) }
+    return patch_all(s, lp.breaks)
+  }
+  if k == "For" {
+    let (s1, base, dbase) = push_scope(s)
+    let (s2, it_slot) = alloc(s1)
+    s = em(expr(s2, fld(st, "iter")), "ITER", VI(it_slot), -1)
+    let top = here(s)
+    let (s3, nxt) = emi(s, "FOR_NEXT", VT([VI(it_slot), VNil]), 1)
+    let (s4, ibase, idb) = push_scope(s3)
+    let (s5, cp) = cpat(s4, fld(st, "pat"), false)
+    s = em(s5, "MATCH_OR_FAIL", cp, -1)
+    s = push_loop(s, new_loop(s, top, ibase, fld(st, "label"), -1))
+    s = em(block(s, fld(st, "body"), true), "POP", VNil, -1)
+    let (s6, lp) = pop_loop(s)
+    s = pop_scope(s6, ibase, idb, true)
+    s = em(s, "JUMP", VI(top), 0)
+    s = patch(s, nxt, -1)
+    s = patch_all(s, lp.breaks)
+    return pop_scope(s, base, dbase, true)
+  }
+  if k == "Defer" {
+    let (s1, pi) = compile_fn(s, "<defer>", [], fld(st, "body"), true)
+    s = em(em(s1, "CLOSURE", VI(pi), 1), "DEFER", VNil, -1)
+    return S { f: FC { nd: s.f.nd + 1, ..s.f }, ..s }
+  }
+  if contains(DECLS, k) { return s }
+  fail(s, ln, "编译错误: 未知语句 {k}")
+}
+
+fn assign(s0: S, st: V) -> S {
+  let ln = line(st)
+  let t = fld(st, "target")
+  var root = t
+  while kind(root) == "Field" || kind(root) == "Index" { root = fld(root, "obj") }
+  if kind(root) != "Name" { return fail(s0, ln, "编译错误: 赋值目标无效") }
+  let (s, _, _, m) = resolve(s0, sv(fld(root, "name")))
+  if !m { return fail(s, ln, "编译错误: 不能修改不可变绑定 `{sv(fld(root, "name"))}`（用 var 声明）") }
+  let leaf = (x: S) => {
+    let op = sv(fld(st, "op"))
+    if op == "=" { expr(x, fld(st, "value")) } else { em(expr(expr(x, t), fld(st, "value")), binop(__str_slice(op, 0, 1)), VNil, -1) }
+  }
+  update(s, t, leaf, ln)
+}
+
+fn update(s: S, node: V, produce: fn(S) -> S, ln: Int) -> S {
+  if kind(node) == "Name" { return store(produce(s), sv(fld(node, "name")), ln) }
+  if kind(node) == "Field" {
+    let p2 = (x: S) => em(produce(expr(x, fld(node, "obj"))), "WFIELD", fld(node, "name"), -1)
+    return update(s, fld(node, "obj"), p2, ln)
+  }
+  let p3 = (x: S) => em(produce(expr(expr(x, fld(node, "obj")), fld(node, "index"))), "WINDEX", VNil, -2)
+  update(s, fld(node, "obj"), p3, ln)
+}
+
+fn binop(op: Str) -> Str {
+  match op {
+    "+"   => "ADD",
+    "-"   => "SUB",
+    "*"   => "MUL",
+    "/"   => "DIV",
+    "%"   => "MOD",
+    "<"   => "LT",
+    ">"   => "GT",
+    "<="  => "LE",
+    ">="  => "GE",
+    "=="  => "EQ",
+    "!="  => "NE",
+    ".."  => "RANGE",
+    "..=" => "RANGE_INC",
+    _     => "?" + op,
+  }
+}
+
+// ───────── 表达式（每个表达式恰好压入一个值）─────────
+
+fn exprs(s0: S, xs: List<V>) -> S {
+  var s = s0
+  for x in xs { s = expr(s, x) }
+  s
+}
+
+fn expr(s0: S, e: V) -> S {
+  let ln = line(e)
+  var s = setln(s0, ln)
+  let k = kind(e)
+  if k == "Lit" { return em(s, "CONST", fld(e, "value"), 1) }
+  if k == "Name" { return load(s, sv(fld(e, "name"))) }
+  if k == "Interp" {
+    let ps = items(fld(e, "parts"))
+    for p in ps {
+      s = match p {
+        VS(_) => em(s, "CONST", p, 1),
+        _     => expr(s, p),
+      }
+    }
+    return em(s, "INTERP", VI(len(ps)), 1 - len(ps))
+  }
+  if k == "Bin" {
+    let op = sv(fld(e, "op"))
+    if op == "&&" || op == "||" {
+      let (s1, j) = emi(expr(s, fld(e, "left")), if op == "&&" { "JIF_OR_POP" } else { "JIT_OR_POP" }, VNil, -1)
+      return patch(expr(s1, fld(e, "right")), j, -1)
+    }
+    s = expr(expr(s, fld(e, "left")), fld(e, "right"))
+    return em(setln(s, ln), binop(op), VNil, -1)
+  }
+  if k == "Unary" { return em(expr(s, fld(e, "operand")), if sv(fld(e, "op")) == "-" { "NEG" } else { "NOT" }, VNil, 0) }
+  if k == "Tuple" {
+    let xs = items(fld(e, "items"))
+    s = exprs(s, xs)
+    return if len(xs) > 0 { em(s, "TUPLE", VI(len(xs)), 1 - len(xs)) } else { em(s, "TUPLE", VI(0), 1) }
+  }
+  if k == "List" {
+    let xs = items(fld(e, "items"))
+    return em(exprs(s, xs), "LIST", VI(len(xs)), 1 - len(xs))
+  }
+  if k == "Block" { return block(s, e, true) }
+  if k == "Loop" {
+    let (s1, base, dbase) = push_scope(s)
+    let (s2, rs) = alloc(s1)
+    let top = here(s2)
+    s = push_loop(s2, new_loop(s2, top, s2.f.ns, fld(e, "label"), rs))
+    s = em(block(s, fld(e, "body"), true), "POP", VNil, -1)
+    let (s3, lp) = pop_loop(s)
+    s = patch_all(em(s3, "JUMP", VI(top), 0), lp.breaks)
+    s = em(s, "LOAD_L", VI(rs), 1)
+    return pop_scope(s, base, dbase, true)
+  }
+  if k == "If" {
+    let (s1, j) = emi(expr(s, fld(e, "cond")), "JIF", VNil, -1)
+    let (s2, end) = emi(block(s1, fld(e, "then"), true), "JUMP", VNil, 0)
+    s = dec_depth(patch(s2, j, -1))
+    s = if is_nil(fld(e, "els")) { em(s, "CONST", unit_v(), 1) } else { expr(s, fld(e, "els")) }
+    return patch(s, end, -1)
+  }
+  if k == "Match" { return match_e(s, e) }
+  if k == "Is" {
+    s = expr(s, fld(e, "value"))
+    let (s1, base, _) = push_scope(s)
+    let (s2, cp) = cpat(s1, fld(e, "pat"), false)
+    return drop_scope(em(s2, "TEST_PAT", cp, 0), base)
+  }
+  if k == "Lambda" {
+    let (s1, pi) = compile_fn(s, "<lambda>", items(fld(e, "params")), fld(e, "body"), true)
+    return em(s1, "CLOSURE", VI(pi), 1)
+  }
+  if k == "Call" { return call(s, fld(e, "fn"), items(fld(e, "args")), -1, ln) }
+  if k == "Pipe" {
+    let pushed = len(s.f.scopes) == 0
+    if pushed { s = S { f: FC { scopes: [Map()], ..s.f }, ..s } }
+    let (s1, tmp) = alloc(s)
+    s = em(expr(s1, fld(e, "left")), "STORE_L", VI(tmp), -1)
+    let r = fld(e, "right")
+    s = if kind(r) == "Call" { call(s, fld(r, "fn"), items(fld(r, "args")), tmp, ln) } else { call(s, r, [], tmp, ln) }
+    if pushed { s = S { f: FC { scopes: [], ..s.f }, ..s } }
+    return s
+  }
+  if k == "Field" { return em(setln(expr(s, fld(e, "obj")), ln), "FIELD", fld(e, "name"), 0) }
+  if k == "TupleIndex" { return em(expr(s, fld(e, "obj")), "TIDX", fld(e, "index"), 0) }
+  if k == "Index" { return em(setln(expr(expr(s, fld(e, "obj")), fld(e, "index")), ln), "INDEX", VNil, -1) }
+  if k == "Try" { return em(setln(expr(s, fld(e, "value")), ln), "TRY", VNil, 0) }
+  if k == "StructLit" {
+    let fs = items(fld(e, "fields"))
+    for fx in fs { s = expr(s, items(fx)[1]) }
+    return em(setln(s, ln), "STRUCT", VT([fld(e, "name"), VT(map(fs, (fx) => items(fx)[0]))]), 1 - len(fs))
+  }
+  if k == "Select" { return expr(s, lower_select(e)) }
+  if k == "Race" {
+    s = em(setln(s, ln), "LOAD_G", VS("__race"), 1)
+    let xs = items(fld(e, "items"))
+    for x in xs {
+      let (s1, pi) = compile_fn(s, "<race>", [], x, true)
+      s = em(s1, "CLOSURE", VI(pi), 1)
+    }
+    return em(em(s, "LIST", VI(len(xs)), 1 - len(xs)), "CALL", VI(1), -1)
+  }
+  if k == "Spawn" {
+    let xs = items(fld(e, "items"))
+    for x in xs {
+      let (s1, pi) = compile_fn(s, "<spawn>", [], x, true)
+      s = em(s1, "CLOSURE", VI(pi), 1)
+    }
+    return em(setln(s, ln), "SPAWN", VI(len(xs)), 1 - len(xs))
+  }
+  if k == "Await" { return expr(s, fld(e, "value")) }
+  fail(s, ln, "编译错误: 未知表达式 {k}")
+}
+
+fn call(s0: S, fnode: V, args: List<V>, pre: Int, ln: Int) -> S {
+  let n = len(args) + (if pre >= 0 { 1 } else { 0 })
+  var s = s0
+  if kind(fnode) == "Field" {
+    s = expr(s, fld(fnode, "obj"))
+    if pre >= 0 { s = em(s, "LOAD_L", VI(pre), 1) }
+    s = exprs(s, args)
+    return em(setln(s, ln), "CALL_M", VT([fld(fnode, "name"), VI(n)]), -n)
+  }
+  s = expr(s, fnode)
+  if pre >= 0 { s = em(s, "LOAD_L", VI(pre), 1) }
+  s = exprs(s, args)
+  em(setln(s, ln), "CALL", VI(n), -n)
+}
+
+fn match_e(s0: S, e: V) -> S {
+  let (s1, base, _) = push_scope(s0)
+  let (s2, subj) = alloc(s1)
+  var s = em(expr(s2, fld(e, "subject")), "STORE_L", VI(subj), -1)
+  var ends: List<Int> = []
+  for a in items(fld(e, "arms")) {
+    let ax = items(a)
+    let (s3, abase, adb) = push_scope(s)
+    let (s4, cp) = cpat(em(s3, "LOAD_L", VI(subj), 1), ax[0], false)
+    let (s5, nxt) = emi(em(s4, "TEST_PAT", cp, 0), "JIF", VNil, -1)
+    s = s5
+    var nxt2 = -1
+    if !is_nil(ax[1]) {
+      let (s6, j) = emi(expr(s, ax[1]), "JIF", VNil, -1)
+      s = s6
+      nxt2 = j
+    }
+    s = pop_scope(expr(s, ax[2]), abase, adb, true)
+    let (s7, ej) = emi(s, "JUMP", VNil, 0)
+    ends = push(ends, ej)
+    s = patch(dec_depth(s7), nxt, -1)
+    if nxt2 >= 0 { s = patch(s, nxt2, -1) }
+  }
+  s = em(em(setln(s, line(e)), "LOAD_L", VI(subj), 1), "MATCH_FAIL", VNil, 0)
+  drop_scope(patch_all(s, ends), base)
+}
+
+// select 改写成 __select 调用 + match（kite.py 的 lower_select）
+pub fn lower_select(e: V) -> V {
+  let ln = line(e)
+  var ops: List<V> = []
+  var arms: List<V> = []
+  var timeout = nd("Lit", ln, [("value", VI(-1))])
+  var has_default = false
+  var ci = 0
+  var extra = VNil
+  let blk = (x: V) => nd("Block", ln, [("stmts", VL([nd("ExprStmt", ln, [("expr", x)])]))])
+  for arm in items(fld(e, "arms")) {
+    let ax = items(arm)
+    let kd = sv(ax[0])
+    if kd == "recv" || kd == "send" {
+      var kn = nd("Lit", ln, [("value", VI(if kd == "recv" { 0 } else { 1 }))])
+      if !is_nil(ax[4]) { kn = nd("If", ln, [("cond", ax[4]), ("then", blk(kn)), ("els", blk(nd("Lit", ln, [("value", VI(-1))])))]) }
+      ops = push(ops, nd("Tuple", ln, [("items", VL([kn, ax[1], if is_nil(ax[2]) { nd("Tuple", ln, [("items", VL([]))]) } else { ax[2] }]))]))
+      arms = push(arms, VT([VT([VS("tuple"), VL([VT([VS("lit"), VI(ci)]), if is_nil(ax[3]) { VT([VS("wild")]) } else { ax[3] }])]), VNil, ax[5]]))
+      ci += 1
+    } else {
+      extra = ax[5]
+      if kd == "after" { timeout = ax[1] } else { has_default = true }
+    }
+  }
+  if !is_nil(extra) { arms = push(arms, VT([VT([VS("wild")]), VNil, extra])) }
+  let callv = nd("Call", ln, [("fn", nd("Name", ln, [("name", VS("__select"))])), ("args", VL([nd("List", ln, [("items", VL(ops))]), timeout, nd("Lit", ln, [("value", VB(has_default))])]))])
+  nd("Match", ln, [("subject", callv), ("arms", VL(arms))])
+}
+
+// ───────── 声明（Compiler.declare_types）─────────
+
+fn declare_types(s0: S, decls: List<V>) -> S {
+  var s = s0
+  let top = s.f.chunk && len(s.f.scopes) == 0
+  for it in decls {
+    let k = kind(it)
+    if k == "Struct" {
+      s = gset(s, sv(fld(it, "name")), GStruct(VL(map(items(fld(it, "fields")), (f) => items(f)[0]))))
+    } else if k == "Enum" {
+      let vs = items(fld(it, "variants"))
+      for v in vs {
+        let vn = sv(items(v)[0])
+        s = gset(s, vn, if len(items(items(v)[1])) > 0 { GCtor(vn) } else { GEVal(sv(fld(it, "name")), vn) })
+      }
+      s = gset(s, sv(fld(it, "name")), GEnum(VL(map(vs, (v) => VT([items(v)[0], items(v)[1]])))))
+    } else if k == "Trait" {
+      s = S { traits: set(s.traits, sv(fld(it, "name")), items(fld(it, "methods"))), ..s }
+    } else if k == "Use" {
+      let p = items(fld(it, "path"))
+      if len(p) >= 2 && sv(p[0]) == "std" {
+        match p[1] {
+          VL(es) => { for e2 in es { s = gset(s, use_bind(e2), GMod(use_src(e2))) } },
+          _      => {
+            if len(p) == 2 {
+              s = gset(s, if is_nil(fld(it, "alias")) { sv(p[1]) } else { sv(fld(it, "alias")) }, GMod(sv(p[1])))
+            } else {
+              match p[2] {
+                VL(es) => { for e2 in es { s = gset(s, use_bind(e2), GMember(use_src(e2))) } },
+                _      => {
+                  if sv(p[2]) == "*" { s = fail(s, line(it), "UNSUP use std.{sv(p[1])}.*") } else {
+                    s = gset(s, if is_nil(fld(it, "alias")) { sv(p[2]) } else { sv(fld(it, "alias")) }, GMember(sv(p[2])))
+                  }
+                },
+              }
+            }
+          },
+        }
+      }
+    }
+  }
+  for it in decls {
+    let k = kind(it)
+    if k == "Fn" && !is_nil(fld(it, "body")) && top {
+      s = setln(s, line(it))
+      let (s1, pi) = compile_fn(s, sv(fld(it, "name")), items(fld(it, "params")), fld(it, "body"), false)
+      s = gset(s1, sv(fld(it, "name")), GFn(pi))
+    } else if k == "Fn" && !is_nil(fld(it, "extern")) && top {
+      if !ast.truthy(fld(it, "varargs")) { s = gset(s, sv(fld(it, "name")), GExt(it, VNil)) }
+      for va in items(fld(it, "_va")) { s = gset(s, sv(items(va)[0]), GExt(it, items(va)[1])) }
+    } else if k == "Impl" {
+      let target = sv(fld(it, "target"))
+      var ms = items(fld(it, "methods"))
+      let own = map(ms, (m) => sv(fld(m, "name")))
+      let tr = fld(it, "trait")
+      if !is_nil(tr) {
+        if let Some(tms) = get(s.traits, sv(tr)) { ms = ms + filter(tms, (m) => !is_nil(fld(m, "body")) && !contains(own, sv(fld(m, "name")))) }
+      }
+      for m in ms {
+        let (s2, pi) = compile_fn(s, sv(fld(m, "name")), items(fld(m, "params")), fld(m, "body"), false)
+        s = s2
+        let (mo, mt) = unwrap_or(get(s.mtab, target), ([], Map()))
+        let mname = sv(fld(m, "name"))
+        let mo2 = if contains(mt, mname) { mo } else { push(mo, mname) }
+        let mord = if contains(s.mtab, target) { s.mord } else { push(s.mord, target) }
+        s = S { mtab: set(s.mtab, target, (mo2, set(mt, mname, pi))), mord: mord, ..s }
+      }
+    }
+  }
+  s
+}
+
+fn use_src(e: V) -> Str {
+  match e {
+    VT(xs) => sv(xs[0]),
+    _      => sv(e),
+  }
+}
+
+fn use_bind(e: V) -> Str {
+  match e {
+    VT(xs) => sv(xs[1]),
+    _      => sv(e),
+  }
+}
+
+// ───────── 入口（Compiler.compile_chunk）─────────
+
+pub fn compile_chunk(its: List<V>) -> (S, Int) {
+  var s = new_s()
+  for st in its {
+    if kind(st) == "Let" && ast.truthy(fld(st, "mutable")) {
+      for nm in modules.pat_binds(fld(st, "pat")) { s = S { gmut: set(s.gmut, nm, true), ..s } }
+    }
+  }
+  s = hoist(s, its)
+  let body = filter(its, (x) => !contains(DECLS, kind(x)))
+  var i = 0
+  for st in body {
+    let last = i == len(body) - 1
+    if kind(st) == "ExprStmt" && last { s = expr(s, fld(st, "expr")) } else {
+      s = stmt(s, st)
+      if last { s = em(s, "CONST", unit_v(), 1) }
+    }
+    i += 1
+  }
+  if len(body) == 0 { s = em(s, "CONST", unit_v(), 1) }
+  s = em(s, "RET", VNil, -1)
+  let f = s.f
+  let idx = len(s.protos)
+  (S { protos: push(s.protos, PR { name: f.name, np: f.np, nl: f.nl, code: f.code, lines: f.lines, upd: f.upd }), ..s }, idx)
+}
+
+// ───────── 输出（与 tools/bc_dump.py 相同的格式，按 native.Gen 的 Proto 顺序）─────────
+
+fn add_p(s: S, order: List<Int>, seen: Map<Int, Int>, p: Int) -> (List<Int>, Map<Int, Int>) {
+  if contains(seen, p) { return (order, seen) }
+  var o = push(order, p)
+  var sn = set(seen, p, len(order))
+  for (op, arg) in s.protos[p].code {
+    if op == "CLOSURE" {
+      let (o2, s2) = add_p(s, o, sn, iv(arg))
+      o = o2
+      sn = s2
+    }
+  }
+  (o, sn)
+}
+
+fn conv_arg(seen: Map<Int, Int>, op: Str, a: V) -> V {
+  if op == "CLOSURE" { return VN("P", unwrap(get(seen, iv(a))), Map()) }
+  a
+}
+
+pub fn dump(s: S, chunk: Int) -> List<Str> {
+  if s.err != "" { return [s.err] }
+  var (order, seen) = add_p(s, [], Map(), chunk)
+  var out: List<Str> = []
+  for name in s.gord {
+    match unwrap(get(s.gval, name)) {
+      GFn(pi)    => {
+        let (o2, s2) = add_p(s, order, seen, pi)
+        order = o2
+        seen = s2
+        out = push(out, "G " + ast.dump(VS(name)) + " fn")
+      },
+      GStruct(f) => { out = push(out, "G " + ast.dump(VS(name)) + " struct " + ast.dump(f)) },
+      GEnum(v)   => { out = push(out, "G " + ast.dump(VS(name)) + " enum " + ast.dump(v)) },
+      _          => {},
+    }
+  }
+  var pname: Map<Int, Str> = Map()
+  for t in s.mord {
+    let (mo, mt) = unwrap(get(s.mtab, t))
+    for m in mo {
+      let pi = unwrap(get(mt, m))
+      pname = set(pname, pi, t + "." + m)
+      let (o2, s2) = add_p(s, order, seen, pi)
+      order = o2
+      seen = s2
+      out = push(out, "M " + ast.dump(VS(t + "." + m)) + " P{unwrap(get(seen, pi))}")
+    }
+  }
+  var k = 0
+  for pi in order {
+    let p = s.protos[pi]
+    let nm = unwrap_or(get(pname, pi), p.name)
+    out = push(out, "P {k} " + ast.dump(VS(nm)) + " {p.np} {p.nl} " + ast.dump(VL(p.upd)))
+    var i = 0
+    for (op, arg) in p.code {
+      out = push(out, "  {i} {op} " + ast.dump(conv_arg(seen, op, arg)) + " {p.lines[i]}")
+      i += 1
+    }
+    k += 1
+  }
+  out
+}

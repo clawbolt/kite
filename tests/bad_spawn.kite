@@ -1,0 +1,11 @@
+// 静态拒绝：任务直接修改外层变量、在任务里 return / ?
+fn total(xs: List<Int>) -> Result<Int, Str> {
+  var sum = 0
+  let (a, b) = spawn { { sum += 1; 1 }, 2 }
+  let (c, d) = spawn { parse_int("3")?, 4 }
+  Ok(sum + a + b + c + d)
+}
+
+fn main() {
+  print(total([1]))
+}

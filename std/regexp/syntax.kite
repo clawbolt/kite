@@ -1,0 +1,2046 @@
+// std.regexp.syntax：对齐 Go 1.27 的 regexp/syntax
+//   parse(pattern, flags) -> Result<Regexp, Error>（与 Go 的语法树、错误码和错误片段相同），
+//   Regexp 的 to_string（同 Regexp.String）、simplify、equal、max_cap、cap_names、op_string；
+//   compile(re) -> Prog（同 syntax.Compile），Prog 的 to_string（同 Prog.String）、prefix、start_cond、
+//   Inst 的 match_rune / match_rune_pos / match_empty_width、empty_op_context、is_word_char。
+//   与 Go 的差异：Kite 的 Str 总是合法 UTF-8，所以不会出现 ErrInvalidUTF8；语法树是值，没有共享指针。
+
+use std.strconv
+use std.unicode
+
+// ── 标志 ──
+pub const FOLD_CASE: Int = 1
+pub const LITERAL: Int = 2
+pub const CLASS_NL: Int = 4
+pub const DOT_NL: Int = 8
+pub const ONE_LINE: Int = 16
+pub const NON_GREEDY: Int = 32
+pub const PERL_X: Int = 64
+pub const UNICODE_GROUPS: Int = 128
+pub const WAS_DOLLAR: Int = 256
+pub const SIMPLE: Int = 512
+pub const MATCH_NL: Int = 12
+pub const PERL: Int = 212
+pub const POSIX: Int = 0
+
+// ── 操作符 ──
+pub const OP_NO_MATCH: Int = 1
+pub const OP_EMPTY_MATCH: Int = 2
+pub const OP_LITERAL: Int = 3
+pub const OP_CHAR_CLASS: Int = 4
+pub const OP_ANY_CHAR_NOT_NL: Int = 5
+pub const OP_ANY_CHAR: Int = 6
+pub const OP_BEGIN_LINE: Int = 7
+pub const OP_END_LINE: Int = 8
+pub const OP_BEGIN_TEXT: Int = 9
+pub const OP_END_TEXT: Int = 10
+pub const OP_WORD_BOUNDARY: Int = 11
+pub const OP_NO_WORD_BOUNDARY: Int = 12
+pub const OP_CAPTURE: Int = 13
+pub const OP_STAR: Int = 14
+pub const OP_PLUS: Int = 15
+pub const OP_QUEST: Int = 16
+pub const OP_REPEAT: Int = 17
+pub const OP_CONCAT: Int = 18
+pub const OP_ALTERNATE: Int = 19
+const OP_PSEUDO: Int = 128
+const OP_LEFT_PAREN: Int = 128
+const OP_VERTICAL_BAR: Int = 129
+
+const OP_NAMES: List<Str> = ["NoMatch", "EmptyMatch", "Literal", "CharClass", "AnyCharNotNL", "AnyChar", "BeginLine", "EndLine",
+  "BeginText", "EndText", "WordBoundary", "NoWordBoundary", "Capture", "Star", "Plus", "Quest", "Repeat", "Concat", "Alternate"]
+
+pub fn op_string(op: Int) -> Str {
+  if op >= 1 && op <= 19 { return OP_NAMES[op - 1] }
+  if op == 128 { return "Pseudo" }
+  "Op({op})"
+}
+
+// ── 错误 ──
+pub const ERR_INTERNAL_ERROR: Str = "regexp/syntax: internal error"
+pub const ERR_INVALID_CHAR_CLASS: Str = "invalid character class"
+pub const ERR_INVALID_CHAR_RANGE: Str = "invalid character class range"
+pub const ERR_INVALID_ESCAPE: Str = "invalid escape sequence"
+pub const ERR_INVALID_NAMED_CAPTURE: Str = "invalid named capture"
+pub const ERR_INVALID_PERL_OP: Str = "invalid or unsupported Perl syntax"
+pub const ERR_INVALID_REPEAT_OP: Str = "invalid nested repetition operator"
+pub const ERR_INVALID_REPEAT_SIZE: Str = "invalid repeat count"
+pub const ERR_INVALID_UTF8: Str = "invalid UTF-8"
+pub const ERR_MISSING_BRACKET: Str = "missing closing ]"
+pub const ERR_MISSING_PAREN: Str = "missing closing )"
+pub const ERR_MISSING_REPEAT_ARGUMENT: Str = "missing argument to repetition operator"
+pub const ERR_TRAILING_BACKSLASH: Str = "trailing backslash at end of expression"
+pub const ERR_UNEXPECTED_PAREN: Str = "unexpected )"
+pub const ERR_NESTING_DEPTH: Str = "expression nests too deeply"
+pub const ERR_LARGE: Str = "expression too large"
+
+pub type Error = { code: Str, expr: Str }
+
+pub fn error_string(e: Error) -> Str { "error parsing regexp: " + e.code + ": `" + e.expr + "`" }
+
+// ── 语法树 ──
+pub type Regexp = { op: Int, flags: Int, sub: List<Regexp>, rune: List<Int>, min: Int, max: Int, cap: Int, name: Str }
+
+fn node(op: Int, flags: Int) -> Regexp { Regexp { op: op, flags: flags, sub: [], rune: [], min: 0, max: 0, cap: 0, name: "" } }
+
+const MAX_RUNE: Int = 1114111
+const MIN_FOLD: Int = 65
+const MAX_FOLD: Int = 125251
+const MAX_HEIGHT: Int = 1000
+const MAX_SIZE: Int = 3355443
+const MAX_RUNES: Int = 33554432
+
+fn runes_of(s: Str) -> List<Int> {
+  var out: List<Int> = []
+  for c in s { out = push(out, __ord(c)) }
+  out
+}
+
+fn rstr(rs: List<Int>, a: Int, b: Int) -> Str {
+  var out: List<Str> = []
+  var i = a
+  while i < b {
+    let r = rs[i]
+    out = push(out, __chr(if r >= 55296 && r <= 57343 || r > MAX_RUNE || r < 0 { 65533 } else { r }))
+    i += 1
+  }
+  join(out, "")
+}
+
+fn runes_str(rs: List<Int>) -> Str { rstr(rs, 0, len(rs)) }
+
+// ── 字符类工具 ──
+fn append_range(r0: List<Int>, lo: Int, hi: Int) -> List<Int> {
+  var r = r0
+  let n = len(r)
+  var i = 2
+  while i <= 4 {
+    if n >= i {
+      let rlo = r[n - i]
+      let rhi = r[n - i + 1]
+      if lo <= rhi + 1 && rlo <= hi + 1 {
+        if lo < rlo { r[n - i] = lo }
+        if hi > rhi { r[n - i + 1] = hi }
+        return r
+      }
+    }
+    i += 2
+  }
+  push(push(r, lo), hi)
+}
+
+fn append_folded_range(r0: List<Int>, lo0: Int, hi0: Int) -> List<Int> {
+  var r = r0
+  var lo = lo0
+  var hi = hi0
+  if lo <= MIN_FOLD && hi >= MAX_FOLD { return append_range(r, lo, hi) }
+  if hi < MIN_FOLD || lo > MAX_FOLD { return append_range(r, lo, hi) }
+  if lo < MIN_FOLD { r = append_range(r, lo, MIN_FOLD - 1); lo = MIN_FOLD }
+  if hi > MAX_FOLD { r = append_range(r, MAX_FOLD + 1, hi); hi = MAX_FOLD }
+  // 与 Go 逐个码点追加得到的集合相同（之后总会 cleanClass）；只有 FOLD_RANGES 里的码点需要追加折叠等价类
+  r = append_range(r, lo, hi)
+  for (a, b) in unicode.FOLD_RANGES {
+    if b < lo { continue }
+    if a > hi { break }
+    var c = if a > lo { a } else { lo }
+    let e = if b < hi { b } else { hi }
+    while c <= e {
+      var f = unicode.simple_fold(c)
+      while f != c {
+        if f < lo || f > hi { r = append_range(r, f, f) }
+        f = unicode.simple_fold(f)
+      }
+      c += 1
+    }
+  }
+  r
+}
+
+fn append_literal(r: List<Int>, x: Int, flags: Int) -> List<Int> {
+  if flags & FOLD_CASE != 0 { append_folded_range(r, x, x) } else { append_range(r, x, x) }
+}
+
+fn append_class(r0: List<Int>, x: List<Int>) -> List<Int> {
+  var r = r0
+  var i = 0
+  while i < len(x) { r = append_range(r, x[i], x[i + 1]); i += 2 }
+  r
+}
+
+fn append_folded_class(r0: List<Int>, x: List<Int>) -> List<Int> {
+  var r = r0
+  var i = 0
+  while i < len(x) { r = append_folded_range(r, x[i], x[i + 1]); i += 2 }
+  r
+}
+
+fn append_negated_class(r0: List<Int>, x: List<Int>) -> List<Int> {
+  var r = r0
+  var next_lo = 0
+  var i = 0
+  while i < len(x) {
+    let lo = x[i]
+    let hi = x[i + 1]
+    if next_lo <= lo - 1 { r = append_range(r, next_lo, lo - 1) }
+    next_lo = hi + 1
+    i += 2
+  }
+  if next_lo <= MAX_RUNE { r = append_range(r, next_lo, MAX_RUNE) }
+  r
+}
+
+fn negate_class(r: List<Int>) -> List<Int> {
+  var out: List<Int> = []
+  var next_lo = 0
+  var i = 0
+  while i < len(r) {
+    let lo = r[i]
+    let hi = r[i + 1]
+    if next_lo <= lo - 1 { out = push(push(out, next_lo), lo - 1) }
+    next_lo = hi + 1
+    i += 2
+  }
+  if next_lo <= MAX_RUNE { out = push(push(out, next_lo), MAX_RUNE) }
+  out
+}
+
+fn clean_class(r0: List<Int>) -> List<Int> {
+  // 按 (lo 升序, hi 降序) 排序后合并
+  var ps: List<(Int, Int)> = []
+  var i = 0
+  while i + 1 < len(r0) { ps = push(ps, (r0[i], 0 - r0[i + 1])); i += 2 }
+  ps = sort(ps)
+  if len(ps) < 1 { return [] }
+  var r: List<Int> = []
+  for (lo, nh) in ps { r = push(push(r, lo), 0 - nh) }
+  if len(r) < 2 { return r }
+  var w = 2
+  i = 2
+  while i < len(r) {
+    let lo = r[i]
+    let hi = r[i + 1]
+    if lo <= r[w - 1] + 1 {
+      if hi > r[w - 1] { r[w - 1] = hi }
+    } else {
+      r[w] = lo
+      r[w + 1] = hi
+      w += 2
+    }
+    i += 2
+  }
+  r[0..w]
+}
+
+fn in_char_class(r: Int, class: List<Int>) -> Bool {
+  var lo = 0
+  var hi = len(class) / 2
+  while lo < hi {
+    let m = (lo + hi) / 2
+    if r > class[2 * m + 1] { lo = m + 1 } else if r < class[2 * m] { hi = m } else { return true }
+  }
+  false
+}
+
+fn table_ranges(t: List<(Int, Int)>) -> List<Int> {
+  var r: List<Int> = []
+  for (lo, hi) in t { r = append_range(r, lo, hi) }
+  r
+}
+
+fn min_fold_rune(r0: Int) -> Int {
+  if r0 < MIN_FOLD || r0 > MAX_FOLD { return r0 }
+  var m = r0
+  var r = unicode.simple_fold(r0)
+  while r != r0 {
+    if r < m { m = r }
+    r = unicode.simple_fold(r)
+  }
+  m
+}
+
+// ── Perl / POSIX 组 ──
+const CODE_D: List<Int> = [48, 57]
+const CODE_S: List<Int> = [9, 10, 12, 13, 32, 32]
+const CODE_W: List<Int> = [48, 57, 65, 90, 95, 95, 97, 122]
+
+fn perl_group(a: Int) -> (Int, List<Int>) {
+  if a == 100 { (1, CODE_D) } else if a == 68 { (-1, CODE_D) }
+  else if a == 115 { (1, CODE_S) } else if a == 83 { (-1, CODE_S) }
+  else if a == 119 { (1, CODE_W) } else if a == 87 { (-1, CODE_W) }
+  else { (0, []) }
+}
+
+fn posix_class(name: Str) -> Option<List<Int>> {
+  match name {
+    "alnum" => Some([48, 57, 65, 90, 97, 122]),
+    "alpha" => Some([65, 90, 97, 122]),
+    "ascii" => Some([0, 127]),
+    "blank" => Some([9, 9, 32, 32]),
+    "cntrl" => Some([0, 31, 127, 127]),
+    "digit" => Some([48, 57]),
+    "graph" => Some([33, 126]),
+    "lower" => Some([97, 122]),
+    "print" => Some([32, 126]),
+    "punct" => Some([33, 47, 58, 64, 91, 96, 123, 126]),
+    "space" => Some([9, 13, 32, 32]),
+    "upper" => Some([65, 90]),
+    "word" => Some([48, 57, 65, 90, 95, 95, 97, 122]),
+    "xdigit" => Some([48, 57, 65, 70, 97, 102]),
+    _ => None,
+  }
+}
+
+// ── Unicode 表 ──
+fn canonical_name(name: Str) -> Str {
+  var out = ""
+  var first = true
+  for ch in name {
+    var c = __ord(ch)
+    if c == 95 || c == 45 || c == 32 { continue }
+    if first {
+      if c >= 97 && c <= 122 { c -= 32 }
+      first = false
+    } else if c >= 65 && c <= 90 { c += 32 }
+    out = out + __chr(c)
+  }
+  out
+}
+
+const CATEGORY_ALIASES: List<(Str, Str)> = [("Cased_Letter", "LC"), ("Close_Punctuation", "Pe"), ("Combining_Mark", "M"),
+  ("Connector_Punctuation", "Pc"), ("Control", "Cc"), ("Currency_Symbol", "Sc"), ("Dash_Punctuation", "Pd"),
+  ("Decimal_Number", "Nd"), ("Enclosing_Mark", "Me"), ("Final_Punctuation", "Pf"), ("Format", "Cf"),
+  ("Initial_Punctuation", "Pi"), ("Letter", "L"), ("Letter_Number", "Nl"), ("Line_Separator", "Zl"),
+  ("Lowercase_Letter", "Ll"), ("Mark", "M"), ("Math_Symbol", "Sm"), ("Modifier_Letter", "Lm"), ("Modifier_Symbol", "Sk"),
+  ("Nonspacing_Mark", "Mn"), ("Number", "N"), ("Open_Punctuation", "Ps"), ("Other", "C"), ("Other_Letter", "Lo"),
+  ("Other_Number", "No"), ("Other_Punctuation", "Po"), ("Other_Symbol", "So"), ("Paragraph_Separator", "Zp"),
+  ("Private_Use", "Co"), ("Punctuation", "P"), ("Separator", "Z"), ("Space_Separator", "Zs"), ("Spacing_Mark", "Mc"),
+  ("Surrogate", "Cs"), ("Symbol", "S"), ("Titlecase_Letter", "Lt"), ("Unassigned", "Cn"), ("Uppercase_Letter", "Lu"),
+  ("cntrl", "Cc"), ("digit", "Nd"), ("punct", "P")]
+
+fn get_table(name: Str) -> List<Int> {
+  match unicode.table(name) { Some(t) => table_ranges(t), None => [] }
+}
+
+// (表, 是否有折叠表, 符号)；符号 0 表示没有这个名字
+fn unicode_table(name0: Str) -> (List<Int>, Int) {
+  let name = canonical_name(name0)
+  if name == "Any" { return ([0, MAX_RUNE], 1) }
+  if name == "Assigned" { return (get_table("Cn"), -1) }
+  if name == "Ascii" { return ([0, 127], 1) }
+  if name == "Lc" { return (get_table("LC"), 1) }
+  for c in unicode.names() { if c == name { return (get_table(c), 1) } }
+  for s in unicode.script_names() { if s == name { return (get_table(s), 1) } }
+  for (a, actual) in CATEGORY_ALIASES { if canonical_name(a) == name { return (get_table(actual), 1) } }
+  for s in unicode.script_names() { if canonical_name(s) == name { return (get_table(s), 1) } }
+  ([], 0)
+}
+
+// ── 解析器 ──
+type P = {
+  flags: Int,
+  stack: List<Regexp>,
+  num_cap: Int,
+  whole: Str,
+  num_regexp: Int,
+  live: Int,
+  num_runes: Int,
+  repeats: Int,
+  size_on: Bool,
+  height_on: Bool,
+  tcache: Map<Str, (List<Int>, Int)>,
+}
+
+fn perr(code: Str, expr: Str) -> Error { Error { code: code, expr: expr } }
+
+fn new_re(p: P, op: Int) -> (P, Regexp) {
+  var q = P { live: p.live + 1, ..p }
+  if q.live > q.num_regexp { q = P { num_regexp: q.live, ..q } }
+  (q, node(op, 0))
+}
+
+fn reuse(p: P) -> P { P { live: p.live - 1, ..p } }
+
+fn calc_size(re: Regexp) -> Int {
+  var size = 0
+  let op = re.op
+  if op == OP_LITERAL { size = len(re.rune) }
+  else if op == OP_CAPTURE || op == OP_STAR { size = 2 + calc_size(re.sub[0]) }
+  else if op == OP_PLUS || op == OP_QUEST { size = 1 + calc_size(re.sub[0]) }
+  else if op == OP_CONCAT { for s in re.sub { size += calc_size(s) } }
+  else if op == OP_ALTERNATE {
+    for s in re.sub { size += calc_size(s) }
+    if len(re.sub) > 1 { size += len(re.sub) - 1 }
+  } else if op == OP_REPEAT {
+    let sub = calc_size(re.sub[0])
+    if re.max == -1 {
+      if re.min == 0 { size = 2 + sub } else { size = 1 + re.min * sub }
+    } else { size = re.max * sub + (re.max - re.min) }
+  }
+  if size < 1 { 1 } else { size }
+}
+
+fn calc_height(re: Regexp) -> Int {
+  var h = 1
+  for s in re.sub {
+    let hs = calc_height(s)
+    if h < 1 + hs { h = 1 + hs }
+  }
+  h
+}
+
+fn check_size(p0: P, re: Regexp) -> Result<P, Error> {
+  var p = p0
+  if !p.size_on {
+    if p.repeats == 0 { p = P { repeats: 1, ..p } }
+    if re.op == OP_REPEAT {
+      var n = re.max
+      if n == -1 { n = re.min }
+      if n <= 0 { n = 1 }
+      if n > MAX_SIZE / p.repeats { p = P { repeats: MAX_SIZE, ..p } } else { p = P { repeats: p.repeats * n, ..p } }
+    }
+    if p.num_regexp < MAX_SIZE / p.repeats { return Ok(p) }
+    p = P { size_on: true, ..p }
+    for s in p.stack { if calc_size(s) > MAX_SIZE { return Err(perr(ERR_LARGE, p.whole)) } }
+  }
+  if calc_size(re) > MAX_SIZE { return Err(perr(ERR_LARGE, p.whole)) }
+  Ok(p)
+}
+
+fn check_limits(p0: P, re: Regexp) -> Result<P, Error> {
+  if p0.num_runes > MAX_RUNES { return Err(perr(ERR_LARGE, p0.whole)) }
+  var p = check_size(p0, re)?
+  if p.num_regexp >= MAX_HEIGHT {
+    if !p.height_on {
+      p = P { height_on: true, ..p }
+      for s in p.stack { if calc_height(s) > MAX_HEIGHT { return Err(perr(ERR_NESTING_DEPTH, p.whole)) } }
+    }
+    if calc_height(re) > MAX_HEIGHT { return Err(perr(ERR_NESTING_DEPTH, p.whole)) }
+  }
+  Ok(p)
+}
+
+// maybeConcat：返回 (P, 是否已把 r 放进栈顶)
+fn maybe_concat(p0: P, r: Int, flags: Int) -> (P, Bool) {
+  var p = p0
+  let n = len(p.stack)
+  if n < 2 { return (p, false) }
+  let re1 = p.stack[n - 1]
+  var re2 = p.stack[n - 2]
+  if re1.op != OP_LITERAL || re2.op != OP_LITERAL || re1.flags & FOLD_CASE != re2.flags & FOLD_CASE { return (p, false) }
+  re2 = Regexp { rune: re2.rune + re1.rune, ..re2 }
+  var st = p.stack
+  st[n - 2] = re2
+  if r >= 0 {
+    st[n - 1] = Regexp { rune: [r], flags: flags, ..re1 }
+    return (P { stack: st, ..p }, true)
+  }
+  p = P { stack: st[0..n - 1], ..p }
+  (reuse(p), false)
+}
+
+fn is_char_class(re: Regexp) -> Bool {
+  re.op == OP_LITERAL && len(re.rune) == 1 || re.op == OP_CHAR_CLASS || re.op == OP_ANY_CHAR_NOT_NL || re.op == OP_ANY_CHAR
+}
+
+// push：返回 (P, 是否真的压栈)
+fn ppush(p0: P, re0: Regexp) -> Result<P, Error> {
+  var p = P { num_runes: p0.num_runes + len(re0.rune), ..p0 }
+  var re = re0
+  let rr = re.rune
+  if re.op == OP_CHAR_CLASS && len(rr) == 2 && rr[0] == rr[1] {
+    let (p2, done) = maybe_concat(p, rr[0], p.flags & (0xFFFF ^ FOLD_CASE))
+    p = p2
+    if done { return Ok(p) }
+    re = Regexp { op: OP_LITERAL, rune: [rr[0]], flags: p.flags & (0xFFFF ^ FOLD_CASE), ..re }
+  } else if re.op == OP_CHAR_CLASS && len(rr) == 4 && rr[0] == rr[1] && rr[2] == rr[3] &&
+      unicode.simple_fold(rr[0]) == rr[2] && unicode.simple_fold(rr[2]) == rr[0] ||
+      re.op == OP_CHAR_CLASS && len(rr) == 2 && rr[0] + 1 == rr[1] &&
+      unicode.simple_fold(rr[0]) == rr[1] && unicode.simple_fold(rr[1]) == rr[0] {
+    let (p2, done) = maybe_concat(p, rr[0], p.flags | FOLD_CASE)
+    p = p2
+    if done { return Ok(p) }
+    re = Regexp { op: OP_LITERAL, rune: [rr[0]], flags: p.flags | FOLD_CASE, ..re }
+  } else {
+    let (p2, _) = maybe_concat(p, -1, 0)
+    p = p2
+  }
+  p = P { stack: push(p.stack, re), ..p }
+  check_limits(p, re)
+}
+
+fn literal(p0: P, r0: Int) -> Result<P, Error> {
+  let (p, re) = new_re(p0, OP_LITERAL)
+  var r = r0
+  if p.flags & FOLD_CASE != 0 { r = min_fold_rune(r) }
+  ppush(p, Regexp { flags: p.flags, rune: [r], ..re })
+}
+
+fn pop_op(p0: P, op: Int) -> Result<P, Error> {
+  let (p, re) = new_re(p0, op)
+  ppush(p, Regexp { flags: p.flags, ..re })
+}
+
+fn set_top(p: P, re: Regexp) -> P {
+  var st = p.stack
+  st[len(st) - 1] = re
+  P { stack: st, ..p }
+}
+
+fn top(p: P) -> Regexp { p.stack[len(p.stack) - 1] }
+
+fn repeat_is_valid(re: Regexp, n0: Int) -> Bool {
+  var n = n0
+  if re.op == OP_REPEAT {
+    var m = re.max
+    if m == 0 { return true }
+    if m < 0 { m = re.min }
+    if m > n { return false }
+    if m > 0 { n = n / m }
+  }
+  for s in re.sub { if !repeat_is_valid(s, n) { return false } }
+  true
+}
+
+// repeat：before / after 是 rs 里的下标，last_repeat 是上一次重复开始的下标（-1 表示没有）
+fn prepeat(p0: P, rs: List<Int>, op: Int, mn: Int, mx: Int, before: Int, after0: Int, last_repeat: Int) -> Result<(P, Int), Error> {
+  var p = p0
+  var after = after0
+  var flags = p.flags
+  if p.flags & PERL_X != 0 {
+    if after < len(rs) && rs[after] == 63 {
+      after += 1
+      flags = flags ^ NON_GREEDY
+    }
+    if last_repeat >= 0 { return Err(perr(ERR_INVALID_REPEAT_OP, rstr(rs, last_repeat, after))) }
+  }
+  let n = len(p.stack)
+  if n == 0 { return Err(perr(ERR_MISSING_REPEAT_ARGUMENT, rstr(rs, before, after))) }
+  let sub = p.stack[n - 1]
+  if sub.op >= OP_PSEUDO { return Err(perr(ERR_MISSING_REPEAT_ARGUMENT, rstr(rs, before, after))) }
+  let (p2, re0) = new_re(p, op)
+  p = p2
+  let re = Regexp { min: mn, max: mx, flags: flags, sub: [sub], ..re0 }
+  p = set_top(p, re)
+  p = check_limits(p, re)?
+  if op == OP_REPEAT && (mn >= 2 || mx >= 2) && !repeat_is_valid(re, 1000) {
+    return Err(perr(ERR_INVALID_REPEAT_SIZE, rstr(rs, before, after)))
+  }
+  Ok((p, after))
+}
+
+fn clean_alt(re: Regexp) -> Regexp {
+  if re.op != OP_CHAR_CLASS { return re }
+  let r = clean_class(re.rune)
+  if len(r) == 2 && r[0] == 0 && r[1] == MAX_RUNE { return Regexp { rune: [], op: OP_ANY_CHAR, ..re } }
+  if len(r) == 4 && r[0] == 0 && r[1] == 9 && r[2] == 11 && r[3] == MAX_RUNE { return Regexp { rune: [], op: OP_ANY_CHAR_NOT_NL, ..re } }
+  Regexp { rune: r, ..re }
+}
+
+fn concat(p0: P) -> Result<P, Error> {
+  let (p1, _) = maybe_concat(p0, -1, 0)
+  var p = p1
+  var i = len(p.stack)
+  while i > 0 && p.stack[i - 1].op < OP_PSEUDO { i -= 1 }
+  let subs = p.stack[i..]
+  p = P { stack: p.stack[0..i], ..p }
+  if len(subs) == 0 {
+    let (p2, re) = new_re(p, OP_EMPTY_MATCH)
+    return ppush(p2, re)
+  }
+  let (p3, re) = collapse(p, subs, OP_CONCAT)
+  ppush(p3, re)
+}
+
+fn alternate(p0: P) -> Result<P, Error> {
+  var p = p0
+  var i = len(p.stack)
+  while i > 0 && p.stack[i - 1].op < OP_PSEUDO { i -= 1 }
+  var subs = p.stack[i..]
+  p = P { stack: p.stack[0..i], ..p }
+  if len(subs) > 0 { subs[len(subs) - 1] = clean_alt(subs[len(subs) - 1]) }
+  if len(subs) == 0 {
+    let (p2, re) = new_re(p, OP_NO_MATCH)
+    return ppush(p2, re)
+  }
+  let (p3, re) = collapse(p, subs, OP_ALTERNATE)
+  ppush(p3, re)
+}
+
+fn collapse(p0: P, subs: List<Regexp>, op: Int) -> (P, Regexp) {
+  var p = p0
+  if len(subs) == 1 { return (p, subs[0]) }
+  let (p1, re0) = new_re(p, op)
+  p = p1
+  var ss: List<Regexp> = []
+  for s in subs {
+    if s.op == op {
+      ss = ss + s.sub
+      p = reuse(p)
+    } else { ss = push(ss, s) }
+  }
+  var re = Regexp { sub: ss, ..re0 }
+  if op == OP_ALTERNATE {
+    let (p2, f) = factor(p, re.sub)
+    p = p2
+    re = Regexp { sub: f, ..re }
+    if len(re.sub) == 1 {
+      let only = re.sub[0]
+      return (reuse(p), only)
+    }
+  }
+  (p, re)
+}
+
+fn leading_string(re0: Regexp) -> (List<Int>, Int) {
+  var re = re0
+  if re.op == OP_CONCAT && len(re.sub) > 0 { re = re.sub[0] }
+  if re.op != OP_LITERAL { return ([], 0) }
+  (re.rune, re.flags & FOLD_CASE)
+}
+
+fn remove_leading_string(p0: P, re: Regexp, n: Int) -> (P, Regexp) {
+  var p = p0
+  if re.op == OP_CONCAT && len(re.sub) > 0 {
+    let (p1, sub) = remove_leading_string(p, re.sub[0], n)
+    p = p1
+    var ss = re.sub
+    ss[0] = sub
+    if sub.op == OP_EMPTY_MATCH {
+      p = reuse(p)
+      if len(ss) <= 1 { return (p, Regexp { op: OP_EMPTY_MATCH, sub: [], ..re }) }
+      if len(ss) == 2 { return (reuse(p), ss[1]) }
+      return (p, Regexp { sub: ss[1..], ..re })
+    }
+    return (p, Regexp { sub: ss, ..re })
+  }
+  if re.op == OP_LITERAL {
+    let r = re.rune[n..]
+    if len(r) == 0 { return (p, Regexp { rune: r, op: OP_EMPTY_MATCH, ..re }) }
+    return (p, Regexp { rune: r, ..re })
+  }
+  (p, re)
+}
+
+fn leading_regexp(re: Regexp) -> Option<Regexp> {
+  if re.op == OP_EMPTY_MATCH { return None }
+  if re.op == OP_CONCAT && len(re.sub) > 0 {
+    let s = re.sub[0]
+    if s.op == OP_EMPTY_MATCH { return None }
+    return Some(s)
+  }
+  Some(re)
+}
+
+fn remove_leading_regexp(p0: P, re: Regexp, reuse_it: Bool) -> (P, Regexp) {
+  var p = p0
+  if re.op == OP_CONCAT && len(re.sub) > 0 {
+    if reuse_it { p = reuse(p) }
+    let ss = re.sub[1..]
+    if len(ss) == 0 { return (p, Regexp { op: OP_EMPTY_MATCH, sub: [], ..re }) }
+    if len(ss) == 1 { return (reuse(p), ss[0]) }
+    return (p, Regexp { sub: ss, ..re })
+  }
+  if reuse_it { p = reuse(p) }
+  let (p2, e) = new_re(p, OP_EMPTY_MATCH)
+  (p2, e)
+}
+
+fn opt_equal(a: Option<Regexp>, b: Option<Regexp>) -> Bool {
+  match a {
+    None => match b { None => true, Some(_) => false },
+    Some(x) => match b { None => false, Some(y) => equal(x, y) },
+  }
+}
+
+fn factor(p0: P, sub0: List<Regexp>) -> (P, List<Regexp>) {
+  var p = p0
+  if len(sub0) < 2 { return (p, sub0) }
+  var sub = sub0
+  // 第一轮：公共字面前缀
+  var str: List<Int> = []
+  var strflags = 0
+  var start = 0
+  var out: List<Regexp> = []
+  var i = 0
+  while i <= len(sub) {
+    var istr: List<Int> = []
+    var iflags = 0
+    var cont = false
+    if i < len(sub) {
+      let (a, b) = leading_string(sub[i])
+      istr = a
+      iflags = b
+      if iflags == strflags {
+        var same = 0
+        while same < len(str) && same < len(istr) && str[same] == istr[same] { same += 1 }
+        if same > 0 {
+          str = str[0..same]
+          cont = true
+        }
+      }
+    }
+    if !cont {
+      if i == start {
+      } else if i == start + 1 {
+        out = push(out, sub[start])
+      } else {
+        let (p1, pre0) = new_re(p, OP_LITERAL)
+        p = p1
+        let prefix = Regexp { flags: strflags, rune: str, ..pre0 }
+        var j = start
+        while j < i {
+          let (p2, s) = remove_leading_string(p, sub[j], len(str))
+          p = check_limits_unwrap(p2, s)
+          sub[j] = s
+          j += 1
+        }
+        let (p3, suffix) = collapse(p, sub[start..i], OP_ALTERNATE)
+        let (p4, c0) = new_re(p3, OP_CONCAT)
+        p = p4
+        out = push(out, Regexp { sub: [prefix, suffix], ..c0 })
+      }
+      start = i
+      str = istr
+      strflags = iflags
+    }
+    i += 1
+  }
+  sub = out
+  // 第二轮：公共的首个简单子表达式
+  start = 0
+  out = []
+  var first: Option<Regexp> = None
+  i = 0
+  while i <= len(sub) {
+    var ifirst: Option<Regexp> = None
+    var cont = false
+    if i < len(sub) {
+      ifirst = leading_regexp(sub[i])
+      match first {
+        Some(f) => {
+          if opt_equal(first, ifirst) && (is_char_class(f) || (f.op == OP_REPEAT && f.min == f.max && is_char_class(f.sub[0]))) { cont = true }
+        },
+        None => {},
+      }
+    }
+    if !cont {
+      if i == start {
+      } else if i == start + 1 {
+        out = push(out, sub[start])
+      } else {
+        let prefix = match first { Some(f) => f, None => node(OP_EMPTY_MATCH, 0) }
+        var j = start
+        while j < i {
+          let (p2, s) = remove_leading_regexp(p, sub[j], j != start)
+          p = check_limits_unwrap(p2, s)
+          sub[j] = s
+          j += 1
+        }
+        let (p3, suffix) = collapse(p, sub[start..i], OP_ALTERNATE)
+        let (p4, c0) = new_re(p3, OP_CONCAT)
+        p = p4
+        out = push(out, Regexp { sub: [prefix, suffix], ..c0 })
+      }
+      start = i
+      first = ifirst
+    }
+    i += 1
+  }
+  sub = out
+  // 第三轮：相邻的单字符合并成字符类
+  start = 0
+  out = []
+  i = 0
+  while i <= len(sub) {
+    if i < len(sub) && is_char_class(sub[i]) { i += 1; continue }
+    if i == start {
+    } else if i == start + 1 {
+      out = push(out, sub[start])
+    } else {
+      var mx = start
+      var j = start + 1
+      while j < i {
+        if sub[mx].op < sub[j].op || sub[mx].op == sub[j].op && len(sub[mx].rune) < len(sub[j].rune) { mx = j }
+        j += 1
+      }
+      let tmp = sub[start]
+      sub[start] = sub[mx]
+      sub[mx] = tmp
+      j = start + 1
+      while j < i {
+        sub[start] = merge_char_class(sub[start], sub[j])
+        p = reuse(p)
+        j += 1
+      }
+      sub[start] = clean_alt(sub[start])
+      out = push(out, sub[start])
+    }
+    if i < len(sub) { out = push(out, sub[i]) }
+    start = i + 1
+    i += 1
+  }
+  sub = out
+  // 第四轮：连续的空匹配只留一个
+  out = []
+  i = 0
+  while i < len(sub) {
+    if !(i + 1 < len(sub) && sub[i].op == OP_EMPTY_MATCH && sub[i + 1].op == OP_EMPTY_MATCH) { out = push(out, sub[i]) }
+    i += 1
+  }
+  (p, out)
+}
+
+// factor 里的 checkLimits：超限时 Go 会 panic 成 ErrLarge / ErrNestingDepth；这里记下来，parse 结束时报告
+fn check_limits_unwrap(p: P, re: Regexp) -> P {
+  match check_limits(p, re) { Ok(q) => q, Err(_) => P { num_runes: MAX_RUNES + 1, ..p } }
+}
+
+fn match_rune_re(re: Regexp, r: Int) -> Bool {
+  if re.op == OP_LITERAL { return len(re.rune) == 1 && re.rune[0] == r }
+  if re.op == OP_CHAR_CLASS {
+    var i = 0
+    while i < len(re.rune) {
+      if re.rune[i] <= r && r <= re.rune[i + 1] { return true }
+      i += 2
+    }
+    return false
+  }
+  if re.op == OP_ANY_CHAR_NOT_NL { return r != 10 }
+  re.op == OP_ANY_CHAR
+}
+
+fn merge_char_class(dst: Regexp, src: Regexp) -> Regexp {
+  if dst.op == OP_ANY_CHAR_NOT_NL {
+    if match_rune_re(src, 10) { return Regexp { op: OP_ANY_CHAR, ..dst } }
+    return dst
+  }
+  if dst.op == OP_CHAR_CLASS {
+    if src.op == OP_LITERAL { return Regexp { rune: append_literal(dst.rune, src.rune[0], src.flags), ..dst } }
+    return Regexp { rune: append_class(dst.rune, src.rune), ..dst }
+  }
+  if dst.op == OP_LITERAL {
+    if src.rune[0] == dst.rune[0] && src.flags == dst.flags { return dst }
+    var r = append_literal([], dst.rune[0], dst.flags)
+    r = append_literal(r, src.rune[0], src.flags)
+    return Regexp { op: OP_CHAR_CLASS, rune: r, ..dst }
+  }
+  dst
+}
+
+fn swap_vertical_bar(p0: P) -> (P, Bool) {
+  var p = p0
+  let n = len(p.stack)
+  if n >= 3 && p.stack[n - 2].op == OP_VERTICAL_BAR && is_char_class(p.stack[n - 1]) && is_char_class(p.stack[n - 3]) {
+    var re1 = p.stack[n - 1]
+    var re3 = p.stack[n - 3]
+    if re1.op > re3.op {
+      let t = re1
+      re1 = re3
+      re3 = t
+    }
+    re3 = merge_char_class(re3, re1)
+    var st = p.stack
+    st[n - 3] = re3
+    p = reuse(P { stack: st[0..n - 1], ..p })
+    return (p, true)
+  }
+  if n >= 2 {
+    let re1 = p.stack[n - 1]
+    let re2 = p.stack[n - 2]
+    if re2.op == OP_VERTICAL_BAR {
+      var st = p.stack
+      if n >= 3 { st[n - 3] = clean_alt(st[n - 3]) }
+      st[n - 2] = re1
+      st[n - 1] = re2
+      return (P { stack: st, ..p }, true)
+    }
+  }
+  (p, false)
+}
+
+fn parse_vertical_bar(p0: P) -> Result<P, Error> {
+  let p = concat(p0)?
+  let (p2, swapped) = swap_vertical_bar(p)
+  if !swapped { return pop_op(p2, OP_VERTICAL_BAR) }
+  Ok(p2)
+}
+
+fn parse_right_paren(p0: P) -> Result<P, Error> {
+  var p = concat(p0)?
+  let (p1, swapped) = swap_vertical_bar(p)
+  p = p1
+  if swapped { p = P { stack: p.stack[0..len(p.stack) - 1], ..p } }
+  p = alternate(p)?
+  let n = len(p.stack)
+  if n < 2 { return Err(perr(ERR_UNEXPECTED_PAREN, p.whole)) }
+  let re1 = p.stack[n - 1]
+  let re2 = p.stack[n - 2]
+  p = P { stack: p.stack[0..n - 2], ..p }
+  if re2.op != OP_LEFT_PAREN { return Err(perr(ERR_UNEXPECTED_PAREN, p.whole)) }
+  p = P { flags: re2.flags, ..p }
+  if re2.cap == 0 { return ppush(p, re1) }
+  ppush(p, Regexp { op: OP_CAPTURE, sub: [re1], ..re2 })
+}
+
+fn is_digit_r(c: Int) -> Bool { c >= 48 && c <= 57 }
+
+fn isalnum(c: Int) -> Bool { c >= 48 && c <= 57 || c >= 65 && c <= 90 || c >= 97 && c <= 122 }
+
+fn unhex(c: Int) -> Int {
+  if c >= 48 && c <= 57 { return c - 48 }
+  if c >= 97 && c <= 102 { return c - 87 }
+  if c >= 65 && c <= 70 { return c - 55 }
+  -1
+}
+
+// parseEscape：s 指向反斜杠；返回 (字符, 新位置)
+fn parse_escape(rs: List<Int>, s: Int) -> Result<(Int, Int), Error> {
+  var t = s + 1
+  let n = len(rs)
+  if t >= n { return Err(perr(ERR_TRAILING_BACKSLASH, "")) }
+  let c = rs[t]
+  t += 1
+  if c >= 49 && c <= 55 && !(t >= n || rs[t] < 48 || rs[t] > 55) || c == 48 {
+    var r = c - 48
+    var i = 1
+    while i < 3 {
+      if t >= n || rs[t] < 48 || rs[t] > 55 { break }
+      r = r * 8 + rs[t] - 48
+      t += 1
+      i += 1
+    }
+    return Ok((r, t))
+  }
+  if c >= 49 && c <= 55 { return Err(perr(ERR_INVALID_ESCAPE, rstr(rs, s, t))) }
+  if c == 120 {
+    if t >= n { return Err(perr(ERR_INVALID_ESCAPE, rstr(rs, s, t))) }
+    let c2 = rs[t]
+    t += 1
+    if c2 == 123 {
+      var nhex = 0
+      var r = 0
+      loop {
+        if t >= n { return Err(perr(ERR_INVALID_ESCAPE, rstr(rs, s, t))) }
+        let c3 = rs[t]
+        t += 1
+        if c3 == 125 { break }
+        let v = unhex(c3)
+        if v < 0 { return Err(perr(ERR_INVALID_ESCAPE, rstr(rs, s, t))) }
+        r = r * 16 + v
+        if r > MAX_RUNE { return Err(perr(ERR_INVALID_ESCAPE, rstr(rs, s, t))) }
+        nhex += 1
+      }
+      if nhex == 0 { return Err(perr(ERR_INVALID_ESCAPE, rstr(rs, s, t))) }
+      return Ok((r, t))
+    }
+    let x = unhex(c2)
+    if t >= n { return Err(perr(ERR_INVALID_ESCAPE, rstr(rs, s, t))) }
+    let c4 = rs[t]
+    t += 1
+    let y = unhex(c4)
+    if x < 0 || y < 0 { return Err(perr(ERR_INVALID_ESCAPE, rstr(rs, s, t))) }
+    return Ok((x * 16 + y, t))
+  }
+  if c == 97 { return Ok((7, t)) }
+  if c == 102 { return Ok((12, t)) }
+  if c == 110 { return Ok((10, t)) }
+  if c == 114 { return Ok((13, t)) }
+  if c == 116 { return Ok((9, t)) }
+  if c == 118 { return Ok((11, t)) }
+  if c < 128 && !isalnum(c) { return Ok((c, t)) }
+  Err(perr(ERR_INVALID_ESCAPE, rstr(rs, s, t)))
+}
+
+fn append_group(p: P, r: List<Int>, sign: Int, class: List<Int>) -> List<Int> {
+  if p.flags & FOLD_CASE == 0 {
+    if sign < 0 { append_negated_class(r, class) } else { append_class(r, class) }
+  } else {
+    let tmp = clean_class(append_folded_class([], class))
+    if sign < 0 { append_negated_class(r, tmp) } else { append_class(r, tmp) }
+  }
+}
+
+fn parse_perl_class_escape(p: P, rs: List<Int>, s: Int, r: List<Int>) -> Option<(List<Int>, Int)> {
+  if p.flags & PERL_X == 0 || s + 1 >= len(rs) || rs[s] != 92 { return None }
+  let (sign, class) = perl_group(rs[s + 1])
+  if sign == 0 { return None }
+  Some((append_group(p, r, sign, class), s + 2))
+}
+
+fn find_from(rs: List<Int>, from: Int, c: Int) -> Int {
+  var i = from
+  while i < len(rs) {
+    if rs[i] == c { return i }
+    i += 1
+  }
+  -1
+}
+
+fn parse_named_class(p: P, rs: List<Int>, s: Int, r: List<Int>) -> Result<Option<(List<Int>, Int)>, Error> {
+  if s + 1 >= len(rs) || rs[s] != 91 || rs[s + 1] != 58 { return Ok(None) }
+  var i = s + 2
+  var found = -1
+  while i + 1 < len(rs) {
+    if rs[i] == 58 && rs[i + 1] == 93 { found = i; break }
+    i += 1
+  }
+  if found < 0 { return Ok(None) }
+  let name = rstr(rs, s, found + 2)
+  var inner = rstr(rs, s + 2, found)
+  var sign = 1
+  if __str_slice(inner, 0, 1) == "^" {
+    sign = -1
+    inner = __str_slice(inner, 1, len(inner))
+  }
+  match posix_class(inner) {
+    Some(cl) => Ok(Some((append_group(p, r, sign, cl), found + 2))),
+    None => Err(perr(ERR_INVALID_CHAR_RANGE, name)),
+  }
+}
+
+fn parse_unicode_class(p: P, rs: List<Int>, s: Int, r: List<Int>) -> Result<Option<(List<Int>, Int)>, Error> {
+  if p.flags & UNICODE_GROUPS == 0 || s + 1 >= len(rs) || rs[s] != 92 || rs[s + 1] != 112 && rs[s + 1] != 80 { return Ok(None) }
+  var sign = if rs[s + 1] == 80 { -1 } else { 1 }
+  var t = s + 2
+  if t >= len(rs) { return Err(perr(ERR_INVALID_CHAR_RANGE, rstr(rs, s, t))) }
+  let c = rs[t]
+  t += 1
+  var seq = ""
+  var name = ""
+  if c != 123 {
+    seq = rstr(rs, s, t)
+    name = rstr(rs, s + 2, t)
+  } else {
+    let end = find_from(rs, s, 125)
+    if end < 0 { return Err(perr(ERR_INVALID_CHAR_RANGE, rstr(rs, s, len(rs)))) }
+    seq = rstr(rs, s, end + 1)
+    t = end + 1
+    name = rstr(rs, s + 3, end)
+  }
+  if name != "" && __str_slice(name, 0, 1) == "^" {
+    sign = 0 - sign
+    name = __str_slice(name, 1, len(name))
+  }
+  let (tab, tsign) = match get(p.tcache, name) { Some(v) => v, None => unicode_table(name) }
+  if tsign == 0 { return Err(perr(ERR_INVALID_CHAR_RANGE, seq)) }
+  if tsign < 0 { sign = 0 - sign }
+  var out = r
+  if p.flags & FOLD_CASE == 0 {
+    out = if sign > 0 { append_class(r, tab) } else { append_negated_class(r, tab) }
+  } else {
+    let tmp = clean_class(append_folded_class([], tab))
+    out = if sign > 0 { append_class(r, tmp) } else { append_negated_class(r, tmp) }
+  }
+  Ok(Some((out, t)))
+}
+
+// 记住 \p 名字对应的表（同一个模式里反复出现 \pL 时不必重新解码）
+fn remember_table(p: P, rs: List<Int>, s: Int) -> P {
+  if p.flags & UNICODE_GROUPS == 0 || s + 2 >= len(rs) || rs[s] != 92 || rs[s + 1] != 112 && rs[s + 1] != 80 { return p }
+  var name = ""
+  if rs[s + 2] != 123 { name = rstr(rs, s + 2, s + 3) } else {
+    let end = find_from(rs, s, 125)
+    if end < 0 { return p }
+    name = rstr(rs, s + 3, end)
+  }
+  if name != "" && __str_slice(name, 0, 1) == "^" { name = __str_slice(name, 1, len(name)) }
+  match get(p.tcache, name) {
+    Some(_) => p,
+    None => P { tcache: set(p.tcache, name, unicode_table(name)), ..p },
+  }
+}
+
+fn parse_class_char(rs: List<Int>, s: Int, whole_start: Int) -> Result<(Int, Int), Error> {
+  if s >= len(rs) { return Err(perr(ERR_MISSING_BRACKET, rstr(rs, whole_start, len(rs)))) }
+  if rs[s] == 92 { return parse_escape(rs, s) }
+  Ok((rs[s], s + 1))
+}
+
+fn parse_class(p0: P, rs: List<Int>, s: Int) -> Result<(P, Int), Error> {
+  var p = p0
+  var t = s + 1
+  let n = len(rs)
+  let (p1, re0) = new_re(p, OP_CHAR_CLASS)
+  p = p1
+  var class: List<Int> = []
+  var sign = 1
+  if t < n && rs[t] == 94 {
+    sign = -1
+    t += 1
+    if p.flags & CLASS_NL == 0 { class = [10, 10] }
+  }
+  var first = true
+  while t >= n || rs[t] != 93 || first {
+    if t < n && rs[t] == 45 && p.flags & PERL_X == 0 && !first && (t + 1 == n || rs[t + 1] != 93) {
+      return Err(perr(ERR_INVALID_CHAR_RANGE, rstr(rs, t, if t + 2 <= n { t + 2 } else { n })))
+    }
+    first = false
+    if t + 2 < n && rs[t] == 91 && rs[t + 1] == 58 {
+      match parse_named_class(p, rs, t, class)? {
+        Some((nc, nt)) => { class = nc; t = nt; continue },
+        None => {},
+      }
+    }
+    p = remember_table(p, rs, t)
+    match parse_unicode_class(p, rs, t, class)? {
+      Some((nc, nt)) => { class = nc; t = nt; continue },
+      None => {},
+    }
+    match parse_perl_class_escape(p, rs, t, class) {
+      Some((nc, nt)) => { class = nc; t = nt; continue },
+      None => {},
+    }
+    let rng = t
+    let (lo, t1) = parse_class_char(rs, t, s)?
+    t = t1
+    var hi = lo
+    if t + 1 < n && rs[t] == 45 && rs[t + 1] != 93 {
+      t += 1
+      let (h, t2) = parse_class_char(rs, t, s)?
+      hi = h
+      t = t2
+      if hi < lo { return Err(perr(ERR_INVALID_CHAR_RANGE, rstr(rs, rng, t))) }
+    }
+    if p.flags & FOLD_CASE == 0 { class = append_range(class, lo, hi) } else { class = append_folded_range(class, lo, hi) }
+  }
+  t += 1
+  class = clean_class(class)
+  if sign < 0 { class = negate_class(class) }
+  p = ppush(p, Regexp { flags: p.flags, rune: class, ..re0 })?
+  Ok((p, t))
+}
+
+fn parse_int(rs: List<Int>, s: Int) -> (Int, Int, Bool) {
+  let n = len(rs)
+  if s >= n || !is_digit_r(rs[s]) { return (0, s, false) }
+  if s + 1 < n && rs[s] == 48 && is_digit_r(rs[s + 1]) { return (0, s, false) }
+  var e = s
+  while e < n && is_digit_r(rs[e]) { e += 1 }
+  var v = 0
+  var i = s
+  while i < e {
+    if v >= 100000000 { v = -1; break }
+    v = v * 10 + rs[i] - 48
+    i += 1
+  }
+  (v, e, true)
+}
+
+// parseRepeat：(min, max, 新位置, 是否成功)
+fn parse_repeat(rs: List<Int>, s0: Int) -> (Int, Int, Int, Bool) {
+  let n = len(rs)
+  if s0 >= n || rs[s0] != 123 { return (0, 0, s0, false) }
+  var s = s0 + 1
+  let (mn0, s1, ok1) = parse_int(rs, s)
+  if !ok1 { return (0, 0, s0, false) }
+  var mn = mn0
+  var mx = 0
+  s = s1
+  if s >= n { return (0, 0, s0, false) }
+  if rs[s] != 44 {
+    mx = mn
+  } else {
+    s += 1
+    if s >= n { return (0, 0, s0, false) }
+    if rs[s] == 125 {
+      mx = -1
+    } else {
+      let (m2, s2, ok2) = parse_int(rs, s)
+      if !ok2 { return (0, 0, s0, false) }
+      mx = m2
+      s = s2
+      if mx < 0 { mn = -1 }
+    }
+  }
+  if s >= n || rs[s] != 125 { return (0, 0, s0, false) }
+  (mn, mx, s + 1, true)
+}
+
+fn is_valid_capture_name(name: Str) -> Bool {
+  if name == "" { return false }
+  for c in name {
+    let o = __ord(c)
+    if o != 95 && !isalnum(o) { return false }
+  }
+  true
+}
+
+fn parse_perl_flags(p0: P, rs: List<Int>, s: Int) -> Result<(P, Int), Error> {
+  var p = p0
+  let n = len(rs)
+  let starts_p = n - s > 4 && rs[s + 2] == 80 && rs[s + 3] == 60
+  let starts_name = n - s > 3 && rs[s + 2] == 60
+  if starts_p || starts_name {
+    let expr_start = if starts_p { s + 4 } else { s + 3 }
+    let end = find_from(rs, s, 62)
+    if end < 0 { return Err(perr(ERR_INVALID_NAMED_CAPTURE, rstr(rs, s, n))) }
+    let capture = rstr(rs, s, end + 1)
+    let name = rstr(rs, expr_start, end)
+    if !is_valid_capture_name(name) { return Err(perr(ERR_INVALID_NAMED_CAPTURE, capture)) }
+    p = P { num_cap: p.num_cap + 1, ..p }
+    p = pop_op(p, OP_LEFT_PAREN)?
+    let re = top(p)
+    p = set_top(p, Regexp { cap: p.num_cap, name: name, ..re })
+    return Ok((p, end + 1))
+  }
+  var t = s + 2
+  var flags = p.flags
+  var sign = 1
+  var saw = false
+  while t < n {
+    let c = rs[t]
+    t += 1
+    if c == 105 { flags = flags | FOLD_CASE; saw = true }
+    else if c == 109 { flags = flags & (0xFFFF ^ ONE_LINE); saw = true }
+    else if c == 115 { flags = flags | DOT_NL; saw = true }
+    else if c == 85 { flags = flags | NON_GREEDY; saw = true }
+    else if c == 45 {
+      if sign < 0 { break }
+      sign = -1
+      flags = flags ^ 0xFFFF
+      saw = false
+    } else if c == 58 || c == 41 {
+      if sign < 0 {
+        if !saw { break }
+        flags = flags ^ 0xFFFF
+      }
+      if c == 58 { p = pop_op(p, OP_LEFT_PAREN)? }
+      p = P { flags: flags, ..p }
+      return Ok((p, t))
+    } else { break }
+  }
+  Err(perr(ERR_INVALID_PERL_OP, rstr(rs, s, t)))
+}
+
+fn literal_regexp(s: Str, flags: Int) -> Regexp { Regexp { flags: flags, rune: runes_of(s), ..node(OP_LITERAL, 0) } }
+
+pub fn parse(s: Str, flags: Int) -> Result<Regexp, Error> {
+  if flags & LITERAL != 0 { return Ok(literal_regexp(s, flags)) }
+  let rs = runes_of(s)
+  let n = len(rs)
+  var p = P { flags: flags, stack: [], num_cap: 0, whole: s, num_regexp: 0, live: 0, num_runes: 0, repeats: 0, size_on: false, height_on: false, tcache: Map() }
+  var t = 0
+  var last_repeat = -1
+  while t < n {
+    var repeat = -1
+    let c = rs[t]
+    if c == 40 {
+      if p.flags & PERL_X != 0 && t + 1 < n && rs[t + 1] == 63 {
+        let (p2, t2) = parse_perl_flags(p, rs, t)?
+        p = p2
+        t = t2
+      } else {
+        p = P { num_cap: p.num_cap + 1, ..p }
+        p = pop_op(p, OP_LEFT_PAREN)?
+        p = set_top(p, Regexp { cap: p.num_cap, ..top(p) })
+        t += 1
+      }
+    } else if c == 124 {
+      p = parse_vertical_bar(p)?
+      t += 1
+    } else if c == 41 {
+      p = parse_right_paren(p)?
+      t += 1
+    } else if c == 94 {
+      p = pop_op(p, if p.flags & ONE_LINE != 0 { OP_BEGIN_TEXT } else { OP_BEGIN_LINE })?
+      t += 1
+    } else if c == 36 {
+      if p.flags & ONE_LINE != 0 {
+        p = pop_op(p, OP_END_TEXT)?
+        let tp = top(p)
+        p = set_top(p, Regexp { flags: tp.flags | WAS_DOLLAR, ..tp })
+      } else { p = pop_op(p, OP_END_LINE)? }
+      t += 1
+    } else if c == 46 {
+      p = pop_op(p, if p.flags & DOT_NL != 0 { OP_ANY_CHAR } else { OP_ANY_CHAR_NOT_NL })?
+      t += 1
+    } else if c == 91 {
+      let (p2, t2) = parse_class(p, rs, t)?
+      p = p2
+      t = t2
+    } else if c == 42 || c == 43 || c == 63 {
+      let op = if c == 42 { OP_STAR } else if c == 43 { OP_PLUS } else { OP_QUEST }
+      let (p2, after) = prepeat(p, rs, op, 0, 0, t, t + 1, last_repeat)?
+      p = p2
+      repeat = t
+      t = after
+    } else if c == 123 {
+      let (mn, mx, after, ok) = parse_repeat(rs, t)
+      if !ok {
+        p = literal(p, 123)?
+        t += 1
+      } else {
+        if mn < 0 || mn > 1000 || mx > 1000 || mx >= 0 && mn > mx { return Err(perr(ERR_INVALID_REPEAT_SIZE, rstr(rs, t, after))) }
+        let (p2, after2) = prepeat(p, rs, OP_REPEAT, mn, mx, t, after, last_repeat)?
+        p = p2
+        repeat = t
+        t = after2
+      }
+    } else if c == 92 {
+      var done = false
+      if p.flags & PERL_X != 0 && t + 1 < n {
+        let c1 = rs[t + 1]
+        if c1 == 65 { p = pop_op(p, OP_BEGIN_TEXT)?; t += 2; done = true }
+        else if c1 == 98 { p = pop_op(p, OP_WORD_BOUNDARY)?; t += 2; done = true }
+        else if c1 == 66 { p = pop_op(p, OP_NO_WORD_BOUNDARY)?; t += 2; done = true }
+        else if c1 == 67 { return Err(perr(ERR_INVALID_ESCAPE, rstr(rs, t, t + 2))) }
+        else if c1 == 81 {
+          var e = t + 2
+          var end = n
+          var next = n
+          while e + 1 < n {
+            if rs[e] == 92 && rs[e + 1] == 69 { end = e; next = e + 2; break }
+            e += 1
+          }
+          var k = t + 2
+          while k < end { p = literal(p, rs[k])?; k += 1 }
+          t = next
+          done = true
+        }
+        else if c1 == 122 { p = pop_op(p, OP_END_TEXT)?; t += 2; done = true }
+      }
+      if !done {
+        let (p2, re0) = new_re(p, OP_CHAR_CLASS)
+        p = p2
+        let re = Regexp { flags: p.flags, ..re0 }
+        if t + 1 < n && (rs[t + 1] == 112 || rs[t + 1] == 80) {
+          p = remember_table(p, rs, t)
+          match parse_unicode_class(p, rs, t, [])? {
+            Some((r, rest)) => { p = ppush(p, Regexp { rune: r, ..re })?; t = rest; done = true },
+            None => {},
+          }
+        }
+        if !done {
+          match parse_perl_class_escape(p, rs, t, []) {
+            Some((r, rest)) => { p = ppush(p, Regexp { rune: r, ..re })?; t = rest; done = true },
+            None => {},
+          }
+        }
+        if !done {
+          p = reuse(p)
+          let (ch, t2) = parse_escape(rs, t)?
+          t = t2
+          p = literal(p, ch)?
+        }
+      }
+    } else {
+      p = literal(p, c)?
+      t += 1
+    }
+    last_repeat = repeat
+  }
+  p = concat(p)?
+  let (p2, swapped) = swap_vertical_bar(p)
+  p = p2
+  if swapped { p = P { stack: p.stack[0..len(p.stack) - 1], ..p } }
+  p = alternate(p)?
+  if p.num_runes > MAX_RUNES { return Err(perr(ERR_LARGE, s)) }
+  if len(p.stack) != 1 { return Err(perr(ERR_MISSING_PAREN, s)) }
+  Ok(p.stack[0])
+}
+
+// ── Regexp 方法 ──
+pub fn equal(x: Regexp, y: Regexp) -> Bool {
+  if x.op != y.op { return false }
+  let op = x.op
+  if op == OP_END_TEXT { return x.flags & WAS_DOLLAR == y.flags & WAS_DOLLAR }
+  if op == OP_LITERAL || op == OP_CHAR_CLASS { return x.flags & FOLD_CASE == y.flags & FOLD_CASE && x.rune == y.rune }
+  if op == OP_ALTERNATE || op == OP_CONCAT {
+    if len(x.sub) != len(y.sub) { return false }
+    var i = 0
+    while i < len(x.sub) {
+      if !equal(x.sub[i], y.sub[i]) { return false }
+      i += 1
+    }
+    return true
+  }
+  if op == OP_STAR || op == OP_PLUS || op == OP_QUEST {
+    return x.flags & NON_GREEDY == y.flags & NON_GREEDY && equal(x.sub[0], y.sub[0])
+  }
+  if op == OP_REPEAT {
+    return x.flags & NON_GREEDY == y.flags & NON_GREEDY && x.min == y.min && x.max == y.max && equal(x.sub[0], y.sub[0])
+  }
+  if op == OP_CAPTURE { return x.cap == y.cap && x.name == y.name && equal(x.sub[0], y.sub[0]) }
+  true
+}
+
+pub fn max_cap(re: Regexp) -> Int {
+  var m = if re.op == OP_CAPTURE { re.cap } else { 0 }
+  for s in re.sub {
+    let k = max_cap(s)
+    if m < k { m = k }
+  }
+  m
+}
+
+fn cap_names_into(re: Regexp, names0: List<Str>) -> List<Str> {
+  var names = names0
+  if re.op == OP_CAPTURE { names[re.cap] = re.name }
+  for s in re.sub { names = cap_names_into(s, names) }
+  names
+}
+
+pub fn cap_names(re: Regexp) -> List<Str> {
+  var names: List<Str> = []
+  var i = 0
+  while i <= max_cap(re) { names = push(names, ""); i += 1 }
+  cap_names_into(re, names)
+}
+
+// ── String ──
+const FLAG_I: Int = 1
+const FLAG_M: Int = 2
+const FLAG_S: Int = 4
+const FLAG_OFF: Int = 8
+const FLAG_PREC: Int = 16
+const NEG_SHIFT: Int = 5
+
+fn add_span(fl: Map<Str, Int>, start: Str, last: Str, f: Int) -> Map<Str, Int> {
+  let m = set(fl, start, f)
+  set(m, last, unwrap_or(get(m, last), 0) | FLAG_OFF)
+}
+
+// 返回 (must, cant, 新的 flags 表)；节点用路径字符串标识
+fn calc_flags(re: Regexp, path: Str, fl0: Map<Str, Int>) -> (Int, Int, Map<Str, Int>) {
+  var fl = fl0
+  let op = re.op
+  if op == OP_LITERAL {
+    for r in re.rune {
+      if MIN_FOLD <= r && r <= MAX_FOLD && unicode.simple_fold(r) != r {
+        if re.flags & FOLD_CASE != 0 { return (FLAG_I, 0, fl) } else { return (0, FLAG_I, fl) }
+      }
+    }
+    return (0, 0, fl)
+  }
+  if op == OP_CHAR_CLASS {
+    var i = 0
+    while i + 1 < len(re.rune) {
+      let lo = if re.rune[i] > MIN_FOLD { re.rune[i] } else { MIN_FOLD }
+      let hi = if re.rune[i + 1] < MAX_FOLD { re.rune[i + 1] } else { MAX_FOLD }
+      for (a, bb) in unicode.FOLD_RANGES {
+        if bb < lo { continue }
+        if a > hi { break }
+        var r = if a > lo { a } else { lo }
+        let e = if bb < hi { bb } else { hi }
+        while r <= e {
+          var f = unicode.simple_fold(r)
+          while f != r {
+            if !(lo <= f && f <= hi) && !in_char_class(f, re.rune) { return (0, FLAG_I, fl) }
+            f = unicode.simple_fold(f)
+          }
+          r += 1
+        }
+      }
+      i += 2
+    }
+    return (0, 0, fl)
+  }
+  if op == OP_ANY_CHAR_NOT_NL { return (0, FLAG_S, fl) }
+  if op == OP_ANY_CHAR { return (FLAG_S, 0, fl) }
+  if op == OP_BEGIN_LINE || op == OP_END_LINE { return (FLAG_M, 0, fl) }
+  if op == OP_END_TEXT {
+    if re.flags & WAS_DOLLAR != 0 { return (0, FLAG_M, fl) }
+    return (0, 0, fl)
+  }
+  if op == OP_CAPTURE || op == OP_STAR || op == OP_PLUS || op == OP_QUEST || op == OP_REPEAT {
+    return calc_flags(re.sub[0], path + ".0", fl)
+  }
+  if op == OP_CONCAT || op == OP_ALTERNATE {
+    var must = 0
+    var cant = 0
+    var all_cant = 0
+    var start = 0
+    var last = 0
+    var did = false
+    var i = 0
+    while i < len(re.sub) {
+      let (sm, sc, f2) = calc_flags(re.sub[i], path + ".{i}", fl)
+      fl = f2
+      if must & sc != 0 || sm & cant != 0 {
+        if must != 0 { fl = add_span(fl, path + ".{start}", path + ".{last}", must) }
+        must = 0
+        cant = 0
+        start = i
+        did = true
+      }
+      must = must | sm
+      cant = cant | sc
+      all_cant = all_cant | sc
+      if sm != 0 { last = i }
+      if must == 0 && start == i { start += 1 }
+      i += 1
+    }
+    if !did { return (must, cant, fl) }
+    if must != 0 { fl = add_span(fl, path + ".{start}", path + ".{last}", must) }
+    return (0, all_cant, fl)
+  }
+  (0, 0, fl)
+}
+
+const META: Str = "\\.+*?()|[]{{}}^$"
+
+fn esc(r: Int, force: Bool) -> Str {
+  let ch = __chr(if r >= 55296 && r <= 57343 || r > MAX_RUNE || r < 0 { 65533 } else { r })
+  if r >= 0 && r <= MAX_RUNE && !(r >= 55296 && r <= 57343) && unicode.is_print(ch) {
+    if force || r < 128 && __str_find(META, ch, 0) >= 0 { return "\\" + ch }
+    return ch
+  }
+  if r == 7 { return "\\a" }
+  if r == 12 { return "\\f" }
+  if r == 10 { return "\\n" }
+  if r == 13 { return "\\r" }
+  if r == 9 { return "\\t" }
+  if r == 11 { return "\\v" }
+  let h = strconv.format_int(r, 16)
+  if r < 256 { return "\\x" + (if len(h) == 1 { "0" } else { "" }) + h }
+  "\\x{{" + h + "}}"
+}
+
+fn write_regexp(re: Regexp, path: Str, f0: Int, fl: Map<Str, Int>) -> Str {
+  var f = f0 | unwrap_or(get(fl, path), 0)
+  if f & FLAG_PREC != 0 && f & (0xFF ^ (FLAG_OFF | FLAG_PREC)) != 0 && f & FLAG_OFF != 0 { f = f & (0xFF ^ FLAG_PREC) }
+  var b = ""
+  if f & (0xFF ^ (FLAG_OFF | FLAG_PREC)) != 0 {
+    b = b + "(?"
+    if f & FLAG_I != 0 { b = b + "i" }
+    if f & FLAG_M != 0 { b = b + "m" }
+    if f & FLAG_S != 0 { b = b + "s" }
+    if f & ((FLAG_M | FLAG_S) << NEG_SHIFT) != 0 {
+      b = b + "-"
+      if f & (FLAG_M << NEG_SHIFT) != 0 { b = b + "m" }
+      if f & (FLAG_S << NEG_SHIFT) != 0 { b = b + "s" }
+    }
+    b = b + ":"
+  }
+  if f & FLAG_PREC != 0 { b = b + "(?:" }
+  let op = re.op
+  if op == OP_NO_MATCH { b = b + "[^\\x00-\\x{{10FFFF}}]" }
+  else if op == OP_EMPTY_MATCH { b = b + "(?:)" }
+  else if op == OP_LITERAL { b = b + join(map(re.rune, (r) => esc(r, false)), "") }
+  else if op == OP_CHAR_CLASS {
+    let rr = re.rune
+    if len(rr) % 2 != 0 { b = b + "[invalid char class]" }
+    else {
+      var parts: List<Str> = ["["]
+      if len(rr) == 0 { parts = push(parts, "^\\x00-\\x{{10FFFF}}") }
+      else if rr[0] == 0 && rr[len(rr) - 1] == MAX_RUNE && len(rr) > 2 {
+        parts = push(parts, "^")
+        var i = 1
+        while i < len(rr) - 1 {
+          let lo = rr[i] + 1
+          let hi = rr[i + 1] - 1
+          parts = push(parts, esc(lo, lo == 45))
+          if lo != hi {
+            if hi != lo + 1 { parts = push(parts, "-") }
+            parts = push(parts, esc(hi, hi == 45))
+          }
+          i += 2
+        }
+      } else {
+        var i = 0
+        while i < len(rr) {
+          let lo = rr[i]
+          let hi = rr[i + 1]
+          parts = push(parts, esc(lo, lo == 45))
+          if lo != hi {
+            if hi != lo + 1 { parts = push(parts, "-") }
+            parts = push(parts, esc(hi, hi == 45))
+          }
+          i += 2
+        }
+      }
+      b = b + join(parts, "") + "]"
+    }
+  }
+  else if op == OP_ANY_CHAR_NOT_NL || op == OP_ANY_CHAR { b = b + "." }
+  else if op == OP_BEGIN_LINE { b = b + "^" }
+  else if op == OP_END_LINE { b = b + "$" }
+  else if op == OP_BEGIN_TEXT { b = b + "\\A" }
+  else if op == OP_END_TEXT { b = b + if re.flags & WAS_DOLLAR != 0 { "$" } else { "\\z" } }
+  else if op == OP_WORD_BOUNDARY { b = b + "\\b" }
+  else if op == OP_NO_WORD_BOUNDARY { b = b + "\\B" }
+  else if op == OP_CAPTURE {
+    b = b + if re.name != "" { "(?P<" + re.name + ">" } else { "(" }
+    if re.sub[0].op != OP_EMPTY_MATCH {
+      let sp = path + ".0"
+      b = b + write_regexp(re.sub[0], sp, unwrap_or(get(fl, sp), 0), fl)
+    }
+    b = b + ")"
+  }
+  else if op == OP_STAR || op == OP_PLUS || op == OP_QUEST || op == OP_REPEAT {
+    let sub = re.sub[0]
+    let pf = if sub.op > OP_CAPTURE || sub.op == OP_LITERAL && len(sub.rune) > 1 { FLAG_PREC } else { 0 }
+    b = b + write_regexp(sub, path + ".0", pf, fl)
+    if op == OP_STAR { b = b + "*" }
+    else if op == OP_PLUS { b = b + "+" }
+    else if op == OP_QUEST { b = b + "?" }
+    else {
+      b = b + "{{" + "{re.min}"
+      if re.max != re.min {
+        b = b + ","
+        if re.max >= 0 { b = b + "{re.max}" }
+      }
+      b = b + "}}"
+    }
+    if re.flags & NON_GREEDY != 0 { b = b + "?" }
+  }
+  else if op == OP_CONCAT {
+    var i = 0
+    while i < len(re.sub) {
+      let sub = re.sub[i]
+      b = b + write_regexp(sub, path + ".{i}", if sub.op == OP_ALTERNATE { FLAG_PREC } else { 0 }, fl)
+      i += 1
+    }
+  }
+  else if op == OP_ALTERNATE {
+    var i = 0
+    while i < len(re.sub) {
+      if i > 0 { b = b + "|" }
+      b = b + write_regexp(re.sub[i], path + ".{i}", 0, fl)
+      i += 1
+    }
+  }
+  else { b = b + "<invalid op" + "{op}" + ">" }
+  if f & FLAG_PREC != 0 { b = b + ")" }
+  if f & FLAG_OFF != 0 { b = b + ")" }
+  b
+}
+
+pub fn to_string(re: Regexp) -> Str {
+  let empty: Map<Str, Int> = Map()
+  let (must0, cant, fl) = calc_flags(re, "r", empty)
+  var must = must0 | ((cant & (0xFF ^ FLAG_I)) << NEG_SHIFT)
+  if must != 0 { must = must | FLAG_OFF }
+  write_regexp(re, "r", must, fl)
+}
+
+// ── Simplify ──
+fn simplify1(op: Int, flags: Int, sub: Regexp, re: Option<Regexp>) -> Regexp {
+  if sub.op == OP_EMPTY_MATCH { return sub }
+  if op == sub.op && flags & NON_GREEDY == sub.flags & NON_GREEDY { return sub }
+  Regexp { sub: [sub], ..node(op, flags) }
+}
+
+pub fn simplify(re: Regexp) -> Regexp {
+  let op = re.op
+  if op == OP_CAPTURE || op == OP_CONCAT || op == OP_ALTERNATE {
+    var ss: List<Regexp> = []
+    for s in re.sub { ss = push(ss, simplify(s)) }
+    return Regexp { rune: [], sub: ss, ..re }
+  }
+  if op == OP_STAR || op == OP_PLUS || op == OP_QUEST {
+    let sub = simplify(re.sub[0])
+    return simplify1(op, re.flags, sub, Some(re))
+  }
+  if op == OP_REPEAT {
+    if re.min == 0 && re.max == 0 { return node(OP_EMPTY_MATCH, 0) }
+    let sub = simplify(re.sub[0])
+    if re.max == -1 {
+      if re.min == 0 { return simplify1(OP_STAR, re.flags, sub, None) }
+      if re.min == 1 { return simplify1(OP_PLUS, re.flags, sub, None) }
+      var ss: List<Regexp> = []
+      var i = 0
+      while i < re.min - 1 { ss = push(ss, sub); i += 1 }
+      ss = push(ss, simplify1(OP_PLUS, re.flags, sub, None))
+      return Regexp { sub: ss, ..node(OP_CONCAT, 0) }
+    }
+    if re.min == 1 && re.max == 1 { return sub }
+    var prefix: List<Regexp> = []
+    var has_prefix = false
+    if re.min > 0 {
+      has_prefix = true
+      var i = 0
+      while i < re.min { prefix = push(prefix, sub); i += 1 }
+    }
+    if re.max > re.min {
+      var suffix = simplify1(OP_QUEST, re.flags, sub, None)
+      var i = re.min + 1
+      while i < re.max {
+        let nre2 = Regexp { sub: [sub, suffix], ..node(OP_CONCAT, 0) }
+        suffix = simplify1(OP_QUEST, re.flags, nre2, None)
+        i += 1
+      }
+      if !has_prefix { return suffix }
+      prefix = push(prefix, suffix)
+    }
+    if has_prefix { return Regexp { sub: prefix, ..node(OP_CONCAT, 0) } }
+    return node(OP_NO_MATCH, 0)
+  }
+  re
+}
+
+// ── Prog ──
+pub const INST_ALT: Int = 0
+pub const INST_ALT_MATCH: Int = 1
+pub const INST_CAPTURE: Int = 2
+pub const INST_EMPTY_WIDTH: Int = 3
+pub const INST_MATCH: Int = 4
+pub const INST_FAIL: Int = 5
+pub const INST_NOP: Int = 6
+pub const INST_RUNE: Int = 7
+pub const INST_RUNE1: Int = 8
+pub const INST_RUNE_ANY: Int = 9
+pub const INST_RUNE_ANY_NOT_NL: Int = 10
+
+const INST_NAMES: List<Str> = ["InstAlt", "InstAltMatch", "InstCapture", "InstEmptyWidth", "InstMatch", "InstFail", "InstNop",
+  "InstRune", "InstRune1", "InstRuneAny", "InstRuneAnyNotNL"]
+
+pub fn inst_op_string(op: Int) -> Str { if op >= 0 && op < len(INST_NAMES) { INST_NAMES[op] } else { "" } }
+
+pub const EMPTY_BEGIN_LINE: Int = 1
+pub const EMPTY_END_LINE: Int = 2
+pub const EMPTY_BEGIN_TEXT: Int = 4
+pub const EMPTY_END_TEXT: Int = 8
+pub const EMPTY_WORD_BOUNDARY: Int = 16
+pub const EMPTY_NO_WORD_BOUNDARY: Int = 32
+
+pub fn is_word_char(r: Int) -> Bool { r >= 97 && r <= 122 || r >= 65 && r <= 90 || r >= 48 && r <= 57 || r == 95 }
+
+pub fn empty_op_context(r1: Int, r2: Int) -> Int {
+  var op = EMPTY_NO_WORD_BOUNDARY
+  var boundary = 0
+  if is_word_char(r1) { boundary = 1 }
+  else if r1 == 10 { op = op | EMPTY_BEGIN_LINE }
+  else if r1 < 0 { op = op | EMPTY_BEGIN_TEXT | EMPTY_BEGIN_LINE }
+  if is_word_char(r2) { boundary = boundary ^ 1 }
+  else if r2 == 10 { op = op | EMPTY_END_LINE }
+  else if r2 < 0 { op = op | EMPTY_END_TEXT | EMPTY_END_LINE }
+  if boundary != 0 { op = op ^ (EMPTY_WORD_BOUNDARY | EMPTY_NO_WORD_BOUNDARY) }
+  op
+}
+
+pub type Inst = { op: Int, out: Int, arg: Int, rune: List<Int> }
+
+pub type Prog = { inst: List<Inst>, start: Int, num_cap: Int }
+
+type Frag = { i: Int, head: Int, tail: Int, nullable: Bool }
+
+fn patch(insts0: List<Inst>, head0: Int, val: Int) -> List<Inst> {
+  var insts = insts0
+  var head = head0
+  while head != 0 {
+    let k = head >> 1
+    let ins = insts[k]
+    if head & 1 == 0 {
+      head = ins.out
+      insts[k] = Inst { out: val, ..ins }
+    } else {
+      head = ins.arg
+      insts[k] = Inst { arg: val, ..ins }
+    }
+  }
+  insts
+}
+
+// 返回 (insts, head, tail)
+fn pl_append(insts0: List<Inst>, h1: Int, t1: Int, h2: Int, t2: Int) -> (List<Inst>, Int, Int) {
+  var insts = insts0
+  if h1 == 0 { return (insts, h2, t2) }
+  if h2 == 0 { return (insts, h1, t1) }
+  let k = t1 >> 1
+  let ins = insts[k]
+  if t1 & 1 == 0 { insts[k] = Inst { out: h2, ..ins } } else { insts[k] = Inst { arg: h2, ..ins } }
+  (insts, h1, t2)
+}
+
+type C = { insts: List<Inst>, num_cap: Int }
+
+fn c_inst(c: C, op: Int) -> (C, Frag) {
+  let f = Frag { i: len(c.insts), head: 0, tail: 0, nullable: true }
+  (C { insts: push(c.insts, Inst { op: op, out: 0, arg: 0, rune: [] }), ..c }, f)
+}
+
+fn c_nop(c0: C) -> (C, Frag) {
+  let (c, f) = c_inst(c0, INST_NOP)
+  (c, Frag { head: f.i << 1, tail: f.i << 1, ..f })
+}
+
+fn c_fail() -> Frag { Frag { i: 0, head: 0, tail: 0, nullable: false } }
+
+fn c_cap(c0: C, arg: Int) -> (C, Frag) {
+  let (c1, f) = c_inst(c0, INST_CAPTURE)
+  var c = c1
+  var insts = c.insts
+  insts[f.i] = Inst { arg: arg, ..insts[f.i] }
+  c = C { insts: insts, ..c }
+  if c.num_cap < arg + 1 { c = C { num_cap: arg + 1, ..c } }
+  (c, Frag { head: f.i << 1, tail: f.i << 1, ..f })
+}
+
+fn c_cat(c: C, f1: Frag, f2: Frag) -> (C, Frag) {
+  if f1.i == 0 || f2.i == 0 { return (c, c_fail()) }
+  let insts = patch(c.insts, f1.head, f2.i)
+  (C { insts: insts, ..c }, Frag { i: f1.i, head: f2.head, tail: f2.tail, nullable: f1.nullable && f2.nullable })
+}
+
+fn c_alt(c0: C, f1: Frag, f2: Frag) -> (C, Frag) {
+  if f1.i == 0 { return (c0, f2) }
+  if f2.i == 0 { return (c0, f1) }
+  let (c, f) = c_inst(c0, INST_ALT)
+  var insts = c.insts
+  insts[f.i] = Inst { out: f1.i, arg: f2.i, ..insts[f.i] }
+  let (insts2, h, t) = pl_append(insts, f1.head, f1.tail, f2.head, f2.tail)
+  (C { insts: insts2, ..c }, Frag { i: f.i, head: h, tail: t, nullable: f1.nullable || f2.nullable })
+}
+
+fn c_quest(c0: C, f1: Frag, ng: Bool) -> (C, Frag) {
+  let (c, f) = c_inst(c0, INST_ALT)
+  var insts = c.insts
+  var h = 0
+  if ng {
+    insts[f.i] = Inst { arg: f1.i, ..insts[f.i] }
+    h = f.i << 1
+  } else {
+    insts[f.i] = Inst { out: f1.i, ..insts[f.i] }
+    h = f.i << 1 | 1
+  }
+  let (insts2, h2, t2) = pl_append(insts, h, h, f1.head, f1.tail)
+  (C { insts: insts2, ..c }, Frag { i: f.i, head: h2, tail: t2, nullable: f.nullable })
+}
+
+fn c_loop(c0: C, f1: Frag, ng: Bool) -> (C, Frag) {
+  let (c, f) = c_inst(c0, INST_ALT)
+  var insts = c.insts
+  var h = 0
+  if ng {
+    insts[f.i] = Inst { arg: f1.i, ..insts[f.i] }
+    h = f.i << 1
+  } else {
+    insts[f.i] = Inst { out: f1.i, ..insts[f.i] }
+    h = f.i << 1 | 1
+  }
+  insts = patch(insts, f1.head, f.i)
+  (C { insts: insts, ..c }, Frag { i: f.i, head: h, tail: h, nullable: f.nullable })
+}
+
+fn c_plus(c0: C, f1: Frag, ng: Bool) -> (C, Frag) {
+  let (c, l) = c_loop(c0, f1, ng)
+  (c, Frag { i: f1.i, head: l.head, tail: l.tail, nullable: f1.nullable })
+}
+
+fn c_star(c0: C, f1: Frag, ng: Bool) -> (C, Frag) {
+  if f1.nullable {
+    let (c, pf) = c_plus(c0, f1, ng)
+    return c_quest(c, pf, ng)
+  }
+  c_loop(c0, f1, ng)
+}
+
+fn c_empty(c0: C, op: Int) -> (C, Frag) {
+  let (c, f) = c_inst(c0, INST_EMPTY_WIDTH)
+  var insts = c.insts
+  insts[f.i] = Inst { arg: op, ..insts[f.i] }
+  (C { insts: insts, ..c }, Frag { head: f.i << 1, tail: f.i << 1, ..f })
+}
+
+fn c_rune(c0: C, r: List<Int>, flags0: Int) -> (C, Frag) {
+  let (c, f0) = c_inst(c0, INST_RUNE)
+  var flags = flags0 & FOLD_CASE
+  if len(r) != 1 || unicode.simple_fold(r[0]) == r[0] { flags = flags & (0xFFFF ^ FOLD_CASE) }
+  var op = INST_RUNE
+  if flags & FOLD_CASE == 0 && (len(r) == 1 || len(r) == 2 && r[0] == r[1]) { op = INST_RUNE1 }
+  else if len(r) == 2 && r[0] == 0 && r[1] == MAX_RUNE { op = INST_RUNE_ANY }
+  else if len(r) == 4 && r[0] == 0 && r[1] == 9 && r[2] == 11 && r[3] == MAX_RUNE { op = INST_RUNE_ANY_NOT_NL }
+  var insts = c.insts
+  insts[f0.i] = Inst { op: op, rune: r, arg: flags, out: 0 }
+  (C { insts: insts, ..c }, Frag { i: f0.i, head: f0.i << 1, tail: f0.i << 1, nullable: false })
+}
+
+fn c_compile(c0: C, re: Regexp) -> (C, Frag) {
+  let op = re.op
+  var c = c0
+  if op == OP_NO_MATCH { return (c, c_fail()) }
+  if op == OP_EMPTY_MATCH { return c_nop(c) }
+  if op == OP_LITERAL {
+    if len(re.rune) == 0 { return c_nop(c) }
+    var f = c_fail()
+    var j = 0
+    while j < len(re.rune) {
+      let (c1, f1) = c_rune(c, [re.rune[j]], re.flags)
+      c = c1
+      if j == 0 { f = f1 } else {
+        let (c2, f2) = c_cat(c, f, f1)
+        c = c2
+        f = f2
+      }
+      j += 1
+    }
+    return (c, f)
+  }
+  if op == OP_CHAR_CLASS { return c_rune(c, re.rune, re.flags) }
+  if op == OP_ANY_CHAR_NOT_NL { return c_rune(c, [0, 9, 11, MAX_RUNE], 0) }
+  if op == OP_ANY_CHAR { return c_rune(c, [0, MAX_RUNE], 0) }
+  if op == OP_BEGIN_LINE { return c_empty(c, EMPTY_BEGIN_LINE) }
+  if op == OP_END_LINE { return c_empty(c, EMPTY_END_LINE) }
+  if op == OP_BEGIN_TEXT { return c_empty(c, EMPTY_BEGIN_TEXT) }
+  if op == OP_END_TEXT { return c_empty(c, EMPTY_END_TEXT) }
+  if op == OP_WORD_BOUNDARY { return c_empty(c, EMPTY_WORD_BOUNDARY) }
+  if op == OP_NO_WORD_BOUNDARY { return c_empty(c, EMPTY_NO_WORD_BOUNDARY) }
+  if op == OP_CAPTURE {
+    let (c1, bra) = c_cap(c, re.cap << 1)
+    let (c2, sub) = c_compile(c1, re.sub[0])
+    let (c3, ket) = c_cap(c2, re.cap << 1 | 1)
+    let (c4, x) = c_cat(c3, bra, sub)
+    return c_cat(c4, x, ket)
+  }
+  let ng = re.flags & NON_GREEDY != 0
+  if op == OP_STAR { let (c1, f) = c_compile(c, re.sub[0]); return c_star(c1, f, ng) }
+  if op == OP_PLUS { let (c1, f) = c_compile(c, re.sub[0]); return c_plus(c1, f, ng) }
+  if op == OP_QUEST { let (c1, f) = c_compile(c, re.sub[0]); return c_quest(c1, f, ng) }
+  if op == OP_CONCAT {
+    if len(re.sub) == 0 { return c_nop(c) }
+    var f = c_fail()
+    var i = 0
+    while i < len(re.sub) {
+      let (c1, f1) = c_compile(c, re.sub[i])
+      c = c1
+      if i == 0 { f = f1 } else {
+        let (c2, f2) = c_cat(c, f, f1)
+        c = c2
+        f = f2
+      }
+      i += 1
+    }
+    return (c, f)
+  }
+  if op == OP_ALTERNATE {
+    var f = c_fail()
+    for s in re.sub {
+      let (c1, f1) = c_compile(c, s)
+      let (c2, f2) = c_alt(c1, f, f1)
+      c = c2
+      f = f2
+    }
+    return (c, f)
+  }
+  (c, c_fail())
+}
+
+pub fn compile(re: Regexp) -> Result<Prog, Error> {
+  var c = C { insts: [], num_cap: 2 }
+  let (c1, _) = c_inst(c, INST_FAIL)
+  let (c2, f) = c_compile(c1, re)
+  let (c3, m) = c_inst(c2, INST_MATCH)
+  let insts = patch(c3.insts, f.head, m.i)
+  Ok(Prog { inst: insts, start: f.i, num_cap: c3.num_cap })
+}
+
+fn skip_nop(p: Prog, pc: Int) -> Inst {
+  var i = p.inst[pc]
+  while i.op == INST_NOP || i.op == INST_CAPTURE { i = p.inst[i.out] }
+  i
+}
+
+fn base_op(i: Inst) -> Int { if i.op == INST_RUNE1 || i.op == INST_RUNE_ANY || i.op == INST_RUNE_ANY_NOT_NL { INST_RUNE } else { i.op } }
+
+impl Prog {
+  pub fn prefix(self) -> (Str, Bool) {
+    var i = skip_nop(self, self.start)
+    if base_op(i) != INST_RUNE || len(i.rune) != 1 { return ("", i.op == INST_MATCH) }
+    var buf = ""
+    while base_op(i) == INST_RUNE && len(i.rune) == 1 && i.arg & FOLD_CASE == 0 && i.rune[0] != 65533 {
+      buf = buf + rstr(i.rune, 0, 1)
+      i = skip_nop(self, i.out)
+    }
+    (buf, i.op == INST_MATCH)
+  }
+
+  pub fn start_cond(self) -> Int {
+    var flag = 0
+    var i = self.inst[self.start]
+    loop {
+      if i.op == INST_EMPTY_WIDTH { flag = flag | i.arg }
+      else if i.op == INST_FAIL { return 255 }
+      else if i.op == INST_CAPTURE || i.op == INST_NOP {}
+      else { break }
+      i = self.inst[i.out]
+    }
+    flag
+  }
+
+  pub fn to_string(self) -> Str {
+    var b = ""
+    var j = 0
+    while j < len(self.inst) {
+      var pc = "{j}"
+      if len(pc) < 3 { b = b + __str_slice("   ", len(pc), 3) }
+      if j == self.start { pc = pc + "*" }
+      b = b + pc + "\t" + self.inst[j].to_string() + "\n"
+      j += 1
+    }
+    b
+  }
+}
+
+impl Inst {
+  pub fn to_string(self) -> Str {
+    let op = self.op
+    if op == INST_ALT { return "alt -> {self.out}, {self.arg}" }
+    if op == INST_ALT_MATCH { return "altmatch -> {self.out}, {self.arg}" }
+    if op == INST_CAPTURE { return "cap {self.arg} -> {self.out}" }
+    if op == INST_EMPTY_WIDTH { return "empty {self.arg} -> {self.out}" }
+    if op == INST_MATCH { return "match" }
+    if op == INST_FAIL { return "fail" }
+    if op == INST_NOP { return "nop -> {self.out}" }
+    if op == INST_RUNE {
+      var s = "rune " + strconv.quote_to_ascii(runes_str(self.rune))
+      if self.arg & FOLD_CASE != 0 { s = s + "/i" }
+      return s + " -> {self.out}"
+    }
+    if op == INST_RUNE1 { return "rune1 " + strconv.quote_to_ascii(runes_str(self.rune)) + " -> {self.out}" }
+    if op == INST_RUNE_ANY { return "any -> {self.out}" }
+    if op == INST_RUNE_ANY_NOT_NL { return "anynotnl -> {self.out}" }
+    ""
+  }
+
+  pub fn match_rune_pos(self, r: Int) -> Int {
+    let rr = self.rune
+    let n = len(rr)
+    if n == 0 { return -1 }
+    if n == 1 {
+      let r0 = rr[0]
+      if r == r0 { return 0 }
+      if self.arg & FOLD_CASE != 0 {
+        var r1 = unicode.simple_fold(r0)
+        while r1 != r0 {
+          if r == r1 { return 0 }
+          r1 = unicode.simple_fold(r1)
+        }
+      }
+      return -1
+    }
+    if n == 2 { return if r >= rr[0] && r <= rr[1] { 0 } else { -1 } }
+    if n == 4 || n == 6 || n == 8 {
+      var j = 0
+      while j < n {
+        if r < rr[j] { return -1 }
+        if r <= rr[j + 1] { return j / 2 }
+        j += 2
+      }
+      return -1
+    }
+    var lo = 0
+    var hi = n / 2
+    while lo < hi {
+      let m = (lo + hi) / 2
+      if rr[2 * m] <= r {
+        if r <= rr[2 * m + 1] { return m }
+        lo = m + 1
+      } else { hi = m }
+    }
+    -1
+  }
+
+  pub fn match_rune(self, r: Int) -> Bool { self.match_rune_pos(r) != -1 }
+
+  pub fn match_empty_width(self, before: Int, after: Int) -> Bool {
+    let a = self.arg
+    if a == EMPTY_BEGIN_LINE { return before == 10 || before == -1 }
+    if a == EMPTY_END_LINE { return after == 10 || after == -1 }
+    if a == EMPTY_BEGIN_TEXT { return before == -1 }
+    if a == EMPTY_END_TEXT { return after == -1 }
+    if a == EMPTY_WORD_BOUNDARY { return is_word_char(before) != is_word_char(after) }
+    if a == EMPTY_NO_WORD_BOUNDARY { return is_word_char(before) == is_word_char(after) }
+    false
+  }
+}

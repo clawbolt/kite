@@ -1,0 +1,17 @@
+trait Shape {
+  fn area(self) -> Float
+}
+type Circle = { r: Float }
+type Rock = { w: Int }
+impl Shape for Circle {
+  fn area(self) -> Float { self.r }
+}
+fn main() {
+  let s: dyn Shape = Circle { r: 1.0 }
+  print(s.r)
+  let c: Circle = s
+  let bad: dyn Shape = Rock { w: 1 }
+  let x: impl Shape = Circle { r: 2.0 }
+  let y: dyn Nope = 1
+  print(s.size())
+}

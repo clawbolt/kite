@@ -1,0 +1,586 @@
+(* ════════════════════════════════════════════════════════════════════
+   Kite 语言文法 v0.6 (v0.5 评审修订；类型名按 Kite 实现：Int Float Str List)
+
+   记法: 类 ISO EBNF，但相邻元素用空白连接（不写逗号）。
+     =  定义     ;  结束     |  选择
+     [ x ] 可选  { x } 零次或多次   ( x ) 分组
+     "…" 终结符  ? … ? 文字描述（特殊序列）  注释写在 括号加星号 的成对记号之间（不嵌套）
+   本文件分三层:
+     A. 词法与换行规则（决定 token 流，含 NL）
+     B. 语法产生式
+     C. 解析器上下文规则（无法用纯 EBNF 表达的少数几条）
+   ════════════════════════════════════════════════════════════════════ *)
+
+
+(* ═══════════════════ A. 词法 ═══════════════════ *)
+
+(* ── A1. 标识符 ── *)
+IDENT        = ( XID_START | "_" ) { XID_CONTINUE } ;      (* 不含关键字；单独的 _ 是 UNDERSCORE token *)
+XID_START    = ? Unicode XID_Start ? ;
+XID_CONTINUE = ? Unicode XID_Continue ? ;
+UPPER_IDENT  = ? 首字符为 Unicode 大写字母(Lu)的 IDENT ? ;   (* 类型、trait、变体、常量、泛型参数 *)
+NAME         = ? 其余 IDENT（小写、_x、无大小写文字如汉字）? ;  (* 函数、变量、字段、模块 *)
+UNDERSCORE   = "_" ;
+LABEL        = "'" IDENT ;                                (* 其后不跟 '，否则是 CHAR *)
+
+(* ── A2. 字面量 ── *)
+digit        = ? "0" … "9" ? ;
+hexd         = digit | ? "a" … "f" | "A" … "F" ? ;
+DEC          = digit { digit | "_" } ;
+INT          = DEC
+             | "0x" hexd { hexd | "_" }
+             | "0o" ? "0" … "7" ? { ? "0" … "7" ? | "_" }
+             | "0b" ( "0" | "1" ) { "0" | "1" | "_" } ;
+EXP          = ( "e" | "E" ) [ "+" | "-" ] DEC ;
+FLOAT        = DEC "." DEC [ EXP ] | DEC EXP ;            (* 1.max(2) 中 1 是 INT，因为 . 后不是数字 *)
+ESCAPE       = "\" ( "n" | "r" | "t" | "0" | "\" | '"' | "'" | "{" | "}"
+                   | "u{" hexd { hexd } "}" ) ;
+CHAR         = "'" ( ? 除 ' \ 换行 以外的任意字符 ? | ESCAPE ) "'" ;
+STRING       = '"' { ? 除 " \ { 以外的任意字符 ? | ESCAPE
+                   | "{" expr [ ":" FMT_SPEC ] "}" } '"' ;   (* 插值；{ 的唯一转义是 \{ *)
+FMT_SPEC     = ? 任意字符，直到与插值起始 { 配对的 } ；仅在 expr 之后的顶层 : 处开始 ? ;
+STRING_LIT   = '"' { ? 除 " \ { 以外的任意字符 ? | ESCAPE } '"' ;   (* 无插值版本，用于模式/ABI/属性 *)
+RAW_STRING   = "r" { "#" } '"' { ? 任意字符 ? } '"' { "#" } ;      (* # 个数需匹配；不插值不转义 *)
+
+(* ── A3. 注释 ── *)
+(* 行注释  // … 到行尾（不含换行符本身）。文档注释 /// 同理，作为 trivia 附着在其后的声明上。
+   块注释  /* … */ 可嵌套。注释本身不产生 token；仅含注释的行视为空行。
+   块注释内部若含换行，整个块注释按「一个换行」处理（与 N1 合并）；不含换行则按空白处理。 *)
+
+(* ── A4. 关键字 ──
+   as async await break const continue defer dyn else enum extern false fn for
+   if impl in is let loop match mod pub return self Self spawn trait true type
+   unsafe use var where while
+   保留(暂未使用): macro static try yield *)
+
+(* ── A5. 标点 token ──
+   ( ) [ ] { } , ; : . ".*" .. ..= -> => |> ? @ ~ !
+   + - * / % & | ^ < << && || == != <= > >= >> >>= = += -= *= /= %= &= |= ^= <<=
+   特别说明:
+   · ".*" 仅在 use 路径中（use 之后、到行尾之前）作为单个 token；其他位置 . 与 * 分开词法化，
+     因此 1.*2 仍是 1 . * 2 的语法错误而不是被吞成通配。
+   · ">" ">=" ">>" ">>=" 按最长匹配词法化为单个 token，与其他运算符一致（不再有 joint 标记）。
+     类型解析器在期望单个 > 时，若遇到以 > 开头的复合 token，就地拆分：消费首字符 >，
+     余下部分（> / = / >=）作为新 token 放回输入流头部。
+     例: Vec<Vec<int>> 中 >> 拆一次； let x: List<int>= … 中 >= 拆为 > 与 =；
+         A<B<C>>= x 中 >>= 依次拆为 > 、>= ，再把 >= 拆为 > 与 =。
+     表达式解析器直接把它们当作普通的二元 / 赋值运算符，不做拆分。 *)
+
+(* ── A6. 数字与成员访问 ──
+   紧接在 "." token 之后的数字序列只按 INT 词法化（不含小数点与指数），
+   因此 t.0.1 是 t . 0 . 1，而不是 t . FLOAT(0.1)。 *)
+
+
+(* ═══════════════════ A7. 换行规则（NL token） ═══════════════════
+
+   N1. 换行符（\n、\r\n、\r 均算一个）默认生成一个 NL token；连续的换行（含空行、纯注释行）合并为一个 NL。
+   N2. 不生成 NL: 最内层尚未闭合的括号是 ( 或 [，或处于字符串插值内部。
+       最内层是 { 时 NL 照常生成（块、record、match、trait 等由文法用 sep/lsep 吸收）。
+   N3. 不生成 NL: 上一个 token 属于 T（续行触发）:
+         + - * / % & | ^ << && || == != <= |> ..=
+         = += -= *= /= %= &= |= ^= <<= => -> . , : ( [ {
+         as in is
+       注意 ".." 不在 T 中：它可以合法地结束表达式（开区间 3..），
+       放进 T 会把 let r = 3.. 之后的换行吞掉、与下一行粘连。
+       代价：".." 与其右操作数之间不能换行（..base 须写在同一行）。
+       注意 < > >= >> >>= 不在 T 中（避免与泛型的 > 冲突）；这几个运算符之后不能直接换行，
+       需要拆分时请用括号。? 、.* 、! 、~ 、) 、] 、} 也不在 T 中。
+       逗号不能出现在行首（x: Int⏎, y: Int 会产生 NL 与 , 两个分隔符而报错）；fmt 总把逗号放在行尾。
+   N4. 不生成 NL: 下一个 token 属于 L（前置续行）:
+         .  ?  |>  &&  ||  |  else  where
+       不包含 + - * / ( [ { ——换行后以这些开头的行永远是新语句
+       （a 换行 -b 是两条语句，不会被粘成 a-b）。
+   N5. Allman 风格（左花括号另起一行）不被支持：{ 前的 NL 会使 fn / if / while / for 等
+       报「缺少块」，而不是静默地解析成另一个结构。
+
+   辅助分隔符: *)
+
+sep          = NL | ";" ;
+seps         = sep { sep } ;
+lsep         = "," | NL ;     (* 花括号内逗号表的分隔符：逗号后的 NL 已被 N3 吞掉，不会重复 *)
+
+
+(* ═══════════════════ B. 语法 ═══════════════════ *)
+
+(* ── B1. 程序与声明 ──
+   顶层只允许声明（不再有裸语句）；入口为 fn main。 *)
+program      = [ seps ] [ top_item { seps top_item } [ seps ] ] EOF ;
+top_item     = attrs [ vis ] decl ;
+local_item   = attrs ( fn_decl | type_decl | enum_decl | trait_decl | impl_decl
+                     | const_decl | use_decl ) ;           (* 块内局部声明，无可见性修饰 *)
+decl         = fn_decl | type_decl | enum_decl | trait_decl | impl_decl
+             | const_decl | use_decl | mod_decl | extern_block ;
+
+attrs        = { attr { NL } } ;
+attr         = "@" NAME { "." NAME } [ "(" [ attr_arg { "," attr_arg } [ "," ] ] ")" ] ;
+attr_arg     = NAME [ ":" attr_lit ] | attr_lit ;
+attr_lit     = INT | FLOAT | STRING_LIT | "true" | "false" ;
+
+vis          = "pub" [ "(" ( NAME | "mod" ) ")" ] ;       (* pub  pub(pkg)  pub(mod) *)
+
+(* 函数: 声明处参数类型必须写；trait / extern 中允许无体 *)
+fn_head      = [ "async" ] [ "unsafe" ] "fn" NAME [ generics ] params
+               [ "->" type ] [ where_clause ] ;
+fn_decl      = fn_head block ;
+params       = "(" [ ( self_param | param ) { "," param } [ "," ] ] ")" ;
+self_param   = [ "var" ] "self" [ ":" type ] ;            (* 接收者；var self 表示可变接收者 *)
+param        = pattern ":" type ;
+
+generics     = "<" gparam { "," gparam } [ "," ] ">" ;
+gparam       = UPPER_IDENT [ ":" bounds ] | "const" UPPER_IDENT ":" type ;
+bounds       = bound { "+" bound } ;
+bound        = type_path [ type_args ] ;
+where_clause = "where" where_pred { "," where_pred } [ "," ] ;   (* 允许尾逗号；其后只会是 { 或 = ，不会与下一个 pred 混淆 *)
+where_pred   = type ":" bounds ;
+
+(* 结构体 / 别名：type X = { … } 为结构体，type X = 类型 为别名 *)
+type_decl    = "type" UPPER_IDENT [ generics ] [ where_clause ] "=" ( record_body | type ) ;
+record_body  = "{" [ field_decl { lsep field_decl } [ lsep ] ] "}" ;
+field_decl   = attrs [ vis ] NAME ":" type ;
+
+(* 枚举：变体可为 单元 / 元组 / 记录 三种形态，构造与匹配都与其形态对应 *)
+enum_decl    = "enum" UPPER_IDENT [ generics ] [ where_clause ]
+               "{" [ variant { lsep variant } [ lsep ] ] "}" ;
+variant      = attrs UPPER_IDENT [ "(" type { "," type } [ "," ] ")" | record_body ] ;
+
+trait_decl   = "trait" UPPER_IDENT [ generics ] [ ":" bounds ] [ where_clause ]
+               "{" [ seps ] [ trait_member { seps trait_member } [ seps ] ] "}" ;
+trait_member = attrs ( fn_head [ block ] | assoc_type | const_decl ) ;
+assoc_type   = "type" UPPER_IDENT [ ":" bounds ] [ "=" type ] ;
+
+impl_decl    = "impl" [ generics ] type [ "for" type ] [ where_clause ]
+               "{" [ seps ] [ impl_member { seps impl_member } [ seps ] ] "}" ;
+                                                          (* impl Trait for Type；impl Type 为固有实现 *)
+impl_member  = attrs [ vis ] ( fn_decl | assoc_type | const_decl ) ;
+
+const_decl   = "const" UPPER_IDENT ":" type [ "=" expr ] ;   (* 顶层/impl 内必须有初值；trait 内可省略 *)
+
+use_decl     = "use" use_tree ;
+use_tree     = use_path [ "as" ( NAME | UPPER_IDENT ) ]     (* 类型改名: use geom.Point as P *)
+             | use_path "." use_group
+             | use_path ".*" ;
+use_group    = "{" [ use_tree { lsep use_tree } [ lsep ] ] "}" ;
+use_path     = use_seg { "." use_seg } ;
+use_seg      = NAME | UPPER_IDENT | "self" ;
+
+mod_decl     = "mod" NAME [ "{" [ seps ] [ top_item { seps top_item } [ seps ] ] "}" ] ;
+                                                          (* 无花括号 = 从文件加载 *)
+extern_block = "extern" [ STRING_LIT ]
+               "{" [ seps ] [ extern_fn { seps extern_fn } [ seps ] ] "}" ;
+extern_fn    = attrs [ vis ] fn_head ;                    (* 只有签名；调用需在 unsafe 中 *)
+
+(* ── B2. 类型 ──
+   指针/引用不是语法：Ptr<T> 之类走普通泛型，内存模型留待语义层决定。 *)
+type         = base_type { "?" } ;                        (* T? 可选；T?? 合法。fn() -> T? 中 ? 属于返回类型；
+                                                             可选的函数类型写 (fn() -> T)? *)
+base_type    = type_path [ type_args ]
+             | "(" ")"                                    (* unit *)
+             | "(" type ")"                               (* 括号分组 *)
+             | "(" type "," [ type { "," type } [ "," ] ] ")"   (* 元组；一元组 (T,) *)
+             | "[" type [ ";" array_len ] "]"             (* [T] 切片/列表；[T; N] 定长数组 *)
+             | [ "unsafe" ] "fn" "(" [ type { "," type } [ "," ] ] ")" [ "->" type ]   (* unsafe fn：只能在 unsafe 中调用 *)
+             | "dyn" bounds
+             | "impl" bounds                              (* 仅参数位置有意义，由语义检查 *)
+             | UNDERSCORE ;                               (* 推断占位: Vec<_>  parse.<_>() *)
+type_path    = type_seg { "." type_seg } ;                (* io.Reader  Self.Item  T.Item *)
+type_seg     = NAME | UPPER_IDENT | "Self" ;
+type_args    = "<" type_arg { "," type_arg } [ "," ] ">" ;
+type_arg     = type | INT ;                               (* 常量泛型实参 *)
+array_len    = INT | UPPER_IDENT ;
+
+(* ── B3. 语句与块 ── *)
+block        = "{" [ seps ] [ block_item { seps block_item } [ seps ] ] "}" ;
+block_item   = local_item | stmt ;
+(* 块的值: 若最后一个 block_item 是表达式语句，且它与 } 之间的分隔符序列不含 ";"，
+   则其值就是块的值；含 ";" 则值被丢弃，块为 unit。 *)
+
+stmt         = let_stmt | defer_stmt | expr_or_assign ;
+let_stmt     = ( "let" | "var" ) pattern [ ":" type ] "=" expr [ "else" block ] ;
+                                                          (* let … else：else 块必须发散(return/break/…)；
+                                                             带 else 时初值不能以 } 结尾（if/match/块等需加括号），
+                                                             否则 let x = if c { a } else { b } else { … } 有歧义 *)
+defer_stmt   = "defer" expr_or_assign ;                   (* defer f.close()   defer { … } *)
+expr_or_assign = expr [ assign_op expr ] ;
+assign_op    = "=" | "+=" | "-=" | "*=" | "/=" | "%=" | "&=" | "|=" | "^=" | "<<=" | ">>=" ;
+
+(* ── B4. 表达式 ──
+   优先级见 C 节表格；下面自低向高排列。 *)
+expr         = arrow_lambda | jump_expr | or_expr ;
+cond         = expr ;                                     (* 在「条件上下文 C」中解析，见 C 节 *)
+
+arrow_lambda = lparams "=>" expr_or_assign ;              (* 向右尽量延伸 *)
+lparams      = NAME | UNDERSCORE | "(" [ lparam { "," lparam } [ "," ] ] ")" ;
+lparam       = pattern [ ":" type ] ;
+jump_expr    = "return" [ expr ]
+             | "break" [ LABEL ] [ expr ]
+             | "continue" [ LABEL ] ;                     (* 是否带操作数: 看下一个 token 能否开始表达式 *)
+
+or_expr      = and_expr { "||" and_expr } ;
+and_expr     = test_expr { "&&" test_expr } ;
+test_expr    = eq_expr [ "is" pattern ] ;                 (* x is Some(n) && n > 0 ：n 在 && 右侧可见 *)
+eq_expr      = rel_expr [ ( "==" | "!=" ) rel_expr ] ;    (* 不可结合 *)
+rel_expr     = pipe_expr [ rel_op pipe_expr ] ;           (* 不可结合 *)
+rel_op       = "<" | ">" | "<=" | ">=" ;
+pipe_expr    = range_expr { "|>" pipe_rhs } ;
+pipe_rhs     = postfix_expr ;      (* a |> f(b) ≡ f(a, b)；a |> f ≡ f(a)；RHS 若以调用结尾，a 作为第一个实参；见 C8 *)
+range_expr   = bor_expr [ ".." [ bor_expr ] | "..=" bor_expr ]    (* 1..5  3..  1..=5 *)
+             | ".." [ bor_expr ] | "..=" bor_expr ;              (* ..  ..5  ..=5 ；不可结合；..= 必须有右端 *)
+bor_expr     = bxor_expr { "|" bxor_expr } ;
+bxor_expr    = band_expr { "^" band_expr } ;
+band_expr    = shift_expr { "&" shift_expr } ;
+shift_expr   = add_expr { ( "<<" | ">>" ) add_expr } ;
+add_expr     = mul_expr { ( "+" | "-" ) mul_expr } ;
+mul_expr     = cast_expr { ( "*" | "/" | "%" ) cast_expr } ;
+cast_expr    = unary_expr { "as" type } ;
+unary_expr   = ( "-" | "!" | "~" ) unary_expr | postfix_expr ;
+
+postfix_expr = primary { postfix_op } ;
+postfix_op   = "(" [ expr { "," expr } [ "," ] ] ")"      (* 调用 *)
+             | "." ( NAME | UPPER_IDENT )                 (* 字段 / 方法 / 模块成员 / 枚举变体 *)
+             | "." INT                                    (* 元组下标 *)
+             | "." "await"
+             | "." "<" type_arg { "," type_arg } [ "," ] ">"   (* 显式泛型实参: parse.<int>(s) *)
+             | "[" expr "]"                               (* 索引 / 切片 x[1..] *)
+             | "?" ;                                      (* 错误/可选传播 *)
+
+primary      = INT | FLOAT | CHAR | STRING | RAW_STRING | "true" | "false"
+             | NAME | UPPER_IDENT | "self" | "Self"
+             | struct_lit
+             | "(" ")"
+             | "(" expr ")"
+             | "(" expr "," [ expr { "," expr } [ "," ] ] ")"   (* 元组；(a,) 为一元组 *)
+             | "[" [ expr { "," expr } [ "," ] ] "]"
+             | "[" expr ";" expr "]"                      (* 重复数组 [0; 16] *)
+             | fn_lambda
+             | block | if_expr | match_expr
+             | loop_expr | while_expr | for_expr
+             | spawn_expr | unsafe_expr ;
+
+fn_lambda    = "fn" params [ "->" type ] block ;          (* 需要标注返回类型时的写法 *)
+
+(* 结构体字面量 / 记录变体构造；Shape.Circle { r: 1.0 }  geom.Point { x, y }  Point { x: 1, ..base } *)
+struct_lit   = ctor_path "{" [ init_list ] "}" ;
+ctor_path    = { NAME "." } ( UPPER_IDENT | "Self" ) { "." UPPER_IDENT } ;
+init_list    = init_items [ lsep ]
+             | [ init_items lsep ] ".." expr [ lsep ] ;  (* ..base 只能在最后；其后可有逗号或换行 *)
+init_items   = init_item { lsep init_item } ;
+init_item    = NAME [ ":" expr ] ;
+
+if_expr      = "if" cond block [ "else" ( if_expr | block ) ] ;
+match_expr   = "match" cond "{" [ seps ] [ arm { asep arm } [ asep ] ] "}" ;
+asep         = ( "," | NL | ";" ) { NL | ";" } ;           (* 如  a => 1;⏎  中 ; 后的 NL 也被吸收 *)
+arm          = pattern [ "if" cond ] "=>" expr_or_assign ;   (* 分支体可以是 return / break / x += 1 *)
+
+loop_expr    = [ LABEL ":" ] "loop" block ;               (* 值来自 break expr *)
+while_expr   = [ LABEL ":" ] "while" cond block ;
+for_expr     = [ LABEL ":" ] "for" pattern "in" cond block ;
+spawn_expr   = "spawn" "{" [ expr { lsep expr } [ lsep ] ] "}" ;   (* 结构化并发组，配合 .await *)
+unsafe_expr  = "unsafe" block ;
+
+(* ── B5. 模式 ── *)
+pattern      = single_pat { "|" single_pat } ;            (* 或模式 *)
+single_pat   = UNDERSCORE
+             | [ "var" ] NAME [ "@" single_pat ]          (* 绑定；var 表示可变绑定 *)
+             | value_pat                                  (* 字面量 / 范围: 5  0..=9  3..  ..5 *)
+             | path_pat                                   (* 无载荷变体 / 常量: Color.Red  MAX *)
+             | path_pat "(" [ seq_item { "," seq_item } [ "," ] ] ")"        (* 元组变体 *)
+             | path_pat "{" [ field_pats ] "}"                               (* 记录变体 / 结构体 *)
+             | "(" ")"
+             | "(" pattern ")"                            (* 分组 *)
+             | "(" seq_item "," [ seq_item { "," seq_item } [ "," ] ] ")"    (* 元组 *)
+             | "[" [ seq_item { "," seq_item } [ "," ] ] "]" ;               (* 切片 *)
+literal_pat  = [ "-" ] ( INT | FLOAT ) | CHAR | STRING_LIT | "true" | "false" ;
+value_pat    = literal_pat [ ".." [ literal_pat ] | "..=" literal_pat ]
+             | ( ".." | "..=" ) literal_pat ;            (* ..= 必须有右端 *)
+path_pat     = ctor_path ;                                (* 与表达式侧同形，含 Self: Self.Empty  Self { x, y } *)
+seq_item     = pattern | ".." [ NAME ] ;                  (* 剩余项，每个序列至多一个: [first, ..rest]  [.., last]
+                                                             消歧: .. / ..= 后紧跟字面量时是 value_pat（[..5] 是范围），
+                                                             后跟 NAME 或 , ] 时是剩余项 *)
+field_pats   = field_pat { lsep field_pat } [ lsep ]
+             | [ field_pat { lsep field_pat } lsep ] ".." [ lsep ] ;   (* .. 只能在最后 *)
+field_pat    = NAME [ ":" pattern ] ;
+(* 约定: 小写 NAME 单独出现 = 绑定；UPPER_IDENT 单独出现 = 变体或常量，绝不是绑定。 *)
+
+
+(* ═══════════════════ C. 解析器上下文规则 ═══════════════════
+
+   C1. 条件上下文 C。以下位置的表达式在 C 中解析:
+         if / while 的条件；for … in 之后的表达式；match 的被匹配表达式；match 守卫；
+         is 之后的模式（C 模式）。
+       在 C 内且不处于任何括号内时:
+         (a) struct_lit 不可用（UPPER_IDENT 之后的 { 属于控制结构的块）；
+         (b) 裸 block 不能作为 primary 的起点（for i in 0.. { … } 中 .. 后无操作数）；
+         (c) arrow_lambda 不可用（避免 if flag => … 把 flag => … 当成 lambda）；
+         (d) is 的模式不能是 path_pat "{" … "}" 记录模式（避免 x is None { … } 歧义）。
+       需要用时加括号:  if (p is Point { x: 0, .. }) { … }
+       C 在 ( ) 、[ ] 、{ } 内部重置，因此 if xs.any(x => x > 1) { … } 合法。
+       unsafe { … } 与 spawn { … } 的 { 由各自关键字消费，不受 (b) 影响。
+
+   C2. struct_lit 的识别: primary 起始处若为 ctor_path 且紧跟 {（且不在 C 内的限制下），
+       则解析为 struct_lit；否则按普通 postfix 链处理。
+   C3. lambda 的识别: NAME 后紧跟 => ，或 ( … ) 匹配后紧跟 =>，才是 arrow_lambda；
+       否则是括号表达式 / 元组。词法器在维护括号栈（N2）时顺带记录每个括号的配对下标，
+       判定为 O(1)；解析时不要反复向前扫描（深层嵌套括号会退化成 O(n^2)）。
+   C4. 「> 的拆分」: 见 A5。只有类型解析器会拆分以 > 开头的复合 token；表达式解析器不拆。
+   C5. 泛型参数表 generics 与类型实参表 type_args（含 .<…>）内部，解析器丢弃 NL token（词法层不变）:
+       允许在 < 、逗号之后及 > 之前换行。仅限这两种上下文；其余位置 > 仍不触发续行。
+   C6. 管道: a |> f(b) 的重写是纯语法层面的；obj.m 作为 pipe_rhs 时按函数调用 obj.m(a) 解析，
+       不把 a 当接收者。
+   C7. 分隔符语义: 块尾 ; 丢弃值（见 B3）。语句之间 NL 与 ; 等价。
+   C8. 管道右侧 pipe_rhs 只能是后缀表达式。优先级表中 + - * / 等比 |> 绑得更紧，
+       但那只描述 |> 的「左侧」：a + b |> f 即 (a + b) |> f。
+       右侧不会继续吸收二元运算符，因此  xs |> len + 1  是语法错误，须写成
+       (xs |> len) + 1 。实现应给出专门的报错提示，而不是泛泛的「意外的 +」。
+   C9. as 之后的类型贪婪消费: type_path 之后的 < 一律视为 type_args 的开头，
+       ? 一律并入该类型，. 一律并入 type_path。因此  x as int < y  是语法错误（写 (x as int) < y），
+       x as int.abs()  是语法错误（写 (x as int).abs()），
+       x as int?  是转换为 int?（需要对结果传播时写 (x as int)? ）。
+       as 之后的 dyn / impl 类型必须加括号：x as (dyn A + B)，否则 + 与加法冲突。
+
+   C10. 实现建议（不影响文法）:
+       · 表达式用 Pratt（优先级爬升）解析，下方优先级表为唯一权威；B4 的逐层产生式是它的展开，
+         二者不一致时以表为准。5 / 6 / 8 层不可结合：同一层出现第二个运算符时报错。
+       · 条件上下文 C 实现为解析器状态里的一组标志（禁用 struct_lit / 裸 block 起点 / arrow_lambda /
+         is 的记录模式），进入 ( [ { 时保存并清零，退出时恢复。
+
+   C11. 建议的专门报错（给出针对性提示，而不是泛泛的「意外的 token」）:
+         xs |> len + 1          → C8，提示写 (xs |> len) + 1
+         x as int < y           → C9，提示加括号
+         x as int.abs()         → C9，提示写 (x as int).abs()
+         a >= b >= c            → 比较不可结合；a == b == c 、a..b..c 同理
+         { 前换行（Allman）      → N5，提示把 { 移到上一行行尾
+         if p is Point { … }    → C1(d)，提示给 is 的模式加括号
+         if x == Foo { … }      → 不是语法错误（Foo 为单元变体时合法）；由类型检查器在 Foo 是结构体时
+                                  提示「条件里的结构体字面量需要加括号」
+         ..= 后没有右端          → 必须有右操作数
+
+   C12. 需要多于 1 个 token 前瞻的判定点（实现时单独处理）:
+         fn 之后是 NAME（声明）还是 (（fn_lambda）；var 之后是 self 还是 NAME；
+         NAME => 与 ( … ) =>（C3，用预先记录的括号配对）；
+         primary 起始处的 ctor_path {（C2，向前扫 NAME . 序列，成本低）；
+         pattern 里的 NAME 与 NAME . … UPPER_IDENT（path_pat）；
+         use_path 之后是 . { 还是 .*；
+         . 之后是 NAME / UPPER_IDENT / INT / await / <；
+         return / break 之后能否开始表达式（见 B4）。
+
+
+   优先级（低 → 高）:
+     1  arrow_lambda  return  break  continue         右延伸
+     2  ||
+     3  &&
+     4  is
+     5  ==  !=                                         不可结合
+     6  <  >  <=  >=                                   不可结合
+     7  |>                                             左结合
+     8  ..  ..=                                        不可结合
+     9  |
+    10  ^
+    11  &
+    12  <<  >>
+    13  +  -
+    14  *  /  %
+    15  as
+    16  一元 -  !  ~
+    17  后缀: ()  []  .name  .0  .await  .<T>  ?
+
+
+   ═══════════════════ 示例（应全部可解析） ═══════════════════
+
+   use std.io
+   use std.collections.{Map, Set}
+
+   type Point = { x: float, y: float }
+
+   enum Shape {
+       Circle { center: Point, r: float }
+       Rect(Point, Point)
+       Empty
+   }
+
+   trait Area {
+       fn area(self) -> float
+       fn label(self) -> String { "shape" }
+   }
+
+   impl Area for Shape {
+       fn area(self) -> float {
+           match self {
+               Shape.Circle { r, .. } => 3.14159 * r * r
+               Shape.Rect(a, b) => (b.x - a.x).abs() * (b.y - a.y).abs()
+               Shape.Empty => 0.0
+           }
+       }
+   }
+
+   fn lookup(m: Map<String, int>, key: String) -> int? {
+       let Some(v) = m.get(key) else { return None }
+       if v is 0..=9 && key != "" {
+           return Some(v)
+       }
+       None
+   }
+
+   async fn fetch_two(a: String, b: String) -> (String, String) {
+       let (x, y) = spawn { http.get(a), http.get(b) }.await
+       defer log.flush()
+       (x, y)
+   }
+
+   fn main() {
+       var total = 0
+       'outer: for row in grid {
+           for cell in row {
+               if cell == 0 { continue }
+               if cell > 99 { break 'outer }
+               total += cell
+           }
+       }
+       let n = "42".parse.<int>()?
+       let evens = [1, 2, 3, 4]
+           |> filter(x => x % 2 == 0)
+           |> map(x => x * 10)
+       let first = match evens { [f, ..] => f, _ => 0 }
+       let pair = (n, evens)
+       println("n={n}, first={first}, deep={pair.1}")
+       let bits = (n << 2) | (n >> 1) & 0xff
+       let v = loop { break 42 }
+   }
+
+   -- v0.5 新增覆盖（应全部可解析）--
+   fn bits(x: int, var n: int) -> int {
+       n >>= 1
+       let v: Vec<_> = [x]
+       let m: Map<String, List<int>>= build()
+       let k = match n { 0..=9 => 1, 10.. => 2, _ => 0 }
+       (x as int).abs() + k
+   }
+   impl Shape { fn empty(self) -> bool { match self { Self.Empty => true, _ => false } } }
+
+   -- 应被拒绝（并给出 C11 的专门提示）--
+   match n { 5..= => 0 }          x as int.abs()          xs |> len + 1
+   let a = b >= c >= d            if p is Point { x: 0 } { … }
+
+   ═══════════════════ v0.4 → v0.5 变更对照 ═══════════════════
+
+   修复
+   · x >>= 1 无法解析：rel_expr 会先把首个 > 当作关系运算符      → > 系列改为最长匹配的复合 token（见优化）
+   · 模式里写不出 Self.Empty / Self { … }                       → path_pat = ctor_path
+   · range_pat 接受无右端的 5..=；literal_pat / range_pat 前缀重叠 → 合并为 value_pat，..= 必须有右端
+   · range_expr 两条产生式前缀重叠                                → 左因子化
+   · 类型位置没有 _ 占位符（Vec<_>  parse.<_>()）                 → base_type 增加 UNDERSCORE
+   · 块注释内含换行时是否产生 NL 未规定；N1 未提 \r\n              → A3 / N1 补充
+   · ..base 与字段模式的 .. 「必须在最后」只写在注释里            → 写入 init_list / field_pats
+   · C9 未覆盖 x as int.abs()                                    → 补充 . 的情形
+
+   优化（行为不变，仅实现与文档层面）
+   · > >= >> >>= 改为普通复合 token，类型解析器就地拆分；删除 joint 标记与 C4 的特例
+   · C3: 括号配对由词法器预先记录，判定 O(1)
+   · C5: 泛型 / 类型实参内的换行改由解析器丢弃 NL，不再是使用限制
+   · 新增 C10–C12: Pratt 解析以优先级表为准；专门报错清单；多 token 前瞻点清单
+
+   仍待决定（本版未改动）
+   · 汉字等无大小写文字不能作类型 / 变体 / 常量 / 泛型参数名（A1: UPPER_IDENT 要求 Lu）
+   · pipe_rhs 的重写规则: a |> f? 、a |> f(b)? 、a |> x.m(b).n(c) 的含义
+   · var x 与 let var x 两种可变写法并存
+   · return / break / continue 不能作 && || 的操作数
+   · 未支持: x.type 之类的关键字字段名 / 原始标识符；Iterator<Item = int>；
+     泛型结构体字面量的显式实参；数字字面量 1_ 与 1__0 被接受；属性参数不支持负数
+
+   ═══════════════════════════════════════════════════════════
+
+   ═══════════════════ v0.3 → v0.4 变更对照 ═══════════════════
+
+   修复
+   · use … as 的目标只能是 NAME，无法给类型改名             → "as" ( NAME | UPPER_IDENT )
+   · A5 标点表缺少单独的 <                                   → 补上
+   · ".." 在续行集合 T 中，行尾的开区间 3.. 会吞掉换行       → 从 T 移除 ".."（保留 "..="）
+   · match 的 asep 只吸收一个分隔符，"a => 1;" 后换行会失败   → asep 改为可吸收后续 NL / ;
+   · where 子句不允许尾逗号；type_decl 缺 where_clause        → 补上
+
+   文档化（文法未变）
+   · C8: 管道右侧只能是后缀表达式，xs |> len + 1 为语法错误
+   · C9: as 之后的类型贪婪消费 < 与 ?
+
+   ═══════════════════════════════════════════════════════════
+
+   ═══════════════════ v0.2 → v0.3 变更对照 ═══════════════════
+
+   修复（v0.2 中无法按文法解析或有歧义的点）
+   · 块与 match 的末项必须带 sep，但 } 前的 NL 又被吞掉  → 块/trait/impl/mod 改为 [seps] 吸收，}不再触发续行
+   · trait / impl / enum 体内没有 sep                     → 加 seps / lsep
+   · 泛型 > 被当二元运算符，行尾 Option<T> 吞换行         → > 单字符 joint token，且不在 T 中
+   · self / Self 是关键字却无法书写                       → self_param、primary、type_seg 补上
+   · t.0.1 被词法化为 FLOAT                               → A6 规则
+   · if x is None { … } 被当成记录模式                    → C1(d)
+   · expr_ns 与 expr 文法上相同，限制只在注释里           → 用 C1 把规则写成明文
+   · match 守卫里的 flag => … 被当成 lambda               → C1(c)
+   · 切片模式写不出 [..] / [..rest]                       → 统一为 seq_item
+   · (a,,) 被接受；一元组模式、() 模式缺失                → 元组产生式重写
+   · comment 吞掉 NL                                      → 注释不含换行符
+   · pub 可修饰 return/while；impl 里不能用 pub(x)         → 声明/语句分离；impl_member 复用 vis
+   · 两种花括号转义 {{ 与 \{                               → 只保留 \{
+   · UPPER_IDENT / letter / digit / any 未定义            → A1–A2 补全
+
+   新增
+   · 位运算 & | ^ ~ << >> 及复合赋值；as 类型转换
+   · 显式泛型实参 f.<T>(…)；where 子句；常量泛型；dyn / impl 类型；trait 超 trait、关联类型、关联常量
+   · 开放区间 ..  3..  ..5；重复数组 [0; n]；结构体更新 ..base；字符 / 原始字符串 / 数字进制与指数
+   · 或模式 a | b；@ 绑定；切片中任意位置的 ..；let … else
+   · return / break / continue 变为表达式；loop 可带值 break；循环标签
+   · 枚举变体有记录形态（命名字段真正可构造、可匹配）
+   · const；async fn；extern 块；属性 @attr(…)；pub(mod)；use … as / 通配
+
+   取舍（需要你确认）
+   · 顶层不再允许裸语句，入口 fn main，全局值用 const。
+   · fn 声明的参数类型必须写；lambda 的参数类型可省。
+   · 块尾 ; 丢弃值（NL 不丢弃）。
+   · 比较与相等不可链式书写。
+   · 管道优先级高于比较、低于范围：xs |> len == 3 即 (xs |> len) == 3。
+   · 变体与常量大写，绑定小写：由词法大小写直接区分，语法上不再需要上下文判断。
+
+   留给语义层的问题
+   · 内存模型 (GC / 所有权 / 值语义)，以及 unsafe 与 extern 具体能做什么
+   · T? 是否即 Option<T>；? 对 Result 的作用；错误类型如何统一
+   · type 别名是否名义类型 (newtype)
+   · async 的取消与错误传播；spawn 组内任一失败时的语义
+   · 命名实参 / 默认实参；map / set 字面量；宏
+   · 是否需要 is not ，以及 is 绑定的作用域精确规则
+   ════════════════════════════════════════════════════════════════ *)
+
+
+(* ═══════════════════ v0.5 → v0.6 变更 ═══════════════════
+   · init_list / field_pats：单独的 ..base / .. 之后允许逗号或换行（修复 P {⏎ ..base⏎} 无法解析）
+   · let-else 初值不能以 } 结尾；fn() -> T? 的 ? 归属；as 之后 dyn/impl 需括号；[..5] 消歧
+   · .* 只在 use 路径中词法化；逗号不能在行首；C11 中 if x == Foo 改由类型检查器提示
+   · 规范措辞：「LL(1)，外加 C3 / C12 列出的有限前瞻点」
+
+   实现状态（Kite 0.91）
+   已实现: INT 各进制与下划线、指数、CHAR、RAW_STRING、\u{…}、FMT_SPEC（[[填充]对齐][0][宽度][.精度][x|X|o|b|e|?]）、
+           const（局部与顶层）、as（Int / Float / Bool 之间）、[x; n]、..base、或模式、切片、标签、loop 值、let-else；
+           B4 的完整优先级表（|> 右侧为 postfix、==/比较/区间不可结合并给出 C11 的提示）、~、
+           is 绑定在 && 右侧可见，并扩展到 if 条件的 then 分支（if x is P [&& R] { … }，即 537 行的待定项）
+           顶层只允许声明（0.51；REPL 例外）
+           记录变体（构造、模式、显示）；where（fn / impl，左边限于泛型参数；type / enum 上暂不支持）
+           dyn / impl 类型（impl 只在参数和返回位置；返回位置的 impl 按 dyn 处理）
+           关联类型（trait 里 type X [: bounds] [= 默认]，impl 里 type X = T，用 Self.X / T.X 引用；关联常量未做）
+           显式泛型实参 f.<T>(…)（只能跟在泛型函数名后面，_ 表示推断）；属性 @test / @deprecated(…)，另外 @inline / @cold / @allow / @doc 只被接受、无效果
+           async fn / .await（惰性 Future<T>；.await 限 async fn 内；spawn/race { … }.await 逐项 await 其中的 Future；spawn 组本身早已实现）
+           extern ["C"] { fn 签名 }（顶层；标量 + Str；@link("lib")；使用处必须在 unsafe { … } 内）
+           async 块 / async 闭包（0.58 扩展：async { } | async x => e | async (…) => e | async fn(…) { }）
+   第三批完成。unsafe fn 已实现（0.59：调用需 unsafe 块，体内为 unsafe 上下文，trait/impl 须一致）。
+           0.60：@ 绑定、var 绑定、开区间 / 字符区间 / 负数区间、常量模式（字面量 const）、Self 路径模式、
+           序列模式中任意位置的 ..（列表可绑定 ..rest，元组 / 元组变体只能写 ..）；use … as、分组内 as、use m.*；trait 超 trait
+           0.61：关联常量（trait / impl 里的 const，类型.N / Self.N）、type / enum 上的约束与 where、pub(pkg) / pub(mod) 可见性
+           0.62：常量泛型 const N: Int（fn / type / enum / impl）、定长数组类型 [T; N]、类型实参里的整数 Vec<3> / f.<3>()
+           0.63：内联模块 mod m { … }（可嵌套、pub mod、模块.类型 { … } 字面量）、unsafe fn(…) 函数类型
+           0.64：内联模块里的 super（super.x / use super.X / super.super / 祖先私有项可见）
+           0.65：泛型参数上的关联常量 T.N
+           0.66：类型别名上的约束与参数个数检查
+           0.67：函数体里的内联 mod 块（stmt 可以是 mod_block）
+           0.68：extern 支持 Ptr 与按值传递的 C 结构体（类型规则，文法不变）
+           0.69：extern 参数可以是 fn 回调（类型规则，文法不变）
+           0.70：extern fn 的参数表末尾可以写 "..."（可变参数）；窄 C 宽度类型
+   剩余（文法中有、实现暂缺）: 
+           extern 的指针 / 结构体 / 回调 / 变参
+   与本文法保留差异: 实现另有 if let / while let、Set{…} 字面量、select
+   ═══════════════════════════════════════════════════════════ *)

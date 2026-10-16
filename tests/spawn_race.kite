@@ -1,0 +1,9 @@
+// 运行时拒绝：通过外层创建的闭包，在任务里修改外层变量
+fn main() {
+  var hits = 0
+  let bump = () => { hits += 1 }
+  bump()
+  print("任务外修改可以:", hits)
+  let (a, b) = spawn { bump(), bump() }
+  print("不应执行到这里", a, b)
+}

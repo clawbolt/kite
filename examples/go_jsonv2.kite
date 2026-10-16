@@ -1,0 +1,67 @@
+// 对齐 Go 1.27 的 encoding/json/jsontext 和 encoding/json/v2：tests/go/jsonv2.go
+use std.encoding.json.jsontext as jt
+use std.encoding.json.v2 as jsonv2
+use std.encoding.hex
+use std.encoding.json.{ Json }
+
+
+fn bases() -> List<List<Int>> {
+  let q = "\""
+  let raw = [
+    "\{\"a\":1}", "[1,2.5,-3e10,true,false,null]", q + "he\\\"llo\\u00e9\\n" + q, "\{\"k\":[\{},[]],\"z\":\"x\"}", " 0 ", "-0.5E+3",
+    "\{\"a\" : [ 1 , \{ \"b\" : null } ] }", q + "\\ud83d\\ude00 \\ud800" + q, "[[[]]]", "\{\"\":\"\"}", q + "é<&>\\u2028" + q, "123", "true",
+    "", "\{\"a\":1,\"a\":2}", "[1e400]", q + "\\/\\b\\f\\r\\t" + q, "  [\n\t1\r\n]  ", "nul", "\{\"x\":tru}",
+    "\{\"b\":\{\"y\":1,\"x\":2},\"a~/\":[1.0,1e2,12345678901234567,-0,0.0000001]}", "\{\"\\uffff\":1,\"😀\":2,\"a\\u0000\":3,\"\\u001F\":\"\\u00e9\\u001f/\"}",
+    "[\{\"a\":[\{\"b\":\{\"c\":[1,2,\{\"d\":\"e\"}]}" + "}]}]",
+  ]
+  map(enumerate(raw), (p) => if p.0 == 13 { [34, 0xff, 0xfe, 34] } else { __bytes(p.1) })
+}
+
+const MUTS: List<Int> = [32, 34, 44, 125, 93, 120, 92, 48, 255, 58, 123]
+
+fn out(tag: Str, r: Result<List<Int>, Str>) {
+  match r {
+    Ok(b) => print(" " + tag + " " + hex.encode_bytes(b)),
+    Err(e) => print(" " + tag + " err " + e),
+  }
+}
+
+fn show(inp: List<Int>) {
+  print("IN " + hex.encode_bytes(inp))
+  print(" V {jt.is_valid(inp)}")
+  out("0", jt.compact(inp))
+  out("1", jt.indent(inp))
+  out("2", jt.indent_with(inp, " ", "  "))
+  out("3", jt.canonicalize(inp))
+  match jsonv2.unmarshal(inp) {
+    Err(e) => print(" U err " + e),
+    Ok(v) => print(" U " + hex.encode_bytes(unwrap(jsonv2.marshal(v))) + " <nil>"),
+  }
+}
+
+fn main() {
+  for inp in bases() {
+    show(inp)
+    for i in 0..len(inp) {
+      show(inp[..i] + inp[i + 1..])
+      for m in MUTS { show(set(inp, i, m)) }
+    }
+    var i = 0
+    while i <= len(inp) {
+      for m in MUTS { show(inp[..i] + [m] + inp[i..]) }
+      i += 3
+    }
+  }
+  for s in ["\{\"x\":1e999}", "[1,[2,-1e999]]", "1e999", "\{\"a\":\{\"b\":1,\"b\":2}" + "}", "\{\"a\":[\{\"b\":1,\"c\":2,\"b\":3}]}"] {
+    match jsonv2.unmarshal(__bytes(s)) {
+      Err(e) => print(s + " " + e),
+      Ok(_) => print(s + " <nil>"),
+    }
+  }
+  let (q, e1) = jt.quote_go(__bytes("a<\"\u{1}\u{2028}") + [0xff])
+  print(hex.encode_bytes(q) + " " + e1)
+  let (u, e2) = jt.unquote_go(__bytes("\"a\\u00e9\\ud83d\\ude00\\/\\ud800x\""))
+  print(hex.encode_bytes(u) + " " + e2)
+  let m = JObj(Map([("\u{ffff}", JNum(1.0)), ("😀", JNum(2.0)), ("b", JArr([JStr("<&>\u{2028}"), JNum(1e21), JNull]))]))
+  print(unwrap(__from_bytes(unwrap(jsonv2.marshal(m)))))
+}

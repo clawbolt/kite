@@ -1,0 +1,26 @@
+// 0.45：std.fs 扩展。除 exists / is_file / is_dir 外都返回 Result，错误信息是 "路径: 原因"
+use std.fs
+
+fn main() {
+  let root = "/tmp/kite_fs_demo"
+  if fs.exists(root) {
+    for name in fs.list(root).unwrap() { fs.remove("{root}/{name}").unwrap() }
+    fs.remove(root).unwrap()
+  }
+  fs.mkdir("{root}/sub/deep").unwrap()
+  fs.mkdir(root).unwrap()   // 已存在的目录不算错
+  let log = "{root}/log.txt"
+  fs.write(log, "first\n").unwrap()
+  fs.append(log, "second\n").unwrap()
+  print(fs.read(log).unwrap().trim().split("\n"), fs.size(log).unwrap())
+  fs.rename(log, "{root}/app.log").unwrap()
+  fs.write("{root}/b.txt", "").unwrap()
+  print(fs.list(root).unwrap())
+  print(fs.is_file("{root}/app.log"), fs.is_dir("{root}/sub"), fs.exists(log))
+  print(fs.read(log))
+  print(fs.remove("{root}/sub"))
+  print(fs.list("{root}/b.txt"))
+  fs.remove("{root}/sub/deep").unwrap()
+  fs.remove("{root}/sub").unwrap()
+  print(fs.list(root).unwrap())
+}

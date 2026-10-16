@@ -1,0 +1,1476 @@
+// std.archive.tar：tar 归档读写（对齐 Go 的 archive/tar，算法逐函数移植自 Go 1.23）
+//   写：w = tar.new_writer()；(w, r) = w.write_header(h)；(w, n, err) = w.write(bytes)；
+//       (w, r) = w.flush()；(w, r) = w.close()；w.bytes() 取出写出的全部字节
+//       和 Go 一样自动选择格式（USTAR → PAX → GNU）：长名字 / 大数值 / 非 ASCII / 纳秒时间写 PAX 记录，
+//       Header.format 指定格式时按 Go 的规则取交集；校验和、512 字节对齐、结尾两个全零块都和 Go 逐字节相同。
+//   读：r = tar.new_reader(bytes)；(r, res) = r.next() 得到 Result<Header, Str>，结束时 Err("EOF")；
+//       (r, bs, err) = r.read(n) 读当前条目最多 n 字节（err 为 "" / "EOF" / 其他错误，和 Go 的 Read 一样）；
+//       (r, bs, err) = r.read_all() 读出当前条目剩余全部数据（相当于 io.ReadAll，err 为 "" 表示正常读完）
+//       支持 V7、USTAR、PAX（含全局头 'g'、SCHILY.xattr）、GNU（长名字 L/K、base-256 数值、atime/ctime）、
+//       STAR，以及 GNU 稀疏文件（旧 GNU 'S' 格式和 PAX 0.0/0.1/1.0 格式）的读取。
+//   Header：Go 的 Header 字段一一对应；时间用 tar.Time { sec, nsec }（Unix 秒 + 纳秒），零时间是
+//       zero_time()（等于 Go 的 time.Time{}）；tar.header() 给出全零的 Header，用 Header { name: …, ..tar.header() } 构造。
+//   错误信息和 Go 相同：ERR_HEADER "archive/tar: invalid tar header"、ERR_WRITE_TOO_LONG、ERR_FIELD_TOO_LONG、
+//       ERR_WRITE_AFTER_CLOSE、"archive/tar: cannot encode header: …"、"archive/tar: missed writing N bytes"、
+//       "EOF"、"unexpected EOF"。
+// 和 Go 的差别：
+//   - 值不可变，Writer / Reader 的方法返回新值；没有 io.Writer / io.Reader，数据全部在内存里。
+//   - 没有 FileInfo / FileInfoHeader / AddFS（不访问文件系统）；不检查 ErrInsecurePath（Go 默认也不检查）。
+//   - Go 遍历 map 的顺序是随机的；这里需要时按键排序（只影响多个非法 PAX 记录时报哪一个）。
+//   - 错误信息里的时间按 UTC 格式化（Go 按 time.Time 自带的时区）。
+//   - Kite 的 Str 必须是合法 UTF-8：读到的名字等字段里非法的 UTF-8 字节会被替换成 U+FFFD。
+//   - 全局头的 PAX 记录解析出错时（Go 忽略这个错误，结果取决于随机的 map 顺序），这里按键排序处理、pax_records 为空。
+//   - 不支持写稀疏文件（Go 1.23 里这部分也是注释掉的）；Go 的 Writer.ReadFrom / Reader.WriteTo 没有对应。
+
+use std.math.bits
+use std.strconv
+
+pub const TYPE_REG: Int = 48
+
+pub const TYPE_REGA: Int = 0
+
+pub const TYPE_LINK: Int = 49
+
+pub const TYPE_SYMLINK: Int = 50
+
+pub const TYPE_CHAR: Int = 51
+
+pub const TYPE_BLOCK: Int = 52
+
+pub const TYPE_DIR: Int = 53
+
+pub const TYPE_FIFO: Int = 54
+
+pub const TYPE_CONT: Int = 55
+
+pub const TYPE_XHEADER: Int = 120
+
+pub const TYPE_XGLOBAL_HEADER: Int = 103
+
+pub const TYPE_GNU_SPARSE: Int = 83
+
+pub const TYPE_GNU_LONG_NAME: Int = 76
+
+pub const TYPE_GNU_LONG_LINK: Int = 75
+
+pub const FORMAT_UNKNOWN: Int = 0
+
+const FORMAT_V7: Int = 1
+
+pub const FORMAT_USTAR: Int = 2
+
+pub const FORMAT_PAX: Int = 4
+
+pub const FORMAT_GNU: Int = 8
+
+const FORMAT_STAR: Int = 16
+
+const FORMAT_MAX: Int = 32
+
+pub const ERR_HEADER: Str = "archive/tar: invalid tar header"
+
+pub const ERR_WRITE_TOO_LONG: Str = "archive/tar: write too long"
+
+pub const ERR_FIELD_TOO_LONG: Str = "archive/tar: header field too long"
+
+pub const ERR_WRITE_AFTER_CLOSE: Str = "archive/tar: write after close"
+
+pub const ERR_INSECURE_PATH: Str = "archive/tar: insecure file path"
+
+const ERR_MISS_DATA: Str = "archive/tar: sparse file references non-existent data"
+
+const ERR_UNREF_DATA: Str = "archive/tar: sparse file contains unreferenced data"
+
+pub const EOF: Str = "EOF"
+
+pub const UNEXPECTED_EOF: Str = "unexpected EOF"
+
+const BLOCK_SIZE: Int = 512
+
+const NAME_SIZE: Int = 100
+
+const PREFIX_SIZE: Int = 155
+
+const MAX_SPECIAL_FILE_SIZE: Int = 1048576
+
+const MAX_INT: Int = 9223372036854775807
+
+const ZERO_SEC: Int = -62135596800
+
+// ---------- 时间 ----------
+
+pub type Time = { sec: Int, nsec: Int }
+
+// 相当于 Go 的 time.Unix(sec, nsec)：把 nsec 规整到 [0, 1e9)
+pub fn unix(sec: Int, nsec: Int) -> Time {
+  var s = sec
+  var n = nsec
+  if n < 0 || n >= 1000000000 {
+    s = bits.wadd(s, n / 1000000000)
+    n = n % 1000000000
+    if n < 0 {
+      n += 1000000000
+      s = bits.wsub(s, 1)
+    }
+  }
+  Time { sec: s, nsec: n }
+}
+
+// Go 的 time.Time{}
+pub fn zero_time() -> Time { Time { sec: ZERO_SEC, nsec: 0 } }
+
+fn pad2(n: Int) -> Str { if n < 10 { "0{n}" } else { "{n}" } }
+
+fn floor_div(a: Int, b: Int) -> Int {
+  let q = a / b
+  if a % b != 0 && (a < 0) != (b < 0) { q - 1 } else { q }
+}
+
+impl Time {
+  fn is_zero(self) -> Bool { self.sec == ZERO_SEC && self.nsec == 0 }
+
+  // Go 的 t.Round(time.Second)
+  fn round_second(self) -> Time { if self.nsec >= 500000000 { Time { sec: bits.wadd(self.sec, 1), nsec: 0 } } else { Time { sec: self.sec, nsec: 0 } } }
+
+  // Go 的 t.UTC().String()，例如 "2009-11-10 23:00:00.5 +0000 UTC"
+  fn to_string(self) -> Str {
+    let days = floor_div(self.sec, 86400)
+    let rem = self.sec - days * 86400
+    let z = days + 719468
+    let era = floor_div(z, 146097)
+    let doe = z - era * 146097
+    let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100)
+    let mp = (5 * doy + 2) / 153
+    let d = doy - (153 * mp + 2) / 5 + 1
+    let m = if mp < 10 { mp + 3 } else { mp - 9 }
+    let y = yoe + era * 400 + (if m <= 2 { 1 } else { 0 })
+    var ys = "{y}"
+    while len(ys) < 4 { ys = "0" + ys }
+    var frac = ""
+    if self.nsec != 0 {
+      var ns = "{self.nsec}"
+      while len(ns) < 9 { ns = "0" + ns }
+      while ends_with(ns, "0") { ns = __str_slice(ns, 0, len(ns) - 1) }
+      frac = "." + ns
+    }
+    ys + "-" + pad2(m) + "-" + pad2(d) + " " + pad2(rem / 3600) + ":" + pad2(rem / 60 % 60) + ":" + pad2(rem % 60) + frac + " +0000 UTC"
+  }
+}
+
+// ---------- Header ----------
+
+pub type Header = {
+  typeflag: Int, name: Str, linkname: Str, size: Int, mode: Int, uid: Int, gid: Int,
+  uname: Str, gname: Str, mod_time: Time, access_time: Time, change_time: Time,
+  devmajor: Int, devminor: Int, xattrs: Map<Str, Str>, pax_records: Map<Str, Str>, format: Int,
+}
+
+// 全零的 Header（相当于 Go 的 tar.Header{}）
+pub fn header() -> Header {
+  Header {
+    typeflag: 0, name: "", linkname: "", size: 0, mode: 0, uid: 0, gid: 0, uname: "", gname: "",
+    mod_time: zero_time(), access_time: zero_time(), change_time: zero_time(), devmajor: 0, devminor: 0,
+    xattrs: Map(), pax_records: Map(), format: 0,
+  }
+}
+
+fn format_has(f: Int, f2: Int) -> Bool { f & f2 != 0 }
+
+// Go 的 Format.String()
+pub fn format_string(f: Int) -> Str {
+  var ss: List<Str> = []
+  var f2 = 1
+  while f2 < FORMAT_MAX {
+    if format_has(f, f2) {
+      let n = if f2 == FORMAT_V7 { "V7" } else if f2 == FORMAT_USTAR { "USTAR" } else if f2 == FORMAT_PAX { "PAX" } else if f2 == FORMAT_GNU { "GNU" } else { "STAR" }
+      ss = push(ss, n)
+    }
+    f2 = f2 << 1
+  }
+  if len(ss) == 0 { "<unknown>" } else if len(ss) == 1 { ss[0] } else { "(" + join(ss, " | ") + ")" }
+}
+
+fn is_header_only_type(flag: Int) -> Bool { flag == TYPE_LINK || flag == TYPE_SYMLINK || flag == TYPE_CHAR || flag == TYPE_BLOCK || flag == TYPE_DIR || flag == TYPE_FIFO }
+
+// ---------- 字节工具 ----------
+
+fn zeros(n: Int) -> List<Int> { if n <= 0 { [] } else { [0; n] } }
+
+fn put(blk: List<Int>, off: Int, bs: List<Int>) -> List<Int> { blk[..off] + bs + blk[off + len(bs)..] }
+
+fn field(blk: List<Int>, off: Int, n: Int) -> List<Int> { blk[off..off + n] }
+
+fn index_byte(bs: List<Int>, c: Int) -> Int {
+  var i = 0
+  let n = len(bs)
+  while i < n {
+    if bs[i] == c { return i }
+    i += 1
+  }
+  -1
+}
+
+fn last_index_byte(bs: List<Int>, c: Int) -> Int {
+  var i = len(bs) - 1
+  while i >= 0 {
+    if bs[i] == c { return i }
+    i -= 1
+  }
+  -1
+}
+
+fn utf8_len(c: Int) -> Int { if c < 0x80 { 1 } else if c >= 0xc2 && c < 0xe0 { 2 } else if c >= 0xe0 && c < 0xf0 { 3 } else if c >= 0xf0 && c < 0xf5 { 4 } else { 0 } }
+
+// 字节转 Str；非法 UTF-8 字节换成 U+FFFD
+fn bytes_str(bs: List<Int>) -> Str {
+  match __from_bytes(bs) {
+    Some(s) => { return s }
+    None    => {}
+  }
+  var out: List<Int> = []
+  var i = 0
+  let n = len(bs)
+  while i < n {
+    let k = utf8_len(bs[i])
+    var ok = k > 0 && i + k <= n
+    if ok && k > 1 {
+      match __from_bytes(bs[i..i + k]) {
+        Some(_) => {}
+        None    => { ok = false }
+      }
+    }
+    if ok {
+      out = out + bs[i..i + k]
+      i += k
+    } else {
+      out = out + [0xef, 0xbf, 0xbd]
+      i += 1
+    }
+  }
+  unwrap(__from_bytes(out))
+}
+
+fn is_ascii(bs: List<Int>) -> Bool {
+  for c in bs {
+    if c >= 0x80 || c == 0 { return false }
+  }
+  true
+}
+
+fn to_ascii(bs: List<Int>) -> List<Int> { if is_ascii(bs) { bs } else { filter(bs, (c) => c < 0x80 && c != 0) } }
+
+fn has_nul(s: Str) -> Bool { contains(__bytes(s), 0) }
+
+fn block_padding(n: Int) -> Int { (0 - n) & (BLOCK_SIZE - 1) }
+
+fn fits_in_base256(n: Int, x: Int) -> Bool {
+  if n >= 9 { return true }
+  let b = (n - 1) * 8
+  x >= 0 - (1 << b) && x < (1 << b)
+}
+
+fn fits_in_octal(n: Int, x: Int) -> Bool {
+  if x < 0 { return false }
+  if n >= 22 { return true }
+  x < (1 << ((n - 1) * 3))
+}
+
+// ---------- 格式化字段（返回 (字段字节, 是否出错)） ----------
+
+fn format_string_field(n: Int, s: List<Int>) -> (List<Int>, Bool) {
+  let ls = len(s)
+  var b = if ls >= n { s[..n] } else { s + zeros(n - ls) }
+  let too = ls > n
+  if too && b[n - 1] == 47 {
+    var k = n - 1
+    while k > 0 && s[k - 1] == 47 { k -= 1 }
+    b = set(b, k, 0)
+  }
+  (b, too)
+}
+
+fn format_octal_field(n: Int, x: Int) -> (List<Int>, Bool) {
+  var v = x
+  var e = false
+  if !fits_in_octal(n, x) {
+    v = 0
+    e = true
+  }
+  var s = strconv.format_int(v, 8)
+  let pad = n - len(s) - 1
+  var k = 0
+  while k < pad {
+    s = "0" + s
+    k += 1
+  }
+  let (b, e2) = format_string_field(n, __bytes(s))
+  (b, e || e2)
+}
+
+fn format_numeric_field(n: Int, x: Int) -> (List<Int>, Bool) {
+  if fits_in_octal(n, x) { return format_octal_field(n, x) }
+  if fits_in_base256(n, x) {
+    var rev: List<Int> = []
+    var v = x
+    var i = 0
+    while i < n {
+      rev = push(rev, v & 0xff)
+      v = v >> 8
+      i += 1
+    }
+    let b = reverse(rev)
+    return (set(b, 0, b[0] | 0x80), false)
+  }
+  let (b, _) = format_octal_field(n, 0)
+  (b, true)
+}
+
+fn str_field(n: Int, s: List<Int>) -> List<Int> {
+  let (b, _) = format_string_field(n, s)
+  b
+}
+
+fn num_field(gnu: Bool, n: Int, x: Int) -> List<Int> {
+  let (b, _) = if gnu { format_numeric_field(n, x) } else { format_octal_field(n, x) }
+  b
+}
+
+fn checksums(blk: List<Int>) -> (Int, Int) {
+  var u = 0
+  var s = 0
+  var i = 0
+  while i < BLOCK_SIZE {
+    let c = if i >= 148 && i < 156 { 32 } else { blk[i] }
+    u += c
+    s += if c >= 128 { c - 256 } else { c }
+    i += 1
+  }
+  (u, s)
+}
+
+fn set_format(blk: List<Int>, format: Int) -> List<Int> {
+  var b = blk
+  if format_has(format, FORMAT_V7) {
+  } else if format_has(format, FORMAT_GNU) {
+    b = put(b, 257, [117, 115, 116, 97, 114, 32, 32, 0])
+  } else if format_has(format, FORMAT_STAR) {
+    b = put(b, 257, [117, 115, 116, 97, 114, 0, 48, 48])
+    b = put(b, 508, [116, 97, 114, 0])
+  } else if format_has(format, FORMAT_USTAR | FORMAT_PAX) {
+    b = put(b, 257, [117, 115, 116, 97, 114, 0, 48, 48])
+  } else {
+    panic("invalid format")
+  }
+  let (u, _) = checksums(b)
+  let (f, _) = format_octal_field(7, u)
+  put(b, 148, f + [32])
+}
+
+// ---------- 解析字段 ----------
+
+fn cut_nul(b: List<Int>) -> List<Int> {
+  let i = index_byte(b, 0)
+  if i >= 0 { b[..i] } else { b }
+}
+
+fn parse_string(b: List<Int>) -> Str { bytes_str(cut_nul(b)) }
+
+fn is_trim(c: Int) -> Bool { c == 32 || c == 0 }
+
+// (值, 是否出错)
+fn parse_octal(b0: List<Int>) -> (Int, Bool) {
+  var a = 0
+  var z = len(b0)
+  while a < z && is_trim(b0[a]) { a += 1 }
+  while z > a && is_trim(b0[z - 1]) { z -= 1 }
+  if a == z { return (0, false) }
+  let u = cut_nul(b0[a..z])
+  if len(u) == 0 { return (0, true) }
+  var x = 0
+  for c in u {
+    if c < 48 || c > 55 { return (0, true) }
+    if x < 0 || x >= (1 << 61) { return (-1, true) }
+    x = (x << 3) | (c - 48)
+  }
+  (x, false)
+}
+
+fn parse_numeric(b: List<Int>) -> (Int, Bool) {
+  if len(b) > 0 && b[0] & 0x80 != 0 {
+    let inv = if b[0] & 0x40 != 0 { 0xff } else { 0 }
+    var x = 0
+    var i = 0
+    for c0 in b {
+      var c = c0 ^ inv
+      if i == 0 { c = c & 0x7f }
+      if x < 0 || (x >> 56) > 0 { return (0, true) }
+      x = (x << 8) | c
+      i += 1
+    }
+    if x < 0 { return (0, true) }
+    if inv == 0xff { return (~x, false) }
+    return (x, false)
+  }
+  parse_octal(b)
+}
+
+// Go 的 strconv.ParseInt(s, 10, 64)，出错返回 None
+fn parse_int10(s: Str) -> Option<Int> {
+  let bs = __bytes(s)
+  let n = len(bs)
+  if n == 0 { return None }
+  var i = 0
+  var neg = false
+  if bs[0] == 43 || bs[0] == 45 {
+    neg = bs[0] == 45
+    i = 1
+  }
+  if i == n { return None }
+  let lim = (0 - MAX_INT - 1) / 10
+  var x = 0
+  while i < n {
+    let c = bs[i]
+    if c < 48 || c > 57 { return None }
+    let d = c - 48
+    if x < lim || (x == lim && d > 8) { return None }
+    x = x * 10 - d
+    i += 1
+  }
+  if neg { return Some(x) }
+  if x == 0 - MAX_INT - 1 { return None }
+  Some(0 - x)
+}
+
+// ---------- PAX ----------
+
+fn valid_pax_record(k: Str, v: Str) -> Bool {
+  if k == "" || contains(__bytes(k), 61) { return false }
+  if k == "path" || k == "linkpath" || k == "uname" || k == "gname" { !has_nul(v) } else { !has_nul(k) }
+}
+
+fn format_pax_record(k: Str, v: Str) -> Result<Str, Str> {
+  if !valid_pax_record(k, v) { return Err(ERR_HEADER) }
+  var size = len(__bytes(k)) + len(__bytes(v)) + 3
+  size += len("{size}")
+  var record = "{size} " + k + "=" + v + "\n"
+  if len(__bytes(record)) != size {
+    size = len(__bytes(record))
+    record = "{size} " + k + "=" + v + "\n"
+  }
+  Ok(record)
+}
+
+// (键, 值, 剩余)
+fn parse_pax_record(s: List<Int>) -> Result<(Str, Str, List<Int>), Str> {
+  let sp = index_byte(s, 32)
+  if sp < 0 { return Err(ERR_HEADER) }
+  let Some(n0) = parse_int10(bytes_str(s[..sp])) else { return Err(ERR_HEADER) }
+  if n0 < 5 || n0 > len(s) { return Err(ERR_HEADER) }
+  let n = n0 - (sp + 1)
+  if n <= 0 { return Err(ERR_HEADER) }
+  let rest = s[sp + 1..]
+  let rec = rest[..n - 1]
+  if rest[n - 1] != 10 { return Err(ERR_HEADER) }
+  let eq = index_byte(rec, 61)
+  if eq < 0 { return Err(ERR_HEADER) }
+  let k = bytes_str(rec[..eq])
+  let v = bytes_str(rec[eq + 1..])
+  if !valid_pax_record(k, v) { return Err(ERR_HEADER) }
+  Ok((k, v, rest[n..]))
+}
+
+fn all_digits(s: Str) -> Bool {
+  for c in __bytes(s) {
+    if c < 48 || c > 57 { return false }
+  }
+  true
+}
+
+fn parse_pax_time(s: Str) -> Result<Time, Str> {
+  let dot = __str_find(s, ".", 0)
+  let ss = if dot < 0 { s } else { __str_slice(s, 0, dot) }
+  var sn = if dot < 0 { "" } else { __str_slice(s, dot + 1, len(s)) }
+  let Some(secs) = parse_int10(ss) else { return Err(ERR_HEADER) }
+  if len(sn) == 0 { return Ok(unix(secs, 0)) }
+  if !all_digits(sn) { return Err(ERR_HEADER) }
+  if len(sn) < 9 {
+    while len(sn) < 9 { sn = sn + "0" }
+  } else {
+    sn = __str_slice(sn, 0, 9)
+  }
+  let nsecs = unwrap(parse_int10(sn))
+  if starts_with(ss, "-") { return Ok(unix(secs, 0 - nsecs)) }
+  Ok(unix(secs, nsecs))
+}
+
+fn format_pax_time(ts: Time) -> Str {
+  var secs = ts.sec
+  var nsecs = ts.nsec
+  if nsecs == 0 { return "{secs}" }
+  var sign = ""
+  if secs < 0 {
+    sign = "-"
+    secs = 0 - (secs + 1)
+    nsecs = 1000000000 - nsecs
+  }
+  var ns = "{nsecs}"
+  while len(ns) < 9 { ns = "0" + ns }
+  var out = sign + "{secs}." + ns
+  while ends_with(out, "0") { out = __str_slice(out, 0, len(out) - 1) }
+  out
+}
+
+fn is_basic_key(k: Str) -> Bool { contains(["path", "linkpath", "size", "uid", "gid", "uname", "gname", "mtime", "atime", "ctime"], k) }
+
+// ---------- path（Go 的 path.Split / Join / Clean） ----------
+
+fn go_clean(p: Str) -> Str {
+  if p == "" { return "." }
+  let path = __bytes(p)
+  let n = len(path)
+  let rooted = path[0] == 47
+  var out: List<Int> = []
+  var r = 0
+  var dotdot = 0
+  if rooted {
+    out = [47]
+    r = 1
+    dotdot = 1
+  }
+  while r < n {
+    if path[r] == 47 {
+      r += 1
+    } else if path[r] == 46 && (r + 1 == n || path[r + 1] == 47) {
+      r += 1
+    } else if path[r] == 46 && path[r + 1] == 46 && (r + 2 == n || path[r + 2] == 47) {
+      r += 2
+      if len(out) > dotdot {
+        var w = len(out) - 1
+        while w > dotdot && out[w] != 47 { w -= 1 }
+        out = out[..w]
+      } else if !rooted {
+        if len(out) > 0 { out = push(out, 47) }
+        out = out + [46, 46]
+        dotdot = len(out)
+      }
+    } else {
+      if (rooted && len(out) != 1) || (!rooted && len(out) != 0) { out = push(out, 47) }
+      while r < n && path[r] != 47 {
+        out = push(out, path[r])
+        r += 1
+      }
+    }
+  }
+  if len(out) == 0 { return "." }
+  bytes_str(out)
+}
+
+fn go_split(p: Str) -> (Str, Str) {
+  let bs = __bytes(p)
+  let i = last_index_byte(bs, 47)
+  (bytes_str(bs[..i + 1]), bytes_str(bs[i + 1..]))
+}
+
+fn go_join(parts: List<Str>) -> Str {
+  let ps = filter(parts, (x) => x != "")
+  if len(ps) == 0 { "" } else { go_clean(join(ps, "/")) }
+}
+
+fn split_ustar_path(name: List<Int>) -> Option<(List<Int>, List<Int>)> {
+  var length = len(name)
+  if length <= NAME_SIZE || !is_ascii(name) { return None }
+  if length > PREFIX_SIZE + 1 {
+    length = PREFIX_SIZE + 1
+  } else if name[length - 1] == 47 {
+    length -= 1
+  }
+  let i = last_index_byte(name[..length], 47)
+  let nlen = len(name) - i - 1
+  let plen = i
+  if i <= 0 || nlen > NAME_SIZE || nlen == 0 || plen > PREFIX_SIZE { return None }
+  Some((name[..i], name[i + 1..]))
+}
+
+// ---------- 格式选择（Go 的 Header.allowedFormats） ----------
+
+type Allowed = { format: Int, pax: Map<Str, Str>, why_ustar: Str, why_pax: Str, why_gnu: Str, prefer_pax: Bool }
+
+fn pax_match(a: Allowed, h: Header, key: Str, s: Str) -> Allowed {
+  match get(h.pax_records, key) {
+    Some(v) => { if v == s { return Allowed { pax: set(a.pax, key, v), ..a } } }
+    None    => {}
+  }
+  a
+}
+
+fn verify_string(a0: Allowed, h: Header, s: Str, size: Int, name: Str, key: Str) -> Allowed {
+  var a = a0
+  let b = __bytes(s)
+  let too_long = len(b) > size
+  let allow_long_gnu = key == "path" || key == "linkpath"
+  if contains(b, 0) || (too_long && !allow_long_gnu) {
+    a = Allowed { why_gnu: "GNU cannot encode " + name + "=" + strconv.quote_go(s), format: a.format & ~FORMAT_GNU, ..a }
+  }
+  if !is_ascii(b) || too_long {
+    let can_split = key == "path"
+    if !can_split || is_none(split_ustar_path(b)) {
+      a = Allowed { why_ustar: "USTAR cannot encode " + name + "=" + strconv.quote_go(s), format: a.format & ~FORMAT_USTAR, ..a }
+    }
+    if key == "" {
+      a = Allowed { why_pax: "PAX cannot encode " + name + "=" + strconv.quote_go(s), format: a.format & ~FORMAT_PAX, ..a }
+    } else {
+      a = Allowed { pax: set(a.pax, key, s), ..a }
+    }
+  }
+  pax_match(a, h, key, s)
+}
+
+fn verify_numeric(a0: Allowed, h: Header, n: Int, size: Int, name: Str, key: Str) -> Allowed {
+  var a = a0
+  if !fits_in_base256(size, n) {
+    a = Allowed { why_gnu: "GNU cannot encode {name}={n}", format: a.format & ~FORMAT_GNU, ..a }
+  }
+  if !fits_in_octal(size, n) {
+    a = Allowed { why_ustar: "USTAR cannot encode {name}={n}", format: a.format & ~FORMAT_USTAR, ..a }
+    if key == "" {
+      a = Allowed { why_pax: "PAX cannot encode {name}={n}", format: a.format & ~FORMAT_PAX, ..a }
+    } else {
+      a = Allowed { pax: set(a.pax, key, "{n}"), ..a }
+    }
+  }
+  pax_match(a, h, key, "{n}")
+}
+
+fn verify_time(a0: Allowed, h: Header, ts: Time, size: Int, name: Str, key: Str) -> Allowed {
+  if ts.is_zero() { return a0 }
+  var a = a0
+  if !fits_in_base256(size, ts.sec) {
+    a = Allowed { why_gnu: "GNU cannot encode " + name + "=" + ts.to_string(), format: a.format & ~FORMAT_GNU, ..a }
+  }
+  let is_mtime = key == "mtime"
+  let fits_octal = fits_in_octal(size, ts.sec)
+  if (is_mtime && !fits_octal) || !is_mtime {
+    a = Allowed { why_ustar: "USTAR cannot encode " + name + "=" + ts.to_string(), format: a.format & ~FORMAT_USTAR, ..a }
+  }
+  let needs_nano = ts.nsec != 0
+  if !is_mtime || !fits_octal || needs_nano {
+    a = Allowed { prefer_pax: true, ..a }
+    if key == "" {
+      a = Allowed { why_pax: "PAX cannot encode " + name + "=" + ts.to_string(), format: a.format & ~FORMAT_PAX, ..a }
+    } else {
+      a = Allowed { pax: set(a.pax, key, format_pax_time(ts)), ..a }
+    }
+  }
+  pax_match(a, h, key, format_pax_time(ts))
+}
+
+fn header_error(parts: List<Str>) -> Str {
+  let ss = filter(parts, (s) => s != "")
+  if len(ss) == 0 { "archive/tar: cannot encode header" } else { "archive/tar: cannot encode header: " + join(ss, "; and ") }
+}
+
+fn only_records(h: Header) -> Bool {
+  h.linkname == "" && h.size == 0 && h.mode == 0 && h.uid == 0 && h.gid == 0 && h.uname == "" && h.gname == "" &&
+  h.mod_time.is_zero() && h.access_time.is_zero() && h.change_time.is_zero() && h.devmajor == 0 && h.devminor == 0
+}
+
+// (允许的格式, PAX 记录, 错误)；错误为 "" 表示没有
+fn allowed_formats(h: Header) -> (Int, Map<Str, Str>, Str) {
+  var a = Allowed { format: FORMAT_USTAR | FORMAT_PAX | FORMAT_GNU, pax: Map(), why_ustar: "", why_pax: "", why_gnu: "", prefer_pax: false }
+  a = verify_string(a, h, h.name, 100, "Name", "path")
+  a = verify_string(a, h, h.linkname, 100, "Linkname", "linkpath")
+  a = verify_string(a, h, h.uname, 32, "Uname", "uname")
+  a = verify_string(a, h, h.gname, 32, "Gname", "gname")
+  a = verify_numeric(a, h, h.mode, 8, "Mode", "")
+  a = verify_numeric(a, h, h.uid, 8, "Uid", "uid")
+  a = verify_numeric(a, h, h.gid, 8, "Gid", "gid")
+  a = verify_numeric(a, h, h.size, 12, "Size", "size")
+  a = verify_numeric(a, h, h.devmajor, 8, "Devmajor", "")
+  a = verify_numeric(a, h, h.devminor, 8, "Devminor", "")
+  a = verify_time(a, h, h.mod_time, 12, "ModTime", "mtime")
+  a = verify_time(a, h, h.access_time, 12, "AccessTime", "atime")
+  a = verify_time(a, h, h.change_time, 12, "ChangeTime", "ctime")
+
+  var why_only_pax = ""
+  let why_only_gnu = ""
+  var format = a.format
+  var pax = a.pax
+  let t = h.typeflag
+  if t == TYPE_REG || t == TYPE_CHAR || t == TYPE_BLOCK || t == TYPE_FIFO || t == TYPE_GNU_SPARSE {
+    if ends_with(h.name, "/") { return (FORMAT_UNKNOWN, Map(), header_error(["filename may not have trailing slash"])) }
+  } else if t == TYPE_XHEADER || t == TYPE_GNU_LONG_NAME || t == TYPE_GNU_LONG_LINK {
+    return (FORMAT_UNKNOWN, Map(), header_error(["cannot manually encode TypeXHeader, TypeGNULongName, or TypeGNULongLink headers"]))
+  } else if t == TYPE_XGLOBAL_HEADER {
+    if !only_records(h) { return (FORMAT_UNKNOWN, Map(), header_error(["only PAXRecords should be set for TypeXGlobalHeader"])) }
+    why_only_pax = "only PAX supports TypeXGlobalHeader"
+    format = format & FORMAT_PAX
+  }
+  if !is_header_only_type(t) && h.size < 0 { return (FORMAT_UNKNOWN, Map(), header_error(["negative size on header-only type"])) }
+
+  if len(h.xattrs) > 0 {
+    for k in sort(keys(h.xattrs)) { pax = set(pax, "SCHILY.xattr." + k, unwrap(get(h.xattrs, k))) }
+    why_only_pax = "only PAX supports Xattrs"
+    format = format & FORMAT_PAX
+  }
+  if len(h.pax_records) > 0 {
+    for k in sort(keys(h.pax_records)) {
+      let v = unwrap(get(h.pax_records, k))
+      if contains(pax, k) {
+        continue
+      } else if t == TYPE_XGLOBAL_HEADER {
+        pax = set(pax, k, v)
+      } else if !is_basic_key(k) && !starts_with(k, "GNU.sparse.") {
+        pax = set(pax, k, v)
+      }
+    }
+    why_only_pax = "only PAX supports PAXRecords"
+    format = format & FORMAT_PAX
+  }
+  for k in sort(keys(pax)) {
+    let v = unwrap(get(pax, k))
+    if !valid_pax_record(k, v) { return (FORMAT_UNKNOWN, Map(), header_error(["invalid PAX record: " + strconv.quote_go(k + " = " + v)])) }
+  }
+
+  if h.format != FORMAT_UNKNOWN {
+    var want = h.format
+    if format_has(want, FORMAT_PAX) && !a.prefer_pax { want = want | FORMAT_USTAR }
+    format = format & want
+  }
+  var err = ""
+  if format == FORMAT_UNKNOWN {
+    err = if h.format == FORMAT_USTAR {
+      header_error(["Format specifies USTAR", a.why_ustar, why_only_pax, why_only_gnu])
+    } else if h.format == FORMAT_PAX {
+      header_error(["Format specifies PAX", a.why_pax, why_only_gnu])
+    } else if h.format == FORMAT_GNU {
+      header_error(["Format specifies GNU", a.why_gnu, why_only_pax])
+    } else {
+      header_error([a.why_ustar, a.why_pax, a.why_gnu, why_only_pax, why_only_gnu])
+    }
+  }
+  (format, pax, err)
+}
+
+// ---------- Writer ----------
+
+pub type Writer = { chunks: List<List<Int>>, pad: Int, nb: Int, err: Str }
+
+pub fn new_writer() -> Writer { Writer { chunks: [], pad: 0, nb: 0, err: "" } }
+
+fn template_v7_plus(h: Header, name: List<Int>, ascii: Bool, gnu: Bool) -> List<Int> {
+  let mtime = if h.mod_time.is_zero() { 0 } else { h.mod_time.sec }
+  let sf = (b: List<Int>) => if ascii { to_ascii(b) } else { b }
+  var blk = zeros(BLOCK_SIZE)
+  blk = put(blk, 0, str_field(100, sf(name)))
+  blk = put(blk, 100, num_field(gnu, 8, h.mode))
+  blk = put(blk, 108, num_field(gnu, 8, h.uid))
+  blk = put(blk, 116, num_field(gnu, 8, h.gid))
+  blk = put(blk, 124, num_field(gnu, 12, h.size))
+  blk = put(blk, 136, num_field(gnu, 12, mtime))
+  blk = set(blk, 156, h.typeflag & 0xff)
+  blk = put(blk, 157, str_field(100, sf(__bytes(h.linkname))))
+  blk = put(blk, 265, str_field(32, sf(__bytes(h.uname))))
+  blk = put(blk, 297, str_field(32, sf(__bytes(h.gname))))
+  blk = put(blk, 329, num_field(gnu, 8, h.devmajor))
+  blk = put(blk, 337, num_field(gnu, 8, h.devminor))
+  blk
+}
+
+impl Writer {
+  fn emit(self, bs: List<Int>) -> Writer { if len(bs) == 0 { self } else { Writer { chunks: push(self.chunks, bs), ..self } } }
+
+  // 写出到目前为止的全部字节
+  fn bytes(self) -> List<Int> {
+    var out: List<Int> = []
+    for c in self.chunks { out = out + c }
+    out
+  }
+
+  // Go 的 Flush：补齐当前条目的填充
+  fn flush(self) -> (Writer, Result<(), Str>) {
+    if self.err != "" { return (self, Err(self.err)) }
+    if self.nb > 0 { return (self, Err("archive/tar: missed writing {self.nb} bytes")) }
+    (Writer { pad: 0, ..self.emit(zeros(self.pad)) }, Ok(()))
+  }
+
+  fn raw_header(self, blk: List<Int>, size0: Int, flag: Int) -> Writer {
+    let w = self.emit(zeros(self.pad)).emit(blk)
+    let size = if is_header_only_type(flag) { 0 } else { size0 }
+    Writer { nb: size, pad: block_padding(size), ..w }
+  }
+
+  fn raw_file(self, name0: Str, data: List<Int>, flag: Int, format: Int) -> Writer {
+    var name = to_ascii(__bytes(name0))
+    if len(name) > NAME_SIZE { name = name[..NAME_SIZE] }
+    while len(name) > 0 && name[len(name) - 1] == 47 { name = name[..len(name) - 1] }
+    var blk = zeros(BLOCK_SIZE)
+    blk = set(blk, 156, flag)
+    blk = put(blk, 0, str_field(100, name))
+    blk = put(blk, 100, num_field(false, 8, 0))
+    blk = put(blk, 108, num_field(false, 8, 0))
+    blk = put(blk, 116, num_field(false, 8, 0))
+    blk = put(blk, 124, num_field(false, 12, len(data)))
+    blk = put(blk, 136, num_field(false, 12, 0))
+    blk = set_format(blk, format)
+    let w = self.raw_header(blk, len(data), flag).emit(data)
+    Writer { nb: 0, ..w }
+  }
+
+  fn write_ustar(self, h: Header) -> Writer {
+    var name = __bytes(h.name)
+    var prefix: List<Int> = []
+    match split_ustar_path(name) {
+      Some((p, s)) => {
+        prefix = p
+        name = s
+      }
+      None => {}
+    }
+    var blk = template_v7_plus(h, name, false, false)
+    blk = put(blk, 345, str_field(155, prefix))
+    blk = set_format(blk, FORMAT_USTAR)
+    self.raw_header(blk, h.size, h.typeflag)
+  }
+
+  fn write_pax(self, h: Header, pax: Map<Str, Str>) -> (Writer, Result<(), Str>) {
+    var w = self
+    let is_global = h.typeflag == TYPE_XGLOBAL_HEADER
+    if len(pax) > 0 || is_global {
+      var data = ""
+      for k in sort(keys(pax)) { data = data + unwrap(format_pax_record(k, unwrap(get(pax, k)))) }
+      var name = ""
+      var flag = TYPE_XHEADER
+      if is_global {
+        name = if h.name == "" { "GlobalHead.0.0" } else { h.name }
+        flag = TYPE_XGLOBAL_HEADER
+      } else {
+        let (dir, file) = go_split(h.name)
+        name = go_join([dir, "PaxHeaders.0", file])
+      }
+      let db = __bytes(data)
+      if len(db) > MAX_SPECIAL_FILE_SIZE { return (Writer { err: ERR_FIELD_TOO_LONG, ..w }, Err(ERR_FIELD_TOO_LONG)) }
+      w = w.raw_file(name, db, flag, FORMAT_PAX)
+      if is_global { return (w, Ok(())) }
+    }
+    let blk = set_format(template_v7_plus(h, __bytes(h.name), true, false), FORMAT_PAX)
+    (w.raw_header(blk, h.size, h.typeflag), Ok(()))
+  }
+
+  fn write_gnu(self, h: Header) -> Writer {
+    var w = self
+    let name = __bytes(h.name)
+    let link = __bytes(h.linkname)
+    if len(name) > NAME_SIZE { w = w.raw_file("././@LongLink", name + [0], TYPE_GNU_LONG_NAME, FORMAT_GNU) }
+    if len(link) > NAME_SIZE { w = w.raw_file("././@LongLink", link + [0], TYPE_GNU_LONG_LINK, FORMAT_GNU) }
+    var blk = template_v7_plus(h, name, false, true)
+    if !h.access_time.is_zero() { blk = put(blk, 345, num_field(true, 12, h.access_time.sec)) }
+    if !h.change_time.is_zero() { blk = put(blk, 357, num_field(true, 12, h.change_time.sec)) }
+    blk = set_format(blk, FORMAT_GNU)
+    w.raw_header(blk, h.size, h.typeflag)
+  }
+
+  // Go 的 WriteHeader
+  fn write_header(self, hdr: Header) -> (Writer, Result<(), Str>) {
+    let (w, fr) = self.flush()
+    match fr {
+      Err(e) => { return (self, Err(e)) }
+      Ok(_)  => {}
+    }
+    var h = hdr
+    if h.typeflag == TYPE_REGA {
+      h = Header { typeflag: if ends_with(h.name, "/") { TYPE_DIR } else { TYPE_REG }, ..h }
+    }
+    if h.format == FORMAT_UNKNOWN {
+      h = Header { mod_time: h.mod_time.round_second(), access_time: zero_time(), change_time: zero_time(), ..h }
+    }
+    let (allowed, pax, err) = allowed_formats(h)
+    if format_has(allowed, FORMAT_USTAR) { return (w.write_ustar(h), Ok(())) }
+    if format_has(allowed, FORMAT_PAX) { return w.write_pax(h, pax) }
+    if format_has(allowed, FORMAT_GNU) { return (w.write_gnu(h), Ok(())) }
+    (w, Err(err))
+  }
+
+  // Go 的 Write：返回 (新 Writer, 写入字节数, 错误)；错误为 "" 表示没有。超长时写入能写的部分并返回 ERR_WRITE_TOO_LONG
+  fn write(self, b: List<Int>) -> (Writer, Int, Str) {
+    if self.err != "" { return (self, 0, self.err) }
+    let over = len(b) > self.nb
+    let bb = if over { b[..self.nb] } else { b }
+    let w = Writer { nb: self.nb - len(bb), ..self.emit(bb) }
+    (w, len(bb), if over { ERR_WRITE_TOO_LONG } else { "" })
+  }
+
+  fn write_string(self, s: Str) -> (Writer, Int, Str) { self.write(__bytes(s)) }
+
+  // Go 的 Close：补齐填充并写出两个全零块
+  fn close(self) -> (Writer, Result<(), Str>) {
+    if self.err == ERR_WRITE_AFTER_CLOSE { return (self, Ok(())) }
+    if self.err != "" { return (self, Err(self.err)) }
+    let (w, fr) = self.flush()
+    match fr {
+      Err(e) => { return (Writer { err: ERR_WRITE_AFTER_CLOSE, ..w }, Err(e)) }
+      Ok(_)  => {}
+    }
+    (Writer { err: ERR_WRITE_AFTER_CLOSE, ..w.emit(zeros(2 * BLOCK_SIZE)) }, Ok(()))
+  }
+}
+
+// ---------- Reader ----------
+
+// sparse 为 true 时 holes 是稀疏文件的空洞列表（偏移, 长度），spos 是逻辑位置
+pub type Reader = { data: List<Int>, pos: Int, nb: Int, pad: Int, err: Str, sparse: Bool, holes: List<(Int, Int)>, spos: Int }
+
+pub fn new_reader(data: List<Int>) -> Reader { Reader { data: data, pos: 0, nb: 0, pad: 0, err: "", sparse: false, holes: [], spos: 0 } }
+
+fn get_format(blk: List<Int>) -> Int {
+  let (value, perr) = parse_octal(field(blk, 148, 8))
+  let (c1, c2) = checksums(blk)
+  if perr || (value != c1 && value != c2) { return FORMAT_UNKNOWN }
+  let magic = field(blk, 257, 6)
+  let version = field(blk, 263, 2)
+  let trailer = field(blk, 508, 4)
+  let mu = [117, 115, 116, 97, 114, 0]
+  if magic == mu && trailer == [116, 97, 114, 0] { return FORMAT_STAR }
+  if magic == mu { return FORMAT_USTAR | FORMAT_PAX }
+  if magic == [117, 115, 116, 97, 114, 32] && version == [32, 0] { return FORMAT_GNU }
+  FORMAT_V7
+}
+
+fn str_or(m: Map<Str, Str>, k: Str) -> Str { unwrap_or(get(m, k), "") }
+
+fn merge_pax(h0: Header, pax: Map<Str, Str>) -> Result<Header, Str> {
+  var h = h0
+  for k in sort(keys(pax)) {
+    let v = unwrap(get(pax, k))
+    if v == "" { continue }
+    if k == "path" {
+      h = Header { name: v, ..h }
+    } else if k == "linkpath" {
+      h = Header { linkname: v, ..h }
+    } else if k == "uname" {
+      h = Header { uname: v, ..h }
+    } else if k == "gname" {
+      h = Header { gname: v, ..h }
+    } else if k == "uid" || k == "gid" || k == "size" {
+      let Some(n) = parse_int10(v) else { return Err(ERR_HEADER) }
+      h = if k == "uid" { Header { uid: n, ..h } } else if k == "gid" { Header { gid: n, ..h } } else { Header { size: n, ..h } }
+    } else if k == "atime" || k == "mtime" || k == "ctime" {
+      let t = match parse_pax_time(v) {
+        Ok(t)  => t,
+        Err(_) => { return Err(ERR_HEADER) }
+      }
+      h = if k == "atime" { Header { access_time: t, ..h } } else if k == "mtime" { Header { mod_time: t, ..h } } else { Header { change_time: t, ..h } }
+    } else if starts_with(k, "SCHILY.xattr.") {
+      h = Header { xattrs: set(h.xattrs, __str_slice(k, 13, len(k)), v), ..h }
+    }
+  }
+  Ok(Header { pax_records: pax, ..h })
+}
+
+fn parse_pax(buf: List<Int>) -> Result<Map<Str, Str>, Str> {
+  var s = buf
+  var sparse_map: List<Str> = []
+  var pax: Map<Str, Str> = Map()
+  while len(s) > 0 {
+    let (key, value, rest) = match parse_pax_record(s) {
+      Ok(t)  => t,
+      Err(_) => { return Err(ERR_HEADER) }
+    }
+    s = rest
+    if key == "GNU.sparse.offset" || key == "GNU.sparse.numbytes" {
+      let odd = len(sparse_map) % 2 == 1
+      if (!odd && key != "GNU.sparse.offset") || (odd && key != "GNU.sparse.numbytes") || __str_find(value, ",", 0) >= 0 { return Err(ERR_HEADER) }
+      sparse_map = push(sparse_map, value)
+    } else {
+      pax = set(pax, key, value)
+    }
+  }
+  if len(sparse_map) > 0 { pax = set(pax, "GNU.sparse.map", join(sparse_map, ",")) }
+  Ok(pax)
+}
+
+fn validate_sparse_entries(sp: List<(Int, Int)>, size: Int) -> Bool {
+  if size < 0 { return false }
+  var pre_end = 0
+  for (off, ln) in sp {
+    if off < 0 || ln < 0 { return false }
+    if off > MAX_INT - ln { return false }
+    if off + ln > size { return false }
+    if pre_end > off { return false }
+    pre_end = off + ln
+  }
+  true
+}
+
+fn invert_sparse_entries(src: List<(Int, Int)>, size: Int) -> List<(Int, Int)> {
+  var dst: List<(Int, Int)> = []
+  var pre_off = 0
+  for (off, ln) in src {
+    if ln == 0 { continue }
+    let pl = off - pre_off
+    if pl > 0 { dst = push(dst, (pre_off, pl)) }
+    pre_off = off + ln
+  }
+  push(dst, (pre_off, size - pre_off))
+}
+
+fn parse_sparse_pairs(toks: List<Str>) -> Result<List<(Int, Int)>, Str> {
+  var spd: List<(Int, Int)> = []
+  var i = 0
+  while i + 1 < len(toks) {
+    let a = parse_int10(toks[i])
+    let b = parse_int10(toks[i + 1])
+    match (a, b) {
+      (Some(x), Some(y)) => { spd = push(spd, (x, y)) }
+      _                  => { return Err(ERR_HEADER) }
+    }
+    i += 2
+  }
+  Ok(spd)
+}
+
+fn split_commas(s: Str) -> List<Str> {
+  var out: List<Str> = []
+  var start = 0
+  loop {
+    let i = __str_find(s, ",", start)
+    if i < 0 {
+      out = push(out, __str_slice(s, start, len(s)))
+      break
+    }
+    out = push(out, __str_slice(s, start, i))
+    start = i + 1
+  }
+  out
+}
+
+fn read_gnu_sparse_map0x1(pax: Map<Str, Str>) -> Result<List<(Int, Int)>, Str> {
+  let Some(n) = parse_int10(str_or(pax, "GNU.sparse.numblocks")) else { return Err(ERR_HEADER) }
+  if n < 0 || n > MAX_INT / 2 { return Err(ERR_HEADER) }
+  var sm = split_commas(str_or(pax, "GNU.sparse.map"))
+  if len(sm) == 1 && sm[0] == "" { sm = [] }
+  if len(sm) != 2 * n { return Err(ERR_HEADER) }
+  parse_sparse_pairs(sm)
+}
+
+impl Reader {
+  fn avail(self) -> Int { max(len(self.data) - self.pos, 0) }
+
+  // regFileReader.Read：最多 k 字节
+  fn reg_read(self, k0: Int) -> (Reader, List<Int>, Str) {
+    let k = min(k0, self.nb)
+    var got: List<Int> = []
+    var uerr = ""
+    if k > 0 {
+      let av = self.avail()
+      if av == 0 {
+        uerr = EOF
+      } else {
+        let g = min(k, av)
+        got = self.data[self.pos..self.pos + g]
+      }
+    }
+    let r = Reader { pos: self.pos + len(got), nb: self.nb - len(got), ..self }
+    if uerr == EOF && r.nb > 0 { return (r, got, UNEXPECTED_EOF) }
+    if uerr == "" && r.nb == 0 { return (r, got, EOF) }
+    (r, got, uerr)
+  }
+
+  // tryReadFull(regFileReader, n)
+  fn reg_read_full(self, n: Int) -> (Reader, List<Int>, Str) {
+    var r = self
+    var out: List<Int> = []
+    var err = ""
+    while len(out) < n && err == "" {
+      let (r2, got, e) = r.reg_read(n - len(out))
+      r = r2
+      out = out + got
+      err = e
+    }
+    if len(out) == n && err == EOF { err = "" }
+    (r, out, err)
+  }
+
+  fn logical_remaining(self) -> Int {
+    let (o, l) = self.holes[len(self.holes) - 1]
+    o + l - self.spos
+  }
+
+  fn sparse_read(self, n: Int) -> (Reader, List<Int>, Str) {
+    var want = n
+    let lrem = self.logical_remaining()
+    let finished = n >= lrem
+    if finished { want = lrem }
+    var r = self
+    var out: List<Int> = []
+    var err = ""
+    let end_pos = r.spos + want
+    while end_pos > r.spos && err == "" {
+      let (hs, hl) = r.holes[0]
+      let he = hs + hl
+      let left = want - len(out)
+      var nf = 0
+      if r.spos < hs {
+        let (r2, got, e) = r.reg_read_full(min(left, hs - r.spos))
+        r = r2
+        out = out + got
+        nf = len(got)
+        err = e
+      } else {
+        nf = min(left, he - r.spos)
+        out = out + zeros(nf)
+      }
+      r = Reader { spos: r.spos + nf, ..r }
+      if r.spos >= he && len(r.holes) > 1 { r = Reader { holes: r.holes[1..], ..r } }
+    }
+    if err == EOF { return (r, out, ERR_MISS_DATA) }
+    if err != "" { return (r, out, err) }
+    if r.logical_remaining() == 0 && r.nb > 0 { return (r, out, ERR_UNREF_DATA) }
+    if finished { return (r, out, EOF) }
+    (r, out, "")
+  }
+
+  // Go 的 Read：从当前条目读最多 n 字节，返回 (新 Reader, 数据, 错误)；错误为 "" 表示没有
+  fn read(self, n: Int) -> (Reader, List<Int>, Str) {
+    if self.err != "" { return (self, [], self.err) }
+    let (r, got, err) = if self.sparse { self.sparse_read(n) } else { self.reg_read(n) }
+    if err != "" && err != EOF { return (Reader { err: err, ..r }, got, err) }
+    (r, got, err)
+  }
+
+  // io.ReadAll(tr)：返回 (新 Reader, 读到的数据, 错误)；正常读完时错误为 ""
+  fn read_all(self) -> (Reader, List<Int>, Str) {
+    var r = self
+    var out: List<Int> = []
+    loop {
+      let (r2, got, err) = r.read(4096)
+      r = r2
+      out = out + got
+      if err == EOF { return (r, out, "") }
+      if err != "" { return (r, out, err) }
+    }
+  }
+
+  fn read_special(self) -> (Reader, Result<List<Int>, Str>) {
+    var r = self
+    var out: List<Int> = []
+    var err = ""
+    while err == "" && len(out) < MAX_SPECIAL_FILE_SIZE + 1 {
+      let (r2, got, e) = r.read(MAX_SPECIAL_FILE_SIZE + 1 - len(out))
+      r = r2
+      out = out + got
+      err = e
+    }
+    if len(out) > MAX_SPECIAL_FILE_SIZE { return (r, Err(ERR_FIELD_TOO_LONG)) }
+    if err != "" && err != EOF { return (r, Err(err)) }
+    (r, Ok(out))
+  }
+
+  // io.ReadFull 一个块：0 字节时 EOF，不足时 unexpected EOF
+  fn read_block(self) -> (Reader, Result<List<Int>, Str>) {
+    let av = self.avail()
+    if av == 0 { return (self, Err(EOF)) }
+    if av < BLOCK_SIZE { return (Reader { pos: len(self.data), ..self }, Err(UNEXPECTED_EOF)) }
+    (Reader { pos: self.pos + BLOCK_SIZE, ..self }, Ok(self.data[self.pos..self.pos + BLOCK_SIZE]))
+  }
+
+  fn read_header(self) -> (Reader, Result<(Header, List<Int>), Str>) {
+    let (r1, b1) = self.read_block()
+    var r = r1
+    let blk = match b1 {
+      Ok(b)  => b,
+      Err(e) => { return (r, Err(e)) }
+    }
+    let zb = zeros(BLOCK_SIZE)
+    if blk == zb {
+      let (r2, b2) = r.read_block()
+      match b2 {
+        Ok(b)  => { return (r2, Err(if b == zb { EOF } else { ERR_HEADER })) }
+        Err(e) => { return (r2, Err(e)) }
+      }
+    }
+    let format = get_format(blk)
+    if format == FORMAT_UNKNOWN { return (r, Err(ERR_HEADER)) }
+    var perr = false
+    let (size, e1) = parse_numeric(field(blk, 124, 12))
+    let (mode, e2) = parse_numeric(field(blk, 100, 8))
+    let (uid, e3) = parse_numeric(field(blk, 108, 8))
+    let (gid, e4) = parse_numeric(field(blk, 116, 8))
+    let (mt, e5) = parse_numeric(field(blk, 136, 12))
+    perr = e1 || e2 || e3 || e4 || e5
+    var h = Header {
+      typeflag: blk[156], name: parse_string(field(blk, 0, 100)), linkname: parse_string(field(blk, 157, 100)),
+      size: size, mode: mode, uid: uid, gid: gid, mod_time: unix(mt, 0), ..header()
+    }
+    var name_b = cut_nul(field(blk, 0, 100))
+    if format > FORMAT_V7 {
+      let (dmaj, e6) = parse_numeric(field(blk, 329, 8))
+      let (dmin, e7) = parse_numeric(field(blk, 337, 8))
+      perr = perr || e6 || e7
+      h = Header { uname: parse_string(field(blk, 265, 32)), gname: parse_string(field(blk, 297, 32)), devmajor: dmaj, devminor: dmin, ..h }
+      var prefix: List<Int> = []
+      if format_has(format, FORMAT_USTAR | FORMAT_PAX) {
+        h = Header { format: format, ..h }
+        prefix = cut_nul(field(blk, 345, 155))
+        if any(blk, (c) => c >= 0x80) { h = Header { format: FORMAT_UNKNOWN, ..h } }
+        let nul_ok = blk[135] == 0 && blk[107] == 0 && blk[115] == 0 && blk[123] == 0 && blk[147] == 0 && blk[336] == 0 && blk[344] == 0
+        if !nul_ok { h = Header { format: FORMAT_UNKNOWN, ..h } }
+      } else if format_has(format, FORMAT_STAR) {
+        prefix = cut_nul(field(blk, 345, 131))
+        let (at, e8) = parse_numeric(field(blk, 476, 12))
+        let (ct, e9) = parse_numeric(field(blk, 488, 12))
+        perr = perr || e8 || e9
+        h = Header { access_time: unix(at, 0), change_time: unix(ct, 0), ..h }
+      } else if format_has(format, FORMAT_GNU) {
+        h = Header { format: format, ..h }
+        var p2 = false
+        if blk[345] != 0 {
+          let (at, ea) = parse_numeric(field(blk, 345, 12))
+          p2 = p2 || ea
+          h = Header { access_time: unix(at, 0), ..h }
+        }
+        if blk[357] != 0 {
+          let (ct, ec) = parse_numeric(field(blk, 357, 12))
+          p2 = p2 || ec
+          h = Header { change_time: unix(ct, 0), ..h }
+        }
+        if p2 {
+          h = Header { access_time: zero_time(), change_time: zero_time(), format: FORMAT_UNKNOWN, ..h }
+          let s = cut_nul(field(blk, 345, 155))
+          if is_ascii(s) { prefix = s }
+        }
+      }
+      if len(prefix) > 0 {
+        name_b = prefix + [47] + name_b
+        h = Header { name: bytes_str(name_b), ..h }
+      }
+    }
+    if perr { return (r, Err(ERR_HEADER)) }
+    (r, Ok((h, blk)))
+  }
+
+  fn handle_regular_file(self, h: Header) -> Result<Reader, Str> {
+    let nb = if is_header_only_type(h.typeflag) { 0 } else { h.size }
+    if nb < 0 { return Err(ERR_HEADER) }
+    Ok(Reader { pad: block_padding(nb), nb: nb, sparse: false, holes: [], spos: 0, ..self })
+  }
+
+  fn read_old_gnu_sparse_map(self, h: Header, blk0: List<Int>) -> (Reader, Result<(Header, List<(Int, Int)>), Str>) {
+    if get_format(blk0) != FORMAT_GNU { return (self, Err(ERR_HEADER)) }
+    let (real, pe) = parse_numeric(field(blk0, 483, 12))
+    if pe { return (self, Err(ERR_HEADER)) }
+    let hdr = Header { size: real, ..h }
+    var r = self
+    var s = field(blk0, 386, 97)
+    var spd: List<(Int, Int)> = []
+    loop {
+      let maxe = len(s) / 24
+      var i = 0
+      while i < maxe {
+        if s[i * 24] == 0 { break }
+        let (off, oe) = parse_numeric(s[i * 24..i * 24 + 12])
+        let (ln, le) = parse_numeric(s[i * 24 + 12..i * 24 + 24])
+        if oe || le { return (r, Err(ERR_HEADER)) }
+        spd = push(spd, (off, ln))
+        i += 1
+      }
+      if s[24 * maxe] > 0 {
+        let (r2, b) = r.read_block()
+        r = r2
+        match b {
+          Ok(nb) => { s = nb }
+          Err(_) => { return (r, Err(UNEXPECTED_EOF)) }
+        }
+        continue
+      }
+      return (r, Ok((hdr, spd)))
+    }
+  }
+
+  fn read_gnu_sparse_map1x0(self) -> (Reader, Result<List<(Int, Int)>, Str>) {
+    var r = self
+    var buf: List<Int> = []
+    var cnt = 0
+    var bpos = 0
+    // feed(1)
+    while cnt < 1 {
+      let (r2, b, e) = r.reg_read_full(BLOCK_SIZE)
+      r = r2
+      if e != "" { return (r, Err(if e == EOF { UNEXPECTED_EOF } else { e })) }
+      buf = buf + b
+      cnt += len(filter(b, (c) => c == 10))
+    }
+    var nl = index_byte(buf, 10)
+    let first = bytes_str(buf[..nl])
+    bpos = nl + 1
+    cnt -= 1
+    let Some(n) = parse_int10(first) else { return (r, Err(ERR_HEADER)) }
+    if n < 0 || n > MAX_INT / 2 { return (r, Err(ERR_HEADER)) }
+    while cnt < 2 * n {
+      let (r2, b, e) = r.reg_read_full(BLOCK_SIZE)
+      r = r2
+      if e != "" { return (r, Err(if e == EOF { UNEXPECTED_EOF } else { e })) }
+      buf = buf + b
+      cnt += len(filter(b, (c) => c == 10))
+    }
+    var toks: List<Str> = []
+    var i = 0
+    while i < 2 * n {
+      let rest = buf[bpos..]
+      nl = index_byte(rest, 10)
+      toks = push(toks, bytes_str(rest[..nl]))
+      bpos += nl + 1
+      i += 1
+    }
+    (r, parse_sparse_pairs(toks))
+  }
+
+  fn read_gnu_sparse_pax_headers(self, h: Header) -> (Reader, Result<(Header, Option<List<(Int, Int)>>), Str>) {
+    let pr = h.pax_records
+    let major = str_or(pr, "GNU.sparse.major")
+    let minor = str_or(pr, "GNU.sparse.minor")
+    var is1x0 = false
+    if major == "0" && (minor == "0" || minor == "1") {
+      is1x0 = false
+    } else if major == "1" && minor == "0" {
+      is1x0 = true
+    } else if major != "" || minor != "" {
+      return (self, Ok((h, None)))
+    } else if str_or(pr, "GNU.sparse.map") != "" {
+      is1x0 = false
+    } else {
+      return (self, Ok((h, None)))
+    }
+    var hdr = h
+    let name = str_or(pr, "GNU.sparse.name")
+    if name != "" { hdr = Header { name: name, ..hdr } }
+    var size = str_or(pr, "GNU.sparse.size")
+    if size == "" { size = str_or(pr, "GNU.sparse.realsize") }
+    if size != "" {
+      let Some(n) = parse_int10(size) else { return (self, Err(ERR_HEADER)) }
+      hdr = Header { size: n, ..hdr }
+    }
+    if is1x0 {
+      let (r, res) = self.read_gnu_sparse_map1x0()
+      return match res {
+        Ok(spd) => (r, Ok((hdr, Some(spd)))),
+        Err(e)  => (r, Err(e)),
+      }
+    }
+    match read_gnu_sparse_map0x1(pr) {
+      Ok(spd) => (self, Ok((hdr, Some(spd)))),
+      Err(e)  => (self, Err(e)),
+    }
+  }
+
+  fn handle_sparse_file(self, h: Header, blk: List<Int>) -> (Reader, Result<Header, Str>) {
+    let (r, res) = if h.typeflag == TYPE_GNU_SPARSE {
+      let (r1, x) = self.read_old_gnu_sparse_map(h, blk)
+      (r1, match x {
+        Ok((hh, spd)) => Ok((hh, Some(spd))),
+        Err(e)        => Err(e),
+      })
+    } else {
+      self.read_gnu_sparse_pax_headers(h)
+    }
+    match res {
+      Err(e)               => (r, Err(e)),
+      Ok((hdr, None))      => (r, Ok(hdr)),
+      Ok((hdr, Some(spd))) => {
+        if is_header_only_type(hdr.typeflag) || !validate_sparse_entries(spd, hdr.size) { return (r, Err(ERR_HEADER)) }
+        (Reader { sparse: true, holes: invert_sparse_entries(spd, hdr.size), spos: 0, ..r }, Ok(hdr))
+      },
+    }
+  }
+
+  fn next_inner(self) -> (Reader, Result<Header, Str>) {
+    var r = self
+    var pax: Map<Str, Str> = Map()
+    var long_name = ""
+    var long_link = ""
+    var format = FORMAT_USTAR | FORMAT_PAX | FORMAT_GNU
+    loop {
+      // 跳过当前条目剩下的数据和填充
+      if r.pos + r.nb > len(r.data) { return (Reader { pos: len(r.data), nb: 0, ..r }, Err(UNEXPECTED_EOF)) }
+      r = Reader { pos: r.pos + r.nb, nb: 0, ..r }
+      if r.pos + r.pad > len(r.data) { return (Reader { pos: len(r.data), pad: 0, ..r }, Err(EOF)) }
+      r = Reader { pos: r.pos + r.pad, pad: 0, ..r }
+
+      let (r1, hres) = r.read_header()
+      r = r1
+      let (hdr0, raw) = match hres {
+        Ok(t)  => t,
+        Err(e) => { return (r, Err(e)) }
+      }
+      var hdr = hdr0
+      r = match r.handle_regular_file(hdr) {
+        Ok(x)  => x,
+        Err(e) => { return (r, Err(e)) }
+      }
+      format = format & hdr.format
+      let t = hdr.typeflag
+      if t == TYPE_XHEADER || t == TYPE_XGLOBAL_HEADER {
+        format = format & FORMAT_PAX
+        let (r2, sres) = r.read_special()
+        r = r2
+        let buf = match sres {
+          Ok(b)  => b,
+          Err(e) => { return (r, Err(e)) }
+        }
+        pax = match parse_pax(buf) {
+          Ok(m)  => m,
+          Err(e) => { return (r, Err(e)) }
+        }
+        if t == TYPE_XGLOBAL_HEADER {
+          let merged = match merge_pax(hdr, pax) {
+            Ok(m)  => m,
+            Err(_) => Header { pax_records: Map(), ..hdr },
+          }
+          return (r, Ok(Header { name: merged.name, typeflag: t, xattrs: merged.xattrs, pax_records: merged.pax_records, format: format, ..header() }))
+        }
+        continue
+      } else if t == TYPE_GNU_LONG_NAME || t == TYPE_GNU_LONG_LINK {
+        format = format & FORMAT_GNU
+        let (r2, sres) = r.read_special()
+        r = r2
+        let buf = match sres {
+          Ok(b)  => b,
+          Err(e) => { return (r, Err(e)) }
+        }
+        if t == TYPE_GNU_LONG_NAME { long_name = parse_string(buf) } else { long_link = parse_string(buf) }
+        continue
+      }
+      hdr = match merge_pax(hdr, pax) {
+        Ok(m)  => m,
+        Err(e) => { return (r, Err(e)) }
+      }
+      if long_name != "" { hdr = Header { name: long_name, ..hdr } }
+      if long_link != "" { hdr = Header { linkname: long_link, ..hdr } }
+      if hdr.typeflag == TYPE_REGA {
+        hdr = Header { typeflag: if ends_with(hdr.name, "/") { TYPE_DIR } else { TYPE_REG }, ..hdr }
+      }
+      r = match r.handle_regular_file(hdr) {
+        Ok(x)  => x,
+        Err(e) => { return (r, Err(e)) }
+      }
+      let (r3, sres) = r.handle_sparse_file(hdr, raw)
+      r = r3
+      hdr = match sres {
+        Ok(x)  => x,
+        Err(e) => { return (r, Err(e)) }
+      }
+      if format_has(format, FORMAT_USTAR) && format_has(format, FORMAT_PAX) { format = format & FORMAT_USTAR }
+      return (r, Ok(Header { format: format, ..hdr }))
+    }
+  }
+
+  // Go 的 Next：前进到下一个条目；结束时 Err("EOF")。出错后一直返回同一个错误
+  fn next(self) -> (Reader, Result<Header, Str>) {
+    if self.err != "" { return (self, Err(self.err)) }
+    let (r, res) = self.next_inner()
+    match res {
+      Ok(h)  => (Reader { err: "", ..r }, Ok(h)),
+      Err(e) => (Reader { err: e, ..r }, Err(e)),
+    }
+  }
+}

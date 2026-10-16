@@ -1,0 +1,87 @@
+// std.compress.gzip：gzip 格式（RFC 1952，对齐 Go 的 compress/gzip）
+//   compress(bs) / compress_level(bs, level) / compress_str(s)
+//   decompress(bs) / decompress_str(bs)：校验 CRC32 和长度，支持 FEXTRA/FNAME/FCOMMENT/FHCRC，多个成员首尾相接时依次解开
+//   header(bs)：读出头部的文件名和修改时间
+
+use std.compress.flate
+use std.hash.crc32
+
+pub type Header = { name: Str, comment: Str, mtime: Int, os: Int }
+
+fn le32(x: Int) -> List<Int> { [x & 255, (x >> 8) & 255, (x >> 16) & 255, (x >> 24) & 255] }
+
+fn rd32(bs: List<Int>, i: Int) -> Int { bs[i] | (bs[i + 1] << 8) | (bs[i + 2] << 16) | (bs[i + 3] << 24) }
+
+pub fn compress_level(bs: List<Int>, level: Int) -> List<Int> {
+  let xfl = if level >= 9 { 2 } else if level == 1 { 4 } else { 0 }
+  [31, 139, 8, 0, 0, 0, 0, 0, xfl, 255] + flate.compress(bs, level) + le32(crc32.checksum_bytes(bs)) + le32(len(bs) & 4294967295)
+}
+
+pub fn compress(bs: List<Int>) -> List<Int> { compress_level(bs, 6) }
+
+pub fn compress_str(s: Str) -> List<Int> { compress(__bytes(s)) }
+
+fn zstr(bs: List<Int>, i: Int) -> Result<(Str, Int), Str> {
+  var j = i
+  while j < len(bs) && bs[j] != 0 { j += 1 }
+  if j >= len(bs) { return Err("gzip: 头部意外结束") }
+  // RFC 1952 规定是 Latin-1
+  Ok((join(map(bs[i..j], (b) => __chr(b)), ""), j + 1))
+}
+
+// 解析一个成员的头部：(头部, 压缩数据的起点)
+fn parse_header(bs: List<Int>, start: Int) -> Result<(Header, Int), Str> {
+  if start + 10 > len(bs) || bs[start] != 31 || bs[start + 1] != 139 { return Err("gzip: 不是 gzip 数据") }
+  if bs[start + 2] != 8 { return Err("gzip: 不支持的压缩方法 {bs[start + 2]}") }
+  let flg = bs[start + 3]
+  var i = start + 10
+  if flg & 4 != 0 {
+    if i + 2 > len(bs) { return Err("gzip: 头部意外结束") }
+    i += 2 + (bs[i] | (bs[i + 1] << 8))
+  }
+  var name = ""
+  var comment = ""
+  if flg & 8 != 0 {
+    let (s, j) = zstr(bs, i)?
+    name = s
+    i = j
+  }
+  if flg & 16 != 0 {
+    let (s, j) = zstr(bs, i)?
+    comment = s
+    i = j
+  }
+  if flg & 2 != 0 { i += 2 }
+  if i > len(bs) { return Err("gzip: 头部意外结束") }
+  Ok((Header { name: name, comment: comment, mtime: rd32(bs, start + 4), os: bs[start + 9] }, i))
+}
+
+pub fn header(bs: List<Int>) -> Result<Header, Str> {
+  let (h, _) = parse_header(bs, 0)?
+  Ok(h)
+}
+
+pub fn decompress(bs: List<Int>) -> Result<List<Int>, Str> {
+  var out: List<Int> = []
+  var pos = 0
+  while true {
+    let (_, i) = parse_header(bs, pos)?
+    let (data, end) = flate.inflate_at(bs, i)?
+    if end + 8 > len(bs) { return Err("gzip: 缺少尾部校验") }
+    if rd32(bs, end) != crc32.checksum_bytes(data) { return Err("gzip: CRC32 校验失败") }
+    if rd32(bs, end + 4) != (len(data) & 4294967295) { return Err("gzip: 长度校验失败") }
+    out = out + data
+    pos = end + 8
+    // 后面可能还有成员；全是 0 的填充也接受
+    if pos >= len(bs) || bs[pos] != 31 { break }
+  }
+  Ok(out)
+}
+
+pub fn decompress_str(bs: List<Int>) -> Result<Str, Str> {
+  let out = decompress(bs)?
+  match __from_bytes(out) {
+    Some(s) => Ok(s),
+    None => Err("gzip: 解压结果不是合法的 UTF-8"),
+  }
+}

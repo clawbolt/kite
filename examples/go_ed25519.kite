@@ -1,0 +1,98 @@
+// 对齐 Go 1.27 的 crypto/ed25519：tests/go/ed25519.go
+use std.crypto.ed25519
+use std.crypto.ed25519.{ Options }
+use std.crypto.sha256
+use std.crypto.sha512
+use std.encoding.hex
+
+fn es(r: Result<(), Str>) -> Str {
+  match r {
+    Ok(_) => "ok",
+    Err(e) => e,
+  }
+}
+
+fn opts(h: Int, c: Str) -> Options { Options { hash: h, context: c } }
+
+fn rep(s: Str, n: Int) -> List<Int> {
+  var out: List<Int> = []
+  for _ in 0..n { out = out + __bytes(s) }
+  out
+}
+
+fn main() {
+  let msgs = [[], __bytes("abc"), rep("kite", 300)]
+  var privs: List<List<Int>> = []
+  for i in 0..6 {
+    let seed = sha256.digest([i])
+    let priv = unwrap(ed25519.new_key_from_seed(seed))
+    privs = push(privs, priv)
+    print("KEY " + hex.encode_bytes(priv))
+  }
+  for i in 0..len(privs) {
+    let priv = privs[i]
+    let pub_ = ed25519.public_key(priv)
+    let msg = msgs[i % 3]
+    let sig = unwrap(ed25519.sign(priv, msg))
+    print("SIG " + hex.encode_bytes(sig))
+    print("V {ed25519.verify(pub_, msg, sig)} {ed25519.verify(pub_, [1] + msg, sig)}")
+    for j in [0, 31, 32, 63] {
+      let s2 = set(sig, j, sig[j] ^ (1 << (i % 8)))
+      print("M {j} {ed25519.verify(pub_, msg, s2)}")
+    }
+    let other = ed25519.public_key(privs[(i + 1) % len(privs)])
+    print("W {ed25519.verify(other, msg, sig)}")
+  }
+  {
+    let priv = privs[0]
+    let sig = unwrap(ed25519.sign(priv, []))
+    let l = [0xed, 0xd3, 0xf5, 0x5c, 0x1a, 0x63, 0x12, 0x58, 0xd6, 0x9c, 0xf7, 0xa2, 0xde, 0xf9, 0xde, 0x14, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0x10]
+    var s2 = sig
+    var c = 0
+    for k in 0..32 {
+      let v = s2[32 + k] + l[k] + c
+      s2 = set(s2, 32 + k, v & 255)
+      c = v >> 8
+    }
+    print("SL " + hex.encode_bytes(s2) + " " + es(ed25519.verify_with_options(ed25519.public_key(priv), [], s2, opts(0, ""))))
+  }
+  let ph = sha512.digest(__bytes("message"))
+  let os = [opts(7, ""), opts(7, "ctx"), opts(0, "foo"), opts(5, ""), opts(0, unwrap(__from_bytes(rep("x", 256)))), opts(7, unwrap(__from_bytes(rep("y", 256))))]
+  for i in 0..len(os) {
+    let o = os[i]
+    let priv = privs[i % len(privs)]
+    let pub_ = ed25519.public_key(priv)
+    let msg = if o.hash == 0 { __bytes("message!!!!") } else { ph }
+    match ed25519.sign_with_options(priv, msg, o) {
+      Err(e) => print("O {i}  " + e),
+      Ok(sig) => {
+        print("O {i} " + hex.encode_bytes(sig) + " ok")
+        print("OV " + es(ed25519.verify_with_options(pub_, msg, sig, o)) + " " + es(ed25519.verify_with_options(pub_, msg, sig, opts(0, ""))))
+        print("OV2 " + es(ed25519.verify_with_options(pub_, msg[..10], sig, o)))
+      },
+    }
+  }
+  match ed25519.new_key_from_seed(map(0..31, (_) => 0)) {
+    Ok(k) => print(hex.encode_bytes(k)),
+    Err(e) => print("panic: " + e),
+  }
+  match ed25519.sign(map(0..63, (_) => 0), []) {
+    Ok(k) => print(hex.encode_bytes(k)),
+    Err(e) => print("panic: " + e),
+  }
+  match ed25519.sign_with_options(map(0..10, (_) => 0), [], opts(0, "")) {
+    Ok(_) => print("ok"),
+    Err(e) => print(e),
+  }
+  print("panic: " + es(ed25519.verify_with_options(map(0..31, (_) => 0), [], [], opts(0, ""))))
+  let pub0 = ed25519.public_key(privs[0])
+  print(es(ed25519.verify_with_options(pub0, [], map(0..63, (_) => 0), opts(0, ""))))
+  let sig0 = unwrap(ed25519.sign(privs[0], []))
+  let s3 = set(sig0, 63, sig0[63] | 0x20)
+  print(es(ed25519.verify_with_options(pub0, [], s3, opts(0, ""))))
+  for h in ["0200000000000000000000000000000000000000000000000000000000000000", "0100000000000000000000000000000000000000000000000000000000000080", "edffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7f", "eeffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff", "ecffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7f"] {
+    print("PK " + h + " " + es(ed25519.verify_with_options(unwrap(hex.decode(h)), [], sig0, opts(0, ""))))
+  }
+  let bad = privs[0][..32] + privs[1][32..]
+  print("BAD " + hex.encode_bytes(unwrap(ed25519.sign(bad, __bytes("x")))))
+}

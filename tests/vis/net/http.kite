@@ -1,0 +1,3 @@
+pub fn get() -> Str { "GET " + helper() }
+pub(mod) fn helper() -> Str { "/index" }
+pub(pkg) fn version() -> Int { 2 }

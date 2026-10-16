@@ -1,0 +1,8 @@
+extern "C" {
+  fn strlen(s: Str) -> Int
+  fn bad(xs: List<Int>) -> Int
+}
+fn main() {
+  print(strlen("x"))
+  let f = strlen
+}

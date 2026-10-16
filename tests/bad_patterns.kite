@@ -1,0 +1,52 @@
+const K: Int = 3 + 1
+
+fn dup(o: Option<Int>) -> Int {
+  match o {
+    x @ Some(x) => x
+    _ => 0
+  }
+}
+
+fn mixed(n: Int) -> Int {
+  match n {
+    1..="a" => 1
+    _ => 0
+  }
+}
+
+fn empty(n: Int) -> Int {
+  match n {
+    5..=1 => 1
+    _ => 0
+  }
+}
+
+fn too_many(t: (Int, Int)) -> Int {
+  match t {
+    (a, b, c, ..) => a
+  }
+}
+
+fn immut(t: (Int, Int)) -> Int {
+  match t {
+    (a, b) => {
+      a += 1
+      a
+    }
+  }
+}
+
+fn not_lit(n: Int) -> Int {
+  match n {
+    K => 1
+    _ => 0
+  }
+}
+
+fn open_range(n: Int) -> Int {
+  match n {
+    1.. => 1
+  }
+}
+
+fn main() {}

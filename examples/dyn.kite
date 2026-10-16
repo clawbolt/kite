@@ -1,0 +1,34 @@
+// 文法 v0.6 第三批（二）：dyn / impl 类型
+trait Shape {
+  fn area(self) -> Float
+  fn name(self) -> Str {
+    "形状"
+  }
+}
+type Circle = { r: Float }
+type Sq = { s: Float }
+impl Shape for Circle {
+  fn area(self) -> Float { 3.0 * self.r * self.r }
+  fn name(self) -> Str { "圆" }
+}
+impl Shape for Sq {
+  fn area(self) -> Float { self.s * self.s }
+}
+fn total(xs: List<dyn Shape>) -> Float {
+  xs |> map(s => s.area()) |> sum
+}
+fn describe(s: impl Shape, tag: impl Show) -> Str {
+  "{tag}: {s.name()} {s.area()}"
+}
+fn make(big: Bool) -> impl Shape {
+  if big { Sq { s: 10.0 } } else { Circle { r: 1.0 } }
+}
+fn main() {
+  let xs: List<dyn Shape> = [Circle { r: 1.0 }, Sq { s: 2.0 }]
+  print(total(xs), xs |> map(s => s.name()))
+  print(describe(Sq { s: 3.0 }, 1), describe(make(false), "x"))
+  let m = make(true)
+  print(m.area(), m)
+  let shows: List<dyn Show> = [1, "a", true]
+  print(shows)
+}

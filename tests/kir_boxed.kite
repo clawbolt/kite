@@ -1,0 +1,170 @@
+type Point = { x: Int, y: Int }
+
+enum Shape {
+  Circle(Float)
+  Rect(Float, Float)
+}
+
+fn area(s: Shape) -> Float {
+  match s {
+    Circle(r)  => 3.0 * r * r
+    Rect(w, h) => w * h
+  }
+}
+
+fn describe(p: Point) -> Str {
+  let Point { x, y } = p
+  "({x}, {y})"
+}
+
+fn parse_all(xs: List<Str>) -> Result<Int, Str> {
+  var total = 0
+  for s in xs {
+    let n = parse_int(s)?
+    total += n
+  }
+  Ok(total)
+}
+
+fn scale(xs: List<Int>, k: Int) -> List<Int> {
+  xs |> map(x => x * k)
+}
+
+fn first_word(s: Str) -> Option<Str> {
+  let ws = split(s, " ")
+  if len(ws) == 0 { return None }
+  Some(ws[0])
+}
+
+fn sum_to(n: Int) -> Int {
+  var acc = 0
+  for i in 1..=n { acc += i }
+  acc
+}
+
+fn classify(v: Int) -> Str {
+  match v {
+    0          => "zero"
+    1..10      => "small"
+    n if n < 0 => "negative"
+    _          => "big"
+  }
+}
+
+impl Point {
+  fn dist2(self) -> Int { self.x * self.x + self.y * self.y }
+  fn shift(self, d: Int) -> Point { Point { x: self.x + d, y: self.y + d } }
+}
+
+fn with_defers(n: Int) -> Int {
+  defer { print("退出 with_defers") }
+  var i = 0
+  while i < n {
+    defer { print("一轮结束") }
+    if i == 1 { break }
+    i += 1
+  }
+  if n > 5 { return 99 }
+  i
+}
+
+fn work(k: Int) -> Int { sum_to(k) }
+
+fn counter() -> fn() -> Int {
+  var n = 0
+  () => {
+    n += 1
+    n
+  }
+}
+
+fn mutate() -> Int {
+  var total = 0
+  defer { print("total = {total}") }
+  for x in [1, 2, 3] { [x] |> each(y => { total += y }) }
+  var p = Point { x: 1, y: 1 }
+  p.x = 10
+  var xs = [1, 2, 3]
+  xs[1] += 40
+  total + p.x + xs[1]
+}
+
+fn local_use() -> Int {
+  use std.math
+  int(math.sqrt(49.0)) + int(math.floor(2.7))
+}
+
+fn main() {
+  print(local_use())
+  let shapes = [Circle(1.0), Shape.Rect(2.0, 3.0)]
+  for s in shapes { print(area(s)) }
+  print(describe(Point { x: 1, y: 2 }))
+  print(parse_all(["1", "2", "39"]))
+  print(parse_all(["1", "x"]))
+  print(scale([1, 2, 3], 10))
+  print(first_word("hello kite"), first_word(""))
+  print(sum_to(100), classify(0), classify(5), classify(-3), classify(99))
+  let (a, b) = (3, "three")
+  let m = set(set(Map(), "a", 1), "b", 2)
+  print(a, b, get(m, "b"), len("kite"))
+  let pairs = [(1, "x"), (2, "y")]
+  for (n, s) in pairs { print("{s}={n}") }
+  if shapes[0] is Circle(_) { print("is circle") }
+  let p = Point { x: 3, y: 4 }
+  print(p.dist2(), p.shift(1).dist2())
+  print(with_defers(3), with_defers(9))
+  let (u, v) = spawn { work(10), work(20) }
+  print(u + v)
+  let w = race { work(5) }
+  print(w)
+  let c = counter()
+  c()
+  print(c(), mutate())
+  fn ev(n: Int) -> Bool { if n == 0 { true } else { od(n - 1) } }
+  fn od(n: Int) -> Bool { if n == 0 { false } else { ev(n - 1) } }
+  print(ev(10), od(7))
+  let q: Chan<Int> = chan(1)
+  let got = select {
+    recv(q) as v => unwrap(v),
+    _ => -1,
+  }
+  print(got)
+  print(Cat { n: "tom" }.greet(2), Num { v: 7 }.greet(1))
+  print(local_types())
+}
+
+trait Named {
+  fn name(self) -> Str
+  fn greet(self, times: Int) -> Str {
+    var s = ""
+    for _ in 0..times { s = s + "hi " + self.name() + "; " }
+    s
+  }
+}
+
+type Cat = { n: Str }
+type Num = { v: Int }
+impl Named for Cat {
+  fn name(self) -> Str { self.n }
+}
+impl Named for Num {
+  fn name(self) -> Str { "#{self.v}" }
+}
+
+fn local_types() -> Int {
+  type P = { x: Int, y: Int }
+  enum Dir {
+    Up
+    Down(n: Int)
+  }
+  impl P {
+    fn sum(self) -> Int { self.x + self.y }
+  }
+  let p = P { x: 3, y: 4 }
+  let d = Down(5)
+  let k = match d {
+    Up      => 0
+    Down(n) => n
+  }
+  p.sum() + k
+}

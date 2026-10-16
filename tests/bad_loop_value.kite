@@ -1,0 +1,15 @@
+fn main() {
+  for i in 0..3 {
+    if i == 1 { break 5 }
+  }
+  let a = loop {
+    if true { break 1 }
+    break "x"
+  }
+  let b: Int = loop {
+    break
+  }
+  'o: loop {
+    while true { break 'o 3 }
+  }
+}

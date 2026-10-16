@@ -1,0 +1,73 @@
+// std.crypto.sha1：SHA-1 摘要（对齐 Go 的 crypto/sha1）
+//   sum(s) / sum_bytes(bs)：十六进制小写字符串；digest(bs)：20 个字节
+
+pub const SIZE: Int = 20
+
+pub const BLOCK_SIZE: Int = 64
+
+const M32: Int = 0xffffffff
+
+fn rotl(x: Int, n: Int) -> Int { ((x << n) | (x >> (32 - n))) & M32 }
+
+pub fn digest(msg: List<Int>) -> List<Int> {
+  let bitlen = len(msg) * 8
+  var m = push(msg, 0x80)
+  while len(m) % 64 != 56 { m = push(m, 0) }
+  for k in 0..8 { m = push(m, (bitlen >> (56 - 8 * k)) & 255) }
+  var h = [0x67452301, 0xefcdab89, 0x98badcfe, 0x10325476, 0xc3d2e1f0]
+  var off = 0
+  while off < len(m) {
+    var w: List<Int> = []
+    for t in 0..16 {
+      let b = off + t * 4
+      w = push(w, (m[b] << 24) | (m[b + 1] << 16) | (m[b + 2] << 8) | m[b + 3])
+    }
+    for t in 16..80 { w = push(w, rotl(w[t - 3] ^ w[t - 8] ^ w[t - 14] ^ w[t - 16], 1)) }
+    var a = h[0]
+    var b = h[1]
+    var c = h[2]
+    var d = h[3]
+    var e = h[4]
+    for i in 0..80 {
+      var f = 0
+      var k = 0
+      if i < 20 {
+        f = (b & c) | ((~b) & d)
+        k = 0x5a827999
+      } else if i < 40 {
+        f = b ^ c ^ d
+        k = 0x6ed9eba1
+      } else if i < 60 {
+        f = (b & c) | (b & d) | (c & d)
+        k = 0x8f1bbcdc
+      } else {
+        f = b ^ c ^ d
+        k = 0xca62c1d6
+      }
+      let t = (rotl(a, 5) + (f & M32) + e + k + w[i]) & M32
+      e = d
+      d = c
+      c = rotl(b, 30)
+      b = a
+      a = t
+    }
+    h = [(h[0] + a) & M32, (h[1] + b) & M32, (h[2] + c) & M32, (h[3] + d) & M32, (h[4] + e) & M32]
+    off += 64
+  }
+  var out: List<Int> = []
+  for x in h {
+    for k in 0..4 { out = push(out, (x >> (24 - 8 * k)) & 255) }
+  }
+  out
+}
+
+fn to_hex(bs: List<Int>) -> Str {
+  let ds = chars("0123456789abcdef")
+  var out = ""
+  for b in bs { out = out + ds[(b >> 4) & 15] + ds[b & 15] }
+  out
+}
+
+pub fn sum_bytes(bs: List<Int>) -> Str { to_hex(digest(bs)) }
+
+pub fn sum(s: Str) -> Str { to_hex(digest(__bytes(s))) }

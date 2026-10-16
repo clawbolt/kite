@@ -1,0 +1,131 @@
+// std.encoding.json.v2：对齐 Go 1.27 的 encoding/json/v2（只做和 Json 值之间的编解码，Kite 没有反射）
+//   unmarshal(bs) -> Result<Json, Str>：相当于 json.Unmarshal(bs, &any)。严格 UTF-8，重复的成员名报错，
+//     按 Token 读，错误文字（含 JSON Pointer 和 offset）和 Go 一致；数字一律 JNum
+//   marshal(v) -> Result<List<Int>, Str>：相当于 json.Marshal(v, json.Deterministic(true))，
+//     键按字节序排序，不转义 HTML，JNum 用 Go 的浮点格式，NaN / Inf 报错
+//   语法层的 Value.Compact / Indent / Canonicalize / IsValid 在 std.encoding.json.jsontext
+
+use std.encoding.json
+use std.encoding.json.{ Json }
+use std.encoding.json.jsontext as jt
+use std.strconv
+
+fn syn_msg(e: jt.SynErr) -> Str { jt.error_string(e) }
+
+fn top_eof(d: jt.Dec) -> Str { "jsontext: unexpected EOF after offset {len(d.buf)}" }
+
+fn err_of(d: jt.Dec, e: jt.SynErr) -> Str { if e.ioeof { top_eof(d) } else { syn_msg(e) } }
+
+fn ptr_str(toks: List<Str>) -> Str { join(map(toks, (t) => "/" + t), "") }
+
+fn value(d0: jt.Dec) -> Result<(jt.Dec, Json), Str> {
+  let (d, k) = jt.peek_kind(d0)
+  if k == 123 {
+    let r1 = jt.read_token(d)
+    if let Err(e) = r1 { return Err(err_of(d, e)) }
+    let (d1, _) = unwrap(r1)
+    var dd = d1
+    var m: Map<Str, Json> = Map()
+    loop {
+      let (dp, kk) = jt.peek_kind(dd)
+      dd = dp
+      if kk == 125 { break }
+      let r2 = jt.read_token(dd)
+    if let Err(e) = r2 { return Err(err_of(dd, e)) }
+    let (d2, tok) = unwrap(r2)
+      dd = d2
+      let name = unwrap(__from_bytes(jt.append_unquote(tok.raw)))
+      if is_some(get(m, name)) {
+        let p = ptr_str(jt.stack_pointer(dd, -1))
+        let e = jt.SynErr { msg: "duplicate object member name", offset: 0, eof: false, pointer: p, dup: true, ioeof: false }
+        return Err(syn_msg(e))
+      }
+      let (d3, v) = value(dd)?
+      dd = d3
+      m = set(m, name, v)
+    }
+    let r3 = jt.read_token(dd)
+    if let Err(e) = r3 { return Err(err_of(dd, e)) }
+    let (d4, _) = unwrap(r3)
+    return Ok((d4, JObj(m)))
+  }
+  if k == 91 {
+    let r4 = jt.read_token(d)
+    if let Err(e) = r4 { return Err(err_of(d, e)) }
+    let (d1, _) = unwrap(r4)
+    var dd = d1
+    var items: List<Json> = []
+    loop {
+      let (dp, kk) = jt.peek_kind(dd)
+      dd = dp
+      if kk == 93 { break }
+      let (d3, v) = value(dd)?
+      dd = d3
+      items = push(items, v)
+    }
+    let r5 = jt.read_token(dd)
+    if let Err(e) = r5 { return Err(err_of(dd, e)) }
+    let (d4, _) = unwrap(r5)
+    return Ok((d4, JArr(items)))
+  }
+  let r6 = jt.read_value_at(d)
+    if let Err(e) = r6 { return Err(err_of(d, e)) }
+    let (d1, raw) = unwrap(r6)
+  let c = raw[0]
+  if c == 110 { return Ok((d1, JNull)) }
+  if c == 116 { return Ok((d1, JBool(true))) }
+  if c == 102 { return Ok((d1, JBool(false))) }
+  if c == 34 { return Ok((d1, JStr(unwrap(__from_bytes(jt.append_unquote(raw)))))) }
+  let text = unwrap(__from_bytes(raw))
+  let (f, err) = strconv.parse_float_go(text, 64)
+  if err != "" {
+    let p = ptr_str(jt.stack_pointer(d1, -1))
+    var m = "json: cannot unmarshal JSON number " + text + " into Go float64"
+    if p != "" { m = m + " within " + strconv.quote_go(p) } else if d1.prev_start > 0 { m = m + " after offset {d1.prev_start}" }
+    let reason = if __str_find(err, "out of range", 0) >= 0 { "value out of range" } else { "invalid syntax" }
+    return Err(m + ": " + reason)
+  }
+  Ok((d1, JNum(f)))
+}
+
+pub fn unmarshal(bs: List<Int>) -> Result<Json, Str> {
+  let d = jt.new_decoder(bs, jt.strict_opts())
+  let (d2, v) = value(d)?
+  if let Some(e) = jt.dec_check_eof(d2) { return Err(syn_msg(e)) }
+  Ok(v)
+}
+
+fn enc(v: Json) -> Result<List<Int>, Str> {
+  match v {
+    JNull => Ok(__bytes("null")),
+    JBool(b) => Ok(__bytes(if b { "true" } else { "false" })),
+    JInt(i) => Ok(__bytes("{i}")),
+    JNum(f) => {
+      if f != f || f - f != 0.0 { return Err("json: cannot marshal from Go float64: unsupported value: " + strconv.format_float_go(f, "g", -1, 64)) }
+      Ok(jt.append_float(f, 64))
+    },
+    JStr(s) => Ok(jt.append_quote([], __bytes(s), false, false)),
+    JArr(items) => {
+      var out = [91]
+      var first = true
+      for it in items {
+        if !first { out = push(out, 44) }
+        first = false
+        out = out + enc(it)?
+      }
+      Ok(push(out, 93))
+    },
+    JObj(m) => {
+      var out = [123]
+      var first = true
+      for k in sort(keys(m)) {
+        if !first { out = push(out, 44) }
+        first = false
+        out = jt.append_quote(out, __bytes(k), false, false) + [58] + enc(unwrap(get(m, k)))?
+      }
+      Ok(push(out, 125))
+    },
+  }
+}
+
+pub fn marshal(v: Json) -> Result<List<Int>, Str> { enc(v) }

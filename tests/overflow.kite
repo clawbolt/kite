@@ -1,0 +1,13 @@
+fn main() {
+  let big = 9223372036854775807
+  let small = -9223372036854775808
+  print(big, small, big - 1 + 1, abs(small + 1))
+  print(int(3.9), int("42"), parse_int("99999999999999999999").is_err())
+  var x = 1
+  for i in 0..62 {
+    x = x * 2
+  }
+  print(x)
+  print(x * 2)
+  print("不应执行")
+}

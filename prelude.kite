@@ -1,0 +1,205 @@
+// Kite 预导入：每个程序都自动带上（运行时错误的类型化表示与恢复）
+
+enum PanicKind {
+  PanicCalled
+  DivByZero
+  IntOverflow
+  IndexOutOfRange
+  UnwrapFailed
+  AssertFailed
+  ChannelClosed
+  RuntimeFault
+}
+
+type Panic = { kind: PanicKind, message: Str, location: Str }
+
+fn __panic_kind(i: Int) -> PanicKind {
+  match i {
+    0 => PanicCalled
+    1 => DivByZero
+    2 => IntOverflow
+    3 => IndexOutOfRange
+    4 => UnwrapFailed
+    5 => AssertFailed
+    6 => ChannelClosed
+    _ => RuntimeFault
+  }
+}
+
+fn recover<T>(f: fn() -> T) -> Result<T, Panic> {
+  match __recover_raw(f) {
+    Ok(v)            => Ok(v)
+    Err((k, m, loc)) => Err(Panic { kind: __panic_kind(k), message: m, location: loc })
+  }
+}
+
+fn repanic(p: Panic) -> Never {
+  let raw = match p.kind {
+    PanicCalled => "panic: {p.message}"
+    _           => p.message
+  }
+  __repanic(raw, p.location)
+}
+
+fn supervise_if<T>(n: Int, restart: fn(Panic) -> Bool, f: fn() -> T) -> T {
+  __supervise_from(0, n, restart, f)
+}
+
+fn __supervise_from<T>(k: Int, n: Int, restart: fn(Panic) -> Bool, f: fn() -> T) -> T {
+  match recover(f) {
+    Ok(v)  => v
+    Err(p) => {
+      if k >= n || !restart(p) { repanic(p) }
+      __restart_log("supervise", k + 1, n, p.message)
+      __supervise_from(k + 1, n, restart, f)
+    }
+  }
+}
+
+// ── 重启策略：时间窗口内的重启上限 + 指数退避 ──
+// 窗口内（within_ms 毫秒）重启超过 max_restarts 次就升级；每次重启前等待 backoff_ms * 2^(连续失败-1)，不超过 max_backoff_ms
+type RestartPolicy = { max_restarts: Int, within_ms: Int, backoff_ms: Int, max_backoff_ms: Int }
+
+fn restart_policy(max_restarts: Int, within_ms: Int) -> RestartPolicy {
+  RestartPolicy { max_restarts: max_restarts, within_ms: within_ms, backoff_ms: 0, max_backoff_ms: 0 }
+}
+
+fn with_backoff(p: RestartPolicy, base_ms: Int, max_ms: Int) -> RestartPolicy {
+  RestartPolicy { max_restarts: p.max_restarts, within_ms: p.within_ms, backoff_ms: base_ms, max_backoff_ms: max_ms }
+}
+
+fn __backoff_from(d: Int, k: Int, cap: Int) -> Int {
+  if k <= 1 || d >= cap { min(d, cap) } else { __backoff_from(d * 2, k - 1, cap) }
+}
+
+fn __backoff(p: RestartPolicy, k: Int) -> Int {
+  if p.backoff_ms <= 0 { 0 } else { __backoff_from(p.backoff_ms, k, max(p.max_backoff_ms, p.backoff_ms)) }
+}
+
+fn __on_failure(who: Str, p: RestartPolicy, times: List<Int>, k: Int, e: Panic) -> List<Int> {
+  let now = now_ms()
+  let recent = times |> filter(t => now - t < p.within_ms)
+  if len(recent) >= p.max_restarts { repanic(e) }
+  let wait = __backoff(p, k)
+  __restart_log_w(who, len(recent) + 1, p.max_restarts, p.within_ms, wait, e.message)
+  if wait > 0 { sleep(wait) }
+  recent + [now]
+}
+
+fn supervise_with<T>(p: RestartPolicy, restart: fn(Panic) -> Bool, f: fn() -> T) -> T {
+  __supervise_loop(p, restart, f, [], 0)
+}
+
+fn __supervise_loop<T>(p: RestartPolicy, restart: fn(Panic) -> Bool, f: fn() -> T, times: List<Int>, k: Int) -> T {
+  match recover(f) {
+    Ok(v)  => v
+    Err(e) => {
+      if !restart(e) { repanic(e) }
+      __supervise_loop(p, restart, f, __on_failure("supervise", p, times, k + 1, e), k + 1)
+    }
+  }
+}
+
+fn actor_supervised_with<S, M, R>(init: S, handler: fn(S, M) -> S, p: RestartPolicy, body: fn(Actor<M>) -> R) -> (R, S) {
+  let wrapped = (st, m) => {
+    let (s, times, k) = st
+    match recover(() => handler(s, m)) {
+      Ok(s2) => (s2, times, 0)
+      Err(e) => (init, __on_failure("actor", p, times, k + 1, e), k + 1)
+    }
+  }
+  let (r, fin) = actor((init, [], 0), wrapped, body)
+  let (s, _, _) = fin
+  (r, s)
+}
+
+// 运算符 trait：泛型参数加上这些约束后即可使用对应运算符（a + b 改写为 a.add(b)）
+trait Add {
+  fn add(self, o: Self) -> Self
+}
+trait Sub {
+  fn sub(self, o: Self) -> Self
+}
+trait Mul {
+  fn mul(self, o: Self) -> Self
+}
+trait Div {
+  fn div(self, o: Self) -> Self
+}
+trait Rem {
+  fn rem(self, o: Self) -> Self
+}
+trait Neg {
+  fn neg(self) -> Self
+}
+trait Cmp {
+  fn cmp(self, o: Self) -> Int
+}
+impl Add for Int {
+  fn add(self, o: Int) -> Int { self + o }
+}
+impl Sub for Int {
+  fn sub(self, o: Int) -> Int { self - o }
+}
+impl Mul for Int {
+  fn mul(self, o: Int) -> Int { self * o }
+}
+impl Div for Int {
+  fn div(self, o: Int) -> Int { self / o }
+}
+impl Rem for Int {
+  fn rem(self, o: Int) -> Int { self % o }
+}
+impl Neg for Int {
+  fn neg(self) -> Int { 0 - self }
+}
+impl Cmp for Int {
+  fn cmp(self, o: Int) -> Int { if self < o { -1 } else if self > o { 1 } else { 0 } }
+}
+impl Add for Float {
+  fn add(self, o: Float) -> Float { self + o }
+}
+impl Sub for Float {
+  fn sub(self, o: Float) -> Float { self - o }
+}
+impl Mul for Float {
+  fn mul(self, o: Float) -> Float { self * o }
+}
+impl Div for Float {
+  fn div(self, o: Float) -> Float { self / o }
+}
+impl Rem for Float {
+  fn rem(self, o: Float) -> Float { self % o }
+}
+impl Neg for Float {
+  fn neg(self) -> Float { 0.0 - self }
+}
+impl Cmp for Float {
+  fn cmp(self, o: Float) -> Int { if self < o { -1 } else if self > o { 1 } else { 0 } }
+}
+impl Add for Str {
+  fn add(self, o: Str) -> Str { self + o }
+}
+impl Cmp for Str {
+  fn cmp(self, o: Str) -> Int { if self < o { -1 } else if self > o { 1 } else { 0 } }
+}
+
+// sort / min / max 用在实现了 Cmp 的类型上时，类型检查器会把调用改写成下面这些函数
+fn __sort_cmp<T: Cmp>(xs: List<T>) -> List<T> { sort_with(xs, (a, b) => a.cmp(b)) }
+fn __min2_cmp<T: Cmp>(a: T, b: T) -> T { if b.cmp(a) < 0 { b } else { a } }
+fn __max2_cmp<T: Cmp>(a: T, b: T) -> T { if b.cmp(a) > 0 { b } else { a } }
+fn __min_cmp<T: Cmp>(xs: List<T>) -> T {
+  if len(xs) == 0 { panic("min: 空序列") }
+  xs[1..].fold(xs[0], (a, b) => __min2_cmp(a, b))
+}
+fn __max_cmp<T: Cmp>(xs: List<T>) -> T {
+  if len(xs) == 0 { panic("max: 空序列") }
+  xs[1..].fold(xs[0], (a, b) => __max2_cmp(a, b))
+}
+
+// async fn 的结果：惰性的计算，.await 时才执行（async fn f() -> T 返回 Future<T>）
+type Future<T> = { run: fn() -> T }
+fn __await<T>(f: Future<T>) -> T {
+  let g = f.run
+  g()
+}

@@ -1,0 +1,24 @@
+use std.text.tabwriter
+fn run(minw: Int, tabw: Int, pad: Int, ch: Int, flags: Int, text: List<Int>) {
+  let w = tabwriter.new_writer(minw, tabw, pad, ch, flags).write(text).flush()
+  print("<" + w.output() + ">")
+}
+fn main() {
+  let t1 = "a\tb\tc\naaa\tbbbbb\tc\nx\t\ty\n\nlong cell here\tz\n"
+  let t2 = "名前\t年齢\t都市\n太郎\t25\t東京\nBob\t300\tNYC\n"
+  let t3 = "a\tb\u{b}c\u{c}d\te\n\tindent\tx\n\t\tdouble\n"
+  let t4 = __bytes("<b>bold</b>\t&amp;\tx\n") + [255] + __bytes("esc\taped") + [255] + __bytes("\ty\nplain\tz\n")
+  let t5 = "1\t2\t\t3\n11\t22\t\t33\n\t\t\t\nend"
+  for t in [__bytes(t1), __bytes(t2), __bytes(t3), t4, __bytes(t5)] {
+    run(0, 8, 1, 32, 0, t)
+    run(5, 0, 2, 46, tabwriter.ALIGN_RIGHT, t)
+    run(0, 4, 0, 9, tabwriter.TAB_INDENT, t)
+    run(2, 8, 1, 45, tabwriter.DEBUG | tabwriter.DISCARD_EMPTY_COLUMNS, t)
+    run(0, 8, 1, 32, tabwriter.FILTER_HTML | tabwriter.STRIP_ESCAPE, t)
+    run(0, 8, 1, 32, tabwriter.FILTER_HTML | tabwriter.ALIGN_RIGHT | tabwriter.DEBUG, t)
+  }
+  var w = tabwriter.new_writer(0, 8, 1, 32, 0).write_string("a\tb\n").write_string("ccc\t").write_string("d\nshort\n")
+  let (o1, w2) = w.take_output()
+  print("[" + o1 + "]")
+  print("[" + w2.write_string("x\ty\n").flush().output() + "]")
+}

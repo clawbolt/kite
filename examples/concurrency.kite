@@ -1,0 +1,63 @@
+// 结构化并发：spawn 并行执行各项，全部完成后返回元组；par_map 把列表分给多个线程
+fn fib(n: Int) -> Int {
+  if n < 2 { n } else { fib(n - 1) + fib(n - 2) }
+}
+
+fn count_primes(hi: Int) -> Int {
+  var count = 0
+  var n = 2
+  while n <= hi {
+    var d = 2
+    var prime = true
+    while d * d <= n {
+      if n % d == 0 { prime = false; break }
+      d += 1
+    }
+    if prime { count += 1 }
+    n += 1
+  }
+  count
+}
+
+fn words(n: Int) -> List<Str> {
+  0..n |> map(i => "w{i % 7}")
+}
+
+fn main() {
+  // 两个独立的计算同时进行
+  let (a, b) = spawn { fib(24), count_primes(20000) }
+  print("fib(24) =", a, "素数个数 =", b)
+
+  // 任务可以是代码块，可以有自己的局部 var
+  let base = 10
+  let (s1, s2) = spawn {
+    {
+      var acc = 0
+      for i in 1..=100 { acc += i }
+      acc + base
+    },
+    words(5) |> join("-"),
+  }
+  print(s1, s2)
+
+  // 嵌套 spawn
+  let (x, (y, z)) = spawn { fib(18), spawn { fib(19), fib(20) } }
+  print(x, y, z)
+
+  // 数据并行
+  let squares = par_map(1..=10, n => n * n)
+  print(squares)
+  let lens = par_map(["kite", "并发", "spawn"], w => len(w))
+  print(lens)
+
+  // 任务里新建的闭包和变量属于任务自己，可以自由修改；任务结束后交还给父任务
+  let (counter, _) = spawn {
+    {
+      var n = 0
+      () => { n += 1; n }
+    },
+    0,
+  }
+  counter()
+  print("counter:", counter())
+}

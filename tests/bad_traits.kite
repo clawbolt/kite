@@ -1,0 +1,16 @@
+trait Describe { fn describe(self) -> Str }
+type Dog = { name: Str }
+type Cat = { name: Str }
+impl Describe for Dog { fn describe(self) -> Str { self.name } }
+impl Describe for Cat {}                       // 缺少 describe
+
+fn largest<T: Ord>(xs: List<T>) -> T { xs[0] }
+fn less<T>(a: T, b: T) -> Bool { a < b }        // T 没有 Ord
+fn talk<T>(x: T) -> Str { x.describe() }        // T 没有 Describe
+fn add<T: Ord>(a: T, b: T) -> T { a + b }      // Ord 不能做加法
+fn nope<T: Fly>(x: T) -> T { x }               // 未知 trait
+
+fn main() {
+  let d = largest([Dog { name: "a" }])        // Dog 没有实现 Ord
+  let s = largest([1, 2])
+}

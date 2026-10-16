@@ -1,0 +1,1863 @@
+// Kite 自举编译器：KIR（kir.py 的移植，自举第 3d 步）
+// 输入是检查后改写过的语法树和检查器的最终状态（每个表达式节点的类型记在 C.ts，按 _id），
+// 输出每个可编译函数的 KIR（已优化），和 tools/kir_dump.py 逐字节相同（输出见 kirdump.kite）。
+//
+// Python 版的 Reg 是对象；这里寄存器是 R(编号, 类型)，名字记在函数的 rn 表里。
+// Python 版的 Unsupported 异常在这里是状态里的 err：设置后不再生成指令，函数整体回退。
+
+use ast
+use ast.{ V, nd, kind, line, fld, sv, iv, items, is_nil }
+use tys
+use tys.{ Ty }
+use check
+use bc
+
+pub enum A {
+  R(Int, Str),
+  CI(Int),
+  CF(Float),
+  CB(Bool),
+  CS(Str),
+  CU,
+}
+
+pub enum X {
+  XN,
+  XS(Str),
+  XI(Int),
+  XR(Int, Str),
+  XL(Int),
+  XST(Str, List<Str>),
+  XP(List<(Bool, Str)>),
+}
+
+pub enum T {
+  TNone,
+  TBr(Int),
+  TCbr(A, Int, Int),
+  TRet(A?),
+  TPanic(Str, A?, Int),
+  TUnr,
+}
+
+pub type In = { d: A?, op: Str, args: List<A>, ln: Int, x: X }
+
+pub type Bk = { id: Int, ins: List<In>, t: T }
+
+pub type KF = {
+  name: Str,
+  ret: Str,
+  params: List<A>,
+  blocks: List<Bk>,
+  nreg: Int,
+  line: Int,
+  npb: Int,
+  pats: List<V>,
+  ndefer: Int,
+  closure: Bool,
+  caps: List<A>,
+  label: Str,
+  rn: Map<Int, Str>,
+  lams: List<KF>,
+}
+
+type G = { sigs: Map<Str, (List<Str>, Str)>, user: Map<Str, Bool>, ts: Map<Int, Ty>, sub: Map<Int, Ty>, fsigs: Map<Str, Ty>, ck: check.C }
+
+type Lp = { cont: Int, brk: Int, nd: Int, label: V, has_res: Bool, res: A? }
+
+type L = {
+  g: G,
+  f: KF,
+  cur: Int,
+  scopes: List<Map<Str, A>>,
+  loops: List<Lp>,
+  nd: Int,
+  captured: Map<Int, Bool>,
+  mut_names: Map<Str, Bool>,
+  cell_names: Map<Str, Bool>,
+  in_or: Int,
+  lams: List<KF>,
+  err: Str,
+}
+
+const FOLDABLE: List<Str> = ["copy", "add.i64", "sub.i64", "mul.i64", "div.i64", "rem.i64", "add.f64", "sub.f64", "mul.f64", "div.f64", "neg.i64", "neg.f64", "not", "lt", "gt", "le", "ge", "eq", "ne", "i2f"]
+
+const NO_FAIL: List<Str> = ["copy", "add.f64", "sub.f64", "mul.f64", "neg.f64", "not", "lt", "gt", "le", "ge", "eq", "ne", "i2f", "abs.f64", "min", "max", "box", "unbox", "list", "tuple", "pbget", "payload", "b2i", "cget", "bit.band", "bit.bor", "bit.bxor", "bit.bnot"]
+
+const IMAX: Int = 9223372036854775807
+
+const IMIN: Int = -9223372036854775807 - 1
+
+fn lset<T>(xs: List<T>, i: Int, v: T) -> List<T> { take(xs, i) + [v] + skip(xs, i + 1) }
+
+pub fn aty(a: A) -> Str {
+  match a {
+    R(_, t) => t,
+    CI(_)   => "i64",
+    CF(_)   => "f64",
+    CB(_)   => "b1",
+    _       => "val",
+  }
+}
+
+pub fn is_reg(a: A) -> Bool {
+  match a {
+    R(_, _) => true,
+    _       => false,
+  }
+}
+
+pub fn rid(a: A) -> Int {
+  match a {
+    R(i, _) => i,
+    _       => -1,
+  }
+}
+
+fn nid(v: V) -> Int {
+  match fld(v, "_id") {
+    VI(i) => i,
+    _     => -1,
+  }
+}
+
+fn new_kf(name: Str, ret: Str) -> KF {
+  KF { name: name, ret: ret, params: [], blocks: [], nreg: 0, line: 0, npb: 0, pats: [], ndefer: 0, closure: false, caps: [], label: "", rn: Map(), lams: [] }
+}
+
+// ───────── 类型 ─────────
+
+fn kty(ck: check.C, t0: Ty) -> Str {
+  let t = check.prn(ck, t0)
+  match t {
+    TC(n, args) => {
+      if len(args) == 0 {
+        if n == "Int" { return "i64" }
+        if n == "Float" { return "f64" }
+        if n == "Bool" { return "b1" }
+        if n == "Unit" { return "unit" }
+        if n == "Never" { return "never" }
+      }
+      "val"
+    },
+    TR(n, _) => {
+      if n == "Int" { return "i64" }
+      if n == "Float" { return "f64" }
+      if n == "Bool" { return "b1" }
+      if n == "Unit" { return "unit" }
+      if n == "Never" { return "never" }
+      "val"
+    },
+    _ => "val",
+  }
+}
+
+fn ty_of(l: L, e: V) -> Str {
+  match get(l.g.ts, nid(e)) {
+    Some(t) => kty(l.g.ck, t),
+    None    => {
+      if kind(e) == "Lit" {
+        return match fld(e, "value") {
+          VB(_) => "b1",
+          VI(_) => "i64",
+          VF(_) => "f64",
+          _     => "val",
+        }
+      }
+      "val"
+    },
+  }
+}
+
+fn node_t(l: L, e: V) -> Ty? {
+  match get(l.g.ts, nid(e)) {
+    Some(t) => Some(check.prn(l.g.ck, t)),
+    None    => None,
+  }
+}
+
+fn unitv(t: Str) -> Str { if t == "unit" || t == "never" { "val" } else { t } }
+
+// fn 类型 → (参数类型, 返回类型)；不是 n 个参数的 fn 类型时返回 None
+fn fn_tys(ck: check.C, t: Ty?, n: Int) -> (List<Str>, Str)? {
+  match t {
+    Some(x) => {
+      let p = check.prn(ck, x)
+      if let TC(nm, args) = p {
+        if nm == "fn" && len(args) == n + 1 {
+          return Some((map(take(args, n), (a) => unitv(kty(ck, a))), kty(ck, args[n])))
+        }
+      }
+      None
+    },
+    None    => None,
+  }
+}
+
+// ───────── 语法树工具 ─────────
+
+fn walk_nodes(x: V, out0: List<V>) -> List<V> {
+  var out = out0
+  match x {
+    VN(_, _, m) => {
+      out = push(out, x)
+      for key in keys(m) {
+        if key != "_id" { out = walk_nodes(unwrap(get(m, key)), out) }
+      }
+    },
+    VL(xs) => { for v in xs { out = walk_nodes(v, out) } },
+    VT(xs) => { for v in xs { out = walk_nodes(v, out) } },
+    VR(xs) => { for v in xs { out = walk_nodes(v, out) } },
+    _ => (),
+  }
+  out
+}
+
+fn pat_names(p: V) -> List<Str> {
+  let xs = items(p)
+  let k = sv(xs[0])
+  if k == "bind" { return [sv(xs[1])] }
+  if k == "tuple" { return flat_names(items(xs[1])) }
+  if k == "list" {
+    var out = flat_names(items(xs[1]))
+    if !is_nil(xs[2]) && sv(xs[2]) != "_" { out = push(out, sv(xs[2])) }
+    if len(xs) > 3 { out = out + flat_names(items(xs[3])) }
+    return out
+  }
+  if k == "variant" && !is_nil(xs[2]) && len(items(xs[2])) > 0 { return flat_names(items(xs[2])) }
+  if k == "struct" {
+    var out: List<Str> = []
+    for fx in items(xs[2]) { out = out + pat_names(items(fx)[1]) }
+    return out
+  }
+  if k == "or" { return pat_names(items(xs[1])[0]) }
+  if k == "at" { return pat_names(xs[1]) + pat_names(xs[2]) }
+  []
+}
+
+fn flat_names(ps: List<V>) -> List<Str> {
+  var out: List<Str> = []
+  for p in ps { out = out + pat_names(p) }
+  out
+}
+
+fn assigned_names(body: V) -> Map<Str, Bool> {
+  var out: Map<Str, Bool> = Map()
+  for n in walk_nodes(body, []) {
+    if kind(n) == "Assign" && kind(fld(n, "target")) == "Name" { out = set(out, sv(fld(fld(n, "target"), "name")), true) }
+    if kind(n) == "Let" && ast.truthy(fld(n, "mutable")) { for x in pat_names(fld(n, "pat")) { out = set(out, x, true) } }
+  }
+  out
+}
+
+fn captured_names(body: V) -> Map<Str, Bool> {
+  var out: Map<Str, Bool> = Map()
+  for n in walk_nodes(body, []) {
+    let k = kind(n)
+    var inner: List<V> = []
+    if k == "Lambda" || k == "Fn" || k == "Defer" { inner = [fld(n, "body")] } else if k == "Spawn" || k == "Race" { inner = items(fld(n, "items")) } else { continue }
+    for x in walk_nodes(VL(inner), []) {
+      if kind(x) == "Name" { out = set(out, sv(fld(x, "name")), true) }
+    }
+  }
+  out
+}
+
+// ───────── 发射 ─────────
+
+fn bad(l: L, msg: Str) -> L { if l.err == "" { L { err: msg, ..l } } else { l } }
+
+fn new_reg(l: L, ty: Str, name: Str) -> (L, A) {
+  let f = l.f
+  let r = R(f.nreg, ty)
+  let rn = if name != "" { set(f.rn, f.nreg, name) } else { f.rn }
+  (L { f: KF { nreg: f.nreg + 1, rn: rn, ..f }, ..l }, r)
+}
+
+fn set_name(l: L, r: A, name: Str) -> L { L { f: KF { rn: set(l.f.rn, rid(r), name), ..l.f }, ..l } }
+
+fn new_block(l: L) -> (L, Int) {
+  let f = l.f
+  let id = len(f.blocks)
+  (L { f: KF { blocks: push(f.blocks, Bk { id: id, ins: [], t: TNone }), ..f }, ..l }, id)
+}
+
+fn ensure_cur(l: L) -> L {
+  if l.cur >= 0 { return l }
+  let (l2, b) = new_block(l)
+  L { cur: b, ..l2 }
+}
+
+fn append(l0: L, ins: In) -> L {
+  let l = ensure_cur(l0)
+  let f = l.f
+  let b = f.blocks[l.cur]
+  L { f: KF { blocks: lset(f.blocks, l.cur, Bk { ins: push(b.ins, ins), ..b }), ..f }, ..l }
+}
+
+fn emit(l0: L, op: Str, args: List<A>, ty: Str, ln: Int, x: X) -> (L, A?) {
+  if l0.err != "" { return (l0, None) }
+  var l = ensure_cur(l0)
+  var dst: A? = None
+  if ty != "" && ty != "unit" && ty != "never" {
+    let (l2, r) = new_reg(l, ty, "")
+    l = l2
+    dst = Some(r)
+  }
+  (append(l, In { d: dst, op: op, args: args, ln: ln, x: x }), dst)
+}
+
+fn emit_r(l: L, op: Str, args: List<A>, ty: Str, ln: Int, x: X) -> (L, A) {
+  let (l2, r) = emit(l, op, args, ty, ln, x)
+  (l2, unwrap_or(r, CU))
+}
+
+fn term(l: L, t: T) -> L {
+  if l.cur < 0 || l.err != "" { return L { cur: -1, ..l } }
+  let f = l.f
+  let b = f.blocks[l.cur]
+  L { f: KF { blocks: lset(f.blocks, l.cur, Bk { t: t, ..b }), ..f }, cur: -1, ..l }
+}
+
+fn goto(l: L, b: Int) -> L { term(l, TBr(b)) }
+
+fn lookup(l: L, name: Str) -> A? {
+  var i = len(l.scopes) - 1
+  while i >= 0 {
+    if let Some(r) = get(l.scopes[i], name) { return Some(r) }
+    i -= 1
+  }
+  None
+}
+
+fn bind(l: L, name: Str, r: A) -> L {
+  let k = len(l.scopes) - 1
+  L { scopes: lset(l.scopes, k, set(l.scopes[k], name, r)), ..l }
+}
+
+fn push_scope(l: L) -> L { L { scopes: push(l.scopes, Map()), ..l } }
+
+fn pop_scope(l: L) -> L { L { scopes: take(l.scopes, len(l.scopes) - 1), ..l } }
+
+fn maybe_cell(l: L, name: Str, ln: Int) -> L {
+  if !contains(l.cell_names, name) { return l }
+  let k = len(l.scopes) - 1
+  match get(l.scopes[k], name) {
+    Some(r) => {
+      if aty(r) == "cell" { return l }
+      let (l1, v) = coerce(l, Some(r), "val", ln)
+      let (l2, c) = emit(l1, "mkcell", [unwrap_or(v, CU)], "cell", ln, XN)
+      match c {
+        Some(cr) => bind(set_name(l2, cr, name), name, cr),
+        None     => l2,
+      }
+    },
+    None    => l,
+  }
+}
+
+fn coerce(l: L, v: A?, ty: Str, ln: Int) -> (L, A?) {
+  if ty == "unit" || ty == "never" { return (l, None) }
+  match v {
+    None => {
+      if ty == "val" { return (l, Some(CU)) }
+      if l.cur < 0 {
+        if ty == "f64" { return (l, Some(CF(0.0))) }
+        if ty == "b1" { return (l, Some(CB(false))) }
+        return (l, Some(CI(0)))
+      }
+      (bad(l, "Unit 值用在标量位置"), None)
+    },
+    Some(x) => {
+      let vt = aty(x)
+      if vt == ty { return (l, Some(x)) }
+      if ty == "val" { return emit(l, "box", [x], "val", ln, XN) }
+      if vt == "val" { return emit(l, "unbox", [x], ty, ln, XN) }
+      (bad(l, "类型转换 {vt} → {ty}"), None)
+    },
+  }
+}
+
+fn coerce_a(l: L, v: A?, ty: Str, ln: Int) -> (L, A) {
+  let (l2, r) = coerce(l, v, ty, ln)
+  (l2, unwrap_or(r, CU))
+}
+
+fn emit_copy(l0: L, dst: A, v: A?, ln: Int) -> L {
+  let (l1, c) = coerce(l0, v, aty(dst), ln)
+  if l1.err != "" { return l1 }
+  match c {
+    Some(x) => append(l1, In { d: Some(dst), op: "copy", args: [x], ln: ln, x: XN }),
+    None    => l1,
+  }
+}
+
+// ───────── 模式 ─────────
+
+fn cpat(l0: L, p: V, binds0: List<(Str, Int)>) -> (L, V, List<(Str, Int)>) {
+  var l = l0
+  var binds = binds0
+  let xs = items(p)
+  let k = sv(xs[0])
+  if k == "bind" {
+    if l.in_or > 0 {
+      for (n, sl) in binds { if n == sv(xs[1]) { return (l, VT([VS("bind"), VI(sl)]), binds) } }
+    }
+    let slot = l.f.npb
+    l = L { f: KF { npb: slot + 1, ..l.f }, ..l }
+    return (l, VT([VS("bind"), VI(slot)]), push(binds, (sv(xs[1]), slot)))
+  }
+  if k == "or" {
+    l = L { in_or: l.in_or + 1, ..l }
+    var out: List<V> = []
+    for x in items(xs[1]) {
+      let (l2, c, b2) = cpat(l, x, binds)
+      l = l2
+      binds = b2
+      out = push(out, c)
+    }
+    return (L { in_or: l.in_or - 1, ..l }, VT([VS("or"), VL(out)]), binds)
+  }
+  if k == "at" {
+    let (l2, a, b2) = cpat(l, xs[1], binds)
+    let (l3, b, b3) = cpat(l2, xs[2], b2)
+    return (l3, VT([VS("at"), a, b]), b3)
+  }
+  if k == "tuple" {
+    let (l2, out, b2) = cpats(l, items(xs[1]), binds)
+    return (l2, VT([VS("tuple"), VL(out)]), b2)
+  }
+  if k == "list" {
+    let (l2, pre, b2) = cpats(l, items(xs[1]), binds)
+    l = l2
+    binds = b2
+    var r = VNil
+    if !is_nil(xs[2]) {
+      if sv(xs[2]) == "_" { r = VT([VS("wild")]) } else {
+        let (l3, rc, b3) = cpat(l, VT([VS("bind"), xs[2]]), binds)
+        l = l3
+        binds = b3
+        r = rc
+      }
+    }
+    if len(xs) > 3 {
+      let (l4, post, b4) = cpats(l, items(xs[3]), binds)
+      return (l4, VT([VS("list"), VL(pre), r, VL(post)]), b4)
+    }
+    return (l, VT([VS("list"), VL(pre), r]), binds)
+  }
+  if k == "variant" {
+    if is_nil(xs[2]) { return (l, VT([VS("variant"), xs[1], VNil]), binds) }
+    let (l2, out, b2) = cpats(l, items(xs[2]), binds)
+    return (l2, VT([VS("variant"), xs[1], VL(out)]), b2)
+  }
+  if k == "struct" {
+    var out: List<V> = []
+    for fx in items(xs[2]) {
+      let fp = items(fx)
+      let (l2, c, b2) = cpat(l, fp[1], binds)
+      l = l2
+      binds = b2
+      out = push(out, VT([fp[0], c]))
+    }
+    return (l, VT([VS("struct"), xs[1], VL(out)]), binds)
+  }
+  (l, p, binds)
+}
+
+fn cpats(l0: L, ps: List<V>, binds0: List<(Str, Int)>) -> (L, List<V>, List<(Str, Int)>) {
+  var l = l0
+  var binds = binds0
+  var out: List<V> = []
+  for x in ps {
+    let (l2, c, b2) = cpat(l, x, binds)
+    l = l2
+    binds = b2
+    out = push(out, c)
+  }
+  (l, out, binds)
+}
+
+fn test_pat(l0: L, pat: V, subj: A?, ln: Int) -> (L, A, List<(Str, Int)>) {
+  let (l1, cp, binds) = cpat(l0, pat, [])
+  let idx = len(l1.f.pats)
+  let l2 = L { f: KF { pats: push(l1.f.pats, cp), ..l1.f }, ..l1 }
+  let (l3, v) = coerce_a(l2, subj, "val", ln)
+  let (l4, r) = emit_r(l3, "tpat", [v], "b1", ln, XI(idx))
+  (l4, r, binds)
+}
+
+fn bind_pat(l0: L, binds: List<(Str, Int)>, ln: Int) -> L {
+  var l = l0
+  for (name, slot) in binds {
+    let (l1, r) = new_reg(l, "val", name)
+    l = maybe_cell(bind(append(l1, In { d: Some(r), op: "pbget", args: [], ln: ln, x: XI(slot) }), name, r), name, ln)
+  }
+  l
+}
+
+fn destructure(l0: L, pat: V, v0: A?, ln: Int, msg: Str) -> L {
+  let xs = items(pat)
+  let k = sv(xs[0])
+  if k == "bind" {
+    let ty = match v0 {
+      Some(x) => aty(x),
+      None    => "val",
+    }
+    let (l1, r) = new_reg(l0, ty, sv(xs[1]))
+    return maybe_cell(bind(emit_copy(l1, r, v0, ln), sv(xs[1]), r), sv(xs[1]), ln)
+  }
+  if k == "wild" { return l0 }
+  let (l1, v) = coerce_a(l0, v0, "val", ln)
+  let (l2, ok, binds) = test_pat(l1, pat, Some(v), ln)
+  let (l3, good) = new_block(l2)
+  let (l4, badb) = new_block(l3)
+  var l = term(l4, TCbr(ok, good, badb))
+  l = term(L { cur: badb, ..l }, TPanic(msg, Some(v), ln))
+  bind_pat(L { cur: good, ..l }, binds, ln)
+}
+
+// ───────── 语句与块 ─────────
+
+fn block(l0: L, b: V, want: Bool) -> (L, A?) {
+  let nd0 = l0.nd
+  var l = push_scope(l0)
+  var v: A? = None
+  let stmts = items(fld(b, "stmts"))
+  l = local_fns(l, filter(stmts, (s) => kind(s) == "Fn"), line(b))
+  var i = 0
+  for s in stmts {
+    if l.err != "" { break }
+    let k = kind(s)
+    let last = i == len(stmts) - 1
+    i += 1
+    if k == "Fn" || k == "Struct" || k == "Enum" || k == "Trait" || k == "Impl" || k == "Alias" || k == "Use" { continue }
+    if k == "Mod" {
+      l = bad(l, "局部 mod")
+      break
+    }
+    if last && want && k == "ExprStmt" {
+      let (l2, x) = expr(l, fld(s, "expr"), true)
+      l = l2
+      v = x
+    } else {
+      l = stmt(l, s)
+    }
+  }
+  if l.nd > nd0 && l.cur >= 0 {
+    let (l3, _) = emit(l, "rundefers", [], "", line(b), XI(nd0))
+    l = l3
+  }
+  (L { nd: nd0, ..pop_scope(l) }, v)
+}
+
+fn local_fns(l0: L, fns: List<V>, ln: Int) -> L {
+  if len(fns) == 0 { return l0 }
+  var l = l0
+  for fnode in fns {
+    if is_nil(fld(fnode, "body")) { return bad(l, "没有函数体的局部 fn") }
+    let (l1, c) = emit_r(l, "mkcell", [CU], "cell", line(fnode), XN)
+    l = bind(set_name(l1, c, sv(fld(fnode, "name"))), sv(fld(fnode, "name")), c)
+  }
+  var cn = l.cell_names
+  for fnode in fns { cn = set(cn, sv(fld(fnode, "name")), true) }
+  l = L { cell_names: cn, ..l }
+  for fnode in fns {
+    let name = sv(fld(fnode, "name"))
+    let ps = items(fld(fnode, "params"))
+    let sig = get(l.g.fsigs, name + "@" + "{line(fnode)}")
+    let (ptys, ret) = unwrap_or(fn_tys(l.g.ck, sig, len(ps)), (map(ps, (_) => "val"), "val"))
+    let (l2, cl) = make_closure(l, ps, ptys, fld(fnode, "body"), ret, line(fnode), "<" + name + ">")
+    let k = len(l2.scopes) - 1
+    let cellr = unwrap_or(get(l2.scopes[k], name), CU)
+    let (l3, _) = emit(l2, "cset", [cellr, cl], "", line(fnode), XN)
+    l = l3
+  }
+  l
+}
+
+fn stmt(l0: L, s: V) -> L {
+  if l0.err != "" { return l0 }
+  var l = l0
+  let k = kind(s)
+  let ln = line(s)
+  if k == "ExprStmt" {
+    let e = fld(s, "expr")
+    let ek = kind(e)
+    let t = ty_of(l, e)
+    let (l2, _) = expr(l, e, ek != "If" && ek != "Match" && ek != "Block" && t != "unit" && t != "never")
+    return l2
+  }
+  if k == "Let" {
+    let value = fld(s, "value")
+    var ty = ty_of(l, value)
+    let (l1, v) = expr(l, value, ty != "unit" && ty != "never")
+    if l1.cur < 0 && ty == "never" { return l1 }
+    let pat = fld(s, "pat")
+    let pk = sv(items(pat)[0])
+    if pk == "bind" && (ty == "unit" || ty == "never") { ty = "val" }
+    if pk == "bind" {
+      let name = sv(items(pat)[1])
+      let (l2, r) = new_reg(l1, ty, name)
+      return maybe_cell(bind(emit_copy(l2, r, v, ln), name, r), name, ln)
+    }
+    return destructure(l1, pat, v, ln, "解构失败: %s")
+  }
+  if k == "Assign" {
+    let t = fld(s, "target")
+    if kind(t) != "Name" { return assign_path(l, s) }
+    let value = fld(s, "value")
+    let op = sv(fld(s, "op"))
+    let r = match lookup(l, sv(fld(t, "name"))) {
+      Some(x) => x,
+      None    => { return bad(l, "赋值给全局变量") },
+    }
+    let tv = ty_of(l, value)
+    if aty(r) == "cell" {
+      let (l1, v0) = expr(l, value, true)
+      var v = v0
+      l = l1
+      if op != "=" {
+        let (l2, g) = emit(l, "cget", [r], "val", ln, XN)
+        let (l3, cur) = coerce(l2, g, tv, ln)
+        let (l4, v2) = binop(l3, __str_slice(op, 0, 1), cur, v, tv, tv, tv, ln)
+        l = l4
+        v = v2
+      }
+      let (l5, cv) = coerce_a(l, v, "val", ln)
+      let (l6, _) = emit(l5, "cset", [r, cv], "", ln, XN)
+      return l6
+    }
+    if contains(l.captured, rid(r)) { return bad(l, "闭包修改捕获的变量") }
+    let (l1, v0) = expr(l, value, true)
+    var v = v0
+    l = l1
+    if op != "=" {
+      let (l2, v2) = binop(l, __str_slice(op, 0, 1), Some(r), v, tv, tv, aty(r), ln)
+      l = l2
+      v = v2
+    }
+    return emit_copy(l, r, v, ln)
+  }
+  if k == "While" {
+    let (l1, head) = new_block(l)
+    let (l2, body) = new_block(l1)
+    let (l3, done) = new_block(l2)
+    l = L { cur: head, ..goto(l3, head) }
+    let cond = fld(s, "cond")
+    if !is_nil(cond) {
+      let (l4, cv) = expr(l, cond, true)
+      let (l5, c) = coerce_a(l4, cv, "b1", ln)
+      l = term(l5, TCbr(c, body, done))
+    } else {
+      l = goto(l, body)
+    }
+    l = L { cur: body, loops: push(l.loops, Lp { cont: head, brk: done, nd: l.nd, label: fld(s, "label"), has_res: false, res: None }), ..l }
+    let (l6, _) = block(l, fld(s, "body"), false)
+    l = L { loops: take(l6.loops, len(l6.loops) - 1), ..l6 }
+    l = goto(l, head)
+    return L { cur: done, ..l }
+  }
+  if k == "For" { return for_(l, s) }
+  if k == "Break" {
+    let lp = match loop_target(l, s) {
+      Some(x) => x,
+      None    => { return bad(l, "循环外的 break") },
+    }
+    let val = fld(s, "value")
+    if !is_nil(val) || lp.has_res {
+      if !lp.has_res { return bad(l, "while / for 的 break 带值") }
+      var v: A? = None
+      if !is_nil(val) {
+        let (l1, x) = expr(l, val, true)
+        l = l1
+        v = x
+      }
+      if let Some(rr) = lp.res {
+        if l.cur >= 0 {
+          l = emit_copy(l, rr, match v {
+            Some(_) => v,
+            None    => Some(CU),
+          }, ln)
+        }
+      }
+    }
+    if l.cur < 0 { return l }
+    return goto(unwind_defers(l, lp.nd, ln), lp.brk)
+  }
+  if k == "Continue" {
+    let lp = match loop_target(l, s) {
+      Some(x) => x,
+      None    => { return bad(l, "循环外的 continue") },
+    }
+    return goto(unwind_defers(l, lp.nd, ln), lp.cont)
+  }
+  if k == "Defer" {
+    let (l1, c) = make_closure(l, [], [], fld(s, "body"), "unit", ln, "<defer>")
+    let (l2, _) = emit(l1, "defer", [c], "", ln, XN)
+    return L { nd: l2.nd + 1, f: KF { ndefer: l2.f.ndefer + 1, ..l2.f }, ..l2 }
+  }
+  if k == "Return" {
+    let ret = l.f.ret
+    let value = fld(s, "value")
+    let isu = ret == "unit" || ret == "never"
+    if !is_nil(value) {
+      let (l1, v) = expr(l, value, !isu)
+      if isu { return term(l1, TRet(None)) }
+      let (l2, c) = coerce(l1, v, ret, ln)
+      return term(l2, TRet(c))
+    }
+    if isu { return term(l, TRet(None)) }
+    let (l3, c) = coerce(l, None, ret, ln)
+    return term(l3, TRet(c))
+  }
+  bad(l, "语句 {k}")
+}
+
+fn assign_path(l0: L, s: V) -> L {
+  var l = l0
+  let t = fld(s, "target")
+  let ln = line(s)
+  let op = sv(fld(s, "op"))
+  var root = t
+  var chain: List<V> = []
+  while kind(root) == "Field" || kind(root) == "Index" {
+    chain = [root] + chain
+    root = fld(root, "obj")
+  }
+  if kind(root) != "Name" { return bad(l, "赋值目标") }
+  let r = match lookup(l, sv(fld(root, "name"))) {
+    Some(x) => x,
+    None    => { return bad(l, "赋值给全局变量") },
+  }
+  if contains(l.captured, rid(r)) && aty(r) != "cell" { return bad(l, "闭包修改捕获的变量") }
+  // 从根往外：先求每一层的对象（和下标），再求叶子的值，最后从里往外生成新值写回
+  var objs: List<(A, A)> = []
+  for node in chain {
+    let (l1, ov) = expr(l, fld(node, "obj"), true)
+    let (l2, o) = coerce_a(l1, ov, "val", ln)
+    l = l2
+    var i = CU
+    if kind(node) == "Index" {
+      let (l3, iv0) = expr(l, fld(node, "index"), true)
+      let (l4, ix) = coerce_a(l3, iv0, "val", ln)
+      l = l4
+      i = ix
+    }
+    objs = push(objs, (o, i))
+  }
+  var v: A? = None
+  if op == "=" {
+    let (l5, x) = expr(l, fld(s, "value"), true)
+    l = l5
+    v = x
+  } else {
+    let (l6, a) = expr(l, t, true)
+    let (l7, b) = expr(l6, fld(s, "value"), true)
+    let (l8, x) = binop(l7, __str_slice(op, 0, 1), a, b, ty_of(l7, t), ty_of(l7, fld(s, "value")), ty_of(l7, t), ln)
+    l = l8
+    v = x
+  }
+  var j = len(chain) - 1
+  while j >= 0 {
+    let node = chain[j]
+    let (o, i) = objs[j]
+    let (l9, cv) = coerce_a(l, v, "val", ln)
+    if kind(node) == "Field" {
+      let (l10, nv) = emit(l9, "wfield", [o, cv], "val", ln, XS(sv(fld(node, "name"))))
+      l = l10
+      v = nv
+    } else {
+      let (l10, nv) = emit(l9, "windex", [o, i, cv], "val", ln, XN)
+      l = l10
+      v = nv
+    }
+    j -= 1
+  }
+  if aty(r) == "cell" {
+    let (l11, cv) = coerce_a(l, v, "val", ln)
+    let (l12, _) = emit(l11, "cset", [r, cv], "", ln, XN)
+    return l12
+  }
+  emit_copy(l, r, v, ln)
+}
+
+fn loop_target(l: L, s: V) -> Lp? {
+  let lab = fld(s, "label")
+  var i = len(l.loops) - 1
+  while i >= 0 {
+    let lp = l.loops[i]
+    if is_nil(lab) || (!is_nil(lp.label) && sv(lp.label) == sv(lab)) { return Some(lp) }
+    i -= 1
+  }
+  None
+}
+
+fn unwind_defers(l: L, n: Int, ln: Int) -> L {
+  if l.nd > n && l.cur >= 0 {
+    let (l2, _) = emit(l, "rundefers", [], "", ln, XI(n))
+    return l2
+  }
+  l
+}
+
+fn for_(l0: L, s: V) -> L {
+  var l = l0
+  let it = fld(s, "iter")
+  let ln = line(s)
+  let pat = fld(s, "pat")
+  let pk = sv(items(pat)[0])
+  let iop = sv(fld(it, "op"))
+  if kind(it) == "Bin" && (iop == ".." || iop == "..=") && ty_of(l, fld(it, "left")) == "i64" && ty_of(l, fld(it, "right")) == "i64" && (pk == "bind" || pk == "wild") {
+    let (l1, lv) = expr(l, fld(it, "left"), true)
+    let (l2, lo) = coerce_a(l1, lv, "i64", ln)
+    let (l3, hv) = expr(l2, fld(it, "right"), true)
+    let (l4, hi) = coerce_a(l3, hv, "i64", ln)
+    let (l5, i) = new_reg(l4, "i64", "")
+    let l6 = emit_copy(l5, i, Some(lo), ln)
+    let (l7, hreg) = new_reg(l6, "i64", "")
+    l = emit_copy(l7, hreg, Some(hi), ln)
+    let (l8, head) = new_block(l)
+    let (l9, body) = new_block(l8)
+    let (l10, step) = new_block(l9)
+    let (l11, done) = new_block(l10)
+    l = L { cur: head, ..goto(l11, head) }
+    let (l12, c) = emit_r(l, if iop == "..=" { "le" } else { "lt" }, [i, hreg], "b1", ln, XN)
+    l = term(l12, TCbr(c, body, done))
+    l = push_scope(L { cur: body, ..l })
+    if pk == "bind" {
+      let name = sv(items(pat)[1])
+      let (l13, x) = new_reg(l, "i64", name)
+      l = maybe_cell(bind(emit_copy(l13, x, Some(i), ln), name, x), name, ln)
+    }
+    l = L { loops: push(l.loops, Lp { cont: step, brk: done, nd: l.nd, label: fld(s, "label"), has_res: false, res: None }), ..l }
+    let (l14, _) = block(l, fld(s, "body"), false)
+    l = pop_scope(L { loops: take(l14.loops, len(l14.loops) - 1), ..l14 })
+    l = L { cur: step, ..goto(l, step) }
+    if iop == "..=" {
+      let (l15, last) = emit_r(l, "eq", [i, hreg], "b1", ln, XN)
+      let (l16, nx) = new_block(l15)
+      l = L { cur: nx, ..term(l16, TCbr(last, done, nx)) }
+    }
+    if l.err != "" { return l }
+    l = append(l, In { d: Some(i), op: "inc", args: [i], ln: ln, x: XN })
+    l = goto(l, head)
+    return L { cur: done, ..l }
+  }
+  let (l1, sv0) = expr(l, it, true)
+  let (l2, src) = coerce_a(l1, sv0, "val", ln)
+  let (l3, itr) = emit_r(l2, "iter", [src], "val", ln, XN)
+  let (l4, head) = new_block(l3)
+  let (l5, body) = new_block(l4)
+  let (l6, done) = new_block(l5)
+  l = L { cur: head, ..goto(l6, head) }
+  let (l7, item) = new_reg(l, "val", "")
+  let (l8, ok) = emit_r(l7, "next", [itr], "b1", ln, XR(rid(item), "val"))
+  l = term(l8, TCbr(ok, body, done))
+  l = push_scope(L { cur: body, ..l })
+  let el = elem_ty(l, it)
+  if pk == "bind" && (el == "i64" || el == "f64" || el == "b1") {
+    let name = sv(items(pat)[1])
+    let (l9, x) = new_reg(l, el, name)
+    l = maybe_cell(bind(emit_copy(l9, x, Some(item), ln), name, x), name, ln)
+  } else {
+    l = destructure(l, pat, Some(item), ln, "解构失败: %s")
+  }
+  l = L { loops: push(l.loops, Lp { cont: head, brk: done, nd: l.nd, label: fld(s, "label"), has_res: false, res: None }), ..l }
+  let (l10, _) = block(l, fld(s, "body"), false)
+  l = pop_scope(L { loops: take(l10.loops, len(l10.loops) - 1), ..l10 })
+  l = goto(l, head)
+  L { cur: done, ..l }
+}
+
+fn elem_ty(l: L, it: V) -> Str {
+  match node_t(l, it) {
+    Some(TC(n, args)) => {
+      if (n == "List" || n == "Chan") && len(args) > 0 { return kty(l.g.ck, args[0]) }
+      "val"
+    },
+    _ => "val",
+  }
+}
+
+// ───────── 表达式 ─────────
+
+fn expr(l0: L, e: V, want: Bool) -> (L, A?) {
+  if l0.err != "" { return (l0, None) }
+  let (l, v) = expr_(l0, e, want)
+  if !want || l.err != "" { return (l, v) }
+  let ty = ty_of(l, e)
+  if ty == "unit" || ty == "never" { return (l, v) }
+  if is_none(v) && l.cur < 0 { return (l, None) }
+  coerce(l, v, ty, line(e))
+}
+
+fn vals(l0: L, es: List<V>, ln: Int) -> (L, List<A>) {
+  var l = l0
+  var out: List<A> = []
+  for x in es {
+    let (l1, v) = expr(l, x, true)
+    let (l2, c) = coerce_a(l1, v, "val", ln)
+    l = l2
+    out = push(out, c)
+  }
+  (l, out)
+}
+
+fn expr_(l0: L, e: V, want: Bool) -> (L, A?) {
+  var l = l0
+  let k = kind(e)
+  let ln = line(e)
+  if k == "Lit" {
+    return match fld(e, "value") {
+      VB(b)    => (l, Some(CB(b))),
+      VI(i)    => (l, Some(CI(i))),
+      VBig(_)  => (bad(l, "整数常量超出 64 位"), None),
+      VF(x)    => (l, Some(CF(x))),
+      VS(s)    => (l, Some(CS(s))),
+      _            => (l, Some(CU)),
+    }
+  }
+  if k == "Name" {
+    let n = sv(fld(e, "name"))
+    match lookup(l, n) {
+      Some(r) => {
+        if aty(r) == "cell" { return emit(l, "cget", [r], "val", ln, XN) }
+        return (l, Some(r))
+      },
+      None    => { return emit(l, "gload", [], "val", ln, XS(n)) },
+    }
+  }
+  if k == "Block" { return block(l, e, want) }
+  if k == "Bin" {
+    let op = sv(fld(e, "op"))
+    if op == "&&" || op == "||" { return logic(l, e) }
+    let (l1, a) = expr(l, fld(e, "left"), true)
+    let (l2, b) = expr(l1, fld(e, "right"), true)
+    return binop(l2, op, a, b, ty_of(l2, fld(e, "left")), ty_of(l2, fld(e, "right")), ty_of(l2, e), ln)
+  }
+  if k == "Unary" {
+    let (l1, a) = expr(l, fld(e, "operand"), true)
+    if l1.err != "" { return (l1, None) }
+    if sv(fld(e, "op")) == "!" {
+      let (l2, c) = coerce_a(l1, a, "b1", ln)
+      return emit(l2, "not", [c], "b1", ln, XN)
+    }
+    let av = unwrap_or(a, CU)
+    if aty(av) == "i64" { return emit(l1, "neg.i64", [av], "i64", ln, XN) }
+    if aty(av) == "f64" { return emit(l1, "neg.f64", [av], "f64", ln, XN) }
+    let (l3, c) = coerce_a(l1, a, "val", ln)
+    return emit(l3, "vneg", [c], "val", ln, XN)
+  }
+  if k == "Loop" {
+    let (l1, r) = result(l, e, want)
+    let (l2, head) = new_block(l1)
+    let (l3, done) = new_block(l2)
+    l = L { cur: head, ..goto(l3, head) }
+    l = L { loops: push(l.loops, Lp { cont: head, brk: done, nd: l.nd, label: fld(e, "label"), has_res: true, res: r }), ..l }
+    let (l4, _) = block(l, fld(e, "body"), false)
+    l = L { loops: take(l4.loops, len(l4.loops) - 1), ..l4 }
+    if l.cur >= 0 { l = goto(l, head) }
+    return (L { cur: done, ..l }, r)
+  }
+  if k == "If" { return if_(l, e, want) }
+  if k == "Match" { return match_(l, e, want) }
+  if k == "Is" {
+    let (l1, v) = expr(l, fld(e, "value"), true)
+    let (l2, ok, _) = test_pat(l1, fld(e, "pat"), v, ln)
+    return (l2, Some(ok))
+  }
+  if k == "Call" { return call(l, fld(e, "fn"), items(fld(e, "args")), None, ln, ty_of(l, e)) }
+  if k == "Pipe" {
+    let (l1, x) = expr(l, fld(e, "left"), true)
+    let r = fld(e, "right")
+    if kind(r) == "Call" { return call(l1, fld(r, "fn"), items(fld(r, "args")), x, ln, ty_of(l1, e)) }
+    return call(l1, r, [], x, ln, ty_of(l1, e))
+  }
+  if k == "Tuple" {
+    let xs = items(fld(e, "items"))
+    if len(xs) == 0 { return (l, if want { Some(CU) } else { None }) }
+    let (l1, vs) = vals(l, xs, ln)
+    return emit(l1, "tuple", vs, "val", ln, XN)
+  }
+  if k == "List" {
+    let (l1, vs) = vals(l, items(fld(e, "items")), ln)
+    return emit(l1, "list", vs, "val", ln, XN)
+  }
+  if k == "StructLit" {
+    let fs = items(fld(e, "fields"))
+    let (l1, vs) = vals(l, map(fs, (fx) => items(fx)[1]), ln)
+    return emit(l1, "struct", vs, "val", ln, XST(sv(fld(e, "name")), map(fs, (fx) => sv(items(fx)[0]))))
+  }
+  if k == "Interp" {
+    var parts: List<(Bool, Str)> = []
+    var vs: List<A> = []
+    for p in items(fld(e, "parts")) {
+      match p {
+        VS(s) => { parts = push(parts, (true, s)) },
+        _         => {
+          parts = push(parts, (false, ""))
+          let (l1, v) = expr(l, p, true)
+          let (l2, c) = coerce_a(l1, v, "val", ln)
+          l = l2
+          vs = push(vs, c)
+        },
+      }
+    }
+    return emit(l, "interp", vs, "val", ln, XP(parts))
+  }
+  if k == "Field" {
+    let (l1, v) = expr(l, fld(e, "obj"), true)
+    let (l2, o) = coerce_a(l1, v, "val", ln)
+    return emit(l2, "field", [o], "val", ln, XS(sv(fld(e, "name"))))
+  }
+  if k == "TupleIndex" {
+    let (l1, v) = expr(l, fld(e, "obj"), true)
+    let (l2, o) = coerce_a(l1, v, "val", ln)
+    return emit(l2, "tidx", [o], "val", ln, XI(iv(fld(e, "index"))))
+  }
+  if k == "Index" {
+    let (l1, v) = expr(l, fld(e, "obj"), true)
+    let (l2, o) = coerce_a(l1, v, "val", ln)
+    let (l3, iv0) = expr(l2, fld(e, "index"), true)
+    let (l4, i) = coerce_a(l3, iv0, "val", ln)
+    return emit(l4, "index", [o, i], "val", ln, XN)
+  }
+  if k == "Try" {
+    let (l1, v0) = expr(l, fld(e, "value"), true)
+    let (l2, v) = coerce_a(l1, v0, "val", ln)
+    let (l3, ok) = emit_r(l2, "tryok", [v], "b1", ln, XN)
+    let (l4, good) = new_block(l3)
+    let (l5, badb) = new_block(l4)
+    l = L { cur: badb, ..term(l5, TCbr(ok, good, badb)) }
+    if l.f.ret != "val" { return (bad(l, "? 用在返回值不是 Result / Option 的函数里"), None) }
+    l = L { cur: good, ..term(l, TRet(Some(v))) }
+    return emit(l, "payload", [v], "val", ln, XN)
+  }
+  if k == "Await" { return expr(l, fld(e, "value"), want) }
+  if k == "Lambda" { return lambda_(l, e) }
+  if k == "Select" { return expr_(l, bc.lower_select(e), want) }
+  if k == "Spawn" || k == "Race" {
+    var cs: List<A> = []
+    for x in items(fld(e, "items")) {
+      let (l1, c) = make_closure(l, [], [], x, ty_of(l, x), ln, if k == "Spawn" { "<spawn>" } else { "<race>" })
+      l = l1
+      cs = push(cs, c)
+    }
+    if k == "Spawn" {
+      if len(cs) == 0 { return (l, Some(CU)) }
+      return emit(l, "spawn", cs, "val", ln, XN)
+    }
+    let (l2, lst) = emit_r(l, "list", cs, "val", ln, XN)
+    return emit(l2, "callg", [lst], "val", ln, XS("__race"))
+  }
+  (bad(l, "表达式 {k}"), None)
+}
+
+fn lambda_(l: L, e: V) -> (L, A?) {
+  let ps = items(fld(e, "params"))
+  let (l2, c) = match fn_tys(l.g.ck, node_t(l, e), len(ps)) {
+    Some((ptys, ret)) => make_closure(l, ps, ptys, fld(e, "body"), ret, line(e), "<lambda>"),
+    None              => make_closure(l, ps, map(ps, (_) => "val"), fld(e, "body"), "val", line(e), "<lambda>"),
+  }
+  (l2, Some(c))
+}
+
+fn make_closure(l0: L, params: List<V>, ptys: List<Str>, body: V, ret: Str, ln: Int, label: Str) -> (L, A) {
+  if l0.err != "" { return (l0, CU) }
+  var l = l0
+  var pn: Map<Str, Bool> = Map()
+  for p in params { pn = set(pn, sv(items(p)[0]), true) }
+  var names: Map<Str, Bool> = Map()
+  for x in walk_nodes(body, []) {
+    if kind(x) == "Name" && !contains(pn, sv(fld(x, "name"))) { names = set(names, sv(fld(x, "name")), true) }
+  }
+  var caps: List<(Str, A)> = []
+  for n in sort(keys(names)) {
+    match lookup(l, n) {
+      Some(r) => {
+        if contains(l.mut_names, n) && aty(r) != "cell" { return (bad(l, "闭包捕获可变变量"), CU) }
+        caps = push(caps, (n, r))
+      },
+      None    => (),
+    }
+  }
+  let lname = __str_slice(label, 0, len(label) - 1) + "@" + "{ln}>"
+  var f = KF { closure: true, line: ln, label: label, ..new_kf(lname, ret) }
+  var lw = L { g: l.g, f: f, cur: -1, scopes: [Map()], loops: [], nd: 0, captured: Map(), mut_names: l.mut_names, cell_names: l.cell_names, in_or: 0, lams: l.lams, err: "" }
+  for (n, r) in caps {
+    let (lw1, cr) = new_reg(lw, aty(r), n)
+    lw = bind(L { f: KF { caps: push(lw1.f.caps, cr), ..lw1.f }, captured: set(lw1.captured, rid(cr), true), ..lw1 }, n, cr)
+  }
+  lw = push_scope(lw)
+  var i = 0
+  for p in params {
+    if i >= len(ptys) { break }
+    let (lw2, pr) = new_reg(lw, ptys[i], sv(items(p)[0]))
+    lw = bind(L { f: KF { params: push(lw2.f.params, pr), ..lw2.f }, ..lw2 }, sv(items(p)[0]), pr)
+    i += 1
+  }
+  let (lw3, b0) = new_block(lw)
+  lw = L { cur: b0, ..lw3 }
+  for p in params { lw = maybe_cell(lw, sv(items(p)[0]), ln) }
+  let want = ret != "unit" && ret != "never"
+  let (lw4, v) = if kind(body) == "Block" { block(lw, body, want) } else { expr(lw, body, want) }
+  lw = lw4
+  if lw.cur >= 0 {
+    if want {
+      let (lw5, c) = coerce(lw, v, ret, ln)
+      lw = term(lw5, TRet(c))
+    } else {
+      lw = term(lw, TRet(None))
+    }
+  }
+  if lw.err != "" { return (bad(l, lw.err), CU) }
+  let idx = len(lw.lams)
+  l = L { lams: push(lw.lams, lw.f), ..l }
+  var args: List<A> = []
+  for (_, r) in caps {
+    if aty(r) == "cell" { args = push(args, r) } else {
+      let (l1, c) = coerce_a(l, Some(r), "val", ln)
+      l = l1
+      args = push(args, c)
+    }
+  }
+  emit_r(l, "closure", args, "val", ln, XL(idx))
+}
+
+fn binop(l: L, op: Str, a: A?, b: A?, ta: Str, tb: Str, tr: Str, ln: Int) -> (L, A?) {
+  if (op == "+" || op == "-" || op == "*" || op == "/" || op == "%") && ta == tb && (ta == "i64" || ta == "f64") && tr == ta {
+    let name = if op == "+" { "add" } else if op == "-" { "sub" } else if op == "*" { "mul" } else if op == "/" { "div" } else { "rem" }
+    let (l1, x) = coerce_a(l, a, ta, ln)
+    let (l2, y) = coerce_a(l1, b, ta, ln)
+    return emit(l2, name + "." + ta, [x, y], ta, ln, XN)
+  }
+  if (op == "<" || op == ">" || op == "<=" || op == ">=" || op == "==" || op == "!=") && ta == tb && (ta == "i64" || ta == "f64" || ta == "b1") {
+    let name = if op == "<" { "lt" } else if op == ">" { "gt" } else if op == "<=" { "le" } else if op == ">=" { "ge" } else if op == "==" { "eq" } else { "ne" }
+    let (l1, x) = coerce_a(l, a, ta, ln)
+    let (l2, y) = coerce_a(l1, b, ta, ln)
+    return emit(l2, name, [x, y], "b1", ln, XN)
+  }
+  let (l1, x) = coerce_a(l, a, "val", ln)
+  let (l2, y) = coerce_a(l1, b, "val", ln)
+  emit(l2, "vbin", [x, y], "val", ln, XS(op))
+}
+
+fn logic(l0: L, e: V) -> (L, A?) {
+  let ln = line(e)
+  let (l1, r) = new_reg(l0, "b1", "")
+  let (l2, a) = expr(l1, fld(e, "left"), true)
+  let l3 = emit_copy(l2, r, a, ln)
+  let (l4, rhs) = new_block(l3)
+  let (l5, done) = new_block(l4)
+  var l = if sv(fld(e, "op")) == "&&" { term(l5, TCbr(r, rhs, done)) } else { term(l5, TCbr(r, done, rhs)) }
+  l = L { cur: rhs, ..l }
+  let (l6, b) = expr(l, fld(e, "right"), true)
+  l = emit_copy(l6, r, b, ln)
+  l = L { cur: done, ..goto(l, done) }
+  (l, Some(r))
+}
+
+fn result(l: L, e: V, want: Bool) -> (L, A?) {
+  let ty = if want { ty_of(l, e) } else { "unit" }
+  if ty == "unit" || ty == "never" { return (l, None) }
+  let (l2, r) = new_reg(l, ty, "")
+  (l2, Some(r))
+}
+
+fn if_(l0: L, e: V, want: Bool) -> (L, A?) {
+  let ln = line(e)
+  let (l1, r) = result(l0, e, want)
+  let (l2, cv) = expr(l1, fld(e, "cond"), true)
+  let (l3, c) = coerce_a(l2, cv, "b1", ln)
+  let (l4, tb) = new_block(l3)
+  let (l5, eb) = new_block(l4)
+  let (l6, done) = new_block(l5)
+  var l = L { cur: tb, ..term(l6, TCbr(c, tb, eb)) }
+  let hasr = is_some(r)
+  let (l7, v) = block(l, fld(e, "then"), hasr)
+  l = l7
+  if l.cur >= 0 {
+    if let Some(rr) = r { l = emit_copy(l, rr, v, ln) }
+    l = goto(l, done)
+  }
+  l = L { cur: eb, ..l }
+  let els = fld(e, "els")
+  if !is_nil(els) {
+    let (l8, v2) = if kind(els) != "Block" { expr(l, els, hasr) } else { block(l, els, hasr) }
+    l = l8
+    if l.cur >= 0 {
+      if let Some(rr) = r { l = emit_copy(l, rr, v2, ln) }
+      l = goto(l, done)
+    }
+  } else {
+    if let Some(rr) = r { l = emit_copy(l, rr, None, ln) }
+    l = goto(l, done)
+  }
+  (L { cur: done, ..l }, r)
+}
+
+fn match_(l0: L, e: V, want: Bool) -> (L, A?) {
+  let ln = line(e)
+  let (l1, r) = result(l0, e, want)
+  let (l2, sv1) = expr(l1, fld(e, "subject"), true)
+  var l = l2
+  let subj = unwrap_or(sv1, CU)
+  let st = aty(subj)
+  let (l3, done) = new_block(l)
+  l = l3
+  let hasr = is_some(r)
+  for arm in items(fld(e, "arms")) {
+    if l.err != "" { break }
+    let ax = items(arm)
+    let pat = ax[0]
+    let guard = ax[1]
+    let body = ax[2]
+    let (l4, nxt) = new_block(l)
+    l = push_scope(l4)
+    let px = items(pat)
+    let k = sv(px[0])
+    var lit_str = false
+    if k == "lit" {
+      if let VS(_) = px[1] { lit_str = true }
+    }
+    if k == "lit" && (st == "i64" || st == "f64" || st == "b1") && !lit_str {
+      let c = lit_const(px[1], st)
+      let (l5, t) = emit_r(l, "eq", [subj, c], "b1", ln, XN)
+      let (l6, ok) = new_block(l5)
+      l = L { cur: ok, ..term(l6, TCbr(t, ok, nxt)) }
+    } else if k == "range" && (st == "i64" || st == "f64") {
+      if !is_nil(px[1]) {
+        let (l5, t1) = emit_r(l, "ge", [subj, lit_const(px[1], st)], "b1", ln, XN)
+        let (l6, ok1) = new_block(l5)
+        l = L { cur: ok1, ..term(l6, TCbr(t1, ok1, nxt)) }
+      }
+      if !is_nil(px[2]) {
+        let (l7, t2) = emit_r(l, if ast.truthy(px[3]) { "le" } else { "lt" }, [subj, lit_const(px[2], st)], "b1", ln, XN)
+        let (l8, ok) = new_block(l7)
+        l = L { cur: ok, ..term(l8, TCbr(t2, ok, nxt)) }
+      }
+    } else if k == "bind" && len(px) == 2 {
+      let name = sv(px[1])
+      let (l5, b) = new_reg(l, st, name)
+      l = maybe_cell(bind(emit_copy(l5, b, Some(subj), ln), name, b), name, ln)
+    } else if k == "wild" {
+      ()
+    } else {
+      let (l5, t, binds) = test_pat(l, pat, Some(subj), ln)
+      let (l6, ok) = new_block(l5)
+      l = bind_pat(L { cur: ok, ..term(l6, TCbr(t, ok, nxt)) }, binds, ln)
+    }
+    if !is_nil(guard) {
+      let (l9, gv) = expr(l, guard, true)
+      let (l10, g) = coerce_a(l9, gv, "b1", ln)
+      let (l11, ok) = new_block(l10)
+      l = L { cur: ok, ..term(l11, TCbr(g, ok, nxt)) }
+    }
+    let (l12, v) = if kind(body) == "Block" { block(l, body, hasr) } else { expr(l, body, hasr) }
+    l = l12
+    if l.cur >= 0 {
+      if let Some(rr) = r { l = emit_copy(l, rr, v, ln) }
+      l = goto(l, done)
+    }
+    l = L { cur: nxt, ..pop_scope(l) }
+  }
+  l = term(l, TPanic("match 没有覆盖值 %s", Some(subj), ln))
+  (L { cur: done, ..l }, r)
+}
+
+fn lit_const(v: V, st: Str) -> A {
+  if st == "f64" {
+    return match v {
+      VI(i) => CF(float(i)),
+      VF(x) => CF(x),
+      _         => CF(0.0),
+    }
+  }
+  match v {
+    VB(b) => CB(b),
+    VI(i) => CI(i),
+    VF(x) => CF(x),
+    _         => CU,
+  }
+}
+
+// pre：管道左边的值（作为第一个参数，方法调用时排在接收者之后）；Python 版里它是 None（Unit 值）时等于没有
+fn call(l0: L, fnode: V, args: List<V>, pre: A?, ln: Int, rty: Str) -> (L, A?) {
+  var l = l0
+  let haspre = is_some(pre)
+  let prev: A? = pre
+  if kind(fnode) == "Field" {
+    let (l1, rv) = expr(l, fld(fnode, "obj"), true)
+    let (l2, recv) = coerce_a(l1, rv, "val", ln)
+    l = l2
+    var vs: List<A> = [recv]
+    if haspre {
+      let (l3, p) = coerce_a(l, prev, "val", ln)
+      l = l3
+      vs = push(vs, p)
+    }
+    let (l4, rest) = vals(l, args, ln)
+    let (l5, r) = emit(l4, "callm", vs + rest, "val", ln, XS(sv(fld(fnode, "name"))))
+    return after_call(l5, r, rty)
+  }
+  if kind(fnode) == "Name" && is_none(lookup(l, sv(fld(fnode, "name")))) {
+    let name = sv(fld(fnode, "name"))
+    var raw: List<A?> = if haspre { [prev] } else { [] }
+    for a in args {
+      let (l1, v) = expr(l, a, true)
+      l = l1
+      raw = push(raw, v)
+    }
+    if l.err != "" { return (l, None) }
+    match get(l.g.sigs, name) {
+      Some((ptys, ret)) => {
+        if len(ptys) != len(raw) { return (bad(l, "参数个数"), None) }
+        var vs: List<A> = []
+        var i = 0
+        for v in raw {
+          let (l2, c) = coerce_a(l, v, ptys[i], ln)
+          l = l2
+          vs = push(vs, c)
+          i += 1
+        }
+        let (l3, r) = emit(l, "call", vs, ret, ln, XS(name))
+        if ret == "never" { return (term(l3, TUnr), r) }
+        return (l3, r)
+      },
+      None => (),
+    }
+    var tys_: List<Str> = map(raw, (v) => match v {
+      Some(x) => aty(x),
+      None    => "unit",
+    })
+    if contains(l.g.user, name) { tys_ = map(raw, (_) => "user") }
+    let n = len(raw)
+    let alli = all(tys_, (t) => t == "i64")
+    let bits = name == "__band" || name == "__bor" || name == "__bxor" || name == "__shl" || name == "__shr"
+    if ((bits && n == 2) || (name == "__bnot" && n == 1)) && alli {
+      return emit(l, "bit." + __str_slice(name, 2, len(name)), map(raw, (v) => unwrap_or(v, CU)), "i64", ln, XN)
+    }
+    let rv = map(raw, (v) => unwrap_or(v, CU))
+    if name == "abs" && n == 1 && (tys_[0] == "i64" || tys_[0] == "f64") { return emit(l, "abs." + tys_[0], rv, tys_[0], ln, XN) }
+    if (name == "min" || name == "max") && n == 2 && tys_[0] == tys_[1] && (tys_[0] == "i64" || tys_[0] == "f64") { return emit(l, name, rv, tys_[0], ln, XN) }
+    if name == "float" && n == 1 && (tys_[0] == "i64" || tys_[0] == "f64") {
+      if tys_[0] == "f64" { return (l, raw[0]) }
+      return emit(l, "i2f", rv, "f64", ln, XN)
+    }
+    if name == "int" && n == 1 && (tys_[0] == "i64" || tys_[0] == "f64" || tys_[0] == "b1") {
+      if tys_[0] == "i64" { return (l, raw[0]) }
+      return emit(l, if tys_[0] == "f64" { "f2i" } else { "b2i" }, rv, "i64", ln, XN)
+    }
+    var vs2: List<A> = []
+    for v in raw {
+      let (l4, c) = coerce_a(l, v, "val", ln)
+      l = l4
+      vs2 = push(vs2, c)
+    }
+    let (l5, r) = emit(l, "callg", vs2, "val", ln, XS(name))
+    return after_call(l5, r, rty)
+  }
+  let (l1, fv) = expr(l, fnode, true)
+  let (l2, f) = coerce_a(l1, fv, "val", ln)
+  l = l2
+  var vs: List<A> = [f]
+  if haspre {
+    let (l3, p) = coerce_a(l, prev, "val", ln)
+    l = l3
+    vs = push(vs, p)
+  }
+  let (l4, rest) = vals(l, args, ln)
+  let (l5, r) = emit(l4, "callv", vs + rest, "val", ln, XN)
+  after_call(l5, r, rty)
+}
+
+fn after_call(l: L, r: A?, rty: Str) -> (L, A?) {
+  if rty == "never" { return (term(l, TUnr), None) }
+  if rty == "unit" { return (l, None) }
+  (l, r)
+}
+
+// ───────── 一个函数 ─────────
+
+fn lower_fn(g: G, fnode: V, key: Str, ptys: List<Str>, ret: Str) -> (KF, List<KF>, Str) {
+  var l = L { g: g, f: KF { line: line(fnode), ..new_kf(key, ret) }, cur: -1, scopes: [Map()], loops: [], nd: 0, captured: Map(), mut_names: Map(), cell_names: Map(), in_or: 0, lams: [], err: "" }
+  let ps = items(fld(fnode, "params"))
+  var i = 0
+  for p in ps {
+    if i >= len(ptys) { break }
+    let (l1, r) = new_reg(l, ptys[i], sv(items(p)[0]))
+    l = bind(L { f: KF { params: push(l1.f.params, r), ..l1.f }, ..l1 }, sv(items(p)[0]), r)
+    i += 1
+  }
+  let (l2, b0) = new_block(l)
+  let body = fld(fnode, "body")
+  let mn = assigned_names(body)
+  var cn: Map<Str, Bool> = Map()
+  for n in keys(captured_names(body)) { if contains(mn, n) { cn = set(cn, n, true) } }
+  l = L { cur: b0, mut_names: mn, cell_names: cn, ..l2 }
+  for p in ps { l = maybe_cell(l, sv(items(p)[0]), line(fnode)) }
+  let want = ret != "unit" && ret != "never"
+  let (l3, v) = block(l, body, want)
+  l = l3
+  if l.cur >= 0 {
+    if want {
+      let (l4, c) = coerce(l, v, ret, line(body))
+      l = term(l4, TRet(c))
+    } else {
+      l = term(l, TRet(None))
+    }
+  }
+  (l.f, l.lams, l.err)
+}
+
+// ───────── 选择可编译的函数 ─────────
+
+fn fkey(v: V) -> Str { sv(fld(v, "name")) + "@" + "{line(v)}" }
+
+fn prelude_(v: V) -> Bool { ast.truthy(fld(v, "prelude")) }
+
+// 常量泛型的隐藏参数的类型（Python 版的 _cg_ptys）：参数的类型标注
+fn hidden_ty(p: V) -> Str {
+  let ta = items(p)[1]
+  let xs = items(ta)
+  if len(xs) >= 3 && sv(xs[0]) == "con" && len(items(xs[2])) == 0 {
+    let n = sv(xs[1])
+    if n == "Int" { return "i64" }
+    if n == "Float" { return "f64" }
+    if n == "Bool" { return "b1" }
+  }
+  "val"
+}
+
+fn sig_tys(ck: check.C, sig: Ty, params: List<V>) -> (List<Str>, Str) {
+  let args = tys.targs(check.prn(ck, sig))
+  let n = len(args) - 1
+  var ptys = map(take(args, n), (a) => unitv(kty(ck, a)))
+  var i = n
+  while i < len(params) {
+    ptys = push(ptys, hidden_ty(params[i]))
+    i += 1
+  }
+  (ptys, kty(ck, args[n]))
+}
+
+pub fn collect(low: List<V>, c: check.C) -> (Map<Str, KF>, Map<Str, Str>) {
+  var fns: Map<Str, V> = Map()
+  var ford: List<Str> = []
+  var user: Map<Str, Bool> = Map()
+  for it in low {
+    if prelude_(it) { continue }
+    if kind(it) == "Fn" || (kind(it) == "Let" && !is_nil(fld(it, "name"))) { user = set(user, sv(fld(it, "name")), true) }
+    if kind(it) == "Fn" && !is_nil(fld(it, "body")) {
+      let n = sv(fld(it, "name"))
+      if !contains(fns, n) { ford = push(ford, n) }
+      fns = set(fns, n, it)
+    }
+  }
+  var sigs: Map<Str, (List<Str>, Str)> = Map()
+  var sord: List<Str> = []
+  var why: Map<Str, Str> = Map()
+  for n in ford {
+    let it = unwrap(get(fns, n))
+    match get(c.fsigs, fkey(it)) {
+      Some(sig) => {
+        sigs = set(sigs, n, sig_tys(c, sig, items(fld(it, "params"))))
+        sord = push(sord, n)
+      },
+      None      => { why = set(why, n, "没有签名") },
+    }
+  }
+  // impl 里的方法（顶层 impl 加上函数体里的局部 impl）
+  var impls: List<V> = filter(low, (it) => kind(it) == "Impl")
+  var top: Map<Int, Bool> = Map()
+  for it in impls { top = set(top, nid(it), true) }
+  for it in low {
+    if (kind(it) == "Fn" || kind(it) == "Impl") && !prelude_(it) {
+      for n in walk_nodes(it, []) { if kind(n) == "Impl" && !contains(top, nid(n)) { impls = push(impls, n) } }
+    }
+  }
+  var seen: Map<Str, Int> = Map()
+  var snaps: Map<Str, Map<Int, Ty>> = Map()
+  for it in impls {
+    let target = sv(fld(it, "target"))
+    let own = items(fld(it, "methods"))
+    let all_ms = match get(c.impl_info, target + "@" + "{line(it)}") {
+      Some((_, ms)) => ms,
+      None          => own,
+    }
+    for m0 in all_ms {
+      var m = m0
+      let ownm = filter(own, (x) => fkey(x) == fkey(m0))
+      let key = target + "." + sv(fld(m0, "name")) + "#m"
+      if len(ownm) > 0 { m = ownm[0] } else {
+        match get(c.tsnap, target + "." + fkey(m0)) {
+          Some(sn) => { snaps = set(snaps, key, sn) },
+          None     => { continue },
+        }
+        m = check.lowered(c, m0)
+      }
+      seen = set(seen, key, unwrap_or(get(seen, key), 0) + 1)
+      if is_nil(fld(m, "body")) { continue }
+      let sig = match get(c.msigs, target + "|" + fkey(m0)) {
+        Some(x) => x,
+        None    => { continue },
+      }
+      fns = set(fns, key, m)
+      let ps = items(fld(m, "params"))
+      let (ptys, ret) = sig_tys(c, sig, ps)
+      if len(ptys) != len(ps) { continue }
+      if !contains(sigs, key) { sord = push(sord, key) }
+      sigs = set(sigs, key, (ptys, ret))
+    }
+  }
+  for key in keys(seen) {
+    if unwrap(get(seen, key)) > 1 && contains(sigs, key) {
+      sigs = remove(sigs, key)
+      sord = filter(sord, (x) => x != key)
+      why = set(why, key, "同一类型上有同名方法")
+    }
+  }
+  while true {
+    var out: Map<Str, KF> = Map()
+    var changed = false
+    for name in sord {
+      if !contains(sigs, name) { continue }
+      let (ptys, ret) = unwrap(get(sigs, name))
+      let g = G { sigs: sigs, user: user, ts: unwrap_or(get(snaps, name), c.ts), sub: c.sub, fsigs: c.fsigs, ck: c }
+      let (f, lams, err) = lower_fn(g, unwrap(get(fns, name)), name, ptys, ret)
+      if err != "" {
+        why = set(why, name, err)
+        sigs = remove(sigs, name)
+        changed = true
+      } else {
+        out = set(out, name, KF { lams: map(lams, optimize), ..f })
+      }
+    }
+    sord = filter(sord, (x) => contains(sigs, x))
+    if !changed {
+      var res: Map<Str, KF> = Map()
+      for n in keys(out) { res = set(res, n, optimize(unwrap(get(out, n)))) }
+      return (res, why)
+    }
+  }
+  (Map(), why)
+}
+
+// ───────── 优化 ─────────
+
+fn defs(f: KF) -> Map<Int, Int> {
+  var d: Map<Int, Int> = Map()
+  for p in f.params { d = set(d, rid(p), unwrap_or(get(d, rid(p)), 0) + 1) }
+  for b in f.blocks {
+    for ins in b.ins {
+      if let Some(x) = ins.d { d = set(d, rid(x), unwrap_or(get(d, rid(x)), 0) + 1) }
+      if ins.op == "next" {
+        if let XR(i, _) = ins.x { d = set(d, i, unwrap_or(get(d, i), 0) + 1) }
+      }
+    }
+  }
+  d
+}
+
+fn ival(a: A) -> Int {
+  match a {
+    CI(i) => i,
+    CB(b) => if b { 1 } else { 0 },
+    _     => 0,
+  }
+}
+
+fn fval(a: A) -> Float {
+  match a {
+    CF(x) => x,
+    CI(i) => float(i),
+    _     => 0.0,
+  }
+}
+
+fn bval(a: A) -> Bool {
+  match a {
+    CB(b) => b,
+    CI(i) => i != 0,
+    CF(x) => x != 0.0,
+    _     => false,
+  }
+}
+
+fn add_ok(a: Int, b: Int) -> Bool { if b > 0 { a <= IMAX - b } else { a >= IMIN - b } }
+
+fn sub_ok(a: Int, b: Int) -> Bool { if b < 0 { a <= IMAX + b } else { a >= IMIN + b } }
+
+fn mul_ok(a: Int, b: Int) -> Bool {
+  if a == 0 || b == 0 || a == 1 || b == 1 { return true }
+  if a == IMIN || b == IMIN { return false }
+  let aa = if a < 0 { 0 - a } else { a }
+  let bb = if b < 0 { 0 - b } else { b }
+  if aa <= IMAX / bb { return true }
+  // 结果为负时允许 -2^63
+  (a < 0) != (b < 0) && aa == IMAX / bb + 1 && IMAX % bb == bb - 1
+}
+
+fn cmpv(op: Str, a: A, b: A) -> Bool {
+  match a {
+    CF(_) => {
+      let x = fval(a)
+      let y = fval(b)
+      if op == "lt" { x < y } else if op == "gt" { x > y } else if op == "le" { x <= y } else if op == "ge" { x >= y } else if op == "eq" { x == y } else { x != y }
+    },
+    _ => {
+      let x = ival(a)
+      let y = ival(b)
+      if op == "lt" { x < y } else if op == "gt" { x > y } else if op == "le" { x <= y } else if op == "ge" { x >= y } else if op == "eq" { x == y } else { x != y }
+    },
+  }
+}
+
+// 常量折叠；会出错（溢出、除零）的不折叠
+fn fold(op: Str, vs: List<A>) -> A? {
+  if !contains(FOLDABLE, op) || any(vs, (v) => aty(v) == "val") { return None }
+  let a = vs[0]
+  if op == "copy" { return Some(a) }
+  let b = if len(vs) > 1 { vs[1] } else { CU }
+  if op == "add.i64" { return if add_ok(ival(a), ival(b)) { Some(CI(ival(a) + ival(b))) } else { None } }
+  if op == "sub.i64" { return if sub_ok(ival(a), ival(b)) { Some(CI(ival(a) - ival(b))) } else { None } }
+  if op == "mul.i64" { return if mul_ok(ival(a), ival(b)) { Some(CI(ival(a) * ival(b))) } else { None } }
+  if op == "div.i64" {
+    if ival(b) == 0 || (ival(a) == IMIN && ival(b) == -1) { return None }
+    return Some(CI(ival(a) / ival(b)))
+  }
+  if op == "rem.i64" {
+    if ival(b) == 0 { return None }
+    if ival(b) == -1 { return Some(CI(0)) }
+    return Some(CI(ival(a) % ival(b)))
+  }
+  if op == "add.f64" { return Some(CF(fval(a) + fval(b))) }
+  if op == "sub.f64" { return Some(CF(fval(a) - fval(b))) }
+  if op == "mul.f64" { return Some(CF(fval(a) * fval(b))) }
+  if op == "div.f64" { return if fval(b) == 0.0 { None } else { Some(CF(fval(a) / fval(b))) } }
+  if op == "neg.i64" { return if ival(a) == IMIN { None } else { Some(CI(0 - ival(a))) } }
+  if op == "neg.f64" { return Some(CF(-fval(a))) }
+  if op == "not" { return Some(CB(!bval(a))) }
+  if op == "lt" || op == "gt" || op == "le" || op == "ge" || op == "eq" || op == "ne" { return Some(CB(cmpv(op, a, b))) }
+  if op == "i2f" { return Some(CF(float(ival(a)))) }
+  None
+}
+
+pub fn optimize(f0: KF) -> KF {
+  var f = f0
+  var n = 0
+  while n < 4 {
+    let (f1, c1) = const_prop(f)
+    let (f2, c2) = simplify_cfg(f1)
+    let (f3, c3) = dce(f2)
+    f = f3
+    if !(c1 || c2 || c3) { break }
+    n += 1
+  }
+  f
+}
+
+fn subk(known: Map<Int, A>, a: A) -> A {
+  match a {
+    R(i, _) => unwrap_or(get(known, i), a),
+    _       => a,
+  }
+}
+
+fn replaced(known: Map<Int, A>, a: A) -> Bool {
+  match a {
+    R(i, _) => contains(known, i),
+    _       => false,
+  }
+}
+
+fn const_prop(f0: KF) -> (KF, Bool) {
+  let df = defs(f0)
+  var known: Map<Int, A> = Map()
+  var changed = false
+  var blocks = f0.blocks
+  var pass = 0
+  while pass < 3 {
+    var nb: List<Bk> = []
+    for b in blocks {
+      var ni: List<In> = []
+      for ins0 in b.ins {
+        var ins = ins0
+        if any(ins.args, (a) => replaced(known, a)) {
+          ins = In { args: map(ins.args, (a) => subk(known, a)), ..ins }
+          changed = true
+        }
+        if let Some(d) = ins.d {
+          if unwrap_or(get(df, rid(d)), 0) == 1 && len(ins.args) > 0 && all(ins.args, (a) => !is_reg(a)) {
+            if let Some(c) = fold(ins.op, ins.args) {
+              if aty(c) == aty(d) && !contains(known, rid(d)) {
+                known = set(known, rid(d), c)
+                if ins.op != "copy" {
+                  ins = In { op: "copy", args: [c], ..ins }
+                  changed = true
+                }
+              }
+            }
+          }
+        }
+        ni = push(ni, ins)
+      }
+      var t = b.t
+      match t {
+        TCbr(c, bt, bf) => {
+          let c2 = subk(known, c)
+          if !is_reg(c2) {
+            t = TBr(if bval(c2) { bt } else { bf })
+            changed = true
+          }
+        },
+        TRet(Some(x)) => {
+          if replaced(known, x) {
+            t = TRet(Some(subk(known, x)))
+            changed = true
+          }
+        },
+        TPanic(m, Some(x), ln) => { if replaced(known, x) { t = TPanic(m, Some(subk(known, x)), ln) } },
+        _ => (),
+      }
+      nb = push(nb, Bk { ins: ni, t: t, ..b })
+    }
+    blocks = nb
+    pass += 1
+  }
+  (KF { blocks: blocks, ..f0 }, changed)
+}
+
+fn succ(t: T) -> List<Int> {
+  match t {
+    TBr(x)         => [x],
+    TCbr(_, a, b)  => [a, b],
+    _              => [],
+  }
+}
+
+fn resolve_fwd(fwd: Map<Int, Int>, x0: Int) -> Int {
+  var x = x0
+  var seen: Map<Int, Bool> = Map()
+  while contains(fwd, x) && !contains(seen, x) {
+    seen = set(seen, x, true)
+    x = unwrap(get(fwd, x))
+  }
+  x
+}
+
+fn simplify_cfg(f0: KF) -> (KF, Bool) {
+  var changed = false
+  var fwd: Map<Int, Int> = Map()
+  for b in f0.blocks {
+    if len(b.ins) == 0 {
+      if let TBr(x) = b.t { if x != b.id { fwd = set(fwd, b.id, x) } }
+    }
+  }
+  var blocks: List<Bk> = []
+  for b in f0.blocks {
+    var t = b.t
+    match t {
+      TBr(x) => {
+        let r = resolve_fwd(fwd, x)
+        if r != x {
+          t = TBr(r)
+          changed = true
+        }
+      },
+      TCbr(c, x, y) => {
+        let rx = resolve_fwd(fwd, x)
+        let ry = resolve_fwd(fwd, y)
+        if rx == ry {
+          t = TBr(rx)
+          changed = true
+        } else if rx != x || ry != y {
+          t = TCbr(c, rx, ry)
+          changed = true
+        }
+      },
+      _ => (),
+    }
+    blocks = push(blocks, Bk { t: t, ..b })
+  }
+  var byid: Map<Int, Bk> = Map()
+  for b in blocks { byid = set(byid, b.id, b) }
+  var reach: Map<Int, Bool> = Map()
+  var stack = [0]
+  while len(stack) > 0 {
+    let x = stack[len(stack) - 1]
+    stack = take(stack, len(stack) - 1)
+    if contains(reach, x) || !contains(byid, x) { continue }
+    reach = set(reach, x, true)
+    stack = stack + succ(unwrap(get(byid, x)).t)
+  }
+  var keep = filter(blocks, (b) => contains(reach, b.id))
+  if len(keep) != len(blocks) { changed = true }
+  var preds: Map<Int, Int> = Map()
+  for b in keep { for s in succ(b.t) { preds = set(preds, s, unwrap_or(get(preds, s), 0) + 1) } }
+  var merged = true
+  while merged {
+    merged = false
+    var i = 0
+    while i < len(keep) {
+      let b = keep[i]
+      if let TBr(x) = b.t {
+        if x != b.id && x != 0 && unwrap_or(get(preds, x), 0) == 1 {
+          var j = 0
+          var ci = -1
+          while j < len(keep) {
+            if keep[j].id == x { ci = j }
+            j += 1
+          }
+          if ci >= 0 {
+            let c = keep[ci]
+            keep = lset(keep, i, Bk { ins: b.ins + c.ins, t: c.t, ..b })
+            keep = take(keep, ci) + skip(keep, ci + 1)
+            merged = true
+            changed = true
+            break
+          }
+        }
+      }
+      i += 1
+    }
+  }
+  (KF { blocks: keep, ..f0 }, changed)
+}
+
+fn dce(f0: KF) -> (KF, Bool) {
+  var f = f0
+  var changed = false
+  while true {
+    var used: Map<Int, Bool> = Map()
+    for b in f.blocks {
+      for ins in b.ins { for a in ins.args { if is_reg(a) { used = set(used, rid(a), true) } } }
+      match b.t {
+        TCbr(c, _, _)       => { if is_reg(c) { used = set(used, rid(c), true) } },
+        TRet(Some(x))       => { if is_reg(x) { used = set(used, rid(x), true) } },
+        TPanic(_, Some(x), _) => { if is_reg(x) { used = set(used, rid(x), true) } },
+        _                   => (),
+      }
+    }
+    var removed = false
+    var nb: List<Bk> = []
+    for b in f.blocks {
+      var keep: List<In> = []
+      for ins in b.ins {
+        if let Some(d) = ins.d {
+          if !contains(used, rid(d)) && contains(NO_FAIL, ins.op) {
+            removed = true
+            continue
+          }
+        }
+        keep = push(keep, ins)
+      }
+      nb = push(nb, Bk { ins: keep, ..b })
+    }
+    f = KF { blocks: nb, ..f }
+    if !removed { return (f, changed) }
+    changed = true
+  }
+  (f, changed)
+}

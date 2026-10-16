@@ -1,0 +1,115 @@
+// std.encoding.binary：数字和字节序列互转（对齐 Go 的 encoding/binary）
+//   定长：put_u16 / put_u32 / put_u64 生成字节，get_u16 / get_u32 / get_u64 读取；big_* 是大端，little_* 是小端
+//         u64 用 Int 的 64 位补码表示（超过 2^63 的值显示为负数）；get_i16 / get_i32 读成有符号数
+//   变长：put_uvarint / put_varint（zigzag），read_uvarint / read_varint 返回 (值, 用掉的字节数)
+
+fn bytes_be(x: Int, n: Int) -> List<Int> {
+  var out: List<Int> = []
+  var i = n - 1
+  while i >= 0 {
+    out = push(out, (x >> (8 * i)) & 255)
+    i -= 1
+  }
+  out
+}
+
+fn read_be(bs: List<Int>, off: Int, n: Int) -> Result<Int, Str> {
+  if off < 0 || off + n > len(bs) { return Err("binary: 需要 {n} 个字节，只剩 {len(bs) - off} 个") }
+  var v = 0
+  for i in 0..n {
+    let b = bs[off + i]
+    if b < 0 || b > 255 { return Err("binary: 字节超出 0..255: {b}") }
+    v = (v << 8) | b
+  }
+  Ok(v)
+}
+
+fn rev(xs: List<Int>) -> List<Int> { reverse(xs) }
+
+pub fn big_put_u16(x: Int) -> List<Int> { bytes_be(x, 2) }
+
+pub fn big_put_u32(x: Int) -> List<Int> { bytes_be(x, 4) }
+
+pub fn big_put_u64(x: Int) -> List<Int> { bytes_be(x, 8) }
+
+pub fn little_put_u16(x: Int) -> List<Int> { rev(bytes_be(x, 2)) }
+
+pub fn little_put_u32(x: Int) -> List<Int> { rev(bytes_be(x, 4)) }
+
+pub fn little_put_u64(x: Int) -> List<Int> { rev(bytes_be(x, 8)) }
+
+pub fn big_get_u16(bs: List<Int>, off: Int) -> Result<Int, Str> { read_be(bs, off, 2) }
+
+pub fn big_get_u32(bs: List<Int>, off: Int) -> Result<Int, Str> { read_be(bs, off, 4) }
+
+pub fn big_get_u64(bs: List<Int>, off: Int) -> Result<Int, Str> { read_be(bs, off, 8) }
+
+fn read_le(bs: List<Int>, off: Int, n: Int) -> Result<Int, Str> {
+  if off < 0 || off + n > len(bs) { return Err("binary: 需要 {n} 个字节，只剩 {len(bs) - off} 个") }
+  read_be(rev(bs[off..off + n]), 0, n)
+}
+
+pub fn little_get_u16(bs: List<Int>, off: Int) -> Result<Int, Str> { read_le(bs, off, 2) }
+
+pub fn little_get_u32(bs: List<Int>, off: Int) -> Result<Int, Str> { read_le(bs, off, 4) }
+
+pub fn little_get_u64(bs: List<Int>, off: Int) -> Result<Int, Str> { read_le(bs, off, 8) }
+
+fn sign(v: Int, bits: Int) -> Int { if v >= (1 << (bits - 1)) { v - (1 << bits) } else { v } }
+
+pub fn big_get_i16(bs: List<Int>, off: Int) -> Result<Int, Str> { Ok(sign(read_be(bs, off, 2)?, 16)) }
+
+pub fn big_get_i32(bs: List<Int>, off: Int) -> Result<Int, Str> { Ok(sign(read_be(bs, off, 4)?, 32)) }
+
+pub fn little_get_i16(bs: List<Int>, off: Int) -> Result<Int, Str> { Ok(sign(read_le(bs, off, 2)?, 16)) }
+
+pub fn little_get_i32(bs: List<Int>, off: Int) -> Result<Int, Str> { Ok(sign(read_le(bs, off, 4)?, 32)) }
+
+// 逻辑右移（把 Int 当成无符号 64 位）
+fn shr(x: Int, k: Int) -> Int { if x >= 0 || k == 0 { x >> k } else { (x >> k) & ~(-1 << (64 - k)) } }
+
+// 无符号变长整数（LEB128，同 Go 的 PutUvarint）；负数按 64 位无符号处理，最多 10 个字节
+pub fn put_uvarint(x: Int) -> List<Int> {
+  var v = x
+  var out: List<Int> = []
+  while v < 0 || v >= 128 {
+    out = push(out, (v & 127) | 128)
+    v = shr(v, 7)
+  }
+  push(out, v)
+}
+
+// 有符号变长整数（zigzag 编码，同 Go 的 PutVarint）
+pub fn put_varint(x: Int) -> List<Int> { put_uvarint((x << 1) ^ (x >> 63)) }
+
+// 从 off 开始读：(值, 字节数)
+pub fn read_uvarint(bs: List<Int>, off: Int) -> Result<(Int, Int), Str> {
+  var v = 0
+  var s = 0
+  var i = off
+  while i < len(bs) {
+    let b = bs[i]
+    if i - off == 9 && b > 1 { return Err("binary: varint 超出 64 位") }
+    if b < 128 { return Ok((v | (b << s), i - off + 1)) }
+    v = v | ((b & 127) << s)
+    s += 7
+    i += 1
+    if i - off >= 10 { return Err("binary: varint 超出 64 位") }
+  }
+  Err("binary: varint 被截断")
+}
+
+pub fn read_varint(bs: List<Int>, off: Int) -> Result<(Int, Int), Str> {
+  let (u, n) = read_uvarint(bs, off)?
+  Ok(((shr(u, 1)) ^ (-(u & 1)), n))
+}
+
+// 64 位无符号数的十进制写法（Int 为负时表示 2^63 以上的值）
+pub fn format_u64(x: Int) -> Str {
+  if x >= 0 { return "{x}" }
+  // x = 2^64 + x：先除以 10
+  let h = shr(x, 1)
+  let q = h / 5
+  let r = (h - q * 5) * 2 + (x & 1)
+  "{q}{r}"
+}

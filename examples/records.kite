@@ -1,0 +1,51 @@
+// 文法 v0.6 第三批（一）：记录变体与 where 子句
+enum Shape {
+  Circle { r: Float }
+  Rect { w: Float, h: Float }
+  Dot
+}
+
+trait Describe {
+  fn describe(self) -> Str
+}
+
+impl Describe for Shape {
+  fn describe(self) -> Str {
+    match self {
+      Circle { r }            => "圆 r={r}"
+      Shape.Rect { w, h: hh } => "矩形 {w}x{hh}"
+      Dot                     => "点"
+    }
+  }
+}
+
+type Pair<T> = { a: T, b: T }
+
+impl<T> Pair<T> where T: Ord {
+  fn max(self) -> T {
+    if self.a > self.b { self.a } else { self.b }
+  }
+}
+
+fn area(s: Shape) -> Float {
+  match s {
+    Circle { r }  => 3.0 * r * r
+    Rect { w, h } => w * h
+    Dot           => 0.0
+  }
+}
+
+fn top<T>(xs: List<T>, n: Int) -> List<T>
+where T: Ord {
+  sort(xs).reverse()[..n]
+}
+
+fn main() {
+  let w = 3.0
+  let shapes = [Rect { h: 2.0, w }, Shape.Circle { r: 1.0 }, Dot]
+  print(shapes)
+  print(shapes |> map(area), shapes |> map(s => s.describe()))
+  print(shapes[0] == Rect { w: 3.0, h: 2.0 })
+  if shapes[0] is Rect { w, .. } && w > 1.0 { print("宽", w) }
+  print(Pair { a: 3, b: 7 }.max(), top([5, 1, 9, 4], 2))
+}

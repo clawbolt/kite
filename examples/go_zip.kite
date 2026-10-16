@@ -1,0 +1,185 @@
+use std.archive.zip
+use std.encoding.hex
+use std.hash.crc32
+use std.strings
+
+const GO_DEFLATE: Str = "504b03041400080008000000000000000000000000000000000007000000666f782e747874ecca591580201404d02a6301d358c0e529b80da2b890de1e9cf9bf8d331cc9f70bbac867c7c81773dac209de167139c3dae60f03a71ac2c2c2c2c2c285e1ec43f50f00504b070800eb8227430000000c070000504b0304140008000800af6db1560000000000000000000000000e0009006469722f6e65737465642e74787455540500017bda6464003300ccff6e65737465642066696c6520636f6e74656e74732c206e65737465642066696c6520636f6e74656e74732c206e6573746564210300504b07087747a3853a00000033000000504b03041400080000004108e4260000000000000000000000000a00090073746f7265642e7478745554050001fb147f3773746f726564504b07080bf943560600000006000000504b030414000000000000000000000000000000000000000000040000006469722f504b010214001400080008000000000000eb8227430000000c070000070000000000000000000000000000000000666f782e747874504b01021400140008000800af6db1567747a3853a000000330000000e00090000000000000000000000780000006469722f6e65737465642e74787455540500017bda6464504b010214001400080000004108e4260bf9435606000000060000000a00090000000000000000000000f700000073746f7265642e7478745554050001fb147f37504b010214001400000000000000000000000000000000000000000004000000000000000000000000003e0100006469722f504b05060000000004000400ed000000600100000a00676f206465666c617465"
+
+fn mod_str(m: Option<zip.ModTime>) -> Str {
+  match m {
+    Some(t) => t.string(),
+    None    => "zero",
+  }
+}
+
+fn desc(h: zip.FileHeader, with_c: Bool) -> Str {
+  let cs = if with_c { "{h.compressed_size} {h.compressed_size64}" } else { "-" }
+  let m = h.mode()
+  "{h.name}|{h.comment}|{h.non_utf8}|{h.creator_version}|{h.reader_version}|{h.flags}|{h.method}|{h.modified_time}|{h.modified_date}|{h.crc32}|{cs}|{h.uncompressed_size} {h.uncompressed_size64}|{hex.encode_bytes(h.extra)}|{h.external_attrs}|{mod_str(h.modified)}|{m}|{zip.mode_string(m)}"
+}
+
+fn dump(label: Str, b: List<Int>) { print(label + " {len(b)} {crc32.checksum_bytes(b)} " + hex.encode_bytes(b)) }
+
+fn read_all(f: zip.File) -> Str {
+  match f.open() {
+    Ok(b)  => "ok " + hex.encode_bytes(b),
+    Err(e) => {
+      // Go 在 Open 阶段就报的错（本地头坏、不支持的算法）
+      if e == zip.ERR_ALGORITHM || (e == zip.ERR_FORMAT && is_err(f.data_offset())) { "open err " + e } else { "read err " + e }
+    },
+  }
+}
+
+fn read_back(label: Str, b: List<Int>, with_c: Bool) {
+  match zip.new_reader(b) {
+    Err(e) => { print(label + " reader err " + e) },
+    Ok(r)  => {
+      print(label + " files {len(r.file)} comment " + r.comment)
+      for f in r.file {
+        print("  " + desc(f.header, with_c))
+        if with_c {
+          match f.data_offset() {
+            Ok(off) => { print("  offset {off} true") },
+            Err(_)  => { print("  offset 0 false") },
+          }
+        }
+        print("  data " + read_all(f))
+      }
+    },
+  }
+}
+
+fn err_str(r: Result<zip.Writer, Str>) -> Str {
+  match r {
+    Ok(_)  => "nil",
+    Err(e) => e,
+  }
+}
+
+fn hdr(name: Str) -> zip.FileHeader { zip.header(name) }
+
+fn main() {
+  let text = __bytes(strings.repeat("The quick brown fox jumps over the lazy dog. ", 40) + "zip!")
+  let utc = zip.date(2023, 5, 17, 13, 45, 31)
+  let plus2 = zip.date_in(2021, 12, 31, 23, 59, 58, 2 * 3600)
+  let nepal = zip.date_in(2010, 2, 3, 4, 5, 7, 5 * 3600 + 45 * 60)
+  let minus = zip.date_in(1999, 7, 4, 1, 2, 3, -7 * 3600)
+
+  // 1. 单个 Store 文件
+  var w = zip.new_writer().create_header(hdr("hello.txt")).unwrap().write_str("hello world\n").unwrap()
+  let b1 = w.close().unwrap()
+  dump("store1", b1)
+  read_back("store1", b1, true)
+
+  // 2. 各种头部
+  let entries: List<(zip.FileHeader, List<Int>)> = [
+    (zip.FileHeader { modified: Some(utc), ..hdr("a.txt") }, __bytes("alpha")),
+    (zip.FileHeader { modified: Some(plus2), comment: "two hours", ..hdr("b/plus2.txt") }, __bytes("bravo bravo")),
+    (zip.FileHeader { modified: Some(nepal), ..hdr("nepal.bin") }, [0, 1, 2, 255]),
+    (zip.FileHeader { modified: Some(minus), ..hdr("minus.txt") }, __bytes("m")),
+    (hdr("dir/"), []),
+    (zip.FileHeader { modified: Some(utc), flags: 8, method: zip.DEFLATE, uncompressed_size64: 7, ..hdr("dir2/") }, []),
+    (hdr("héllo/世界.txt"), __bytes("unicode")),
+    (hdr("back\\slash.txt"), __bytes("bs")),
+    (hdr("tilde~.txt"), __bytes("t")),
+    (zip.FileHeader { comment: "commént", ..hdr("plain.txt") }, __bytes("c")),
+    (zip.FileHeader { non_utf8: true, flags: 0x800, ..hdr("nonutf8-é.txt") }, __bytes("n")),
+    (zip.FileHeader { flags: 0x800, ..hdr("forced.txt") }, __bytes("f")),
+    (hdr("ctrl\t.txt"), []),
+    (zip.FileHeader { creator_version: 0x0b33, reader_version: 45, external_attrs: 0x21, ..hdr("creator.txt") }, __bytes("x")),
+    (hdr("mode.sh").set_mode(493), __bytes("#!/bin/sh\n")),
+    (hdr("ro.txt").set_mode(292), __bytes("readonly")),
+    (hdr("sub/").set_mode(zip.MODE_DIR | 488), []),
+    (hdr("link").set_mode(zip.MODE_SYMLINK | 511), __bytes("target")),
+    (hdr("special").set_mode(zip.MODE_SETUID | zip.MODE_SETGID | zip.MODE_STICKY | zip.MODE_NAMED_PIPE | 416), []),
+    (hdr("settime.txt").set_mod_time(plus2), __bytes("st")),
+    (zip.FileHeader { extra: [0xfe, 0xca, 2, 0, 9, 8], modified: Some(utc), ..hdr("extra.txt") }, __bytes("e")),
+    (hdr("empty.txt"), []),
+    (zip.FileHeader { method: 99, ..hdr("bad.txt") }, __bytes("z")),
+  ]
+  w = zip.new_writer()
+  for (h, data) in entries {
+    match w.create_header(h) {
+      Err(e) => { print("create err " + e) },
+      Ok(w2) => {
+        w = w2
+        if len(data) > 0 {
+          let half = len(data) / 2
+          w = w.write(data[0..half]).unwrap()
+          match w.write(data[half..len(data)]) {
+            Ok(w3) => { w = w3 },
+            Err(e) => { print("write err " + e) },
+          }
+        }
+      },
+    }
+  }
+  print("comment err " + err_str(w.set_comment(strings.repeat("x", 70000))))
+  let rc = w.set_comment("archive comment ✓")
+  print("comment " + err_str(rc))
+  w = rc.unwrap()
+  let rd = w.create_header(hdr("d3/"))
+  w = rd.unwrap()
+  print("dir write " + err_str(rd) + " " + err_str(w.write(__bytes("no"))) + " " + err_str(w.write([])))
+  let hs = w.headers()
+  let b2r = w.close()
+  print("close " + (if is_ok(b2r) { "nil" } else { "err" }))
+  for h in hs { print("hdr " + desc(h, true)) }
+  let b2 = b2r.unwrap()
+  dump("store2", b2)
+  read_back("store2", b2, true)
+
+  // 3. CreateRaw / SetOffset / 不支持的方法
+  let data = __bytes("raw data here")
+  let dc = crc32.checksum_bytes(data)
+  let n = len(data)
+  w = zip.new_writer().set_offset(100)
+  w = w.create_raw(zip.FileHeader { crc32: dc, compressed_size64: n, uncompressed_size64: n, ..hdr("raw1.txt") }).unwrap().write(data).unwrap()
+  w = w.create_raw(zip.FileHeader { flags: 8, crc32: dc, compressed_size64: n, uncompressed_size64: n, ..hdr("raw2.txt") }).unwrap().write(data).unwrap()
+  w = w.create_raw(zip.FileHeader { method: 12, crc32: 1234, compressed_size64: 3, uncompressed_size64: 9, ..hdr("weird.bin") }).unwrap().write([1, 2, 3]).unwrap()
+  w = w.create_raw(zip.FileHeader { crc32: 77, compressed_size64: 4, uncompressed_size64: 4, ..hdr("badcrc.txt") }).unwrap().write_str("abcd").unwrap()
+  w = w.create_raw(zip.FileHeader { compressed_size64: 4, uncompressed_size64: 6, ..hdr("short.txt") }).unwrap().write_str("abcd").unwrap()
+  w = w.create_raw(zip.FileHeader { compressed_size64: 4, uncompressed_size64: 2, ..hdr("long.txt") }).unwrap().write_str("abcd").unwrap()
+  w = w.create_raw(zip.FileHeader { uncompressed_size64: 5, ..hdr("rawdir/") }).unwrap()
+  let b3 = w.close().unwrap()
+  dump("raw", b3)
+  var padded: List<Int> = []
+  for _ in 0..100 { padded = push(padded, 0) }
+  read_back("raw+pad", padded + b3, true)
+  read_back("raw", b3, true)
+
+  // 4. Deflate（create）：比较解压结果
+  var bs: List<Int> = []
+  for i in 0..300 { bs = push(bs, i * 7 % 256) }
+  w = zip.new_writer().create("text.txt").unwrap().write(text).unwrap()
+  w = w.create("empty").unwrap().create("folder/").unwrap().create("bytes.bin").unwrap().write(bs).unwrap()
+  w = w.create_header(zip.FileHeader { method: zip.DEFLATE, modified: Some(nepal), comment: "deflated", ..hdr("time.txt") }).unwrap()
+  w = w.write_str("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaab").unwrap().set_comment("deflate archive").unwrap()
+  read_back("deflate", w.close().unwrap(), false)
+
+  // 5. 读 Go 写的 Deflate 归档
+  let g = hex.decode(GO_DEFLATE).unwrap()
+  dump("godeflate", g)
+  read_back("godeflate", g, true)
+  for f in zip.new_reader(g).unwrap().file {
+    print("raw " + f.header.name + " " + f.header.mod_time().string() + " {f.header.uncompressed_size64} " + hex.encode_bytes(f.open_raw().unwrap()))
+  }
+  var i = 0
+  while !(g[i] == 80 && g[i + 1] == 75 && g[i + 2] == 1 && g[i + 3] == 2) { i += 1 }
+  read_back("badcrc", set(g, i + 16, g[i + 16] ^ 255), true)
+
+  // 6. 读取错误
+  w = zip.new_writer().create_header(hdr("x.txt")).unwrap().write_str("xyz").unwrap().set_comment(strings.repeat("C", 1500)).unwrap()
+  let b = w.close().unwrap()
+  read_back("longcomment", b, true)
+  read_back("notzip", __bytes("hello, this is not a zip file at all"), true)
+  read_back("empty", [], true)
+  read_back("trunc", b[0..len(b) - 1], true)
+  read_back("baddata", set(b, 35, 81), true)
+  read_back("baddesc", set(b, 42, b[42] ^ 1), true)
+  read_back("badlocal", set(b, 0, 88), true)
+  read_back("junk", __bytes("JUNKJUNK") + b, true)
+  i = 0
+  while !(b[i] == 80 && b[i + 1] == 75 && b[i + 2] == 1 && b[i + 3] == 2) { i += 1 }
+  read_back("baddir", set(b, i, 88), true)
+}

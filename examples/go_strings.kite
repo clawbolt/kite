@@ -1,0 +1,24 @@
+use std.strings
+fn sp(c: Str) -> Bool { c == "," || c == ";" }
+fn main() {
+  let ss = ["", "a", "abc", "a,b,,c,", ",", "héllo, wörld", "  \t lead and trail \u{a0}\n", "aaaa", "Go gopher go", "ǆungla ǉubav", "straße İstanbul", "hello-world_foo bar.baz 3rd"]
+  for s in ss {
+    print(strings.split(s, ","), strings.split(s, ""), strings.split_n(s, ",", 2), strings.split_n(s, "", 3), strings.split_after(s, ","), strings.split_after_n(s, ",", 2))
+    print(strings.fields(s), strings.fields_func(s, sp), strings.title(s), strings.to_upper(s), strings.to_lower(s), strings.to_title(s))
+    print(strings.index(s, "o"), strings.last_index(s, "o"), strings.index_any(s, "lo"), strings.last_index_any(s, "lo"), strings.index_rune(s, 0x77), strings.contains_rune(s, 0x61), strings.index_func(s, sp), strings.last_index_func(s, sp), strings.contains_func(s, sp))
+    print("[" + strings.trim(s, " a,") + "]", "[" + strings.trim_left(s, " a,") + "]", "[" + strings.trim_right(s, " a,") + "]", "[" + strings.trim_space(s) + "]", "[" + strings.trim_func(s, sp) + "]", strings.count(s, "a"), strings.count(s, ""))
+    print(strings.replace(s, "a", "XY", 2), strings.replace(s, "", "-", 3), strings.replace_all(s, "", "|"), strings.replace_all(s, "o", "0"), strings.cut_prefix(s, "a"), strings.cut_suffix(s, ","), strings.has_prefix(s, "a"), strings.has_suffix(s, ","))
+    print(strings.compare(s, "abc"), strings.equal_fold(s, strings.to_upper(s)), strings.map_rune(s, (r) => if r == 97 { -1 } else { r + 1 }))
+  }
+  print(strings.equal_fold("Go", "GO"), strings.equal_fold("σ", "Σ"), strings.equal_fold("ǅ", "ǆ"), strings.equal_fold("a", "b"))
+  let r = strings.new_replacer(["a", "1", "aa", "2", "b", "3", "", "_"])
+  let r2 = strings.new_replacer(["<", "&lt;", ">", "&gt;", "&", "&amp;"])
+  let r3 = strings.new_replacer(["aaa", "3", "aa", "2", "a", "1"])
+  let r4 = strings.new_replacer(["", "X"])
+  let r5 = strings.new_replacer(["a", "A", "a", "B"])
+  for s in ["", "a", "aab", "aaaa", "<a href=\"x\">&</a>", "xyz", "baaab"] {
+    print(r.replace(s), r2.replace(s), r3.replace(s), r4.replace(s), r5.replace(s))
+  }
+  let b = strings.new_builder().write_string("héllo").write_rune(0x4e16).write_string("!")
+  print(b.string(), b.len(), b.reset().len())
+}

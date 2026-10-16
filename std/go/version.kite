@@ -1,0 +1,96 @@
+// std.go.version：对齐 Go 1.27 的 go/version（内部的 internal/gover 一并移植）
+//   lang / compare / is_valid 处理 "go1.21rc2"、"go1.22.3-custom" 这样的版本串
+
+pub type Version = { major: Str, minor: Str, patch: Str, kind: Str, pre: Str }
+
+fn sub(s: Str, a: Int, b: Int) -> Str { __str_slice(s, a, b) }
+
+fn byte_at(s: Str, i: Int) -> Int { __bytes(sub(s, i, i + 1))[0] }
+
+fn empty() -> Version { Version { major: "", minor: "", patch: "", kind: "", pre: "" } }
+
+fn cut_int(x: Str) -> (Str, Str, Bool) {
+  var i = 0
+  let n = len(x)
+  while i < n && byte_at(x, i) >= 48 && byte_at(x, i) <= 57 { i += 1 }
+  if i == 0 || (byte_at(x, 0) == 48 && i != 1) { return ("", "", false) }
+  (sub(x, 0, i), sub(x, i, n), true)
+}
+
+pub fn cmp_int(x: Str, y: Str) -> Int {
+  if x == y { return 0 }
+  if len(x) < len(y) { return -1 }
+  if len(x) > len(y) { return 1 }
+  if x < y { -1 } else { 1 }
+}
+
+// gover.Parse
+pub fn parse(x0: Str) -> Version {
+  var x = x0
+  let (major, r1, ok1) = cut_int(x)
+  if !ok1 { return empty() }
+  x = r1
+  if x == "" { return Version { major: major, minor: "0", patch: "0", kind: "", pre: "" } }
+  if sub(x, 0, 1) != "." { return empty() }
+  let (minor, r2, ok2) = cut_int(sub(x, 1, len(x)))
+  if !ok2 { return empty() }
+  x = r2
+  if x == "" { return Version { major: major, minor: minor, patch: if cmp_int(minor, "21") < 0 { "0" } else { "" }, kind: "", pre: "" } }
+  if sub(x, 0, 1) == "." {
+    let (patch, r3, ok3) = cut_int(sub(x, 1, len(x)))
+    if !ok3 || r3 != "" { return empty() }
+    return Version { major: major, minor: minor, patch: patch, kind: "", pre: "" }
+  }
+  var i = 0
+  while i < len(x) && (byte_at(x, i) < 48 || byte_at(x, i) > 57) {
+    if byte_at(x, i) < 97 || byte_at(x, i) > 122 { return empty() }
+    i += 1
+  }
+  if i == 0 { return empty() }
+  let kind = sub(x, 0, i)
+  x = sub(x, i, len(x))
+  if x == "" { return Version { major: major, minor: minor, patch: "", kind: kind, pre: "" } }
+  let (pre, r4, ok4) = cut_int(x)
+  if !ok4 || r4 != "" { return empty() }
+  Version { major: major, minor: minor, patch: "", kind: kind, pre: pre }
+}
+
+fn cmp_str(a: Str, b: Str) -> Int { if a < b { -1 } else if a > b { 1 } else { 0 } }
+
+pub fn gover_compare(x: Str, y: Str) -> Int {
+  let vx = parse(x)
+  let vy = parse(y)
+  var c = cmp_int(vx.major, vy.major)
+  if c != 0 { return c }
+  c = cmp_int(vx.minor, vy.minor)
+  if c != 0 { return c }
+  c = cmp_int(vx.patch, vy.patch)
+  if c != 0 { return c }
+  c = cmp_str(vx.kind, vy.kind)
+  if c != 0 { return c }
+  cmp_int(vx.pre, vy.pre)
+}
+
+pub fn gover_lang(x: Str) -> Str {
+  let v = parse(x)
+  if v.minor == "" || (v.major == "1" && v.minor == "0") { return v.major }
+  v.major + "." + v.minor
+}
+
+fn strip_go(v0: Str) -> Str {
+  var v = v0
+  let i = __str_find(v, "-", 0)
+  if i >= 0 { v = sub(v, 0, i) }
+  if len(v) < 2 || sub(v, 0, 2) != "go" { return "" }
+  sub(v, 2, len(v))
+}
+
+pub fn lang(x: Str) -> Str {
+  let v = gover_lang(strip_go(x))
+  if v == "" { return "" }
+  if starts_with(sub(x, 2, len(x)), v) { sub(x, 0, 2 + len(v)) } else { "go" + v }
+}
+
+pub fn compare(x: Str, y: Str) -> Int { gover_compare(strip_go(x), strip_go(y)) }
+
+pub fn is_valid(x: Str) -> Bool { parse(strip_go(x)) != empty() }

@@ -1,0 +1,937 @@
+// std.math.big.float：任意精度二进制浮点数（对齐 Go 的 math/big.Float；类型叫 BigFloat）
+//   构造：bigfloat.zero()（new(Float)，prec 为 0）、bigfloat.new_float(f)（NewFloat）、
+//     bigfloat.parse_float(s, base, prec, mode) -> Result<(BigFloat, Int), Str>（ParseFloat）
+//   Go 的 z.Op(x, y) 写成 z.op(x, y)：z 只提供 prec 和 mode（prec 为 0 时按 Go 的规则取），返回新值，例如
+//     bigfloat.zero().add(x, y)、bigfloat.zero().set_prec(200).quo(x, y)
+//   方法：set_prec set_mode set_float64 set_int64 set_uint64（uint64 位模式） set_int(BigInt) set_rat(Rat) set_inf set copy
+//     add sub mul quo sqrt neg abs_value（Go 的 Abs） cmp sign signbit is_inf is_int prec min_prec mode acc
+//     mant_exp() -> (BigFloat, Int)  set_mant_exp(mant, exp)
+//     float64() -> (Float, Accuracy)  float32() -> (Float, Accuracy)（结果是 float32 可表示的值）
+//     int64() / uint64() -> (Int, Accuracy)  int() -> (Option<BigInt>, Accuracy)  rat() -> (Option<Rat>, Accuracy)（Inf 时 None）
+//     text(fmt, prec)（fmt 是 "e" "E" "f" "g" "G" "b" "p" "x" 之一，prec 可为 -1）、string()（= text("g", 10)）
+//     parse(s, base) -> Result<(BigFloat, Int), Str>、set_string(s) -> Option<BigFloat>
+//     marshal_text() / unmarshal_text(s) -> Result<BigFloat, Str>
+//   RoundingMode 和 Accuracy 是枚举，打印出来就是 Go 的 String()（"ToNearestEven"、"Below" 等）
+//   和 Go 的差别：值不可变；Go 里 z 和操作数是同一个指针时的特殊情况（比如 z.Set(z) 不舍入）不存在；
+//     ErrNaN 的情况（Inf-Inf、0*Inf、0/0、Inf/Inf、负数开方、NaN）直接 panic，消息与 ErrNaN.Msg 相同；
+//     没有 Format（fmt 动词）、Scan、Gob 编解码、Append（用 text）。
+//   内部表示：有限值 = mant × 2^(exp - bit_len(mant))（即 Go 的 0.mant × 2^exp），mant 为去掉末尾 0 的正整数；
+//     Go 里依赖机器字长的部分（舍入、Text 的最短表示）都换成了只依赖数值的等价写法。
+//   Text 的 e/f/g 只算需要的那几位十进制（再加一个"后面是否全为 0"的标志），按 Go 的 decimal.round / roundShortest
+//     的规则舍入，结果和 Go 先算完整精确十进制再舍入完全相同，但对 1e-300 这类数快很多；位数不够时退回完整算法。
+
+use std.math.big
+use std.math.big.{ BigInt }
+use std.math.big.rat
+use std.math.big.rat.{ Rat }
+use std.math
+use std.strconv
+
+pub const MAX_EXP: Int = 2147483647
+
+pub const MIN_EXP: Int = -2147483648
+
+pub const MAX_PREC: Int = 4294967295
+
+const FZERO: Int = 0
+
+const FFIN: Int = 1
+
+const FINF: Int = 2
+
+pub enum RoundingMode {
+  ToNearestEven
+  ToNearestAway
+  ToZero
+  AwayFromZero
+  ToNegativeInf
+  ToPositiveInf
+}
+
+pub enum Accuracy {
+  Below
+  Exact
+  Above
+}
+
+pub type BigFloat = { prec: Int, mode: RoundingMode, acc: Accuracy, form: Int, neg: Bool, mant: BigInt, exp: Int }
+
+fn make_acc(above: Bool) -> Accuracy { if above { Accuracy.Above } else { Accuracy.Below } }
+
+fn imax(a: Int, b: Int) -> Int { if a > b { a } else { b } }
+
+fn imin(a: Int, b: Int) -> Int { if a < b { a } else { b } }
+
+fn strip(m: BigInt) -> BigInt {
+  if m.sign() == 0 { return m }
+  m.rsh(m.trailing_zero_bits())
+}
+
+// new(Float)
+pub fn zero() -> BigFloat {
+  BigFloat { prec: 0, mode: RoundingMode.ToNearestEven, acc: Accuracy.Exact, form: FZERO, neg: false, mant: big.zero(), exp: 0 }
+}
+
+// NewFloat
+pub fn new_float(x: Float) -> BigFloat {
+  if math.is_nan(x) { panic("NewFloat(NaN)") }
+  zero().set_float64(x)
+}
+
+// ParseFloat
+pub fn parse_float(s: Str, base: Int, prec: Int, mode: RoundingMode) -> Result<(BigFloat, Int), Str> {
+  zero().set_prec(prec).set_mode(mode).parse(s, base)
+}
+
+// Float.round：把有限值的 mant 舍入到 prec 位（sbit 是已知被丢弃部分的粘滞位）
+fn round_f(z: BigFloat, sbit0: Int) -> BigFloat {
+  if z.form != FFIN { return BigFloat { acc: Accuracy.Exact, ..z } }
+  let m = z.mant
+  let bl = m.bit_len()
+  if bl <= z.prec { return BigFloat { acc: Accuracy.Exact, mant: strip(m), ..z } }
+  let r = bl - z.prec - 1
+  let rbit = m.bit(r)
+  var sbit = sbit0
+  if sbit == 0 && m.trailing_zero_bits() < r { sbit = 1 }
+  var q = m.rsh(r + 1)
+  var exp = z.exp
+  var acc = Accuracy.Exact
+  if (rbit | sbit) != 0 {
+    let inc = match z.mode {
+      RoundingMode.ToNegativeInf => z.neg,
+      RoundingMode.ToZero        => false,
+      RoundingMode.ToNearestEven => rbit != 0 && (sbit != 0 || q.bit(0) == 1),
+      RoundingMode.ToNearestAway => rbit != 0,
+      RoundingMode.AwayFromZero  => true,
+      RoundingMode.ToPositiveInf => !z.neg,
+    }
+    acc = make_acc(inc != z.neg)
+    if inc {
+      q = q.add(big.one())
+      if q.bit_len() > z.prec {
+        if exp >= MAX_EXP { return BigFloat { form: FINF, acc: acc, ..z } }
+        exp += 1
+        q = q.rsh(1)
+      }
+    }
+  }
+  BigFloat { acc: acc, mant: strip(q), exp: exp, ..z }
+}
+
+// Float.setExpAndRound（z.mant 已经放好）
+fn set_exp_and_round(z: BigFloat, exp: Int, sbit: Int) -> BigFloat {
+  if exp < MIN_EXP { return BigFloat { acc: make_acc(z.neg), form: FZERO, ..z } }
+  if exp > MAX_EXP { return BigFloat { acc: make_acc(!z.neg), form: FINF, ..z } }
+  round_f(BigFloat { form: FFIN, exp: exp, ..z }, sbit)
+}
+
+// 值为 (-1)^neg × m × 2^e2（m > 0），按 z 的 prec 和 mode 舍入
+fn with_int(z: BigFloat, neg: Bool, m: BigInt, e2: Int, sbit: Int) -> BigFloat {
+  set_exp_and_round(BigFloat { neg: neg, mant: m, ..z }, e2 + m.bit_len(), sbit)
+}
+
+fn e2_of(x: BigFloat) -> Int { x.exp - x.mant.bit_len() }
+
+fn uadd(z: BigFloat, neg: Bool, x: BigFloat, y: BigFloat) -> BigFloat {
+  let ex = e2_of(x)
+  let ey = e2_of(y)
+  let e = imin(ex, ey)
+  let m = x.mant.lsh(ex - e).add(y.mant.lsh(ey - e))
+  with_int(z, neg, m, e, 0)
+}
+
+// |x| > |y|
+fn usub(z: BigFloat, neg: Bool, x: BigFloat, y: BigFloat) -> BigFloat {
+  let ex = e2_of(x)
+  let ey = e2_of(y)
+  let e = imin(ex, ey)
+  let m = x.mant.lsh(ex - e).sub(y.mant.lsh(ey - e))
+  if m.sign() == 0 { return BigFloat { acc: Accuracy.Exact, form: FZERO, neg: false, ..z } }
+  with_int(z, neg, m, e, 0)
+}
+
+fn ucmp(x: BigFloat, y: BigFloat) -> Int {
+  if x.exp < y.exp { return -1 }
+  if x.exp > y.exp { return 1 }
+  let lx = x.mant.bit_len()
+  let ly = y.mant.bit_len()
+  x.mant.lsh(imax(0, ly - lx)).cmp(y.mant.lsh(imax(0, lx - ly)))
+}
+
+fn ord(x: BigFloat) -> Int {
+  let m = if x.form == FZERO { 0 } else if x.form == FFIN { 1 } else { 2 }
+  if x.neg { -m } else { m }
+}
+
+fn floor_mag(x: BigFloat) -> BigInt {
+  let bl = x.mant.bit_len()
+  if x.exp >= bl { x.mant.lsh(x.exp - bl) } else { x.mant.rsh(bl - x.exp) }
+}
+
+fn pow5_int(n: Int) -> BigInt { big.new_int(5).exp(big.new_int(n), big.zero()).unwrap_or(big.one()) }
+
+// pow5tab
+fn pow5_small(n: Int) -> Int {
+  var r = 1
+  var i = 0
+  while i < n {
+    r = r * 5
+    i += 1
+  }
+  r
+}
+
+// ───────── 十进制（Go 的 decimal）─────────
+
+type Dec = { mant: List<Int>, exp: Int }
+
+fn dec_trim(d: Dec) -> Dec {
+  var i = len(d.mant)
+  while i > 0 && d.mant[i - 1] == 48 { i -= 1 }
+  if i == 0 { return Dec { mant: [], exp: 0 } }
+  if i == len(d.mant) { d } else { Dec { mant: d.mant[..i], exp: d.exp } }
+}
+
+// decimal.init：m × 2^shift 的精确十进制表示（数字是 ASCII 码）；p5 若非 None 则是 5^(-shift)（m 为奇数时可用）
+fn dec_init(m0: BigInt, shift0: Int) -> Dec { dec_init_p(m0, shift0, None) }
+
+fn dec_init_p(m0: BigInt, shift0: Int, p5: Option<BigInt>) -> Dec {
+  if m0.sign() == 0 { return Dec { mant: [], exp: 0 } }
+  var m = m0
+  var shift = shift0
+  if shift < 0 {
+    let s = imin(-shift, m.trailing_zero_bits())
+    m = m.rsh(s)
+    shift += s
+  }
+  if shift > 0 {
+    m = m.lsh(shift)
+    shift = 0
+  }
+  if shift < 0 {
+    let p = match p5 {
+      Some(v) => { if shift == shift0 { v } else { pow5_int(-shift) } },
+      None    => pow5_int(-shift),
+    }
+    m = m.mul(p)
+  }
+  let ds = __bytes(m.text(10))
+  dec_trim(Dec { mant: ds, exp: len(ds) + shift })
+}
+
+fn dec_at(d: Dec, i: Int) -> Int { if i >= 0 && i < len(d.mant) { d.mant[i] } else { 48 } }
+
+fn should_round_up(d: Dec, n: Int) -> Bool {
+  if d.mant[n] == 53 && n + 1 == len(d.mant) { return n > 0 && ((d.mant[n - 1] - 48) & 1) != 0 }
+  d.mant[n] >= 53
+}
+
+fn dec_round(d: Dec, n: Int) -> Dec {
+  if n < 0 || n >= len(d.mant) { return d }
+  if should_round_up(d, n) { dec_round_up(d, n) } else { dec_round_down(d, n) }
+}
+
+fn dec_round_up(d: Dec, n0: Int) -> Dec {
+  if n0 < 0 || n0 >= len(d.mant) { return d }
+  var n = n0
+  while n > 0 && d.mant[n - 1] >= 57 { n -= 1 }
+  if n == 0 { return Dec { mant: [49], exp: d.exp + 1 } }
+  Dec { mant: push(d.mant[..n - 1], d.mant[n - 1] + 1), exp: d.exp }
+}
+
+fn dec_round_down(d: Dec, n: Int) -> Dec {
+  if n < 0 || n >= len(d.mant) { return d }
+  dec_trim(Dec { mant: d.mant[..n], exp: d.exp })
+}
+
+fn round_shortest(d: Dec, x: BigFloat, p5d: Option<BigInt>) -> Dec {
+  if len(d.mant) == 0 { return d }
+  let bl = x.mant.bit_len()
+  let s = bl - (x.prec + 1)
+  var mant = x.mant
+  if s < 0 { mant = mant.lsh(-s) } else if s > 0 { mant = mant.rsh(s) }
+  let exp = x.exp - bl + s
+  // mant 的最低位是 0（mant 比 x.mant 多至少一位），所以 mant±1 是奇数，共用 5^(-exp)
+  var p5: Option<BigInt> = None
+  if exp < 0 {
+    p5 = match p5d {
+      Some(q) => Some(if s < 0 { q.mul(pow5_int(-s)) } else { pow5_int(-exp) }),
+      None    => Some(pow5_int(-exp)),
+    }
+  }
+  let lower = dec_init_p(mant.sub(big.one()), exp, p5)
+  let upper = dec_init_p(mant.add(big.one()), exp, p5)
+  let inclusive = mant.bit(1) == 0
+  var i = 0
+  while i < len(d.mant) {
+    let m = d.mant[i]
+    let l = dec_at(lower, i)
+    let u = dec_at(upper, i)
+    let okdown = l != m || (inclusive && i + 1 == len(lower.mant))
+    let okup = m != u && (inclusive || m + 1 < u || i + 1 < len(upper.mant))
+    if okdown && okup { return dec_round(d, i + 1) }
+    if okdown { return dec_round_down(d, i + 1) }
+    if okup { return dec_round_up(d, i + 1) }
+    i += 1
+  }
+  d
+}
+
+// ───────── 只算前若干位的十进制（结果和完整精确十进制上的 Go 算法相同，只是快得多）─────────
+
+// d 是精确十进制的前 need 位（截断后去掉末尾 0）；complete 表示 d 就是完整的精确十进制
+type DecA = { d: Dec, complete: Bool, need: Int }
+
+fn floor_div(a: Int, b: Int) -> Int {
+  let q = a / b
+  if (a % b) != 0 && (a < 0) { q - 1 } else { q }
+}
+
+fn dec_approx(m0: BigInt, e20: Int, need: Int) -> DecA {
+  if m0.sign() == 0 { return DecA { d: Dec { mant: [], exp: 0 }, complete: true, need: need } }
+  let tz = m0.trailing_zero_bits()
+  let m = m0.rsh(tz)
+  let e2 = e20 + tz
+  var est = floor_div((m.bit_len() - 1 + e2) * 30103, 100000) + 1
+  loop {
+    let t = need - est + 1
+    var num = m
+    var den = big.one()
+    if t >= 0 { num = num.mul(pow5_int(t)).lsh(t) } else { den = pow5_int(-t).lsh(-t) }
+    var f = num
+    var exact = true
+    if t >= 0 {
+      if e2 < 0 {
+        f = num.rsh(-e2)
+        exact = num.trailing_zero_bits() >= -e2
+      } else {
+        f = num.lsh(e2)
+      }
+    } else {
+      if e2 >= 0 { num = num.lsh(e2) } else { den = den.lsh(-e2) }
+      let (q, r) = num.quo_rem(den)
+      f = q
+      exact = r.sign() == 0
+    }
+    if f.sign() == 0 {
+      est -= need + 1
+    } else {
+      let ds = __bytes(f.text(10))
+      if len(ds) < need {
+        est -= need - len(ds)
+      } else {
+        var complete = exact
+        var i = need
+        while complete && i < len(ds) {
+          if ds[i] != 48 { complete = false }
+          i += 1
+        }
+        return DecA { d: dec_trim(Dec { mant: ds[..need], exp: len(ds) - t }), complete: complete, need: need }
+      }
+    }
+  }
+}
+
+// 未完整时，前缀后面到 need 为止都是 0：补齐到 n 位再按 Go 的规则处理
+fn dec_pad(d: Dec, n: Int) -> Dec {
+  var ms = d.mant
+  while len(ms) < n { ms = push(ms, 48) }
+  Dec { mant: ms, exp: d.exp }
+}
+
+// Go 的 decimal.round(n)；未完整时要求 n < need
+fn round_a(da: DecA, n: Int) -> Dec {
+  if da.complete || n < 0 { return dec_round(da.d, n) }
+  if dec_at(da.d, n) >= 53 { return dec_round_up(dec_pad(da.d, n + 1), n) }
+  dec_round_down(da.d, n)
+}
+
+fn round_up_a(da: DecA, n: Int) -> Dec { if da.complete { dec_round_up(da.d, n) } else { dec_round_up(dec_pad(da.d, n + 1), n) } }
+
+fn round_down_a(da: DecA, n: Int) -> Dec { if da.complete { dec_round_down(da.d, n) } else { dec_round_down(dec_pad(da.d, n + 1), n) } }
+
+// roundShortest 的快速版本；需要更多位时返回 None
+fn shortest_try(x: BigFloat, need: Int) -> Option<Dec> {
+  let bl = x.mant.bit_len()
+  let s = bl - (x.prec + 1)
+  if s >= 0 { return None }
+  let mant = x.mant.lsh(-s)
+  let exp = x.exp - bl + s
+  let da = dec_approx(x.mant, e2_of(x), need)
+  let lo = dec_approx(mant.sub(big.one()), exp, need)
+  let up = dec_approx(mant.add(big.one()), exp, need)
+  let inclusive = mant.bit(1) == 0
+  let dlen = if da.complete { len(da.d.mant) } else { need + 1 }
+  let llen = if lo.complete { len(lo.d.mant) } else { -1 }
+  let ulen = if up.complete { len(up.d.mant) } else { -1 }
+  var i = 0
+  while i < dlen {
+    if i + 1 >= need { return None }
+    let m = dec_at(da.d, i)
+    let l = dec_at(lo.d, i)
+    let u = dec_at(up.d, i)
+    let okdown = l != m || (inclusive && i + 1 == llen)
+    let okup = m != u && (inclusive || m + 1 < u || ulen < 0 || i + 1 < ulen)
+    if okdown && okup { return Some(round_a(da, i + 1)) }
+    if okdown { return Some(round_down_a(da, i + 1)) }
+    if okup { return Some(round_up_a(da, i + 1)) }
+    i += 1
+  }
+  Some(da.d)
+}
+
+fn shortest_dec(x: BigFloat) -> Dec {
+  match shortest_try(x, (x.prec + 1) * 30103 / 100000 + 6) {
+    Some(d) => d,
+    None    => round_shortest(dec_init(x.mant, e2_of(x)), x, None),
+  }
+}
+
+fn digits_str(ds: List<Int>) -> Str { unwrap(__from_bytes(ds)) }
+
+fn fmt_e(fc: Str, prec: Int, d: Dec) -> Str {
+  var buf = if len(d.mant) > 0 { __chr(d.mant[0]) } else { "0" }
+  if prec > 0 {
+    buf = buf + "."
+    var i = 1
+    let m = imin(len(d.mant), prec + 1)
+    if i < m {
+      buf = buf + digits_str(d.mant[i..m])
+      i = m
+    }
+    while i <= prec {
+      buf = buf + "0"
+      i += 1
+    }
+  }
+  buf = buf + fc
+  var exp = if len(d.mant) > 0 { d.exp - 1 } else { 0 }
+  if exp < 0 {
+    buf = buf + "-"
+    exp = -exp
+  } else {
+    buf = buf + "+"
+  }
+  if exp < 10 { buf = buf + "0" }
+  buf + "{exp}"
+}
+
+fn fmt_f(prec: Int, d: Dec) -> Str {
+  var buf = ""
+  if d.exp > 0 {
+    var m = imin(len(d.mant), d.exp)
+    buf = digits_str(d.mant[..m])
+    while m < d.exp {
+      buf = buf + "0"
+      m += 1
+    }
+  } else {
+    buf = "0"
+  }
+  if prec > 0 {
+    buf = buf + "."
+    var i = 0
+    while i < prec {
+      buf = buf + __chr(dec_at(d, d.exp + i))
+      i += 1
+    }
+  }
+  buf
+}
+
+fn shift_to(m: BigInt, from: Int, to: Int) -> BigInt { if from < to { m.lsh(to - from) } else if from > to { m.rsh(from - to) } else { m } }
+
+fn exp_str(e: Int) -> Str { if e >= 0 { "+{e}" } else { "{e}" } }
+
+fn fmt_b(x: BigFloat) -> Str {
+  if x.form == FZERO { return "0" }
+  let m = shift_to(x.mant, x.mant.bit_len(), x.prec)
+  "{m.text(10)}p{exp_str(x.exp - x.prec)}"
+}
+
+fn fmt_p(x: BigFloat) -> Str {
+  if x.form == FZERO { return "0" }
+  let bl = x.mant.bit_len()
+  let m = x.mant.lsh((4 - bl % 4) % 4)
+  var hs = __bytes(m.text(16))
+  var n = len(hs)
+  while n > 0 && hs[n - 1] == 48 { n -= 1 }
+  "0x.{unwrap(__from_bytes(hs[..n]))}p{exp_str(x.exp)}"
+}
+
+fn fmt_x(x0: BigFloat, prec: Int) -> Str {
+  if x0.form == FZERO {
+    var buf = "0x0"
+    if prec > 0 {
+      buf = buf + "."
+      var i = 0
+      while i < prec {
+        buf = buf + "0"
+        i += 1
+      }
+    }
+    return buf + "p+00"
+  }
+  let n = if prec < 0 { 1 + (x0.min_prec() - 1 + 3) / 4 * 4 } else { 1 + 4 * prec }
+  let x = zero().set_prec(n).set_mode(x0.mode).set(x0)
+  let m = shift_to(x.mant, x.mant.bit_len(), n)
+  var exp = x.exp - 1
+  let hm = m.text(16)
+  var buf = "0x1"
+  if len(hm) > 1 { buf = buf + "." + __str_slice(hm, 1, len(hm)) }
+  buf = buf + "p"
+  if exp >= 0 {
+    buf = buf + "+"
+  } else {
+    exp = -exp
+    buf = buf + "-"
+  }
+  if exp < 10 { buf = buf + "0" }
+  buf + "{exp}"
+}
+
+fn conv_float(x: BigFloat, mbits: Int, bias: Int, smallest: Float) -> (Float, Accuracy) {
+  if x.form == FZERO { return (if x.neg { -(0.0) } else { 0.0 }, Accuracy.Exact) }
+  if x.form == FINF { return (if x.neg { -math.inf } else { math.inf }, Accuracy.Exact) }
+  let emin = 1 - bias
+  var e = x.exp - 1
+  var p = mbits + 1
+  if e < emin {
+    p = mbits + 1 - emin + e
+    if p < 0 || (p == 0 && x.mant.bit_len() == 1) {
+      if x.neg { return (-(0.0), Accuracy.Above) }
+      return (0.0, Accuracy.Below)
+    }
+    if p == 0 {
+      if x.neg { return (-smallest, Accuracy.Below) }
+      return (smallest, Accuracy.Above)
+    }
+  }
+  let r = BigFloat { prec: p, ..zero() }.set(x)
+  e = r.exp - 1
+  if r.form == FINF || e > bias {
+    if x.neg { return (-math.inf, Accuracy.Below) }
+    return (math.inf, Accuracy.Above)
+  }
+  // Go 取 r.mant 的最高 p 位（r 的 mant 可能比 prec 长，比如 Sqrt 内部，这时直接截断）
+  var rm = r.mant
+  if rm.bit_len() > p { rm = rm.rsh(rm.bit_len() - p) }
+  let v = rat.ldexp(float(rm.int64()), r.exp - rm.bit_len())
+  (if x.neg { -v } else { v }, r.acc)
+}
+
+impl BigFloat {
+  fn set_prec(self, prec0: Int) -> BigFloat {
+    var z = BigFloat { acc: Accuracy.Exact, ..self }
+    if prec0 == 0 {
+      if z.form == FFIN { return BigFloat { prec: 0, acc: make_acc(z.neg), form: FZERO, ..z } }
+      return BigFloat { prec: 0, ..z }
+    }
+    let prec = imin(prec0, MAX_PREC)
+    let old = z.prec
+    z = BigFloat { prec: prec, ..z }
+    if prec < old { z = round_f(z, 0) }
+    z
+  }
+
+  fn set_mode(self, mode: RoundingMode) -> BigFloat { BigFloat { mode: mode, acc: Accuracy.Exact, ..self } }
+
+  fn prec(self) -> Int { self.prec }
+
+  fn min_prec(self) -> Int { if self.form != FFIN { 0 } else { self.mant.bit_len() - self.mant.trailing_zero_bits() } }
+
+  fn mode(self) -> RoundingMode { self.mode }
+
+  fn acc(self) -> Accuracy { self.acc }
+
+  fn sign(self) -> Int { if self.form == FZERO { 0 } else if self.neg { -1 } else { 1 } }
+
+  fn signbit(self) -> Bool { self.neg }
+
+  fn is_inf(self) -> Bool { self.form == FINF }
+
+  fn is_int(self) -> Bool {
+    if self.form != FFIN { return self.form == FZERO }
+    if self.exp <= 0 { return false }
+    self.prec <= self.exp || self.min_prec() <= self.exp
+  }
+
+  // MantExp：返回 (mant, exp)，mant 是 x 的拷贝、指数为 0（0.5 <= |mant| < 1）
+  fn mant_exp(self) -> (BigFloat, Int) {
+    if self.form == FFIN { return (BigFloat { exp: 0, ..self }, self.exp) }
+    (self, 0)
+  }
+
+  // SetMantExp：和 Go 一样，结果的 prec 和 mode 取自 mant
+  fn set_mant_exp(self, mant: BigFloat, exp: Int) -> BigFloat {
+    if mant.form == FFIN { return set_exp_and_round(mant, mant.exp + exp, 0) }
+    mant
+  }
+
+  fn set_bits64(self, neg: Bool, mag: BigInt) -> BigFloat {
+    var z = BigFloat { acc: Accuracy.Exact, neg: neg, ..self }
+    if z.prec == 0 { z = BigFloat { prec: 64, ..z } }
+    if mag.sign() == 0 { return BigFloat { form: FZERO, ..z } }
+    round_f(BigFloat { form: FFIN, mant: mag, exp: mag.bit_len(), ..z }, 0)
+  }
+
+  fn set_int64(self, x: Int) -> BigFloat { self.set_bits64(x < 0, big.new_int(x).abs_value()) }
+
+  // x 是 uint64 的位模式
+  fn set_uint64(self, x: Int) -> BigFloat { self.set_bits64(false, big.new_uint64(x)) }
+
+  fn set_float64(self, x: Float) -> BigFloat {
+    var z = self
+    if z.prec == 0 { z = BigFloat { prec: 53, ..z } }
+    if math.is_nan(x) { panic("Float.SetFloat64(NaN)") }
+    z = BigFloat { acc: Accuracy.Exact, neg: math.signbit(x), ..z }
+    if x == 0.0 { return BigFloat { form: FZERO, ..z } }
+    if math.is_inf(x) { return BigFloat { form: FINF, ..z } }
+    let (m, e) = rat.decompose(x)
+    let mb = big.new_int(m)
+    round_f(BigFloat { form: FFIN, mant: mb, exp: e + mb.bit_len(), ..z }, 0)
+  }
+
+  fn set_int(self, x: BigInt) -> BigFloat {
+    let bits = x.bit_len()
+    var z = self
+    if z.prec == 0 { z = BigFloat { prec: imax(bits, 64), ..z } }
+    z = BigFloat { acc: Accuracy.Exact, neg: x.sign() < 0, ..z }
+    if bits == 0 { return BigFloat { form: FZERO, ..z } }
+    set_exp_and_round(BigFloat { mant: x.abs_value(), ..z }, bits, 0)
+  }
+
+  fn set_rat(self, x: Rat) -> BigFloat {
+    if x.is_int() { return self.set_int(x.num()) }
+    let a = zero().set_int(x.num())
+    let b = zero().set_int(x.denom())
+    var z = self
+    if z.prec == 0 { z = BigFloat { prec: imax(a.prec, b.prec), ..z } }
+    z.quo(a, b)
+  }
+
+  fn set_inf(self, signbit: Bool) -> BigFloat { BigFloat { acc: Accuracy.Exact, form: FINF, neg: signbit, ..self } }
+
+  fn set(self, x: BigFloat) -> BigFloat {
+    var z = BigFloat { acc: Accuracy.Exact, form: x.form, neg: x.neg, mant: x.mant, exp: x.exp, ..self }
+    if z.prec == 0 {
+      z = BigFloat { prec: x.prec, ..z }
+    } else if z.prec < x.prec {
+      z = round_f(z, 0)
+    }
+    z
+  }
+
+  // Copy：值不可变，直接得到 x
+  fn copy(self, x: BigFloat) -> BigFloat { x }
+
+  fn abs_value(self, x: BigFloat) -> BigFloat { BigFloat { neg: false, ..self.set(x) } }
+
+  fn neg(self, x: BigFloat) -> BigFloat {
+    let z = self.set(x)
+    BigFloat { neg: !z.neg, ..z }
+  }
+
+  fn add(self, x: BigFloat, y: BigFloat) -> BigFloat {
+    var z = self
+    if z.prec == 0 { z = BigFloat { prec: imax(x.prec, y.prec), ..z } }
+    if x.form == FFIN && y.form == FFIN {
+      var r = z
+      if x.neg == y.neg {
+        r = uadd(z, x.neg, x, y)
+      } else if ucmp(x, y) > 0 {
+        r = usub(z, x.neg, x, y)
+      } else {
+        r = usub(z, !x.neg, y, x)
+      }
+      if r.form == FZERO && r.mode == RoundingMode.ToNegativeInf && r.acc == Accuracy.Exact { r = BigFloat { neg: true, ..r } }
+      return r
+    }
+    if x.form == FINF && y.form == FINF && x.neg != y.neg { panic("addition of infinities with opposite signs") }
+    if x.form == FZERO && y.form == FZERO { return BigFloat { acc: Accuracy.Exact, form: FZERO, neg: x.neg && y.neg, ..z } }
+    if x.form == FINF || y.form == FZERO { return z.set(x) }
+    z.set(y)
+  }
+
+  fn sub(self, x: BigFloat, y: BigFloat) -> BigFloat {
+    var z = self
+    if z.prec == 0 { z = BigFloat { prec: imax(x.prec, y.prec), ..z } }
+    if x.form == FFIN && y.form == FFIN {
+      var r = z
+      if x.neg != y.neg {
+        r = uadd(z, x.neg, x, y)
+      } else if ucmp(x, y) > 0 {
+        r = usub(z, x.neg, x, y)
+      } else {
+        r = usub(z, !x.neg, y, x)
+      }
+      if r.form == FZERO && r.mode == RoundingMode.ToNegativeInf && r.acc == Accuracy.Exact { r = BigFloat { neg: true, ..r } }
+      return r
+    }
+    if x.form == FINF && y.form == FINF && x.neg == y.neg { panic("subtraction of infinities with equal signs") }
+    if x.form == FZERO && y.form == FZERO { return BigFloat { acc: Accuracy.Exact, form: FZERO, neg: x.neg && !y.neg, ..z } }
+    if x.form == FINF || y.form == FZERO { return z.set(x) }
+    z.neg(y)
+  }
+
+  fn mul(self, x: BigFloat, y: BigFloat) -> BigFloat {
+    var z = self
+    if z.prec == 0 { z = BigFloat { prec: imax(x.prec, y.prec), ..z } }
+    let neg = x.neg != y.neg
+    if x.form == FFIN && y.form == FFIN { return with_int(z, neg, x.mant.mul(y.mant), e2_of(x) + e2_of(y), 0) }
+    if (x.form == FZERO && y.form == FINF) || (x.form == FINF && y.form == FZERO) { panic("multiplication of zero with infinity") }
+    if x.form == FINF || y.form == FINF { return BigFloat { acc: Accuracy.Exact, form: FINF, neg: neg, ..z } }
+    BigFloat { acc: Accuracy.Exact, form: FZERO, neg: neg, ..z }
+  }
+
+  fn quo(self, x: BigFloat, y: BigFloat) -> BigFloat {
+    var z = self
+    if z.prec == 0 { z = BigFloat { prec: imax(x.prec, y.prec), ..z } }
+    let neg = x.neg != y.neg
+    if x.form == FFIN && y.form == FFIN {
+      let k = imax(0, z.prec + 2 - x.mant.bit_len() + y.mant.bit_len())
+      let (q, r) = x.mant.lsh(k).quo_rem(y.mant)
+      return with_int(z, neg, q, e2_of(x) - k - e2_of(y), if r.sign() != 0 { 1 } else { 0 })
+    }
+    if (x.form == FZERO && y.form == FZERO) || (x.form == FINF && y.form == FINF) { panic("division of zero by zero or infinity by infinity") }
+    if x.form == FZERO || y.form == FINF { return BigFloat { acc: Accuracy.Exact, form: FZERO, neg: neg, ..z } }
+    BigFloat { acc: Accuracy.Exact, form: FINF, neg: neg, ..z }
+  }
+
+  fn cmp(self, y: BigFloat) -> Int {
+    let mx = ord(self)
+    let my = ord(y)
+    if mx < my { return -1 }
+    if mx > my { return 1 }
+    if mx == -1 { return ucmp(y, self) }
+    if mx == 1 { return ucmp(self, y) }
+    0
+  }
+
+  // Sqrt（照搬 Go 的 Newton 迭代；和 Go 一样结果的 mode 取自 x，acc 总是 Exact）
+  fn sqrt(self, x: BigFloat) -> BigFloat {
+    var prec = self.prec
+    if prec == 0 { prec = x.prec }
+    if x.sign() == -1 { panic("square root of negative operand") }
+    if x.form != FFIN { return BigFloat { prec: prec, acc: Accuracy.Exact, form: x.form, neg: x.neg, ..self } }
+    let b = x.exp
+    var z = BigFloat { prec: prec, exp: 0, ..x }
+    let r = b % 2
+    if r == 1 {
+      z = BigFloat { exp: z.exp + 1, ..z }
+    } else if r == -1 {
+      z = BigFloat { exp: z.exp - 1, ..z }
+    }
+    z = sqrt_inverse(z)
+    z.set_mant_exp(z, b / 2)
+  }
+
+  fn int64(self) -> (Int, Accuracy) {
+    if self.form == FZERO { return (0, Accuracy.Exact) }
+    if self.form == FINF { return if self.neg { (-9223372036854775807 - 1, Accuracy.Above) } else { (9223372036854775807, Accuracy.Below) } }
+    var acc = make_acc(self.neg)
+    if self.exp <= 0 { return (0, acc) }
+    if self.exp <= 63 {
+      var i = floor_mag(self).int64()
+      if self.neg { i = -i }
+      if self.min_prec() <= self.exp { return (i, Accuracy.Exact) }
+      return (i, acc)
+    }
+    if self.neg {
+      if self.exp == 64 && self.min_prec() == 1 { acc = Accuracy.Exact }
+      return (-9223372036854775807 - 1, acc)
+    }
+    (9223372036854775807, Accuracy.Below)
+  }
+
+  // 结果是 uint64 的位模式
+  fn uint64(self) -> (Int, Accuracy) {
+    if self.form == FZERO { return (0, Accuracy.Exact) }
+    if self.form == FINF { return if self.neg { (0, Accuracy.Above) } else { (-1, Accuracy.Below) } }
+    if self.neg { return (0, Accuracy.Above) }
+    if self.exp <= 0 { return (0, Accuracy.Below) }
+    if self.exp <= 64 {
+      let u = floor_mag(self).uint64()
+      if self.min_prec() <= 64 { return (u, Accuracy.Exact) }
+      return (u, Accuracy.Below)
+    }
+    (-1, Accuracy.Below)
+  }
+
+  fn float64(self) -> (Float, Accuracy) { conv_float(self, 52, 1023, rat.pow2(-1074)) }
+
+  fn float32(self) -> (Float, Accuracy) { conv_float(self, 23, 127, rat.pow2(-149)) }
+
+  fn int(self) -> (Option<BigInt>, Accuracy) {
+    if self.form == FZERO { return (Some(big.zero()), Accuracy.Exact) }
+    if self.form == FINF { return (None, make_acc(self.neg)) }
+    var acc = make_acc(self.neg)
+    if self.exp <= 0 { return (Some(big.zero()), acc) }
+    if self.min_prec() <= self.exp { acc = Accuracy.Exact }
+    let m = floor_mag(self)
+    (Some(if self.neg { m.negate() } else { m }), acc)
+  }
+
+  fn rat(self) -> (Option<Rat>, Accuracy) {
+    if self.form == FZERO { return (Some(rat.from_int64(0)), Accuracy.Exact) }
+    if self.form == FINF { return (None, make_acc(self.neg)) }
+    let m = if self.neg { self.mant.negate() } else { self.mant }
+    let e = e2_of(self)
+    if e >= 0 { return (Some(rat.from_int(m.lsh(e))), Accuracy.Exact) }
+    (Some(rat.from_frac(m, big.one().lsh(-e))), Accuracy.Exact)
+  }
+
+  fn text(self, fmt: Str, prec0: Int) -> Str {
+    let x = self
+    var buf = if x.neg { "-" } else { "" }
+    if x.form == FINF { return buf + (if x.neg { "" } else { "+" }) + "Inf" }
+    if fmt == "b" { return buf + fmt_b(x) }
+    if fmt == "p" { return buf + fmt_p(x) }
+    if fmt == "x" { return buf + fmt_x(x, prec0) }
+    let is_e = fmt == "e" || fmt == "E"
+    let is_g = fmt == "g" || fmt == "G"
+    if !(is_e || is_g || fmt == "f") { return "%" + fmt }
+    let fin = x.form == FFIN
+    let e2 = if fin { e2_of(x) } else { 0 }
+    var d = Dec { mant: [], exp: 0 }
+    var prec = prec0
+    var shortest = false
+    if prec < 0 {
+      shortest = true
+      if fin { d = shortest_dec(x) }
+      if is_e {
+        prec = len(d.mant) - 1
+      } else if fmt == "f" {
+        prec = imax(len(d.mant) - d.exp, 0)
+      } else {
+        prec = len(d.mant)
+      }
+    } else if is_e {
+      if fin { d = round_a(dec_approx(x.mant, e2, prec + 2), 1 + prec) }
+    } else if fmt == "f" {
+      if fin {
+        let n = dec_approx(x.mant, e2, 1).d.exp + prec
+        d = round_a(dec_approx(x.mant, e2, imax(n + 1, 1)), n)
+      }
+    } else {
+      if prec == 0 { prec = 1 }
+      if fin { d = round_a(dec_approx(x.mant, e2, prec + 1), prec) }
+    }
+    if is_e { return buf + fmt_e(fmt, prec, d) }
+    if fmt == "f" { return buf + fmt_f(prec, d) }
+    var eprec = prec
+    if eprec > len(d.mant) && len(d.mant) >= d.exp { eprec = len(d.mant) }
+    if shortest { eprec = 6 }
+    let exp = d.exp - 1
+    if exp < -4 || exp >= eprec {
+      if prec > len(d.mant) { prec = len(d.mant) }
+      return buf + fmt_e(if fmt == "g" { "e" } else { "E" }, prec - 1, d)
+    }
+    if prec > d.exp { prec = len(d.mant) }
+    buf + fmt_f(imax(prec - d.exp, 0), d)
+  }
+
+  fn string(self) -> Str { self.text("g", 10) }
+
+  fn marshal_text(self) -> Str { self.text("g", -1) }
+
+  fn unmarshal_text(self, s: Str) -> Result<BigFloat, Str> {
+    match self.parse(s, 0) {
+      Ok((f, _)) => Ok(f),
+      Err(e)     => Err("math/big: cannot unmarshal {strconv.quote_go(s)} into a *big.Float ({e})"),
+    }
+  }
+
+  fn set_string(self, s: Str) -> Option<BigFloat> {
+    match self.parse(s, 0) {
+      Ok((f, _)) => Some(f),
+      Err(_)     => None,
+    }
+  }
+
+  // Parse：成功时得到 (值, 实际进制)；base 为 0、2、8、10、16
+  fn parse(self, s: Str, base: Int) -> Result<(BigFloat, Int), Str> {
+    if s == "Inf" || s == "inf" { return Ok((self.set_inf(false), 0)) }
+    if s == "+Inf" || s == "+inf" { return Ok((self.set_inf(false), 0)) }
+    if s == "-Inf" || s == "-inf" { return Ok((self.set_inf(true), 0)) }
+    let bs = __bytes(s)
+    let (z, b, pos) = self.scan(bs, base)?
+    if pos < len(bs) { return Err("expected end of string, found {strconv.quote_rune(bs[pos])}") }
+    Ok((z, b))
+  }
+
+  fn scan(self, bs: List<Int>, base: Int) -> Result<(BigFloat, Int, Int), Str> {
+    var prec = self.prec
+    if prec == 0 { prec = 64 }
+    if len(bs) == 0 { return Err("EOF") }
+    var pos = 0
+    var neg = false
+    if bs[0] == 45 || bs[0] == 43 {
+      neg = bs[0] == 45
+      pos = 1
+    }
+    let r = rat.scan_nat(bs, pos, base, true)
+    if r.err != "" { return Err(r.err) }
+    let (exp, ebase, eerr, epos) = rat.scan_exponent(bs, r.pos, true, base == 0)
+    if eerr != "" { return Err(eerr) }
+    var z = BigFloat { neg: neg, ..self }
+    if r.mag.sign() == 0 { return Ok((BigFloat { prec: prec, acc: Accuracy.Exact, form: FZERO, ..z }, r.base, epos)) }
+    var exp2 = r.mag.bit_len()
+    var exp5 = 0
+    if r.count < 0 {
+      let d = r.count
+      if r.base == 10 {
+        exp5 = d
+        exp2 += d
+      } else if r.base == 2 {
+        exp2 += d
+      } else if r.base == 8 {
+        exp2 += d * 3
+      } else {
+        exp2 += d * 4
+      }
+    }
+    if ebase == 10 { exp5 += exp }
+    exp2 += exp
+    if exp2 < MIN_EXP || exp2 > MAX_EXP { return Err("exponent overflow") }
+    z = BigFloat { prec: prec, form: FFIN, exp: exp2, mant: r.mag, ..z }
+    if exp5 == 0 { return Ok((round_f(z, 0), r.base, epos)) }
+    let p = zero().set_prec(prec + 64).pow5(if exp5 < 0 { -exp5 } else { exp5 })
+    if exp5 < 0 { return Ok((z.quo(z, p), r.base, epos)) }
+    Ok((z.mul(z, p), r.base, epos))
+  }
+
+  fn pow5(self, n0: Int) -> BigFloat {
+    if n0 <= 27 { return self.set_uint64(pow5_small(n0)) }
+    var z = self.set_uint64(pow5_small(27))
+    var n = n0 - 27
+    var f = zero().set_prec(z.prec + 64).set_uint64(5)
+    while n > 0 {
+      if (n & 1) != 0 { z = z.mul(z, f) }
+      f = f.mul(f, f)
+      n = n >> 1
+    }
+    z
+  }
+}
+
+fn with_prec(prec: Int) -> BigFloat { BigFloat { prec: prec, ..zero() } }
+
+// Go 的 sqrtInverse：x 的 prec 是目标精度，mode 是结果的 mode
+fn sqrt_inverse(x: BigFloat) -> BigFloat {
+  let three = new_float(3.0)
+  let (xf, _) = x.float64()
+  var sqi = zero().set_float64(1.0 / math.sqrt(xf))
+  let target = x.prec + 32
+  while sqi.prec < target {
+    let p = sqi.prec * 2
+    let t = BigFloat { prec: p, ..sqi }
+    var u = with_prec(p).mul(t, t)
+    u = with_prec(p).mul(x, u)
+    let v = with_prec(p).sub(three, u)
+    u = with_prec(p).mul(t, v)
+    if u.form == FFIN { u = BigFloat { exp: u.exp - 1, ..u } }
+    sqi = BigFloat { prec: p, ..zero() }.set(u)
+  }
+  x.mul(x, sqi)
+}

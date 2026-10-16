@@ -1,0 +1,83 @@
+use std.crypto.aes
+use std.encoding.hex
+
+fn rnd(seed: Int) -> Int { (seed * 1103515245 + 12345) & 0x7fffffff }
+
+// 和 Go 侧相同的线性同余生成器：返回 (新种子, 字节)
+fn rbytes(seed0: Int, n: Int) -> (Int, List<Int>) {
+  var seed = seed0
+  var out: List<Int> = []
+  for _ in 0..n {
+    seed = rnd(seed)
+    out = push(out, (seed >> 16) & 0xff)
+  }
+  (seed, out)
+}
+
+fn h(b: List<Int>) -> Str { hex.encode_bytes(b) }
+
+fn d(s: Str) -> List<Int> { unwrap(hex.decode(s)) }
+
+fn zeros(n: Int) -> List<Int> {
+  var out: List<Int> = []
+  for _ in 0..n { out = push(out, 0) }
+  out
+}
+
+fn try_enc(name: Str, f: fn() -> List<Int>) {
+  match recover(f) {
+    Ok(_)  => print(name, "ok"),
+    Err(p) => print(name, "panic:", p.message),
+  }
+}
+
+fn main() {
+  print("BlockSize", aes.BLOCK_SIZE)
+  let pt = d("00112233445566778899aabbccddeeff")
+  for k in ["000102030405060708090a0b0c0d0e0f", "000102030405060708090a0b0c0d0e0f1011121314151617", "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f"] {
+    match aes.new_cipher(d(k)) {
+      Ok(c) => {
+        let ct = c.encrypt(pt)
+        print(len(k) / 2, c.block_size(), h(ct), h(c.decrypt(ct)))
+      }
+      Err(e) => print(e),
+    }
+  }
+  let ca = unwrap(aes.new_cipher(d("2b7e151628aed2a6abf7158809cf4f3c")))
+  print("A.1", h(ca.encrypt(d("3243f6a8885a308d313198a2e0370734"))))
+  for n in 0..41 {
+    match aes.new_cipher(zeros(n)) {
+      Ok(_)  => print(n, "ok"),
+      Err(e) => print(n, e),
+    }
+  }
+  var seed = 12345
+  for ks in [16, 24, 32] {
+    for _ in 0..12 {
+      let (s1, key) = rbytes(seed, ks)
+      let (s2, blk) = rbytes(s1, 16)
+      seed = s2
+      let c = unwrap(aes.expand(key))
+      let e = c.encrypt(blk)
+      let dd = c.decrypt(blk)
+      let b2 = c.decrypt(e)
+      print(ks, h(key), h(blk), h(e), h(dd), b2 == blk)
+    }
+  }
+  for ks in [16, 24, 32] {
+    var key: List<Int> = []
+    for i in 0..ks { key = push(key, (i * 7) & 0xff) }
+    let c = unwrap(aes.new_cipher(key))
+    var b = zeros(16)
+    for _ in 0..200 { b = c.encrypt(b) }
+    print("mc enc", ks, h(b))
+    for _ in 0..200 { b = c.decrypt(b) }
+    print("mc dec", ks, h(b))
+  }
+  let c2 = unwrap(aes.new_cipher(zeros(16)))
+  let (_, long) = rbytes(seed, 20)
+  print("long", h(c2.encrypt(long)))
+  try_enc("short enc", () => c2.encrypt(zeros(15)))
+  try_enc("short dec", () => c2.decrypt(zeros(3)))
+  try_enc("full enc", () => c2.encrypt(zeros(16)))
+}

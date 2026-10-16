@@ -1,0 +1,8 @@
+async fn num() -> Int { "不是整数" }
+async fn ok() -> Int { 1 }
+fn plain() -> Int { 2 }
+async fn main() {
+  let a: Int = ok()
+  let b = plain().await
+  let c: Str = ok().await
+}

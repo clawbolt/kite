@@ -1,0 +1,229 @@
+// std.mime.quotedprintable：quoted-printable 编码（对齐 Go 的 mime/quotedprintable，RFC 2045，算法逐行移植）
+//   Writer：new_writer()（Go 的 Binary 字段用 w.with_binary(true) 设置）；w.write(bs) / w.write_string(s) 返回新的 Writer；
+//           w.close() 写出最后一行；w.output() 取已写出的字节，w.output_string() 按 UTF-8 转成 Str（不合法时为 U+FFFD）
+//           每行最多 76 个字符，超出时插入软换行 "=\r\n"；行尾的空格/制表符编码成 =20 / =09；非 Binary 模式下换行统一成 \r\n
+//   Reader：new_reader(bs).read_all() -> Result<List<Int>, Str>，相当于 io.ReadAll(quotedprintable.NewReader(r)) 的错误；
+//           decode(bs) -> (List<Int>, Str)：返回出错前已解码的字节和错误信息（没有错误时为 ""），和 io.ReadAll 的两个返回值一致
+//   错误信息和 Go 相同："quotedprintable: invalid hex byte 0x..", "quotedprintable: invalid unescaped byte 0x.. in body",
+//           "quotedprintable: invalid bytes after =: \"...\"", "unexpected EOF"；
+//           和 Go 一样按 bufio.Reader 的 4096 字节缓冲读行，超长的行会得到 "bufio: buffer full"
+//   和 Go 的差别：Go 的 Writer/Reader 包着 io.Writer/io.Reader，这里直接处理内存里的字节。
+
+const LINE_MAX_LEN: Int = 76
+
+const UPPERHEX: Str = "0123456789ABCDEF"
+
+const LOWERHEX: Str = "0123456789abcdef"
+
+pub type Writer = { binary: Bool, line: List<Int>, cr: Bool, out: List<Int> }
+
+pub fn new_writer() -> Writer { Writer { binary: false, line: [], cr: false, out: [] } }
+
+fn is_ws(b: Int) -> Bool { b == 32 || b == 9 }
+
+fn hexb(s: Str, n: Int) -> Int { __bytes(s)[n] }
+
+impl Writer {
+  fn with_binary(self, binary: Bool) -> Writer { Writer { binary: binary, ..self } }
+
+  fn output(self) -> List<Int> { self.out }
+
+  fn output_string(self) -> Str { bytes_to_str(self.out) }
+
+  fn flush(self) -> Writer { Writer { out: self.out + self.line, line: [], ..self } }
+
+  fn insert_crlf(self) -> Writer { Writer { line: self.line + [13, 10], ..self }.flush() }
+
+  fn insert_soft_line_break(self) -> Writer { Writer { line: push(self.line, 61), ..self }.insert_crlf() }
+
+  fn encode(self, b: Int) -> Writer {
+    let w = if LINE_MAX_LEN - 1 - len(self.line) < 3 { self.insert_soft_line_break() } else { self }
+    Writer { line: w.line + [61, hexb(UPPERHEX, b >> 4), hexb(UPPERHEX, b & 15)], ..w }
+  }
+
+  fn check_last_byte(self) -> Writer {
+    let n = len(self.line)
+    if n == 0 { return self }
+    let b = self.line[n - 1]
+    if is_ws(b) { return Writer { line: self.line[..n - 1], ..self }.encode(b) }
+    self
+  }
+
+  fn write_raw(self, b: Int) -> Writer {
+    if b == 10 || b == 13 {
+      if self.cr && b == 10 { return Writer { cr: false, ..self } }
+      let w = Writer { cr: b == 13, ..self }
+      return w.check_last_byte().insert_crlf()
+    }
+    let w = if len(self.line) == LINE_MAX_LEN - 1 { self.insert_soft_line_break() } else { self }
+    Writer { line: push(w.line, b), cr: false, ..w }
+  }
+
+  fn write(self, p: List<Int>) -> Writer {
+    var w = self
+    for b in p {
+      if (b >= 33 && b <= 126 && b != 61) || is_ws(b) || (!w.binary && (b == 10 || b == 13)) {
+        w = w.write_raw(b)
+      } else {
+        w = w.encode(b)
+      }
+    }
+    w
+  }
+
+  fn write_string(self, s: Str) -> Writer { self.write(__bytes(s)) }
+
+  fn close(self) -> Writer { self.check_last_byte().flush() }
+}
+
+// 一次性编码
+pub fn encode(p: List<Int>, binary: Bool) -> List<Int> { new_writer().with_binary(binary).write(p).close().output() }
+
+fn bytes_to_str(bs: List<Int>) -> Str {
+  match __from_bytes(bs) {
+    Some(s) => s,
+    None    => {
+      var out = ""
+      var i = 0
+      while i < len(bs) {
+        let (r, k) = decode_rune_at(bs, i)
+        out = out + __chr(r)
+        i += k
+      }
+      out
+    },
+  }
+}
+
+fn decode_rune_at(p: List<Int>, i: Int) -> (Int, Int) {
+  let n = len(p) - i
+  let b0 = p[i]
+  if b0 < 0x80 { return (b0, 1) }
+  if b0 >= 0xc2 && b0 <= 0xdf && n >= 2 && (p[i + 1] & 0xc0) == 0x80 { return (((b0 & 0x1f) << 6) | (p[i + 1] & 0x3f), 2) }
+  if b0 >= 0xe0 && b0 <= 0xef && n >= 3 && (p[i + 1] & 0xc0) == 0x80 && (p[i + 2] & 0xc0) == 0x80 {
+    let r = ((b0 & 0xf) << 12) | ((p[i + 1] & 0x3f) << 6) | (p[i + 2] & 0x3f)
+    if r >= 0x800 && (r < 0xd800 || r > 0xdfff) { return (r, 3) }
+  }
+  if b0 >= 0xf0 && b0 <= 0xf4 && n >= 4 && (p[i + 1] & 0xc0) == 0x80 && (p[i + 2] & 0xc0) == 0x80 && (p[i + 3] & 0xc0) == 0x80 {
+    let r = ((b0 & 7) << 18) | ((p[i + 1] & 0x3f) << 12) | ((p[i + 2] & 0x3f) << 6) | (p[i + 3] & 0x3f)
+    if r >= 0x10000 && r <= 0x10ffff { return (r, 4) }
+  }
+  (0xfffd, 1)
+}
+
+// ───────── Reader ─────────
+pub type Reader = { src: List<Int> }
+
+pub fn new_reader(src: List<Int>) -> Reader { Reader { src: src } }
+
+fn hex2(b: Int) -> Str { __str_slice(LOWERHEX, b >> 4, (b >> 4) + 1) + __str_slice(LOWERHEX, b & 15, (b & 15) + 1) }
+
+fn from_hex(b: Int) -> Result<Int, Str> {
+  if b >= 48 && b <= 57 { return Ok(b - 48) }
+  if b >= 65 && b <= 70 { return Ok(b - 55) }
+  if b >= 97 && b <= 102 { return Ok(b - 87) }
+  Err("quotedprintable: invalid hex byte 0x" + hex2(b))
+}
+
+fn is_discard_ws(b: Int) -> Bool { b == 10 || b == 13 || b == 32 || b == 9 }
+
+// %q：只会碰到空白字符
+fn quote_ws(bs: List<Int>) -> Str {
+  var out = "\""
+  for b in bs {
+    out = out + if b == 10 { "\\n" } else if b == 13 { "\\r" } else if b == 9 { "\\t" } else { __chr(b) }
+  }
+  out + "\""
+}
+
+const BUF_SIZE: Int = 4096
+
+impl Reader {
+  fn read_all(self) -> Result<List<Int>, Str> {
+    let (bs, err) = decode(self.src)
+    if err != "" { Err(err) } else { Ok(bs) }
+  }
+}
+
+// io.ReadAll(NewReader(src))：已解码的字节 + 错误（"" 表示没有）
+pub fn decode(src: List<Int>) -> (List<Int>, Str) {
+  var out: List<Int> = []
+  var pos = 0
+  var rerr = ""
+  let n = len(src)
+  loop {
+    if rerr != "" {
+      return (out, if rerr == "EOF" { "" } else { rerr })
+    }
+    // bufio.ReadSlice('\n')
+    var j = pos
+    while j < n && j - pos < BUF_SIZE && src[j] != 10 { j += 1 }
+    var whole: List<Int> = []
+    if j - pos >= BUF_SIZE {
+      whole = src[pos..j]
+      pos = j
+      rerr = "bufio: buffer full"
+    } else if j < n && src[j] == 10 {
+      whole = src[pos..j + 1]
+      pos = j + 1
+    } else {
+      whole = src[pos..n]
+      pos = n
+      rerr = "EOF"
+    }
+    let wl = len(whole)
+    let has_lf = wl >= 1 && whole[wl - 1] == 10
+    let has_cr = wl >= 2 && whole[wl - 2] == 13 && whole[wl - 1] == 10
+    var e = wl
+    while e > 0 && is_discard_ws(whole[e - 1]) { e -= 1 }
+    var line = whole[..e]
+    if e > 0 && line[e - 1] == 61 {
+      var t = e
+      while t < wl && (whole[t] == 32 || whole[t] == 9) { t += 1 }
+      let rs = whole[t..]
+      line = line[..e - 1]
+      let pre_lf = len(rs) >= 1 && rs[0] == 10
+      let pre_crlf = len(rs) >= 2 && rs[0] == 13 && rs[1] == 10
+      if !pre_lf && !pre_crlf && !(len(rs) == 0 && len(line) > 0 && rerr == "EOF") {
+        rerr = "quotedprintable: invalid bytes after =: " + quote_ws(rs)
+      }
+    } else if has_lf {
+      line = if has_cr { line + [13, 10] } else { push(line, 10) }
+    }
+    var i = 0
+    let ln = len(line)
+    while i < ln {
+      var b = line[i]
+      if b == 61 {
+        if ln - (i + 1) < 2 {
+          if ln - i >= 2 && line[i + 1] != 13 && line[i + 1] != 10 {
+            b = 61
+          } else {
+            return (out, "unexpected EOF")
+          }
+        } else {
+          match from_hex(line[i + 1]) {
+            Ok(hb) => match from_hex(line[i + 2]) {
+              Ok(lb) => {
+                b = hb * 16 + lb
+                i += 2
+              },
+              Err(er) => {
+                if line[i + 1] != 13 && line[i + 1] != 10 { b = 61 } else { return (out, er) }
+              },
+            },
+            Err(er) => {
+              if line[i + 1] != 13 && line[i + 1] != 10 { b = 61 } else { return (out, er) }
+            },
+          }
+        }
+      } else if b == 9 || b == 13 || b == 10 || b >= 0x80 {
+        b = b
+      } else if b < 32 || b > 126 {
+        return (out, "quotedprintable: invalid unescaped byte 0x" + hex2(b) + " in body")
+      }
+      out = push(out, b)
+      i += 1
+    }
+  }
+}

@@ -1,0 +1,15 @@
+// 原生后端基准：递归 + 循环 + 闭包 + 列表
+fn fib(n: Int) -> Int {
+  if n < 2 { n } else { fib(n - 1) + fib(n - 2) }
+}
+
+fn main() {
+  var acc = 0
+  var i = 0
+  while i < 20000000 {
+    acc += i % 7
+    i += 1
+  }
+  let squares = 1..=1000000 |> map(x => x * x) |> filter(x => x % 3 == 0)
+  print(fib(32), acc, len(squares))
+}

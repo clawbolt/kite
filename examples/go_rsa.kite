@@ -1,0 +1,111 @@
+// 对齐 Go 1.27 的 crypto/rsa：tests/go/rsa.go（随机数用全是 0x5a 的读取器）
+use std.crypto.rsa
+use std.crypto.rsa.{ PrivateKey, PublicKey }
+use std.math.big
+use std.math.big.{ BigInt }
+use std.crypto.sha1
+use std.crypto.sha256
+use std.crypto.sha512
+use std.encoding.hex
+
+fn h(b: List<Int>) -> Str { hex.encode_bytes(b) }
+
+fn es<T>(r: Result<T, Str>) -> Str {
+  match r {
+    Ok(_) => "ok",
+    Err(e) => e,
+  }
+}
+
+fn hx(s: Str) -> BigInt { unwrap(big.parse(s, 16)) }
+
+fn parts(ps: Str, qs: Str, e: Int) -> (BigInt, BigInt, BigInt, BigInt) {
+  let p = hx(ps)
+  let q = hx(qs)
+  let phi = p.sub(big.one()).mul(q.sub(big.one()))
+  (p.mul(q), unwrap(big.new_int(e).mod_inverse(phi)), p, q)
+}
+
+fn key(ps: Str, qs: Str, e: Int) -> Result<PrivateKey, Str> {
+  let (n, d, p, q) = parts(ps, qs, e)
+  rsa.new_private_key(n, e, d, p, q)
+}
+
+fn rnd() -> List<Int> { map(0..512, (_) => 0x5a) }
+
+fn str_of(r: Result<List<Int>, Str>) -> Str {
+  match r {
+    Ok(b) => unwrap(__from_bytes(b)) + " ok",
+    Err(e) => " " + e,
+  }
+}
+
+fn hex_of(r: Result<List<Int>, Str>) -> Str {
+  match r {
+    Ok(b) => h(b) + " ok",
+    Err(e) => " " + e,
+  }
+}
+
+const P1: Str = "ea5b4ad269640369c2c2819e0ed1ab8192485b83645cf3e3f1de511010b81e03035b5f45485ca704c2cfc61145b4ca60622f58dcb6fabeda56acce02ff9a7099"
+const Q1: Str = "d1db38d976d002756561be61d561fbbb30de54da7aff34205c315b421a29f29af6bb40e4909b18930aa18e1fbb1f7fb48ca98d381a46f53bfc4a44ae38e84203"
+const P2: Str = "ec477e46f37eefdf573d2cb3e286ab9dd7c2061174ecd7c316ff86f6241e838f903921327455762dde282a9974a13f282144175f1896269492d7c9a7dff14dcb029d1659ef4e33ce01abc79b34f3342b7920cff21ba6f0a2392a9dcf47409e24901a726a9fdd5c7bb6c83208f154cdb63f122ab5c293d8484c39e52f9ff90e5f"
+const Q2: Str = "e1e2cfc9ca036a666d9b6c85460b27faf2f01c4215967e9985df47a5d329fe13448ed6b854044495b5d21e1c74755fb792ab132b7f0a31db270b1e6516986f8aa15e64c7d134822ac65ebc95424202adc7ae0ec375ba15db4911a490a3caa7c6b7db5f2e4725cddbdfa8691d6f249c9e378c6f89df787645bb779c531f6ecc65"
+const P3: Str = "cff7022d6bb066c7d892c3a8e63386544917f04fecf8a27d34569671d85ca3a1"
+const Q3: Str = "c2cc2ba6ab8c5f1c139c3e1bbf3e4f52fb67f1bc4f1f1c83ccdfc1df605b9b7d"
+
+fn main() {
+  let k1 = unwrap(key(P1, Q1, 65537))
+  print("K1 ok " + h(k1.dp.bytes()) + " " + h(k1.qinv.bytes()))
+  let pub_ = k1.pub_
+  let d = sha256.digest(__bytes("hello"))
+  let s1 = unwrap(rsa.sign_pkcs1v15(k1, 5, d))
+  print("S1 " + h(s1) + " ok")
+  print("V1 " + es(rsa.verify_pkcs1v15(pub_, 5, d, s1)))
+  let d2 = set(d, 0, d[0] ^ 1)
+  print("V1b " + es(rsa.verify_pkcs1v15(pub_, 5, d2, s1)))
+  print("V1c " + es(rsa.verify_pkcs1v15(pub_, 5, d, s1[1..])))
+  print("V1d " + es(rsa.verify_pkcs1v15(pub_, 5, d[..10], s1)))
+  print("V1e " + es(rsa.verify_pkcs1v15(pub_, 7, d, s1)))
+  let ff = map(0..128, (_) => 0xff)
+  print("V1f " + es(rsa.verify_pkcs1v15(pub_, 5, d, ff)))
+  let raw = __bytes("raw message, no hash")
+  let s2 = unwrap(rsa.sign_pkcs1v15(k1, 0, raw))
+  print("S2 " + h(s2) + " ok")
+  print("V2 " + es(rsa.verify_pkcs1v15(pub_, 0, raw, s2)))
+  print("S2b " + es(rsa.sign_pkcs1v15(k1, 0, map(0..120, (_) => 0))))
+  let ds = sha1.digest(__bytes("pss"))
+  let s3 = unwrap(rsa.sign_pss(rnd(), k1, 3, ds, 0))
+  print("S3 " + h(s3) + " ok")
+  print("V3 " + es(rsa.verify_pss(pub_, 3, ds, s3, 0)) + " " + es(rsa.verify_pss(pub_, 3, ds, s3, 20)))
+  let d5 = sha512.digest384(__bytes("pss2"))
+  let s4 = unwrap(rsa.sign_pss(rnd(), k1, 6, d5, -1))
+  print("S4 " + h(s4) + " ok")
+  print("V4 " + es(rsa.verify_pss(pub_, 6, d5, s4, -1)) + " " + es(rsa.verify_pss(pub_, 6, d5, s4, 0)) + " " + es(rsa.verify_pss(pub_, 6, d5, s4, 10)))
+  print("S5 " + es(rsa.sign_pss(rnd(), k1, 3, ds, -2)))
+  print("S6 " + es(rsa.sign_pss(rnd(), k1, 7, d, 0)))
+  let c1 = unwrap(rsa.encrypt_oaep(5, rnd(), pub_, __bytes("secret"), __bytes("label")))
+  print("E1 " + h(c1) + " ok")
+  print("D1 " + str_of(rsa.decrypt_oaep(5, k1, c1, __bytes("label"))))
+  print("D1b " + es(rsa.decrypt_oaep(5, k1, c1, __bytes("lab"))))
+  print("E1b " + es(rsa.encrypt_oaep(5, rnd(), pub_, map(0..63, (_) => 0), [])))
+  print("D1c " + es(rsa.decrypt_oaep(5, k1, ff, [])))
+  let c2 = unwrap(rsa.encrypt_pkcs1v15(rnd(), pub_, __bytes("v15 message")))
+  print("E2 " + h(c2) + " ok")
+  print("D2 " + str_of(rsa.decrypt_pkcs1v15(k1, c2)))
+  print("E2b " + es(rsa.encrypt_pkcs1v15(rnd(), pub_, map(0..118, (_) => 0))))
+  let k2 = unwrap(key(P2, Q2, 3))
+  print("K2 ok {k2.pub_.n.bit_len()}")
+  print("E3 " + hex_of(rsa.encrypt_oaep(3, rnd(), k2.pub_, __bytes("x"), [])))
+  print("E4 " + hex_of(rsa.encrypt_pkcs1v15(rnd(), k2.pub_, [])))
+  print("V5 " + es(rsa.verify_pkcs1v15(k2.pub_, 5, d, s1)))
+  let k3 = unwrap(key(P3, Q3, 65537))
+  print("K3 ok")
+  print("S7 " + es(rsa.sign_pkcs1v15(k3, 5, d)))
+  print("V6 " + es(rsa.verify_pss(k3.pub_, 5, d, s1, 0)))
+  let (n, dd, p, q) = parts(P1, Q1, 65537)
+  print("BAD 0 " + es(rsa.new_private_key(n, 65537, dd.add(big.new_int(2)), p, q)))
+  print("BAD 1 " + es(rsa.new_private_key(n.add(big.new_int(2)), 65537, dd, p, q)))
+  print("BAD 2 " + es(rsa.new_private_key(n, 4, dd, p, q)))
+  print("BAD 3 " + es(rsa.new_private_key(n, 1, dd, p, q)))
+}

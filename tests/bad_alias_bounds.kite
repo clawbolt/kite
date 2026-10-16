@@ -1,0 +1,6 @@
+type Sorted<T: Ord> = List<T>
+type Blob = { x: Int }
+fn main() {
+  let b: Sorted<Blob> = []
+  print(b)
+}

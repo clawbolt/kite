@@ -1,0 +1,328 @@
+CASE go
+  Ident "package" go:2:1 11 go:2:8
+  Ident "main" go:2:9 19 go:2:13
+  Ident "import" go:4:1 25 go:4:7
+  String "\"fmt\"" go:4:8 32 go:4:13
+  Ident "func" go:6:1 39 go:6:5
+  Ident "main" go:6:6 44 go:6:10
+  "(" "(" go:6:10 48 go:6:11
+  ")" ")" go:6:11 49 go:6:12
+  "{" "{" go:6:13 51 go:6:14
+  Ident "x" go:7:2 54 go:7:3
+  ":" ":" go:7:4 56 go:7:5
+  "=" "=" go:7:5 57 go:7:6
+  Int "0x1F" go:7:7 59 go:7:11
+  "+" "+" go:7:12 64 go:7:13
+  Int "0o17" go:7:14 66 go:7:18
+  "+" "+" go:7:19 71 go:7:20
+  Int "0b101" go:7:21 73 go:7:26
+  "+" "+" go:7:27 79 go:7:28
+  Int "1_000" go:7:29 81 go:7:34
+  "+" "+" go:7:35 87 go:7:36
+  Float "3.14e-2" go:7:37 89 go:7:44
+  "+" "+" go:7:45 97 go:7:46
+  Float ".5" go:7:47 99 go:7:49
+  "+" "+" go:7:50 102 go:7:51
+  Float "0x1p-2" go:7:52 104 go:7:58
+  "+" "+" go:7:59 111 go:7:60
+  Char "'a'" go:7:61 113 go:7:64
+  "+" "+" go:7:65 117 go:7:66
+  Char "'\\n'" go:7:67 119 go:7:71
+  Ident "s" go:8:2 125 go:8:3
+  ":" ":" go:8:4 127 go:8:5
+  "=" "=" go:8:5 128 go:8:6
+  RawString "`raw\nstring`" go:8:7 130 go:9:8
+  "+" "+" go:9:9 143 go:9:10
+  String "\"esc\\t\\u00e9\\\"\"" go:9:11 145 go:9:26
+  Ident "fmt" go:11:13 183 go:11:16
+  "." "." go:11:16 186 go:11:17
+  Ident "Println" go:11:17 187 go:11:24
+  "(" "(" go:11:24 194 go:11:25
+  Ident "x" go:11:25 195 go:11:26
+  "," "," go:11:26 196 go:11:27
+  Ident "s" go:11:28 198 go:11:29
+  ")" ")" go:11:29 199 go:11:30
+  "}" "}" go:12:1 213 go:12:2
+  EOF "" go:13:1 215 go:13:1
+  count 0
+CASE comments
+  Comment "// comment" comments:1:1 0 comments:1:11
+  Ident "package" comments:2:1 11 comments:2:8
+  Ident "main" comments:2:9 19 comments:2:13
+  Ident "import" comments:4:1 25 comments:4:7
+  "\"" "\"" comments:4:8 32 comments:4:9
+  Ident "fmt" comments:4:9 33 comments:4:12
+  "\"" "\"" comments:4:12 36 comments:4:13
+  Ident "func" comments:6:1 39 comments:6:5
+  Ident "main" comments:6:6 44 comments:6:10
+  "(" "(" comments:6:10 48 comments:6:11
+  ")" ")" comments:6:11 49 comments:6:12
+  "{" "{" comments:6:13 51 comments:6:14
+  Ident "x" comments:7:2 54 comments:7:3
+  ":" ":" comments:7:4 56 comments:7:5
+  "=" "=" comments:7:5 57 comments:7:6
+  Int "0x1F" comments:7:7 59 comments:7:11
+  "+" "+" comments:7:12 64 comments:7:13
+  Int "0o17" comments:7:14 66 comments:7:18
+  "+" "+" comments:7:19 71 comments:7:20
+  Int "0b101" comments:7:21 73 comments:7:26
+  "+" "+" comments:7:27 79 comments:7:28
+  Int "1_000" comments:7:29 81 comments:7:34
+  "+" "+" comments:7:35 87 comments:7:36
+  Int "3" comments:7:37 89 comments:7:38
+  "." "." comments:7:38 90 comments:7:39
+  Int "14" comments:7:39 91 comments:7:41
+  Ident "e" comments:7:41 93 comments:7:42
+  "-" "-" comments:7:42 94 comments:7:43
+  Int "2" comments:7:43 95 comments:7:44
+  "+" "+" comments:7:45 97 comments:7:46
+  "." "." comments:7:47 99 comments:7:48
+  Int "5" comments:7:48 100 comments:7:49
+  "+" "+" comments:7:50 102 comments:7:51
+  Int "0x1" comments:7:52 104 comments:7:55
+  Ident "p" comments:7:55 107 comments:7:56
+  "-" "-" comments:7:56 108 comments:7:57
+  Int "2" comments:7:57 109 comments:7:58
+  "+" "+" comments:7:59 111 comments:7:60
+  "'" "'" comments:7:61 113 comments:7:62
+  Ident "a" comments:7:62 114 comments:7:63
+  "'" "'" comments:7:63 115 comments:7:64
+  "+" "+" comments:7:65 117 comments:7:66
+  "'" "'" comments:7:67 119 comments:7:68
+  "\\" "\\" comments:7:68 120 comments:7:69
+  Ident "n" comments:7:69 121 comments:7:70
+  "'" "'" comments:7:70 122 comments:7:71
+  Ident "s" comments:8:2 125 comments:8:3
+  ":" ":" comments:8:4 127 comments:8:5
+  "=" "=" comments:8:5 128 comments:8:6
+  "`" "`" comments:8:7 130 comments:8:8
+  Ident "raw" comments:8:8 131 comments:8:11
+  Ident "string" comments:9:1 135 comments:9:7
+  "`" "`" comments:9:7 141 comments:9:8
+  "+" "+" comments:9:9 143 comments:9:10
+  "\"" "\"" comments:9:11 145 comments:9:12
+  Ident "esc" comments:9:12 146 comments:9:15
+  "\\" "\\" comments:9:15 149 comments:9:16
+  Ident "t" comments:9:16 150 comments:9:17
+  "\\" "\\" comments:9:17 151 comments:9:18
+  Ident "u00e9" comments:9:18 152 comments:9:23
+  "\\" "\\" comments:9:23 157 comments:9:24
+  "\"" "\"" comments:9:24 158 comments:9:25
+  "\"" "\"" comments:9:25 159 comments:9:26
+  Comment "/* block\n comment */" comments:10:2 162 comments:11:12
+  Ident "fmt" comments:11:13 183 comments:11:16
+  "." "." comments:11:16 186 comments:11:17
+  Ident "Println" comments:11:17 187 comments:11:24
+  "(" "(" comments:11:24 194 comments:11:25
+  Ident "x" comments:11:25 195 comments:11:26
+  "," "," comments:11:26 196 comments:11:27
+  Ident "s" comments:11:28 198 comments:11:29
+  ")" ")" comments:11:29 199 comments:11:30
+  Comment "// trailing" comments:11:31 201 comments:11:42
+  "}" "}" comments:12:1 213 comments:12:2
+  EOF "" comments:13:1 215 comments:13:1
+  count 0
+CASE idents
+  "/" "/" idents:1:1 0 idents:1:2
+  "/" "/" idents:1:2 1 idents:1:3
+  Ident "comment" idents:1:4 3 idents:1:11
+  Ident "package" idents:2:1 11 idents:2:8
+  Ident "main" idents:2:9 19 idents:2:13
+  Ident "import" idents:4:1 25 idents:4:7
+  "\"" "\"" idents:4:8 32 idents:4:9
+  Ident "fmt" idents:4:9 33 idents:4:12
+  "\"" "\"" idents:4:12 36 idents:4:13
+  Ident "func" idents:6:1 39 idents:6:5
+  Ident "main" idents:6:6 44 idents:6:10
+  "(" "(" idents:6:10 48 idents:6:11
+  ")" ")" idents:6:11 49 idents:6:12
+  "{" "{" idents:6:13 51 idents:6:14
+  Ident "x" idents:7:2 54 idents:7:3
+  ":" ":" idents:7:4 56 idents:7:5
+  "=" "=" idents:7:5 57 idents:7:6
+  Int "0x1F" idents:7:7 59 idents:7:11
+  "+" "+" idents:7:12 64 idents:7:13
+  Int "0o17" idents:7:14 66 idents:7:18
+  "+" "+" idents:7:19 71 idents:7:20
+  Int "0b101" idents:7:21 73 idents:7:26
+  "+" "+" idents:7:27 79 idents:7:28
+  Int "1_000" idents:7:29 81 idents:7:34
+  "+" "+" idents:7:35 87 idents:7:36
+  Int "3" idents:7:37 89 idents:7:38
+  "." "." idents:7:38 90 idents:7:39
+  Int "14" idents:7:39 91 idents:7:41
+  Ident "e" idents:7:41 93 idents:7:42
+  "-" "-" idents:7:42 94 idents:7:43
+  Int "2" idents:7:43 95 idents:7:44
+  "+" "+" idents:7:45 97 idents:7:46
+  "." "." idents:7:47 99 idents:7:48
+  Int "5" idents:7:48 100 idents:7:49
+  "+" "+" idents:7:50 102 idents:7:51
+  Int "0x1" idents:7:52 104 idents:7:55
+  Ident "p" idents:7:55 107 idents:7:56
+  "-" "-" idents:7:56 108 idents:7:57
+  Int "2" idents:7:57 109 idents:7:58
+  "+" "+" idents:7:59 111 idents:7:60
+  "'" "'" idents:7:61 113 idents:7:62
+  Ident "a" idents:7:62 114 idents:7:63
+  "'" "'" idents:7:63 115 idents:7:64
+  "+" "+" idents:7:65 117 idents:7:66
+  "'" "'" idents:7:67 119 idents:7:68
+  "\\" "\\" idents:7:68 120 idents:7:69
+  Ident "n" idents:7:69 121 idents:7:70
+  "'" "'" idents:7:70 122 idents:7:71
+  Ident "s" idents:8:2 125 idents:8:3
+  ":" ":" idents:8:4 127 idents:8:5
+  "=" "=" idents:8:5 128 idents:8:6
+  "`" "`" idents:8:7 130 idents:8:8
+  Ident "raw" idents:8:8 131 idents:8:11
+  Ident "string" idents:9:1 135 idents:9:7
+  "`" "`" idents:9:7 141 idents:9:8
+  "+" "+" idents:9:9 143 idents:9:10
+  "\"" "\"" idents:9:11 145 idents:9:12
+  Ident "esc" idents:9:12 146 idents:9:15
+  "\\" "\\" idents:9:15 149 idents:9:16
+  Ident "t" idents:9:16 150 idents:9:17
+  "\\" "\\" idents:9:17 151 idents:9:18
+  Ident "u00e9" idents:9:18 152 idents:9:23
+  "\\" "\\" idents:9:23 157 idents:9:24
+  "\"" "\"" idents:9:24 158 idents:9:25
+  "\"" "\"" idents:9:25 159 idents:9:26
+  "/" "/" idents:10:2 162 idents:10:3
+  "*" "*" idents:10:3 163 idents:10:4
+  Ident "block" idents:10:5 165 idents:10:10
+  Ident "comment" idents:11:2 172 idents:11:9
+  "*" "*" idents:11:10 180 idents:11:11
+  "/" "/" idents:11:11 181 idents:11:12
+  Ident "fmt" idents:11:13 183 idents:11:16
+  "." "." idents:11:16 186 idents:11:17
+  Ident "Println" idents:11:17 187 idents:11:24
+  "(" "(" idents:11:24 194 idents:11:25
+  Ident "x" idents:11:25 195 idents:11:26
+  "," "," idents:11:26 196 idents:11:27
+  Ident "s" idents:11:28 198 idents:11:29
+  ")" ")" idents:11:29 199 idents:11:30
+  "/" "/" idents:11:31 201 idents:11:32
+  "/" "/" idents:11:32 202 idents:11:33
+  Ident "trailing" idents:11:34 204 idents:11:42
+  "}" "}" idents:12:1 213 idents:12:2
+  EOF "" idents:13:1 215 idents:13:1
+  count 0
+CASE bad
+  ERR bad:1:3 2 bad:1:1 hexadecimal literal has no digits
+  Int "0x" bad:1:1 0 bad:1:3
+  ERR bad:1:7 6 bad:1:4 invalid digit '2' in binary literal
+  Int "0b2" bad:1:4 3 bad:1:7
+  ERR bad:1:11 10 bad:1:8 invalid digit '9' in octal literal
+  Int "0o9" bad:1:8 7 bad:1:11
+  ERR bad:1:14 13 bad:1:12 invalid digit '8' in octal literal
+  Int "08" bad:1:12 11 bad:1:14
+  ERR bad:1:19 18 bad:1:15 '_' must separate successive digits
+  Int "1__0" bad:1:15 14 bad:1:19
+  Ident "_1" bad:1:20 19 bad:1:22
+  ERR bad:1:28 27 bad:1:23 hexadecimal mantissa requires a 'p' exponent
+  Float "0x1.8" bad:1:23 22 bad:1:28
+  ERR bad:1:33 32 bad:1:29 invalid radix point in binary literal
+  Float "0b1.0" bad:1:29 28 bad:1:34
+  ERR bad:1:37 36 bad:1:35 exponent has no digits
+  Float "1e" bad:1:35 34 bad:1:37
+  ERR bad:1:39 38 bad:1:38 'p' exponent requires hexadecimal mantissa
+  Float "1p3" bad:1:38 37 bad:1:41
+  Int "0x1e" bad:1:42 41 bad:1:46
+  "+" "+" bad:1:46 45 bad:1:47
+  ERR bad:1:51 50 bad:1:48 invalid char literal
+  Char "'ab'" bad:1:48 47 bad:1:52
+  ERR bad:1:54 53 bad:1:53 invalid char literal
+  Char "''" bad:1:53 52 bad:1:55
+  ERR bad:1:72 71 bad:1:56 literal not terminated
+  ERR bad:1:72 71 bad:1:56 invalid char literal
+  Char "'x \"unterminated\n" bad:1:56 55 bad:2:1
+  ERR bad:2:14 85 bad:2:2 literal not terminated
+  RawString "`raw /* open" bad:2:2 73 bad:2:14
+  EOF "" bad:2:14 85 bad:2:14
+  count 14
+CASE escapes
+  ERR escapes:1:3 2 escapes:1:1 invalid char escape
+  String "\"\\q\"" escapes:1:1 0 escapes:1:5
+  ERR escapes:1:10 9 escapes:1:6 invalid char escape
+  String "\"\\x4\"" escapes:1:6 5 escapes:1:11
+  ERR escapes:1:17 16 escapes:1:12 invalid char escape
+  String "\"\\u12\"" escapes:1:12 11 escapes:1:18
+  String "\"\\777\"" escapes:1:19 18 escapes:1:25
+  String "\"\\U0010FFFF\"" escapes:1:26 25 escapes:1:38
+  Char "'\\''" escapes:1:39 38 escapes:1:43
+  ERR escapes:1:47 46 escapes:1:44 invalid char escape
+  String "\"\\0\"" escapes:1:44 43 escapes:1:48
+  Char "'\\400'" escapes:1:49 48 escapes:1:55
+  EOF "" escapes:1:55 54 escapes:1:55
+  count 4
+CASE unicode
+  Ident "héllo" unicode:1:2 3 unicode:1:7
+  Ident "世界" unicode:1:8 10 unicode:1:10
+  Ident "x" unicode:1:11 17 unicode:1:12
+  "₁" "₁" unicode:1:12 18 unicode:1:13
+  "٣" "٣" unicode:1:14 22 unicode:1:15
+  "٤" "٤" unicode:1:15 24 unicode:1:16
+  Ident "αβγ" unicode:1:17 27 unicode:1:20
+  ERR unicode:1:21 34 unicode invalid UTF-8 encoding
+  ERR unicode:1:22 35 unicode:1:21 invalid UTF-8 encoding
+  "�" "\xff" unicode:1:21 34 unicode:1:22
+  "�" "\xfe" unicode:1:22 35 unicode:1:23
+  ERR unicode:1:27 40 unicode:1:24 invalid character NUL
+  Ident "abc" unicode:1:24 37 unicode:1:27
+  "\x00" "\x00" unicode:1:27 40 unicode:1:28
+  Ident "def" unicode:1:28 41 unicode:1:31
+  EOF "" unicode:1:31 44 unicode:1:31
+  count 3
+CASE ws
+  Ident "a" ws:1:1 0 ws:1:2
+  "\n" "\n" ws:1:2 1 ws:2:1
+  Ident "b" ws:2:1 2 ws:2:2
+  Ident "c" ws:2:3 4 ws:2:4
+  Ident "d" ws:2:6 7 ws:2:7
+  "\r" "\r" ws:2:7 8 ws:2:8
+  "\n" "\n" ws:2:8 9 ws:3:1
+  Ident "e" ws:3:1 10 ws:3:2
+  EOF "" ws:3:2 11 ws:3:2
+  count 0
+CASE ident-rune
+  Ident "foo-bar" ident-rune:1:1 0 ident-rune:1:8
+  Ident "$x" ident-rune:1:9 8 ident-rune:1:11
+  Ident "a" ident-rune:1:12 11 ident-rune:1:13
+  "." "." ident-rune:1:13 12 ident-rune:1:14
+  Ident "b" ident-rune:1:14 13 ident-rune:1:15
+  Int "9" ident-rune:1:16 15 ident-rune:1:17
+  Ident "z" ident-rune:1:17 16 ident-rune:1:18
+  EOF "" ident-rune:1:18 17 ident-rune:1:18
+  count 0
+CASE empty
+  EOF "" empty 0 empty:1:1
+  count 0
+CASE only-ws
+  EOF "" only-ws:3:3 6 only-ws:3:3
+  count 0
+CASE nums
+  Int "1" nums:1:1 0 nums:1:2
+  Int "12" nums:1:3 2 nums:1:5
+  Int "012" nums:1:6 5 nums:1:9
+  Int "0X_1" nums:1:10 9 nums:1:14
+  Float "1.e5" nums:1:15 14 nums:1:19
+  Float "1.5E+10" nums:1:20 19 nums:1:27
+  Float "0.e-1_0" nums:1:28 27 nums:1:35
+  Int "00" nums:1:36 35 nums:1:38
+  Int "0_7" nums:1:39 38 nums:1:42
+  Float "9.9" nums:1:43 42 nums:1:46
+  Float ".9" nums:1:46 45 nums:1:48
+  EOF "" nums:1:48 47 nums:1:48
+  count 0
+NEXT 97 97 <input>:1:2 1
+NEXT 98 98 <input>:1:3 2
+NEXT 10 10 <input>:2:1 3
+NEXT 99 99 <input>:2:2 4
+NEXT 233 233 <input>:2:3 6
+NEXT -1 -1 <input>:2:3 6
+TS "a"
+TS "\n"
+TS "世"
+TS "�"
+TS "�"

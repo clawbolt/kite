@@ -1,0 +1,4 @@
+fn main() {
+  let (_, n) = actor(0, (s: Int, m: Int) => s + m, a => tell(a, "一"))
+  print(n)
+}

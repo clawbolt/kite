@@ -1,0 +1,35 @@
+// unsafe fn：调用处必须在 unsafe { … } 里；函数体本身是 unsafe 上下文
+extern "C" {
+  fn labs(x: Int) -> Int
+  unsafe fn strlen(s: Str) -> Int
+}
+
+// 调用者必须保证 n >= 0
+unsafe fn fast_abs(n: Int) -> Int {
+  labs(n)                     // unsafe fn 体内本身就是 unsafe 上下文
+}
+
+type Buf = { s: Str }
+
+impl Buf {
+  unsafe fn raw_len(self) -> Int { strlen(self.s) }
+  fn new(s: Str) -> Buf { Buf { s: s } }
+  unsafe fn make(s: Str) -> Buf { Buf { s: s } }
+}
+
+trait Raw {
+  unsafe fn peek(self) -> Int
+}
+
+impl Raw for Buf {
+  unsafe fn peek(self) -> Int { 7 }
+}
+
+fn main() {
+  let b = Buf.new("kite")
+  unsafe {
+    print(fast_abs(-5), b.raw_len(), b.peek(), Buf.make("ab").raw_len())
+  }
+  let f = unsafe { fast_abs }
+  print(unsafe { f(-9) })
+}

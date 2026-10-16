@@ -1,0 +1,109 @@
+// std.encoding.pem：PEM 编码（对齐 Go 的 encoding/pem）
+//   Block { typ, headers, bytes }（Go 的 Type 字段在 Kite 里叫 typ）
+//   decode(data) -> (Option<Block>, 剩下的文本)；encode(b) -> Result<Str, Str>；encode_to_memory(b) -> Option<Str>
+//   规则和 Go 相同：头部 "键: 值"，Proc-Type 排第一、其余按键排序；正文 base64 每行 64 个字符
+
+use std.encoding.base64
+use std.strings
+
+pub type Block = { typ: Str, headers: Map<Str, Str>, bytes: List<Int> }
+
+fn get_line(data: Str) -> (Str, Str) {
+  match strings.find(data, "\n") {
+    None    => (strings.trim_right_chars(data, " \t"), ""),
+    Some(i) => {
+      var e = i
+      if i > 0 && strings.slice(data, i - 1, i) == "\r" { e = i - 1 }
+      (strings.trim_right_chars(strings.slice(data, 0, e), " \t"), strings.slice(data, i + 1, len(data)))
+    },
+  }
+}
+
+fn drop(s: Str, n: Int) -> Str { strings.slice(s, n, len(s)) }
+
+pub fn decode(data: Str) -> (Option<Block>, Str) {
+  var rest = data
+  loop {
+    if starts_with(rest, "-----BEGIN ") {
+      rest = drop(rest, 11)
+    } else {
+      match strings.find(rest, "\n-----BEGIN ") {
+        Some(i) => { rest = drop(rest, i + 12) },
+        None    => { return (None, data) },
+      }
+    }
+    let (tl, r1) = get_line(rest)
+    rest = r1
+    if !ends_with(tl, "-----") { continue }
+    let typ = strings.slice(tl, 0, len(tl) - 5)
+    var headers: Map<Str, Str> = Map()
+    loop {
+      if rest == "" { return (None, data) }
+      let (line, next) = get_line(rest)
+      match strings.cut(line, ":") {
+        None           => { break },
+        Some((k, v))   => {
+          headers = set(headers, trim(k), trim(v))
+          rest = next
+        },
+      }
+    }
+    var end_index = 0
+    var trailer_index = 0
+    if len(headers) == 0 && starts_with(rest, "-----END ") {
+      end_index = 0
+      trailer_index = 9
+    } else {
+      match strings.find(rest, "\n-----END ") {
+        Some(i) => {
+          end_index = i
+          trailer_index = i + 10
+        },
+        None    => { continue },
+      }
+    }
+    let et0 = drop(rest, trailer_index)
+    let etl = len(typ) + 5
+    if len(et0) < etl { continue }
+    let rest_of_end = drop(et0, etl)
+    let et = strings.slice(et0, 0, etl)
+    if !starts_with(et, typ) || !ends_with(et, "-----") { continue }
+    let (s, _) = get_line(rest_of_end)
+    if s != "" { continue }
+    let b64 = replace(replace(strings.slice(rest, 0, end_index), " ", ""), "\t", "")
+    match base64.std_encoding().decode_string(b64) {
+      Err(_) => { continue },
+      Ok(bs) => {
+        let (_, after) = get_line(drop(rest, end_index + 9))
+        return (Some(Block { typ: typ, headers: headers, bytes: bs }), after)
+      },
+    }
+  }
+}
+
+pub fn encode(b: Block) -> Result<Str, Str> {
+  for k in keys(b.headers) {
+    if contains(k, ":") { return Err("pem: cannot encode a header key that contains a colon") }
+  }
+  var out = "-----BEGIN " + b.typ + "-----\n"
+  if len(b.headers) > 0 {
+    if contains(b.headers, "Proc-Type") { out = out + "Proc-Type: " + b.headers["Proc-Type"] + "\n" }
+    for k in sort(filter(keys(b.headers), (k) => k != "Proc-Type")) { out = out + k + ": " + b.headers[k] + "\n" }
+    out = out + "\n"
+  }
+  let enc = base64.std_encoding().encode_to_string(b.bytes)
+  var i = 0
+  while i < len(enc) {
+    let e = if i + 64 < len(enc) { i + 64 } else { len(enc) }
+    out = out + strings.slice(enc, i, e) + "\n"
+    i += 64
+  }
+  Ok(out + "-----END " + b.typ + "-----\n")
+}
+
+pub fn encode_to_memory(b: Block) -> Option<Str> {
+  match encode(b) {
+    Ok(s)  => Some(s),
+    Err(_) => None,
+  }
+}

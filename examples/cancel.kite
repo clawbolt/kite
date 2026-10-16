@@ -1,0 +1,73 @@
+// 结构化取消
+//   race { a, b, ... }   各项并发执行，第一个完成的胜出，其余被取消；等全部停下才返回
+//   timeout(ms, f)        f 按时完成返回 Some(结果)，否则取消 f 返回 None
+// 被取消的任务在下一个取消点（函数入口、循环回边、通道收发、select、sleep）停下，
+// 沿调用栈执行各层 defer 后结束；取消会传给它的所有后代任务
+fn spin() -> Int {
+  var i = 0
+  while true { i += 1 }
+  i
+}
+
+fn fetch(name: Str, ms: Int, log: Chan<Str>) -> Str {
+  defer send(log, "{name} 收尾")
+  sleep(ms)
+  "{name} 的结果"
+}
+
+fn main() {
+  let log: Chan<Str> = chan(100)
+
+  // 1. 对冲请求：三个副本谁先回来用谁，其余取消（各自的 defer 仍会执行）
+  let fastest = race {
+    fetch("副本A", 300, log),
+    fetch("副本B", 5, log),
+    fetch("副本C", 300, log),
+  }
+  print(fastest)
+
+  // 2. 超时：死循环也能被取消
+  print("spin:", timeout(20, () => spin()))
+  print("按时:", timeout(2000, () => 6 * 7))
+
+  // 3. 取消会传给后代：被取消任务里 spawn 出的子任务也一起停下（一个在睡，一个在死循环）
+  let nested = timeout(20, () => {
+    let (a, b) = spawn {
+      {
+        defer send(log, "子任务1 收尾")
+        sleep(100000)
+        0
+      },
+      {
+        defer send(log, "子任务2 收尾")
+        spin()
+      },
+    }
+    a + b
+  })
+  print("嵌套:", nested)
+
+  // 4. 阻塞在通道上的任务被取消时立刻醒来
+  let never: Chan<Int> = chan()
+  let blocked = timeout(10, () => {
+    defer send(log, "等待者 收尾")
+    unwrap(recv(never))
+  })
+  print("等待:", blocked)
+
+  // 5. 清理代码本身不会再被取消：defer 里可以安全地做阻塞操作
+  let ack: Chan<Str> = chan()
+  let (_, got) = spawn {
+    timeout(10, () => {
+      defer send(ack, "清理时发出的确认")
+      spin()
+    }),
+    unwrap(recv(ack)),
+  }
+  print("确认:", got)
+
+  close(log)
+  var lines = []
+  for m in log { lines = push(lines, m) }
+  print(sort(lines))
+}

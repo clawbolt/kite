@@ -1,0 +1,32 @@
+// 用 Kite 写的标准库模块：std.encoding.json、std.strings、std.time、std.env、std.process
+use std.encoding.json
+use std.strings
+use std.time
+use std.env
+use std.process
+
+fn main() {
+  let r = json.parse("\{\"name\": \"小明\", \"age\": 30, \"tags\": [\"a\", \"b\\n\", 1.5e2, -0.25, true, null], \"u\": \"\\u4e2d\\ud83d\\ude00\"\}")
+  match r {
+    Ok(v) => {
+      print(json.stringify(v))
+      print(json.pretty(v))
+      print(json.field(v, "age"), json.field(v, "name") |> unwrap |> json.as_str)
+    },
+    Err(e) => print(e),
+  }
+  print(json.parse("[1, 2,]"))
+  print(json.parse("\{\"a\" 1\}"))
+  print(json.stringify(JObj(Map([("z", JInt(1)), ("a", JArr([JNum(2.5), JStr("q\"\t")]))]))))
+  print(strings.find("héllo wörld", "wö"), strings.slice("héllo", 1, 3), strings.lines("a\nb\r\nc\n"), json.stringify(JStr("x\ry")))
+  print(strings.pad_left("7", 3, "0"), strings.repeat("ab", 3), strings.count("aaaa", "aa"), strings.strip_prefix("v1.2", "v"))
+  print(strings.ord("中"), strings.chr(20013), strings.is_digit("5"), strings.is_alpha("x"))
+  print(time.format_utc(0), time.format_utc(1791436800123), time.format_utc(951782400000))
+  let t = time.mono_ms()
+  time.sleep_ms(5)
+  print(time.since_ms(t) >= 5, time.unix_ms() > 1700000000000)
+  print(env.get_or("KITE_NOPE", "默认"), env.get("HOME") |> is_some, env.args())
+  print(process.run("echo hi; exit 3"), process.output("printf ok"), process.output("false"))
+  process.exit(0)
+  print("不会执行")
+}

@@ -1,0 +1,39 @@
+trait Shape {
+  const SIDES: Int
+  const NAME: Str = "shape"
+}
+
+type Tri = { a: Float }
+type Sq = { a: Float }
+
+impl Shape for Tri {
+  const SIDES: Int = 3
+  const NAME: Str = "triangle"
+}
+
+impl Shape for Sq {
+  const SIDES: Int = 4
+}
+
+fn sides<T: Shape>() -> Int { T.SIDES }
+
+fn describe<T: Shape>(x: T) -> Str { "{T.NAME} with {T.SIDES} sides" }
+
+fn total<T: Shape>(xs: List<T>) -> Int { xs.len() * sides.<T>() }
+
+fn wrap<U: Shape>(u: U) -> Str { describe(u) + "!" }
+
+type Grid<T> = { cells: List<Int> }
+
+impl<T: Shape> Grid<T> {
+  fn corners(self) -> Int { T.SIDES * self.cells.len() }
+}
+
+fn main() {
+  print(sides.<Tri>(), sides.<Sq>())
+  print(describe(Tri { a: 1.0 }), describe(Sq { a: 2.0 }))
+  print(total([Sq { a: 1.0 }, Sq { a: 2.0 }]))
+  print(wrap(Tri { a: 1.0 }))
+  let g: Grid<Sq> = Grid { cells: [1, 2] }
+  print(g.corners())
+}

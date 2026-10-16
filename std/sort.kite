@@ -1,0 +1,107 @@
+// std.sort：排序和二分查找（对齐 Go 的 sort 包）。所有函数返回新列表
+//   ints / strings / float64s：升序（float64s 和 Go 一样把 NaN 排在最前）
+//   slice(xs, less) / slice_stable(xs, less) / stable：按 less 排序。这里都用稳定的归并排序：
+//     Go 的 sort.Slice 不保证稳定（pdqsort），相等元素的先后顺序可能和 Go 不同，其余结果相同
+//   search(n, f)：[0, n) 里第一个让 f 为 true 的下标（f 必须单调）；find(n, cmp)
+//   search_ints / search_strings / search_float64s：在升序列表里找插入位置
+
+// 稳定归并排序（自底向上）
+pub fn slice_stable<T>(xs: List<T>, less: fn(T, T) -> Bool) -> List<T> {
+  let n = len(xs)
+  var a = xs
+  var width = 1
+  while width < n {
+    var out: List<T> = []
+    var lo = 0
+    while lo < n {
+      let mid = if lo + width < n { lo + width } else { n }
+      let hi = if lo + 2 * width < n { lo + 2 * width } else { n }
+      var i = lo
+      var j = mid
+      while i < mid && j < hi {
+        if less(a[j], a[i]) {
+          out = push(out, a[j])
+          j += 1
+        } else {
+          out = push(out, a[i])
+          i += 1
+        }
+      }
+      while i < mid {
+        out = push(out, a[i])
+        i += 1
+      }
+      while j < hi {
+        out = push(out, a[j])
+        j += 1
+      }
+      lo = hi
+    }
+    a = out
+    width = width * 2
+  }
+  a
+}
+
+pub fn slice<T>(xs: List<T>, less: fn(T, T) -> Bool) -> List<T> { slice_stable(xs, less) }
+
+pub fn stable<T>(xs: List<T>, less: fn(T, T) -> Bool) -> List<T> { slice_stable(xs, less) }
+
+pub fn sort<T>(xs: List<T>, less: fn(T, T) -> Bool) -> List<T> { slice_stable(xs, less) }
+
+pub fn slice_is_sorted<T>(xs: List<T>, less: fn(T, T) -> Bool) -> Bool {
+  var i = len(xs) - 1
+  while i > 0 {
+    if less(xs[i], xs[i - 1]) { return false }
+    i -= 1
+  }
+  true
+}
+
+pub fn is_sorted<T>(xs: List<T>, less: fn(T, T) -> Bool) -> Bool { slice_is_sorted(xs, less) }
+
+// 把 less 反过来（Go 的 sort.Reverse）
+pub fn reverse<T>(less: fn(T, T) -> Bool) -> fn(T, T) -> Bool { (a, b) => less(b, a) }
+
+fn is_nan(x: Float) -> Bool { x != x }
+
+fn fless(a: Float, b: Float) -> Bool { a < b || (is_nan(a) && !is_nan(b)) }
+
+pub fn ints(xs: List<Int>) -> List<Int> { slice_stable(xs, (a, b) => a < b) }
+
+pub fn strings(xs: List<Str>) -> List<Str> { slice_stable(xs, (a, b) => a < b) }
+
+pub fn float64s(xs: List<Float>) -> List<Float> { slice_stable(xs, fless) }
+
+pub fn ints_are_sorted(xs: List<Int>) -> Bool { slice_is_sorted(xs, (a, b) => a < b) }
+
+pub fn strings_are_sorted(xs: List<Str>) -> Bool { slice_is_sorted(xs, (a, b) => a < b) }
+
+pub fn float64s_are_sorted(xs: List<Float>) -> Bool { slice_is_sorted(xs, fless) }
+
+pub fn search(n: Int, f: fn(Int) -> Bool) -> Int {
+  var i = 0
+  var j = n
+  while i < j {
+    let h = i + (j - i) / 2
+    if !f(h) { i = h + 1 } else { j = h }
+  }
+  i
+}
+
+// cmp(i) > 0 表示目标在 i 之后；返回 (位置, 是否找到)
+pub fn find(n: Int, cmp: fn(Int) -> Int) -> (Int, Bool) {
+  var i = 0
+  var j = n
+  while i < j {
+    let h = i + (j - i) / 2
+    if cmp(h) > 0 { i = h + 1 } else { j = h }
+  }
+  (i, i < n && cmp(i) == 0)
+}
+
+pub fn search_ints(xs: List<Int>, x: Int) -> Int { search(len(xs), (i) => xs[i] >= x) }
+
+pub fn search_strings(xs: List<Str>, x: Str) -> Int { search(len(xs), (i) => xs[i] >= x) }
+
+pub fn search_float64s(xs: List<Float>, x: Float) -> Int { search(len(xs), (i) => xs[i] >= x) }

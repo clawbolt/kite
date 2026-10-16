@@ -1,0 +1,94 @@
+// 对齐 Go 1.27 的 crypto/ecdh：tests/go/ecdh.go
+use std.crypto.ecdh
+use std.crypto.ecdh.{ PrivateKey, PublicKey }
+use std.crypto.sha512
+use std.encoding.hex
+
+fn h(b: List<Int>) -> Str { hex.encode_bytes(b) }
+
+fn zeros(n: Int) -> List<Int> { map(0..n, (_) => 0) }
+
+fn main() {
+  let sizes = [32, 32, 48, 66]
+  let ns = ["", "ffffffff00000000ffffffffffffffffbce6faada7179e84f3b9cac2fc632551", "ffffffffffffffffffffffffffffffffffffffffffffffffc7634d81f4372ddf581a0db248b0a77aecec196accc52973", "01fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffa51868783bf2f966b7fcc0148f709a5d03bb5c9b8899c47aebb6fb71e91386409"]
+  for c in 0..4 {
+    print("CURVE " + ecdh.curve_name(c))
+    let size = sizes[c]
+    var keys: List<PrivateKey> = []
+    for i in 0..2 {
+      let s = sha512.digest([c, i])
+      var b = (s + s)[..size]
+      if c == 3 { b = set(b, 0, b[0] & 1) }
+      match ecdh.new_private_key(c, b) {
+        Err(e) => print("PRIV " + h(b) + " " + e),
+        Ok(k) => {
+          print("PRIV " + h(b) + " ok")
+          print("PUB " + h(k.pub_))
+          keys = push(keys, k)
+        },
+      }
+    }
+    match ecdh.ecdh(keys[0], ecdh.public_key(keys[1])) {
+      Ok(s1) => print("ECDH " + h(s1) + " ok"),
+      Err(e) => print("ECDH  " + e),
+    }
+    for b in [zeros(size), zeros(size - 1), zeros(size + 1)] {
+      match ecdh.new_private_key(c, b) {
+        Ok(_) => print("BADPRIV {len(b)} ok"),
+        Err(e) => print("BADPRIV {len(b)} " + e),
+      }
+    }
+    if c > 0 {
+      let nb = unwrap(hex.decode(ns[c]))
+      match ecdh.new_private_key(c, nb) {
+        Ok(_) => print("N ok"),
+        Err(e) => print("N " + e),
+      }
+      let nm1 = set(nb, len(nb) - 1, nb[len(nb) - 1] - 1)
+      match ecdh.new_private_key(c, nm1) {
+        Ok(k) => {
+          print("N-1 ok")
+          print("PUB " + h(k.pub_))
+        },
+        Err(e) => print("N-1 " + e),
+      }
+      let one = set(zeros(size), size - 1, 1)
+      print("ONE " + h(unwrap(ecdh.new_private_key(c, one)).pub_))
+      let pub_ = keys[1].pub_
+      var cases: List<List<Int>> = [[], [0], [4], [2] + pub_[1..1 + size], pub_[..len(pub_) - 1]]
+      cases = push(cases, set(pub_, len(pub_) - 1, pub_[len(pub_) - 1] ^ 1))
+      cases = push(cases, [4] + map(0..size, (_) => 0xff) + zeros(size))
+      cases = push(cases, pub_[..size + 1] + map(0..size, (_) => 0xff))
+      for b in cases {
+        match ecdh.new_public_key(c, b) {
+          Ok(_) => print("BADPUB " + h(b) + " ok"),
+          Err(e) => print("BADPUB " + h(b) + " " + e),
+        }
+      }
+    } else {
+      for s in ["0000000000000000000000000000000000000000000000000000000000000000", "0100000000000000000000000000000000000000000000000000000000000000", "ecffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7f", "e0eb7a7c3b41b8ae1656e3faf19fc46ada098deb9c32b1fd866205165f49b800", "0900000000000000000000000000000000000000000000000000000000000080", "eeffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7f"] {
+        match ecdh.new_public_key(c, unwrap(hex.decode(s))) {
+          Err(e) => print("X " + s + " " + e),
+          Ok(p) => {
+            print("X " + s + " ok")
+            match ecdh.ecdh(keys[0], p) {
+              Ok(out) => print("XE " + h(out) + " ok"),
+              Err(e) => print("XE  " + e),
+            }
+          },
+        }
+      }
+      match ecdh.new_public_key(c, zeros(31)) {
+        Ok(_) => print("X31 ok"),
+        Err(e) => print("X31 " + e),
+      }
+    }
+  }
+  let s = sha512.digest([])
+  let a = unwrap(ecdh.new_private_key(0, s[..32]))
+  let b = unwrap(ecdh.new_private_key(1, s[..32]))
+  match ecdh.ecdh(a, ecdh.public_key(b)) {
+    Ok(_) => print("MIX ok"),
+    Err(e) => print("MIX " + e),
+  }
+}

@@ -1,0 +1,14 @@
+fn sum_all<const N: Int>(xs: [Int; N]) -> Int { N }
+fn zeros<const N: Int>() -> [Int; N] { [0; N] }
+fn pair(a: [Int; 2]) -> Int { a[0] }
+type Vec<const N: Int> = { data: [Float; N] }
+fn main() {
+  let xs = [1, 2, 3]
+  print(sum_all(xs))
+  print(zeros())
+  print(pair([1, 2, 3]))
+  let f = sum_all
+  let v: Vec<Int> = Vec { data: [1.0] }
+  let a: [Int; 2] = [1, 2]
+  let b: [Int; 3] = a
+}

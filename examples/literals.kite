@@ -1,0 +1,22 @@
+// 文法 v0.5 第一批：数字进制与指数、字符、原始字符串、const、as、[x; n]、格式说明
+const MAX_RETRY: Int = 3
+const MASK: Int = 0xff_ff
+
+fn main() {
+  print(0xff, 0o17, 0b1010, 1_000_000, MASK)
+  print(1e3, 2.5E-3, 6.02e23)
+  let c = 'k'
+  print(c, '\n' == "\n", '\'', '\u{98ce}', "\u{7b5d}")
+  print(r"C:\temp\{raw}", r#"say "hi""#)
+  let n = 7
+  let x = 2.75
+  print(n as Float / 2.0, x as Int, -x as Int, true as Int)
+  let grid = [[0; 3]; 2]
+  print(grid, len(["-"; MAX_RETRY]))
+  print("[{n:>5}] [{n:<5}] [{n:^5}] [{n:*^7}] [{n:05}] [{-n:05}]")
+  print("[{x:.1}] [{x:8.3}] [{-x:08.2}] [{n:x}] [{255:X}] [{n:08b}] [{n:o}]")
+  print("[{"kite":>6}] [{"kite":.2}] [{"kite":?}] [{1234.5:.2e}] [{"风筝":中>4}]")
+  for row in [("alpha", 3, 0.5), ("beta", 12, 12.25)] {
+    print("{row.0:<6}|{row.1:>4}|{row.2:>7.2}")
+  }
+}

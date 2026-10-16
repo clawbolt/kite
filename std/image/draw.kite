@@ -1,0 +1,149 @@
+// std.image.draw：对齐 Go 1.27 的 image/draw
+//   draw(dst, r, src, sp, op) / draw_mask(dst, r, src, sp, mask, mp, op) 返回画好的新图像（Kite 的图像是值）；
+//   op 取 OVER / SRC；mask 用 Option<Image>。floyd_steinberg(dst, r, src, sp) 对应 draw.FloydSteinberg.Draw。
+//   实现走 Go 的通用路径（RGBA64At / SetRGBA64 的公式），Go 的各条快速路径与它结果相同；目标为 Paletted 且 SRC、无 mask 时
+//   走 drawPaletted。dst 和 src 是同一张图且区域重叠时，Go 倒序处理以达到"先复制再写"的效果，值语义下天然如此。
+//   dst 不能是 YCbCr / NYCbCrA / Uniform（Go 里它们不是 draw.Image），这时原样返回。
+
+use std.image.color
+use std.image.color.{ Color }
+use std.image
+use std.image.{ Image, Rectangle, Point }
+
+pub const OVER: Int = 0
+pub const SRC: Int = 1
+
+const M: Int = 65535
+
+fn clip(dst: Image, r0: Rectangle, src: Image, sp0: Point, mask: Option<Image>, mp0: Point) -> (Rectangle, Point, Point) {
+  let orig = r0.min
+  var r = r0.intersect(dst.bounds())
+  r = r.intersect(src.bounds().add(orig.sub(sp0)))
+  match mask {
+    Some(m) => { r = r.intersect(m.bounds().add(orig.sub(mp0))) },
+    None => {},
+  }
+  let dx = r.min.x - orig.x
+  let dy = r.min.y - orig.y
+  (r, image.pt(sp0.x + dx, sp0.y + dy), image.pt(mp0.x + dx, mp0.y + dy))
+}
+
+pub fn draw(dst: Image, r: Rectangle, src: Image, sp: Point, op: Int) -> Image { draw_mask(dst, r, src, sp, None, image.zp(), op) }
+
+fn drawable(k: Int) -> Bool { k != image.YCBCR && k != image.NYCBCRA && k != image.UNIFORM }
+
+pub fn draw_mask(dst: Image, r0: Rectangle, src: Image, sp0: Point, mask: Option<Image>, mp0: Point, op: Int) -> Image {
+  let (r, sp, mp) = clip(dst, r0, src, sp0, mask, mp0)
+  if r.empty() || !drawable(dst.kind) { return dst }
+  let has_mask = match mask { Some(_) => true, None => false }
+  if dst.kind == image.PALETTED && op == SRC && !has_mask { return draw_paletted(dst, r, src, sp, false) }
+  let mk = match mask { Some(m) => m, None => src }
+  var pix = dst.pix
+  let bpp = if dst.kind == image.PALETTED { 1 } else { len(dst.px_bytes(Color.Alpha(0))) }
+  for y in 0..r.dy() {
+    for x in 0..r.dx() {
+      let dx = r.min.x + x
+      let dy = r.min.y + y
+      let sx = sp.x + x
+      let sy = sp.y + y
+      let ma = if has_mask { let (_, _, _, a) = mk.rgba64_at(mp.x + x, mp.y + y); a } else { M }
+      var out: Option<Color> = None
+      if ma == 0 {
+        if op != OVER { out = Some(Color.RGBA64(0, 0, 0, 0)) }
+      } else if ma == M && op == SRC {
+        let (sr, sg, sb, sa) = src.rgba64_at(sx, sy)
+        out = Some(Color.RGBA64(sr, sg, sb, sa))
+      } else {
+        let (sr, sg, sb, sa) = src.rgba64_at(sx, sy)
+        if op == OVER {
+          let (dr, dg, db, da) = dst.rgba64_at_pix(pix, dx, dy)
+          if has_mask {
+            let a = M - sa * ma / M
+            out = Some(Color.RGBA64(((dr * a + sr * ma) / M) & 0xffff, ((dg * a + sg * ma) / M) & 0xffff, ((db * a + sb * ma) / M) & 0xffff, ((da * a + sa * ma) / M) & 0xffff))
+          } else {
+            let a = M - sa
+            out = Some(Color.RGBA64((dr * a / M + sr) & 0xffff, (dg * a / M + sg) & 0xffff, (db * a / M + sb) & 0xffff, (da * a / M + sa) & 0xffff))
+          }
+        } else {
+          out = Some(Color.RGBA64(sr * ma / M, sg * ma / M, sb * ma / M, sa * ma / M))
+        }
+      }
+      match out {
+        Some(c) => {
+          let bs = set_bytes(dst, c)
+          let i = dst.pix_offset(dx, dy)
+          for k in 0..bpp { pix[i + k] = bs[k] }
+        },
+        None => {},
+      }
+    }
+  }
+  Image { pix: pix, ..dst }
+}
+
+// SetRGBA64 的编码（Go 各类型的 SetRGBA64 与 Set(RGBA64) 结果相同）
+fn set_bytes(dst: Image, c: Color) -> List<Int> { dst.px_bytes(c) }
+
+fn clamp(i: Int) -> Int { if i < 0 { 0 } else if i > 0xffff { 0xffff } else { i } }
+
+fn sq_diff(x: Int, y: Int) -> Int {
+  let d = if x > y { x - y } else { y - x }
+  ((d * d) & 0xffffffff) >> 2
+}
+
+pub fn floyd_steinberg(dst: Image, r0: Rectangle, src: Image, sp0: Point) -> Image {
+  let (r, sp, _) = clip(dst, r0, src, sp0, None, image.zp())
+  if r.empty() || !drawable(dst.kind) { return dst }
+  draw_paletted(dst, r, src, sp, true)
+}
+
+fn draw_paletted(dst0: Image, r: Rectangle, src: Image, sp: Point, fs: Bool) -> Image {
+  var dst = dst0
+  let is_pal = dst.kind == image.PALETTED
+  let pal = map(dst.palette, (c) => { let (a, b, cc, d) = color.rgba(c); [a, b, cc, d] })
+  var pix = dst.pix
+  let w = r.dx()
+  var cur = map(0..(w + 2) * 4, (_) => 0)
+  var nxt = map(0..(w + 2) * 4, (_) => 0)
+  for y in 0..r.dy() {
+    for x in 0..w {
+      let (sr, sg, sb, sa) = src.rgba64_at(sp.x + x, sp.y + y)
+      var e = [sr, sg, sb, sa]
+      if fs {
+        for c in 0..4 { e[c] = clamp(e[c] + cur[(x + 1) * 4 + c] / 16) }
+      }
+      if is_pal {
+        var best = 0
+        var best_sum = 4294967295
+        for idx in 0..len(pal) {
+          let p = pal[idx]
+          let sum = sq_diff(e[0], p[0]) + sq_diff(e[1], p[1]) + sq_diff(e[2], p[2]) + sq_diff(e[3], p[3])
+          if sum < best_sum {
+            best = idx
+            best_sum = sum
+            if sum == 0 { break }
+          }
+        }
+        pix[dst.pix_offset(r.min.x + x, r.min.y + y)] = best
+        if !fs { continue }
+        for c in 0..4 { e[c] = e[c] - pal[best][c] }
+      } else {
+        dst = dst.set(r.min.x + x, r.min.y + y, Color.RGBA64(e[0] & 0xffff, e[1] & 0xffff, e[2] & 0xffff, e[3] & 0xffff))
+        if !fs { continue }
+        let (qr, qg, qb, qa) = dst.rgba64_at(r.min.x + x, r.min.y + y)
+        e = [e[0] - qr, e[1] - qg, e[2] - qb, e[3] - qa]
+      }
+      for c in 0..4 {
+        nxt[x * 4 + c] = nxt[x * 4 + c] + e[c] * 3
+        nxt[(x + 1) * 4 + c] = nxt[(x + 1) * 4 + c] + e[c] * 5
+        nxt[(x + 2) * 4 + c] = nxt[(x + 2) * 4 + c] + e[c]
+        cur[(x + 2) * 4 + c] = cur[(x + 2) * 4 + c] + e[c] * 7
+      }
+    }
+    if fs {
+      cur = nxt
+      nxt = map(0..(w + 2) * 4, (_) => 0)
+    }
+  }
+  if is_pal { Image { pix: pix, ..dst } } else { dst }
+}

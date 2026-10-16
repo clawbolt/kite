@@ -1,0 +1,13 @@
+fn fib(n: Int) -> Int {
+  if n < 2 { n } else { fib(n - 1) + fib(n - 2) }
+}
+
+fn main() {
+  var acc = 0
+  var i = 0
+  while i < 200000 {
+    acc += i % 7
+    i += 1
+  }
+  print(fib(24), acc)
+}

@@ -1,0 +1,36 @@
+// extern：窄 C 宽度（I32/U16/F32…）与可变参数（...）
+use std.ptr
+
+type DivI = { quot: I32, rem: I32 }
+
+extern "C" {
+  fn abs(x: I32) -> I32
+  fn toupper(c: I32) -> I32
+  fn htons(x: U16) -> U16
+  fn div(a: I32, b: I32) -> DivI
+  fn sqrtf(x: F32) -> F32
+  fn snprintf(buf: Ptr, n: Int, fmt: Str, ...) -> I32
+}
+
+fn format_c(fmt_one: fn(Ptr) -> Int) -> Str {
+  unsafe {
+    let buf = ptr.alloc(128)
+    fmt_one(buf)
+    let s = ptr.to_str(buf)
+    ptr.free(buf)
+    s
+  }
+}
+
+fn main() {
+  unsafe {
+    print(abs(-7), toupper(97), div(17, 5))
+    print(htons(1) == 1 || htons(1) == 256)
+    print(sqrtf(2.0) > 1.414 && sqrtf(2.0) < 1.4143)
+  }
+  print(format_c((b: Ptr) => unsafe { snprintf(b, 128, "%lld + %lld = %lld", 40, 2, 42) }))
+  print(format_c((b: Ptr) => unsafe { snprintf(b, 128, "%s 有 %.2f 米长", "风筝", 1.5) }))
+  print(format_c((b: Ptr) => unsafe { snprintf(b, 128, "无参数") }))
+  let n = unsafe { snprintf(ptr.null(), 0, "%d-%d", true, false) }
+  print(n)
+}

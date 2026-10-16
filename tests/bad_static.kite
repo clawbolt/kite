@@ -1,0 +1,7 @@
+type V2 = { x: Int }
+impl V2 {
+  fn get(self) -> Int { self.x }
+}
+fn main() {
+  print(V2.get())
+}

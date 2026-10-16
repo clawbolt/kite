@@ -1,0 +1,277 @@
+// std.net.url：URL 解析与百分号编码（对齐 Go 的 net/url）
+//   parse / to_str，hostname / port / query，resolve（RFC 3986 相对引用），join_path
+//   query_escape / query_unescape（空格 ↔ +），path_escape / path_unescape
+//   parse_query / encode_query：查询串 ↔ Map<Str, List<Str>>（编码时按键排序）
+
+pub type URL = { scheme: Str, opaque: Str, user: Option<Str>, password: Option<Str>, host: Str, path: Str, raw_query: Str, fragment: Str }
+
+fn hexd(n: Int) -> Str { __str_slice("0123456789ABCDEF", n, n + 1) }
+
+fn unreserved(b: Int) -> Bool { (b >= 65 && b <= 90) || (b >= 97 && b <= 122) || (b >= 48 && b <= 57) || b == 45 || b == 95 || b == 46 || b == 126 }
+
+// mode：0 查询（空格 → +）、1 路径段（/ 也转义）、2 整个路径（保留 /）、3 片段、4 用户信息
+fn should_keep(b: Int, mode: Int) -> Bool {
+  if unreserved(b) { return true }
+  let c = if b < 128 { __chr(b) } else { "" }
+  if mode == 1 { return contains("$&+,:;=@", c) && c != "" }
+  if mode == 2 { return contains("$&+,/:;=@", c) && c != "" }
+  if mode == 3 { return contains("$&+,/:;=?@!()*'", c) && c != "" }
+  if mode == 4 { return contains("$&+,;=!()*'", c) && c != "" }
+  false
+}
+
+fn escape(s: Str, mode: Int) -> Str {
+  var out = ""
+  for b in __bytes(s) {
+    if should_keep(b, mode) { out = out + __chr(b) } else if b == 32 && mode == 0 { out = out + "+" } else { out = out + "%" + hexd(b / 16) + hexd(b % 16) }
+  }
+  out
+}
+
+fn hv(c: Int) -> Int { if c >= 48 && c <= 57 { c - 48 } else if c >= 65 && c <= 70 { c - 55 } else if c >= 97 && c <= 102 { c - 87 } else { -1 } }
+
+fn unescape(s: Str, plus: Bool) -> Result<Str, Str> {
+  let bs = __bytes(s)
+  var out: List<Int> = []
+  var i = 0
+  while i < len(bs) {
+    let b = bs[i]
+    if b == 37 {
+      if i + 2 >= len(bs) || hv(bs[i + 1]) < 0 || hv(bs[i + 2]) < 0 {
+        let e = if i + 3 <= len(bs) { i + 3 } else { len(bs) }
+        return Err("无效的 URL 转义 " + quote_bytes(bs[i..e]))
+      }
+      out = push(out, hv(bs[i + 1]) * 16 + hv(bs[i + 2]))
+      i += 3
+    } else {
+      out = push(out, if plus && b == 43 { 32 } else { b })
+      i += 1
+    }
+  }
+  match __from_bytes(out) {
+    Some(t) => Ok(t),
+    None => Err("URL 解码后不是合法的 UTF-8: {s}"),
+  }
+}
+
+fn quote_bytes(bs: List<Int>) -> Str { "\"" + unwrap_or(__from_bytes(bs), "?") + "\"" }
+
+pub fn query_escape(s: Str) -> Str { escape(s, 0) }
+
+pub fn query_unescape(s: Str) -> Result<Str, Str> { unescape(s, true) }
+
+pub fn path_escape(s: Str) -> Str { escape(s, 1) }
+
+pub fn path_unescape(s: Str) -> Result<Str, Str> { unescape(s, false) }
+
+fn scheme_end(s: Str) -> Int {
+  // 合法的 scheme 后面紧跟 ':'，返回 ':' 的位置，否则 -1
+  let cs = chars(s)
+  var i = 0
+  while i < len(cs) {
+    let o = __ord(cs[i])
+    let alpha = (o >= 65 && o <= 90) || (o >= 97 && o <= 122)
+    if cs[i] == ":" { return if i > 0 { i } else { -1 } }
+    if !(alpha || (i > 0 && ((o >= 48 && o <= 57) || cs[i] == "+" || cs[i] == "-" || cs[i] == "."))) { return -1 }
+    i += 1
+  }
+  -1
+}
+
+pub fn parse(raw: Str) -> Result<URL, Str> {
+  var rest = raw
+  var frag = ""
+  let (r1, f, has_frag) = cut1(rest, "#")
+  if has_frag {
+    frag = unescape(f, false)?
+    rest = r1
+  }
+  var scheme = ""
+  let se = scheme_end(rest)
+  if se > 0 {
+    scheme = lower(__str_slice(rest, 0, se))
+    rest = __str_slice(rest, se + 1, len(rest))
+  }
+  var q = ""
+  let (r2, qq, has_q) = cut1(rest, "?")
+  if has_q {
+    q = qq
+    rest = r2
+  }
+  if scheme != "" && !starts_with(rest, "/") && rest != "" {
+    return Ok(URL { scheme: scheme, opaque: rest, user: None, password: None, host: "", path: "", raw_query: q, fragment: frag })
+  }
+  var user: Option<Str> = None
+  var pass: Option<Str> = None
+  var host = ""
+  if starts_with(rest, "//") {
+    let a = __str_slice(rest, 2, len(rest))
+    let slash = __str_find(a, "/", 0)
+    let auth = if slash < 0 { a } else { __str_slice(a, 0, slash) }
+    rest = if slash < 0 { "" } else { __str_slice(a, slash, len(a)) }
+    let at = rfind(auth, "@")
+    var hp = auth
+    if at >= 0 {
+      let ui = __str_slice(auth, 0, at)
+      hp = __str_slice(auth, at + 1, len(auth))
+      let (u, pw, has_pw) = cut1(ui, ":")
+      user = Some(unescape(u, false)?)
+      if has_pw { pass = Some(unescape(pw, false)?) }
+    }
+    if contains(hp, " ") { return Err("URL 的主机名里有非法字符: {hp}") }
+    if starts_with(hp, "[") && !contains(hp, "]") { return Err("IPv6 主机缺少 ]: {hp}") }
+    host = lower(hp)
+  }
+  Ok(URL { scheme: scheme, opaque: "", user: user, password: pass, host: host, path: unescape(rest, false)?, raw_query: q, fragment: frag })
+}
+
+fn cut1(s: Str, sep: Str) -> (Str, Str, Bool) {
+  let i = __str_find(s, sep, 0)
+  if i < 0 { (s, "", false) } else { (__str_slice(s, 0, i), __str_slice(s, i + len(sep), len(s)), true) }
+}
+
+fn rfind(s: Str, sub: Str) -> Int {
+  var i = len(s) - len(sub)
+  while i >= 0 {
+    if __str_slice(s, i, i + len(sub)) == sub { return i }
+    i -= 1
+  }
+  -1
+}
+
+pub fn to_str(u: URL) -> Str {
+  var out = ""
+  if u.scheme != "" { out = u.scheme + ":" }
+  if u.opaque != "" {
+    out = out + u.opaque
+  } else {
+    if u.host != "" || is_some(u.user) || u.scheme == "file" {
+      out = out + "//"
+      match u.user {
+        Some(n) => {
+          out = out + escape(n, 4)
+          match u.password {
+            Some(p) => { out = out + ":" + escape(p, 4) },
+            None => {},
+          }
+          out = out + "@"
+        },
+        None => {},
+      }
+      out = out + u.host
+    }
+    if u.path != "" && !starts_with(u.path, "/") && u.host != "" { out = out + "/" }
+    out = out + escape(u.path, 2)
+  }
+  if u.raw_query != "" { out = out + "?" + u.raw_query }
+  if u.fragment != "" { out = out + "#" + escape(u.fragment, 3) }
+  out
+}
+
+// 主机名（去掉端口和 IPv6 的方括号）
+pub fn hostname(u: URL) -> Str {
+  let h = u.host
+  if starts_with(h, "[") {
+    let e = __str_find(h, "]", 0)
+    return __str_slice(h, 1, e)
+  }
+  let (a, _, _) = cut1(h, ":")
+  a
+}
+
+// 端口，没有时为 ""
+pub fn port(u: URL) -> Str {
+  let h = u.host
+  let start = if starts_with(h, "[") { __str_find(h, "]", 0) } else { 0 }
+  let i = __str_find(__str_slice(h, start, len(h)), ":", 0)
+  if i < 0 { "" } else { __str_slice(h, start + i + 1, len(h)) }
+}
+
+pub fn is_abs(u: URL) -> Bool { u.scheme != "" }
+
+pub fn query(u: URL) -> Map<Str, List<Str>> { unwrap_or(parse_query(u.raw_query), Map()) }
+
+// a=1&b=2&a=3 → {"a": ["1", "3"], "b": ["2"]}；遇到错误的转义返回 Err
+pub fn parse_query(s: Str) -> Result<Map<Str, List<Str>>, Str> {
+  var m: Map<Str, List<Str>> = Map()
+  for part in split(s, "&") {
+    if part == "" { continue }
+    if contains(part, ";") { return Err("查询串里不能有分号: {part}") }
+    let (k0, v0, _) = cut1(part, "=")
+    let k = query_unescape(k0)?
+    let v = query_unescape(v0)?
+    m = set(m, k, push(unwrap_or(get(m, k), []), v))
+  }
+  Ok(m)
+}
+
+// 按键排序后编码
+pub fn encode_query(m: Map<Str, List<Str>>) -> Str {
+  var parts: List<Str> = []
+  for k in sort(keys(m)) {
+    for v in unwrap_or(get(m, k), []) { parts = push(parts, query_escape(k) + "=" + query_escape(v)) }
+  }
+  join(parts, "&")
+}
+
+// 第一个值
+pub fn first(m: Map<Str, List<Str>>, k: Str) -> Option<Str> {
+  let vs = get(m, k)?
+  get(vs, 0)
+}
+
+pub fn remove_dot_segments(p: Str) -> Str {
+  if p == "" { return "" }
+  var out: List<Str> = []
+  let segs = split(p, "/")
+  var i = 0
+  for s in segs {
+    let last = i == len(segs) - 1
+    if s == "." {
+      if last { out = push(out, "") }
+    } else if s == ".." {
+      if len(out) > 1 { out = out[0..len(out) - 1] }
+      if last { out = push(out, "") }
+    } else {
+      out = push(out, s)
+    }
+    i += 1
+  }
+  let r = join(out, "/")
+  if starts_with(p, "/") && !starts_with(r, "/") { "/" + r } else { r }
+}
+
+// RFC 3986 第 5.2 节：在 base 上解析相对引用 r
+pub fn resolve(base: URL, r: URL) -> URL {
+  if r.scheme != "" { return URL { path: remove_dot_segments(r.path), ..r } }
+  if r.host != "" || is_some(r.user) { return URL { scheme: base.scheme, path: remove_dot_segments(r.path), ..r } }
+  if r.path == "" {
+    let q = if r.raw_query != "" { r.raw_query } else { base.raw_query }
+    return URL { raw_query: q, fragment: r.fragment, ..base }
+  }
+  let p = if starts_with(r.path, "/") {
+    r.path
+  } else {
+    let bp = if base.path == "" && base.host != "" { "/" } else { base.path }
+    let i = rfind(bp, "/")
+    (if i >= 0 { __str_slice(bp, 0, i + 1) } else { "" }) + r.path
+  }
+  URL { path: remove_dot_segments(p), raw_query: r.raw_query, fragment: r.fragment, ..base }
+}
+
+pub fn resolve_str(base: Str, r: Str) -> Result<Str, Str> {
+  let b = parse(base)?
+  let rr = parse(r)?
+  Ok(to_str(resolve(b, rr)))
+}
+
+// 把路径段拼到 base 的路径后面并清理 . 和 ..（同 Go 的 url.JoinPath）
+pub fn join_path(base: Str, elems: List<Str>) -> Result<Str, Str> {
+  let u = parse(base)?
+  var p = u.path
+  for e in elems { p = if ends_with(p, "/") { p + e } else { p + "/" + e } }
+  let trail = ends_with(p, "/")
+  var c = remove_dot_segments(p)
+  if trail && !ends_with(c, "/") { c = c + "/" }
+  Ok(to_str(URL { path: c, ..u }))
+}

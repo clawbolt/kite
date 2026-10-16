@@ -1,0 +1,5 @@
+async fn main() {
+  let f = async (x: Int) => x + 1
+  let y: Int = f(1)
+  let z: Str = async { 1 }.await
+}

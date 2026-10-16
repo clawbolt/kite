@@ -1,0 +1,45 @@
+// 对拍 tests/go/regexp_syntax.go：regexp/syntax 的 Parse / String / Simplify / Compile / Prog.String（数据取自 Go 的测试）
+use std.regexp.syntax as rs
+use std.strconv
+use std.encoding.hex
+use std.hash.fnv
+
+fn show(s: Str) -> Str {
+  if len(__bytes(s)) <= 300 { return s }
+  "<{len(__bytes(s))} bytes {fnv.hex64(fnv.hash64(s))}>"
+}
+
+fn q(s: Str) -> Str { strconv.quote_go(s) }
+
+fn main() {
+  let text = unwrap(__from_bytes(unwrap(__read_bytes("tests/go/testdata/regexp_syntax.txt"))))
+  var n = 0
+  for line in split(text, "\n") {
+    if line == "" { continue }
+    let sp = __str_find(line, " ", 0)
+    let fl = unwrap(strconv.atoi(__str_slice(line, 0, sp)))
+    let b = unwrap(hex.decode(__str_slice(line, sp + 1, len(line))))
+    n += 1
+    print("#{n} {fl} " + show(strconv.quote_bytes_with(b, 34, false, false)))
+    match __from_bytes(b) {
+      None => {
+        // Kite 的 Str 只能是合法 UTF-8：按 Go 的规则报告从第一个非法字节起的剩余部分
+        var k = 0
+        while k < len(b) && b[k] < 128 { k += 1 }
+        let rest = strconv.quote_bytes_with(b[k..], 34, false, false)
+        print("ERR " + show("\"error parsing regexp: invalid UTF-8: `" + __str_slice(rest, 1, len(rest) - 1) + "`\""))
+      },
+      Some(pat) => match rs.parse(pat, fl) {
+        Err(e) => print("ERR " + show(q(rs.error_string(e)))),
+        Ok(re) => {
+          print("S " + show(rs.to_string(re)))
+          let s = rs.simplify(re)
+          print("Z " + show(rs.to_string(s)) + " {rs.max_cap(re)} " + q(join(rs.cap_names(re), ",")))
+          let p = unwrap(rs.compile(s))
+          let (pre, comp) = p.prefix()
+          print("P " + show(p.to_string()) + " " + q(pre) + " {comp} {p.start_cond()} {p.num_cap}")
+        },
+      },
+    }
+  }
+}

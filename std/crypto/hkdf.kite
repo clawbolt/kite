@@ -1,0 +1,55 @@
+// std.crypto.hkdf：HKDF（RFC 5869，对齐 Go 1.24 起的 crypto/hkdf）
+//   摘要用 (h, block_size) 两个参数表示，和 std.crypto.hmac 相同：hkdf.key(sha256.digest, sha256.BLOCK_SIZE, secret, salt, info, n)
+//   extract(h, bs, secret, salt) -> Result<List<Int>, Str>：salt 为空时用 hash 长度的全 0
+//   expand(h, bs, prk, info, n) -> Result<List<Int>, Str>；key(h, bs, secret, salt, info, n)：先 extract 再 expand
+//   n 超过 255 * hash 长度时返回 Err("hkdf: requested key length too large")，和 Go 相同
+//   expand_bytes / key_bytes：info 用字节列表（Go 的 string 可以装非 UTF-8 字节）
+//   和 Go 的差别：没有 FIPS 140-only 模式；pbkdf2 同理没有。
+
+use std.crypto.hmac
+
+fn zeros(n: Int) -> List<Int> {
+  var out: List<Int> = []
+  for _ in 0..n { out = push(out, 0) }
+  out
+}
+
+pub fn extract(h: fn(List<Int>) -> List<Int>, block_size: Int, secret: List<Int>, salt: List<Int>) -> Result<List<Int>, Str> {
+  let s = if len(salt) == 0 { zeros(len(h([]))) } else { salt }
+  Ok(hmac.sum(h, block_size, s, secret))
+}
+
+fn expand_raw(h: fn(List<Int>) -> List<Int>, block_size: Int, prk: List<Int>, ib: List<Int>, n: Int) -> List<Int> {
+  var out: List<Int> = []
+  var t: List<Int> = []
+  var counter = 1
+  while len(out) < n {
+    t = hmac.sum(h, block_size, prk, t + ib + [counter])
+    out = out + t
+    counter += 1
+  }
+  out[..n]
+}
+
+pub fn expand(h: fn(List<Int>) -> List<Int>, block_size: Int, prk: List<Int>, info: Str, n: Int) -> Result<List<Int>, Str> {
+  if n > len(h([])) * 255 { return Err("hkdf: requested key length too large") }
+  Ok(expand_raw(h, block_size, prk, __bytes(info), n))
+}
+
+pub fn key(h: fn(List<Int>) -> List<Int>, block_size: Int, secret: List<Int>, salt: List<Int>, info: Str, n: Int) -> Result<List<Int>, Str> {
+  if n > len(h([])) * 255 { return Err("hkdf: requested key length too large") }
+  let prk = extract(h, block_size, secret, salt)?
+  Ok(expand_raw(h, block_size, prk, __bytes(info), n))
+}
+
+// info 是任意字节（Go 的 info string 可以不是合法 UTF-8，Kite 的 Str 不行）
+pub fn expand_bytes(h: fn(List<Int>) -> List<Int>, block_size: Int, prk: List<Int>, info: List<Int>, n: Int) -> Result<List<Int>, Str> {
+  if n > len(h([])) * 255 { return Err("hkdf: requested key length too large") }
+  Ok(expand_raw(h, block_size, prk, info, n))
+}
+
+pub fn key_bytes(h: fn(List<Int>) -> List<Int>, block_size: Int, secret: List<Int>, salt: List<Int>, info: List<Int>, n: Int) -> Result<List<Int>, Str> {
+  if n > len(h([])) * 255 { return Err("hkdf: requested key length too large") }
+  let prk = extract(h, block_size, secret, salt)?
+  Ok(expand_raw(h, block_size, prk, info, n))
+}

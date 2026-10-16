@@ -1,0 +1,528 @@
+// std.text.scanner：对齐 Go 1.27 的 text/scanner
+//   Scanner 是不可变值：scan / next / peek 返回 (新的 Scanner, 记号或字符)。
+//   源码整块给出（Go 用 io.Reader 分块读，位置和错误不受影响）；错误不打印，记在 errors 里
+//   （每条带出错时的 pos() 和当时的记号位置），error_count 与 Go 相同。
+//   token_bytes 返回记号原文的字节（可能不是合法 UTF-8），token_text 在合法时转成 Str
+
+use std.unicode
+use std.unicode.utf8
+use std.strconv
+
+pub const EOF: Int = -1
+pub const IDENT: Int = -2
+pub const INT: Int = -3
+pub const FLOAT: Int = -4
+pub const CHAR: Int = -5
+pub const STRING: Int = -6
+pub const RAW_STRING: Int = -7
+pub const COMMENT: Int = -8
+
+pub const SCAN_IDENTS: Int = 4
+pub const SCAN_INTS: Int = 8
+pub const SCAN_FLOATS: Int = 16
+pub const SCAN_CHARS: Int = 32
+pub const SCAN_STRINGS: Int = 64
+pub const SCAN_RAW_STRINGS: Int = 128
+pub const SCAN_COMMENTS: Int = 256
+pub const SKIP_COMMENTS: Int = 512
+pub const GO_TOKENS: Int = 1020
+pub const GO_WHITESPACE: Int = 4294977024
+
+pub type Position = { filename: Str, offset: Int, line: Int, column: Int }
+
+impl Position {
+  pub fn is_valid(self) -> Bool { self.line > 0 }
+
+  pub fn string(self) -> Str {
+    var s = self.filename
+    if s == "" { s = "<input>" }
+    if self.is_valid() { s = s + ":{self.line}:{self.column}" }
+    s
+  }
+}
+
+pub type ErrorRec = { pos: Position, tok: Position, msg: Str }
+
+pub type Scanner = {
+  src: List<Int>, p: Int, line: Int, column: Int, last_line_len: Int, last_char_len: Int,
+  tok_pos: Int, tok_end: Int, ch: Int, error_count: Int, errors: List<ErrorRec>,
+  mode: Int, whitespace: Int, ident: Option<fn(Int, Int) -> Bool>, position: Position,
+}
+
+pub fn token_string(tok: Int) -> Str {
+  if tok == EOF { return "EOF" }
+  if tok == IDENT { return "Ident" }
+  if tok == INT { return "Int" }
+  if tok == FLOAT { return "Float" }
+  if tok == CHAR { return "Char" }
+  if tok == STRING { return "String" }
+  if tok == RAW_STRING { return "RawString" }
+  if tok == COMMENT { return "Comment" }
+  strconv.quote_go(rune_str(tok))
+}
+
+fn rune_str(r: Int) -> Str {
+  if r < 0 || r > 0x10ffff || (r >= 0xd800 && r <= 0xdfff) { return __chr(0xfffd) }
+  __chr(r)
+}
+
+// Init
+pub fn new(src: List<Int>) -> Scanner {
+  Scanner { src: src, p: 0, line: 1, column: 0, last_line_len: 0, last_char_len: 0, tok_pos: -1, tok_end: 0, ch: -2,
+    error_count: 0, errors: [], mode: GO_TOKENS, whitespace: GO_WHITESPACE, ident: None,
+    position: Position { filename: "", offset: 0, line: 0, column: 0 } }
+}
+
+pub fn new_str(src: Str) -> Scanner { new(__bytes(src)) }
+
+impl Scanner {
+  pub fn with_mode(self, m: Int) -> Scanner { Scanner { mode: m, ..self } }
+  pub fn with_whitespace(self, w: Int) -> Scanner { Scanner { whitespace: w, ..self } }
+  pub fn with_ident_rune(self, f: fn(Int, Int) -> Bool) -> Scanner { Scanner { ident: Some(f), ..self } }
+  pub fn with_filename(self, f: Str) -> Scanner { Scanner { position: Position { filename: f, ..self.position }, ..self } }
+
+  pub fn pos(self) -> Position {
+    let off = self.p - self.last_char_len
+    if self.column > 0 { return Position { filename: self.position.filename, offset: off, line: self.line, column: self.column } }
+    if self.last_line_len > 0 { return Position { filename: self.position.filename, offset: off, line: self.line - 1, column: self.last_line_len } }
+    Position { filename: self.position.filename, offset: off, line: 1, column: 1 }
+  }
+
+  pub fn token_bytes(self) -> List<Int> {
+    if self.tok_pos < 0 { return [] }
+    let e = if self.tok_end < self.tok_pos { self.tok_pos } else { self.tok_end }
+    self.src[self.tok_pos..e]
+  }
+
+  pub fn token_text(self) -> Str {
+    match __from_bytes(self.token_bytes()) {
+      Some(s) => s,
+      None => {
+        let b = self.token_bytes()
+        var rs: List<Int> = []
+        var i = 0
+        while i < len(b) {
+          let (r, w) = utf8.decode_rune_at(b, i)
+          rs = push(rs, r)
+          i += w
+        }
+        utf8.from_runes(rs)
+      },
+    }
+  }
+}
+
+fn err(s: Scanner, msg: Str) -> Scanner {
+  let s2 = Scanner { tok_end: s.p - s.last_char_len, error_count: s.error_count + 1, ..s }
+  Scanner { errors: push(s2.errors, ErrorRec { pos: s2.pos(), tok: s2.position, msg: msg }), ..s2 }
+}
+
+fn next(s0: Scanner) -> (Scanner, Int) {
+  var s = s0
+  let n = len(s.src)
+  if s.p >= n {
+    let col = if s.last_char_len > 0 { s.column + 1 } else { s.column }
+    return (Scanner { column: col, last_char_len: 0, ..s }, EOF)
+  }
+  var ch = s.src[s.p]
+  var width = 1
+  if ch >= 0x80 {
+    let (r, w) = utf8.decode_rune_at(s.src, s.p)
+    if r == 0xfffd && w == 1 {
+      s = Scanner { p: s.p + 1, last_char_len: 1, column: s.column + 1, ..s }
+      return (err(s, "invalid UTF-8 encoding"), r)
+    }
+    ch = r
+    width = w
+  }
+  s = Scanner { p: s.p + width, last_char_len: width, column: s.column + 1, ..s }
+  if ch == 0 { s = err(s, "invalid character NUL") }
+  if ch == 10 { s = Scanner { line: s.line + 1, last_line_len: s.column, column: 0, ..s } }
+  (s, ch)
+}
+
+impl Scanner {
+  pub fn peek(self) -> (Scanner, Int) {
+    if self.ch == -2 {
+      var (s, c) = next(self)
+      if c == 0xfeff {
+        let (s2, c2) = next(s)
+        s = s2
+        c = c2
+      }
+      return (Scanner { ch: c, ..s }, c)
+    }
+    (self, self.ch)
+  }
+
+  pub fn next(self) -> (Scanner, Int) {
+    let s0 = Scanner { tok_pos: -1, position: Position { line: 0, ..self.position }, ..self }
+    let (s, ch) = s0.peek()
+    if ch != EOF {
+      let (s2, c2) = next(s)
+      return (Scanner { ch: c2, ..s2 }, ch)
+    }
+    (s, ch)
+  }
+}
+
+fn is_ident_rune(s: Scanner, ch: Int, i: Int) -> Bool {
+  match s.ident {
+    Some(f) => ch != EOF && f(ch, i),
+    None => {
+      if ch < 0 { return false }
+      ch == 95 || unicode.is_letter(__chr(ch)) || (unicode.is_digit(__chr(ch)) && i > 0)
+    },
+  }
+}
+
+fn lower(ch: Int) -> Int { 32 | ch }
+fn is_decimal(ch: Int) -> Bool { ch >= 48 && ch <= 57 }
+fn is_hex(ch: Int) -> Bool { is_decimal(ch) || (lower(ch) >= 97 && lower(ch) <= 102) }
+
+fn scan_identifier(s0: Scanner) -> (Scanner, Int) {
+  var (s, ch) = next(s0)
+  var i = 1
+  while is_ident_rune(s, ch, i) {
+    let (s2, c2) = next(s)
+    s = s2
+    ch = c2
+    i += 1
+  }
+  (s, ch)
+}
+
+// (s, ch, digsep, invalid)
+fn digits(s0: Scanner, ch0: Int, base: Int, invalid0: Int, track: Bool) -> (Scanner, Int, Int, Int) {
+  var s = s0
+  var ch = ch0
+  var ds = 0
+  var invalid = invalid0
+  if base <= 10 {
+    let mx = 48 + base
+    while is_decimal(ch) || ch == 95 {
+      var d = 1
+      if ch == 95 { d = 2 } else if ch >= mx && invalid == 0 && track { invalid = ch }
+      ds = ds | d
+      let (s2, c2) = next(s)
+      s = s2
+      ch = c2
+    }
+  } else {
+    while is_hex(ch) || ch == 95 {
+      ds = ds | (if ch == 95 { 2 } else { 1 })
+      let (s2, c2) = next(s)
+      s = s2
+      ch = c2
+    }
+  }
+  (s, ch, ds, invalid)
+}
+
+fn litname(prefix: Int) -> Str {
+  if prefix == 120 { "hexadecimal literal" } else if prefix == 111 || prefix == 48 { "octal literal" } else if prefix == 98 { "binary literal" } else { "decimal literal" }
+}
+
+fn invalid_sep(x: List<Int>) -> Int {
+  var x1 = 32
+  var d = 46
+  var i = 0
+  if len(x) >= 2 && x[0] == 48 {
+    x1 = lower(x[1])
+    if x1 == 120 || x1 == 111 || x1 == 98 {
+      d = 48
+      i = 2
+    }
+  }
+  while i < len(x) {
+    let p = d
+    d = x[i]
+    if d == 95 {
+      if p != 48 { return i }
+    } else if is_decimal(d) || (x1 == 120 && is_hex(d)) {
+      d = 48
+    } else {
+      if p == 95 { return i - 1 }
+      d = 46
+    }
+    i += 1
+  }
+  if d == 95 { return len(x) - 1 }
+  -1
+}
+
+fn scan_number(s0: Scanner, ch0: Int, seen_dot0: Bool) -> (Scanner, Int, Int) {
+  var s = s0
+  var ch = ch0
+  var seen_dot = seen_dot0
+  var base = 10
+  var prefix = 0
+  var digsep = 0
+  var invalid = 0
+  var tok = 0
+  if !seen_dot {
+    tok = INT
+    if ch == 48 {
+      let (s2, c2) = next(s)
+      s = s2
+      ch = c2
+      let l = lower(ch)
+      if l == 120 || l == 111 || l == 98 {
+        let (s3, c3) = next(s)
+        s = s3
+        ch = c3
+        base = if l == 120 { 16 } else if l == 111 { 8 } else { 2 }
+        prefix = l
+      } else {
+        base = 8
+        prefix = 48
+        digsep = 1
+      }
+    }
+    let (s4, c4, ds, inv) = digits(s, ch, base, invalid, true)
+    s = s4
+    ch = c4
+    digsep = digsep | ds
+    invalid = inv
+    if ch == 46 && (s.mode & SCAN_FLOATS) != 0 {
+      let (s5, c5) = next(s)
+      s = s5
+      ch = c5
+      seen_dot = true
+    }
+  }
+  if seen_dot {
+    tok = FLOAT
+    if prefix == 111 || prefix == 98 { s = err(s, "invalid radix point in " + litname(prefix)) }
+    let (s6, c6, ds, inv) = digits(s, ch, base, invalid, true)
+    s = s6
+    ch = c6
+    digsep = digsep | ds
+    invalid = inv
+  }
+  if (digsep & 1) == 0 { s = err(s, litname(prefix) + " has no digits") }
+  let e = lower(ch)
+  if (e == 101 || e == 112) && (s.mode & SCAN_FLOATS) != 0 {
+    if e == 101 && prefix != 0 && prefix != 48 {
+      s = err(s, strconv.quote_rune(ch) + " exponent requires decimal mantissa")
+    } else if e == 112 && prefix != 120 {
+      s = err(s, strconv.quote_rune(ch) + " exponent requires hexadecimal mantissa")
+    }
+    let (s7, c7) = next(s)
+    s = s7
+    ch = c7
+    tok = FLOAT
+    if ch == 43 || ch == 45 {
+      let (s8, c8) = next(s)
+      s = s8
+      ch = c8
+    }
+    let (s9, c9, ds, _) = digits(s, ch, 10, 0, false)
+    s = s9
+    ch = c9
+    digsep = digsep | ds
+    if (ds & 1) == 0 { s = err(s, "exponent has no digits") }
+  } else if prefix == 120 && tok == FLOAT {
+    s = err(s, "hexadecimal mantissa requires a 'p' exponent")
+  }
+  if tok == INT && invalid != 0 { s = err(s, "invalid digit " + strconv.quote_rune(invalid) + " in " + litname(prefix)) }
+  if (digsep & 2) != 0 {
+    s = Scanner { tok_end: s.p - s.last_char_len, ..s }
+    if invalid_sep(s.token_bytes()) >= 0 { s = err(s, "'_' must separate successive digits") }
+  }
+  (s, tok, ch)
+}
+
+fn digit_val(ch: Int) -> Int {
+  if is_decimal(ch) { return ch - 48 }
+  if lower(ch) >= 97 && lower(ch) <= 102 { return lower(ch) - 87 }
+  16
+}
+
+fn scan_digits(s0: Scanner, ch0: Int, base: Int, n0: Int) -> (Scanner, Int) {
+  var s = s0
+  var ch = ch0
+  var n = n0
+  while n > 0 && digit_val(ch) < base {
+    let (s2, c2) = next(s)
+    s = s2
+    ch = c2
+    n -= 1
+  }
+  if n > 0 { s = err(s, "invalid char escape") }
+  (s, ch)
+}
+
+fn scan_escape(s0: Scanner, quote: Int) -> (Scanner, Int) {
+  let (s, ch) = next(s0)
+  if ch == 97 || ch == 98 || ch == 102 || ch == 110 || ch == 114 || ch == 116 || ch == 118 || ch == 92 || ch == quote { return next(s) }
+  if ch >= 48 && ch <= 55 { return scan_digits(s, ch, 8, 3) }
+  if ch == 120 || ch == 117 || ch == 85 {
+    let (s2, c2) = next(s)
+    return scan_digits(s2, c2, 16, if ch == 120 { 2 } else if ch == 117 { 4 } else { 8 })
+  }
+  (err(s, "invalid char escape"), ch)
+}
+
+fn scan_string(s0: Scanner, quote: Int) -> (Scanner, Int) {
+  var (s, ch) = next(s0)
+  var n = 0
+  while ch != quote {
+    if ch == 10 || ch < 0 { return (err(s, "literal not terminated"), n) }
+    if ch == 92 {
+      let (s2, c2) = scan_escape(s, quote)
+      s = s2
+      ch = c2
+    } else {
+      let (s2, c2) = next(s)
+      s = s2
+      ch = c2
+    }
+    n += 1
+  }
+  (s, n)
+}
+
+fn scan_raw_string(s0: Scanner) -> Scanner {
+  var (s, ch) = next(s0)
+  while ch != 96 {
+    if ch < 0 { return err(s, "literal not terminated") }
+    let (s2, c2) = next(s)
+    s = s2
+    ch = c2
+  }
+  s
+}
+
+fn scan_comment(s0: Scanner, ch0: Int) -> (Scanner, Int) {
+  var s = s0
+  var ch = ch0
+  if ch == 47 {
+    let (s2, c2) = next(s)
+    s = s2
+    ch = c2
+    while ch != 10 && ch >= 0 {
+      let (s3, c3) = next(s)
+      s = s3
+      ch = c3
+    }
+    return (s, ch)
+  }
+  let (s4, c4) = next(s)
+  s = s4
+  ch = c4
+  loop {
+    if ch < 0 {
+      s = err(s, "comment not terminated")
+      break
+    }
+    let ch1 = ch
+    let (s5, c5) = next(s)
+    s = s5
+    ch = c5
+    if ch1 == 42 && ch == 47 {
+      let (s6, c6) = next(s)
+      s = s6
+      ch = c6
+      break
+    }
+  }
+  (s, ch)
+}
+
+fn is_ws(s: Scanner, ch: Int) -> Bool { ch >= 0 && ch < 64 && ((s.whitespace >> ch) & 1) != 0 }
+
+impl Scanner {
+  pub fn scan(self) -> (Scanner, Int) {
+    var (s, ch) = self.peek()
+    s = Scanner { tok_pos: -1, position: Position { line: 0, ..s.position }, ..s }
+    loop {
+      while is_ws(s, ch) {
+        let (s2, c2) = next(s)
+        s = s2
+        ch = c2
+      }
+      let tp = s.p - s.last_char_len
+      let pl = if s.column > 0 { s.line } else { s.line - 1 }
+      let pc = if s.column > 0 { s.column } else { s.last_line_len }
+      s = Scanner { tok_pos: tp, position: Position { filename: s.position.filename, offset: tp, line: pl, column: pc }, ..s }
+      var tok = ch
+      if is_ident_rune(s, ch, 0) {
+        if (s.mode & SCAN_IDENTS) != 0 {
+          tok = IDENT
+          let (s2, c2) = scan_identifier(s)
+          s = s2
+          ch = c2
+        } else {
+          let (s2, c2) = next(s)
+          s = s2
+          ch = c2
+        }
+      } else if is_decimal(ch) {
+        if (s.mode & (SCAN_INTS | SCAN_FLOATS)) != 0 {
+          let (s2, t2, c2) = scan_number(s, ch, false)
+          s = s2
+          tok = t2
+          ch = c2
+        } else {
+          let (s2, c2) = next(s)
+          s = s2
+          ch = c2
+        }
+      } else if ch == EOF {
+      } else if ch == 34 || ch == 39 || ch == 96 {
+        let flag = if ch == 34 { SCAN_STRINGS } else if ch == 39 { SCAN_CHARS } else { SCAN_RAW_STRINGS }
+        if (s.mode & flag) != 0 {
+          if ch == 34 {
+            let (s2, _) = scan_string(s, 34)
+            s = s2
+            tok = STRING
+          } else if ch == 39 {
+            let (s2, n) = scan_string(s, 39)
+            s = if n != 1 { err(s2, "invalid char literal") } else { s2 }
+            tok = CHAR
+          } else {
+            s = scan_raw_string(s)
+            tok = RAW_STRING
+          }
+        }
+        let (s3, c3) = next(s)
+        s = s3
+        ch = c3
+      } else if ch == 46 {
+        let (s2, c2) = next(s)
+        s = s2
+        ch = c2
+        if is_decimal(ch) && (s.mode & SCAN_FLOATS) != 0 {
+          let (s3, t3, c3) = scan_number(s, ch, true)
+          s = s3
+          tok = t3
+          ch = c3
+        }
+      } else if ch == 47 {
+        let (s2, c2) = next(s)
+        s = s2
+        ch = c2
+        if (ch == 47 || ch == 42) && (s.mode & SCAN_COMMENTS) != 0 {
+          if (s.mode & SKIP_COMMENTS) != 0 {
+            s = Scanner { tok_pos: -1, ..s }
+            let (s3, c3) = scan_comment(s, ch)
+            s = s3
+            ch = c3
+            continue
+          }
+          let (s3, c3) = scan_comment(s, ch)
+          s = s3
+          ch = c3
+          tok = COMMENT
+        }
+      } else {
+        let (s2, c2) = next(s)
+        s = s2
+        ch = c2
+      }
+      s = Scanner { tok_end: s.p - s.last_char_len, ch: ch, ..s }
+      return (s, tok)
+    }
+  }
+}
