@@ -12,8 +12,184 @@ use kir
 use kirdump
 use std.process
 
+extern "C" {
+  fn system(cmd: Str) -> Int
+}
+
+fn usage() -> Str {
+  join([
+    "用法:",
+    "  kitec run FILE [参数…]          编译成临时可执行文件并运行（也可以写 kitec FILE.kite [参数…]）",
+    "  kitec build FILE [-o 输出] [--emit-c C 文件] [--no-kir]",
+    "  kitec check FILE                只做类型检查",
+    "  kitec dis FILE                  查看字节码",
+    "  kitec kir FILE                  查看 KIR（不装箱的中间表示）",
+    "  kitec dump MODE FILE [PRELUDE]  对拍输出（MODE = lex / parse / check / lower / bc / c / kir / ck）",
+    "环境变量: KITE_HOME（prelude.kite 和 runtime/ 所在目录）、CC（C 编译器）、KITE_NO_KIR=1",
+  ], "\n")
+}
+
+fn dump_modes() -> List<Str> { ["lex", "parse", "check", "lower", "bc", "c", "kir", "ck"] }
+
 fn main() {
   let args = env.args()
+  if len(args) == 0 || contains(["help", "-h", "--help"], args[0]) {
+    print(usage())
+    process.exit(if len(args) == 0 { 2 } else { 0 })
+  }
+  let cmd = args[0]
+  if cmd == "build" { process.exit(build(args)) }
+  if cmd == "run" { process.exit(run_cmd(skip(args, 1))) }
+  if cmd == "dump" {
+    if len(args) < 3 {
+      eprint(usage())
+      process.exit(2)
+    }
+    process.exit(dump_cmd(skip(args, 1)))
+  }
+  // 旧写法 kitec MODE FILE PRELUDE、kitec parse FILE（tools/ 里的对拍脚本用）
+  if len(args) >= 3 && contains(dump_modes(), cmd) || len(args) == 2 && (cmd == "lex" || cmd == "parse") {
+    dump(args)
+    return
+  }
+  if len(args) == 2 && (cmd == "check" || cmd == "dis" || cmd == "kir") {
+    process.exit(if cmd == "check" { check_cmd(args[1]) } else { dump_cmd([if cmd == "dis" { "bc" } else { "kir" }, args[1]]) })
+  }
+  if ends_with(cmd, ".kite") { process.exit(run_cmd(args)) }
+  eprint("未知命令 " + cmd)
+  eprint(usage())
+  process.exit(2)
+}
+
+// ───────── 找 prelude.kite 和 runtime/：$KITE_HOME，然后可执行文件所在目录往上，最后当前目录往上 ─────────
+
+fn is_home(d: Str) -> Bool { fs.exists(path.join([d, "prelude.kite"])) && fs.exists(path.join([d, "runtime", "kite_rt.c"])) }
+
+fn up_find(d0: Str) -> Str? {
+  var d = d0
+  var n = 0
+  while d != "" && n < 8 {
+    if is_home(d) { return Some(d) }
+    let p = path.dir(d)
+    if p == d { return None }
+    d = p
+    n += 1
+  }
+  None
+}
+
+fn kite_home() -> Str? {
+  if let Some(h) = env.get("KITE_HOME") { if trim(h) != "" && is_home(h) { return Some(h) } }
+  let (code, out) = process.run("readlink -f /proc/$PPID/exe 2>/dev/null")
+  if code == 0 && trim(out) != "" {
+    if let Some(h) = up_find(path.dir(trim(out))) { return Some(h) }
+  }
+  up_find(__getcwd())
+}
+
+fn prelude_path() -> Str? {
+  match kite_home() {
+    Some(h) => Some(path.join([h, "prelude.kite"])),
+    None    => {
+      eprint("找不到 Kite 安装目录（prelude.kite 和 runtime/）：请设置环境变量 KITE_HOME")
+      None
+    },
+  }
+}
+
+// kitec dump MODE FILE [PRELUDE]；dis / kir 也走这里
+fn dump_cmd(xs: List<Str>) -> Int {
+  if len(xs) >= 3 {
+    dump(xs)
+    return 0
+  }
+  if xs[0] == "lex" || xs[0] == "parse" {
+    dump([xs[0], xs[1], ""])
+    return 0
+  }
+  match prelude_path() {
+    Some(p) => {
+      dump([xs[0], xs[1], p])
+      0
+    },
+    None    => 1,
+  }
+}
+
+// kitec check FILE：报错格式和 kite check 相同（最多 20 条，FILE:行: 信息）
+fn check_cmd(file: Str) -> Int {
+  let pre = match prelude_path() {
+    Some(p) => p,
+    None    => { return 1 },
+  }
+  let (items, pits) = match load(file, pre) {
+    Ok(r)  => r,
+    Err(m) => {
+      eprint(m)
+      return 1
+    },
+  }
+  let (errs, _, _, _) = check.check_c(pits, items.0)
+  if len(errs) > 0 {
+    for (ln, msg) in take(errs, 20) { eprint(loc(file, ln, modules.strip_lm(msg))) }
+    if len(errs) > 20 { eprint("…共 {len(errs)} 个错误") }
+    return 1
+  }
+  print(file + ": 类型检查通过")
+  0
+}
+
+// 读入程序和 prelude
+fn load(file: Str, pre_path: Str) -> Result<((List<ast.Node>, List<Str>), List<ast.Node>), Str> {
+  let cwd = __getcwd()
+  let kdir = path.dir(if path.is_abs(pre_path) { pre_path } else { path.join([cwd, pre_path]) })
+  let r = match modules.load_main_src(modules.new_l(cwd, file, kdir), file) {
+    Ok(x)  => x,
+    Err(e) => { return Err(loc(file, e.ln, modules.strip_lm(e.msg))) },
+  }
+  let pre = match fs.read(pre_path) {
+    Ok(x)  => x,
+    Err(e) => { return Err("读取失败: {e}") },
+  }
+  let pits = match parser.parse(pre) {
+    Ok(its) => its,
+    Err(e)  => { return Err("prelude: " + e) },
+  }
+  Ok((r, pits))
+}
+
+// kitec run FILE [参数…]：编译到临时目录再运行，退出码就是程序的退出码
+fn run_cmd(xs: List<Str>) -> Int {
+  if len(xs) == 0 {
+    eprint(usage())
+    return 2
+  }
+  let file = xs[0]
+  let pre = match prelude_path() {
+    Some(p) => p,
+    None    => { return 1 },
+  }
+  let tmp = env.get_or("TMPDIR", "/tmp")
+  let dir = path.join([if tmp == "" { "/tmp" } else { tmp }, "kitec-run-{__getpid()}"])
+  let _ = fs.mkdir(dir)
+  let out = path.join([dir, path.stem(file)])
+  let code = compile(file, pre, out, "", env.get_or("KITE_NO_KIR", "") != "1", true)
+  if code != 0 {
+    let _ = process.run("rm -rf " + sq(dir))
+    return code
+  }
+  var cmd = sq(out)
+  for a in skip(xs, 1) { cmd = cmd + " " + sq(a) }
+  let st = unsafe { system(cmd) }
+  let _ = process.run("rm -rf " + sq(dir))
+  if st == -1 { return 127 }
+  let sig = st & 127
+  if sig != 0 { return 128 + sig }
+  (st >> 8) & 255
+}
+
+// 对拍用的输出模式：kitec MODE FILE PRELUDE（MODE = lex / parse / check / lower / bc / c / kir / ck），格式和 tools/*_dump.py 相同
+fn dump(args: List<Str>) {
   let mode = args[0]
   let src = match fs.read(args[1]) {
     Ok(s)  => s,
@@ -21,9 +197,6 @@ fn main() {
       print("读取失败: {e}")
       return
     },
-  }
-  if mode == "build" {
-    process.exit(build(args))
   }
   if mode == "lex" {
     match lexer.lex(src) {
@@ -119,7 +292,7 @@ fn main() {
   }
 }
 
-// ───────── kitec build FILE PRELUDE [-o 输出] [--emit-c C 文件] [--no-kir] ─────────
+// ───────── kitec build FILE [PRELUDE] [-o 输出] [--emit-c C 文件] [--no-kir] ─────────
 // 和 kite build 相同的流程：类型检查 → 字节码 → KIR → C（cgen.generate_k）→ C 编译器；成功时输出“已生成 …”
 
 fn sq(s: Str) -> Str { "'" + replace(s, "'", "'\\''") + "'" }
@@ -128,26 +301,31 @@ fn eprint(s: Str) { __eprint(s) }
 
 fn has_cmd(c: Str) -> Bool { process.run("command -v " + c + " >/dev/null 2>&1").0 == 0 }
 
-// 对应 native.find_cc：$CC，然后 cc / clang / gcc，最后 python3 -m ziglang cc
+// $CC，然后 cc / clang / gcc，最后 zig cc
 fn find_cc() -> Str? {
   if let Some(cc) = env.get("CC") { if trim(cc) != "" { return Some(cc) } }
   for c in ["cc", "clang", "gcc"] { if has_cmd(c) { return Some(c) } }
-  if process.run("python3 -c 'import ziglang' >/dev/null 2>&1").0 == 0 { return Some("python3 -m ziglang cc -mcpu=baseline") }
+  if has_cmd("zig") { return Some("zig cc -mcpu=baseline") }
   None
 }
 
 fn loc(file: Str, ln: Int, msg: Str) -> Str { if ln > 0 && ln < 1000000 { file + ":{ln}: " + msg } else { file + ": " + msg } }
 
 fn build(args: List<Str>) -> Int {
-  if len(args) < 3 {
-    eprint("用法: kitec build FILE PRELUDE [-o 输出] [--emit-c C 文件] [--no-kir]")
+  if len(args) < 2 {
+    eprint("用法: kitec build FILE [PRELUDE] [-o 输出] [--emit-c C 文件] [--no-kir]")
     return 2
   }
   let file = args[1]
+  var pre = ""
+  var i = 2
+  if len(args) > 2 && ends_with(args[2], ".kite") {
+    pre = args[2]
+    i = 3
+  }
   var out = ""
   var emit = ""
-  var use_kir = true
-  var i = 3
+  var use_kir = env.get_or("KITE_NO_KIR", "") != "1"
   while i < len(args) {
     let a = args[i]
     if a == "-o" && i + 1 < len(args) {
@@ -168,26 +346,22 @@ fn build(args: List<Str>) -> Int {
     let b = path.base(file)
     out = if ends_with(b, ".kite") { __str_slice(b, 0, len(b) - 5) } else { b }
   }
-  let cwd = __getcwd()
-  let kdir = path.dir(if path.is_abs(args[2]) { args[2] } else { path.join([cwd, args[2]]) })
-  let (items, srcs) = match modules.load_main_src(modules.new_l(cwd, file, kdir), file) {
+  if pre == "" {
+    pre = match prelude_path() {
+      Some(p) => p,
+      None    => { return 1 },
+    }
+  }
+  compile(file, pre, out, emit, use_kir, false)
+}
+
+// 类型检查 → 字节码 → KIR → C（cgen.generate_k）→ C 编译器
+fn compile(file: Str, pre_path: Str, out: Str, emit: Str, use_kir: Bool, quiet: Bool) -> Int {
+  let kdir = path.dir(if path.is_abs(pre_path) { pre_path } else { path.join([__getcwd(), pre_path]) })
+  let ((items, srcs), pits) = match load(file, pre_path) {
     Ok(r)  => r,
-    Err(e) => {
-      eprint(loc(file, e.ln, modules.strip_lm(e.msg)))
-      return 1
-    },
-  }
-  let pre = match fs.read(args[2]) {
-    Ok(x)  => x,
-    Err(e) => {
-      eprint("读取失败: {e}")
-      return 1
-    },
-  }
-  let pits = match parser.parse(pre) {
-    Ok(its) => its,
-    Err(e)  => {
-      eprint("prelude: " + e)
+    Err(m) => {
+      eprint(m)
       return 1
     },
   }
@@ -230,7 +404,7 @@ fn build(args: List<Str>) -> Int {
   let cc = match find_cc() {
     Some(x) => x,
     None    => {
-      eprint("找不到 C 编译器：请安装 clang / gcc，或 pip install ziglang；也可设置环境变量 CC")
+      eprint("找不到 C 编译器：请安装 clang / gcc / zig；也可设置环境变量 CC")
       return 1
     },
   }
@@ -242,6 +416,6 @@ fn build(args: List<Str>) -> Int {
     eprint("C 编译失败（原生后端内部错误），退出码 {code}")
     return 1
   }
-  print("已生成 " + out)
+  if !quiet { print("已生成 " + out) }
   0
 }

@@ -1,0 +1,146 @@
+<a   b     c
+aaa bbbbb c
+x         y
+
+long cell here z
+>
+<....a......bc
+..aaa..bbbbbc
+....x.......y
+
+..long cell herez
+>
+<a	b		c
+aaa	bbbbb	c
+x			y
+
+long cell here	z
+>
+<a---|b-----|c
+aaa-|bbbbb-|c
+x---|------|y
+
+long cell here-|z
+>
+<a   b     c
+aaa bbbbb c
+x         y
+
+long cell here z
+>
+<   a|     b|c
+ aaa| bbbbb|c
+   x|      |y
+
+ long cell here|z
+>
+<名前  年齢  都市
+太郎  25  東京
+Bob 300 NYC
+>
+<...名前...年齢都市
+...太郎...25東京
+..Bob..300NYC
+>
+<名前	年齢	都市
+太郎	25	東京
+Bob	300	NYC
+>
+<名前--|年齢--|都市
+太郎--|25--|東京
+Bob-|300-|NYC
+>
+<名前  年齢  都市
+太郎  25  東京
+Bob 300 NYC
+>
+<  名前|  年齢|都市
+  太郎|  25|東京
+ Bob| 300|NYC
+>
+<a b c
+d e
+  indent x
+         double
+>
+<....a....bc
+....de
+.......indentx
+.............double
+>
+<a	b	c
+d	e
+	indent	x
+			double
+>
+<a-|b-|c
+---
+d-|e
+--|indent-|x
+--|-------|double
+>
+<a b c
+d e
+  indent x
+         double
+>
+< a| b|c
+---
+ d|e
+  | indent|x
+  |       |double
+>
+<<b>bold</b> &amp; x
+�esc	aped�    y
+plain       z
+>
+<..<b>bold</b>..&amp;x
+.....�esc	aped�y
+........plainz
+>
+<<b>bold</b>	&amp;	x
+�esc	aped�	y
+plain		z
+>
+<<b>bold</b>-|&amp;-|x
+�esc	aped�----|y
+plain-------|z
+>
+<<b>bold</b>     &amp; x
+esc	aped y
+plain    z
+>
+<     <b>bold</b>| &amp;|x
+ �esc	aped�|y
+    plain|z
+>
+<1  2   3
+11 22  33
+       
+end>
+<....1....2.....3
+...11...22.....33
+...............
+end>
+<1	2	3
+11	22	33
+		
+end>
+<1--|2--|--|3
+11-|22-|--|33
+---|---|--|
+end>
+<1  2   3
+11 22  33
+       
+end>
+<  1|  2| |3
+ 11| 22| |33
+   |   | |
+end>
+[a   b
+ccc d
+short
+]
+[x y
+]

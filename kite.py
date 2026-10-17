@@ -3547,31 +3547,6 @@ def _vm(typecheck=True):
     return VM(typecheck=typecheck)
 
 
-def repl():
-    global ALLOW_TOP_STMTS
-    ALLOW_TOP_STMTS = True     # REPL 里逐行输入语句
-    it = _vm()
-    print("Kite 1.00 REPL（字节码虚拟机 + 类型检查，输入 :q 退出）")
-    buf = ""
-    while True:
-        try:
-            line = input("... " if buf else "kite> ")
-        except EOFError:
-            print(); return
-        if line.strip() == ":q": return
-        buf += line + "\n"
-        if buf.count("{") > buf.count("}") or buf.count("(") > buf.count(")"):
-            continue
-        try:
-            v = it.run(buf, call_main=False)
-            if v is not Unit: print(show(v, True))
-        except KiteError as e:
-            print(f"错误: {e}")
-        except RecursionError:
-            print("错误: 递归过深")
-        buf = ""
-
-
 USAGE = """用法:
   python3 kite.py <file.kite>              类型检查 → 编译成字节码 → 虚拟机运行
   python3 kite.py check <file.kite>        只做类型检查
@@ -3586,9 +3561,8 @@ USAGE = """用法:
   python3 kite.py tree                     显示依赖树
   python3 kite.py run | check | build      在包目录里不写文件名时使用 src/main.kite
   python3 kite.py lsp                      启动语言服务器（编辑器调用）
-  python3 kite.py --tree <file.kite>       用树遍历解释器运行（对照用）
   python3 kite.py --no-check <file.kite>   跳过类型检查
-  python3 kite.py                          REPL"""
+（编译、运行、检查请用 bin/kitec：sh bootstrap.sh 构建；REPL 和 --tree 已废弃）"""
 
 
 # ── TCP 原语（与 runtime/kite_rt.c 的 b_tcp_* 一一对应）：套接字非阻塞，"会阻塞" 时返回 None ──
@@ -3978,7 +3952,9 @@ def main(argv):
         sys.setrecursionlimit(20000)
     args = argv[1:]
     if not args:
-        repl(); return 0
+        print(USAGE); return 2
+    if "--tree" in args:
+        print("--tree（树遍历解释器）已废弃", file=sys.stderr); return 2
     if args[0] in ("-h", "--help"):
         print(USAGE); return 0
     if args[0] == "fmt":
@@ -4026,10 +4002,9 @@ def main(argv):
         import lsp
         lsp.Server().serve(); return 0
     mode, engine, check = "run", "vm", True
-    while args and args[0] in ("run", "check", "dis", "kir", "--tree", "--no-check"):
+    while args and args[0] in ("run", "check", "dis", "kir", "--no-check"):
         a = args.pop(0)
         if a in ("check", "dis", "kir"): mode = a
-        elif a == "--tree": engine = "tree"
         elif a == "--no-check": check = False
     path = args[0] if args else None
     PROG_ARGS[:] = args[1:]

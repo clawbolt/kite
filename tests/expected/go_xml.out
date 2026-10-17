@@ -1,0 +1,1855 @@
+== Token
+doc 0
+  C "\n"
+  P xml "version=\"1.0\" encoding=\"UTF-8\""
+  C "\n"
+  D "DOCTYPE html PUBLIC \"-//W3C//DTD XHTML 1.0 Transitional//EN\"\n  \"http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd\""
+  C "\n"
+  S <{ns2}body {xmlns}foo="ns1" xmlns="ns2" {xmlns}tag="ns3">
+  C "\n  "
+  S <{ns2}hello lang="en">
+  C "World <>'\" \xe7\x99\xbd\xe9\xb5\xac\xe7\xbf\x94"
+  E </{ns2}hello>
+  C "\n  "
+  S <{ns2}query>
+  ERR "XML syntax error on line 8: invalid character entity &\xe4\xbd\x95;"
+  again ERR "XML syntax error on line 8: invalid character entity &\xe4\xbd\x95;"
+  pos 309 8 15
+doc 1
+  C "\n"
+  D "DOCTYPE [ <!ENTITY rdf \"http://www.w3.org/1999/02/22-rdf-syntax-ns#\">]"
+  C "\n"
+  D "DOCTYPE [<!ENTITY go \"Golang\"> ]"
+  C "\n"
+  D "DOCTYPE <!-> <!>       [<!ENTITY go \"Golang\"> ]"
+  C "\n"
+  EOF
+  again EOF
+  pos 232 5 1
+doc 2
+  C "\n"
+  S <tag>
+  ERR "XML syntax error on line 2: invalid character entity &entity (no semicolon)"
+  again ERR "XML syntax error on line 2: invalid character entity &entity (no semicolon)"
+  pos 16 2 16
+doc 3
+  ERR "XML syntax error on line 1: unexpected EOF"
+  again ERR "XML syntax error on line 1: unexpected EOF"
+  pos 1 1 2
+doc 4
+  ERR "XML syntax error on line 1: unexpected EOF"
+  again ERR "XML syntax error on line 1: unexpected EOF"
+  pos 2 1 3
+doc 5
+  ERR "XML syntax error on line 1: unexpected EOF"
+  again ERR "XML syntax error on line 1: unexpected EOF"
+  pos 3 1 4
+doc 6
+  ERR "XML syntax error on line 1: unexpected EOF"
+  again ERR "XML syntax error on line 1: unexpected EOF"
+  pos 3 1 4
+doc 7
+  ERR "XML syntax error on line 1: unexpected EOF"
+  again ERR "XML syntax error on line 1: unexpected EOF"
+  pos 2 1 3
+doc 8
+  ERR "XML syntax error on line 1: unexpected EOF"
+  again ERR "XML syntax error on line 1: unexpected EOF"
+  pos 3 1 4
+doc 9
+  ERR "XML syntax error on line 1: unexpected EOF"
+  again ERR "XML syntax error on line 1: unexpected EOF"
+  pos 4 1 5
+doc 10
+  ERR "XML syntax error on line 1: unexpected EOF"
+  again ERR "XML syntax error on line 1: unexpected EOF"
+  pos 6 1 7
+doc 11
+  ERR "XML syntax error on line 1: unexpected EOF"
+  again ERR "XML syntax error on line 1: unexpected EOF"
+  pos 7 1 8
+doc 12
+  ERR "XML syntax error on line 1: unexpected EOF"
+  again ERR "XML syntax error on line 1: unexpected EOF"
+  pos 3 1 4
+doc 13
+  S <t>
+  ERR "XML syntax error on line 1: unexpected EOF"
+  again ERR "XML syntax error on line 1: unexpected EOF"
+  pos 5 1 6
+doc 14
+  S <t>
+  ERR "XML syntax error on line 1: unexpected EOF"
+  again ERR "XML syntax error on line 1: unexpected EOF"
+  pos 6 1 7
+doc 15
+  ERR "XML syntax error on line 1: unexpected EOF"
+  again ERR "XML syntax error on line 1: unexpected EOF"
+  pos 2 1 3
+doc 16
+  ERR "XML syntax error on line 1: unexpected EOF"
+  again ERR "XML syntax error on line 1: unexpected EOF"
+  pos 3 1 4
+doc 17
+  ERR "XML syntax error on line 1: unexpected EOF"
+  again ERR "XML syntax error on line 1: unexpected EOF"
+  pos 4 1 5
+doc 18
+  ERR "XML syntax error on line 1: unexpected EOF"
+  again ERR "XML syntax error on line 1: unexpected EOF"
+  pos 5 1 6
+doc 19
+  ERR "XML syntax error on line 1: unexpected EOF"
+  again ERR "XML syntax error on line 1: unexpected EOF"
+  pos 6 1 7
+doc 20
+  ERR "XML syntax error on line 1: unexpected EOF"
+  again ERR "XML syntax error on line 1: unexpected EOF"
+  pos 7 1 8
+doc 21
+  S <t>
+  E </t>
+  ERR "XML syntax error on line 1: unexpected EOF"
+  again ERR "XML syntax error on line 1: unexpected EOF"
+  pos 7 1 8
+doc 22
+  S <t>
+  E </t>
+  ERR "XML syntax error on line 1: unexpected EOF"
+  again ERR "XML syntax error on line 1: unexpected EOF"
+  pos 8 1 9
+doc 23
+  S <t>
+  E </t>
+  ERR "XML syntax error on line 1: unexpected EOF in CDATA section"
+  again ERR "XML syntax error on line 1: unexpected EOF in CDATA section"
+  pos 14 1 15
+doc 24
+  S <t>
+  E </t>
+  ERR "XML syntax error on line 1: unexpected EOF in CDATA section"
+  again ERR "XML syntax error on line 1: unexpected EOF in CDATA section"
+  pos 15 1 16
+doc 25
+  S <t>
+  E </t>
+  ERR "XML syntax error on line 1: unexpected EOF in CDATA section"
+  again ERR "XML syntax error on line 1: unexpected EOF in CDATA section"
+  pos 16 1 17
+doc 26
+  ERR "XML syntax error on line 1: expected element name after <"
+  again ERR "XML syntax error on line 1: expected element name after <"
+  pos 1 1 2
+doc 27
+  ERR "XML syntax error on line 1: expected /> in element"
+  again ERR "XML syntax error on line 1: expected /> in element"
+  pos 4 1 5
+doc 28
+  ERR "XML syntax error on line 1: invalid XML name: 0"
+  again ERR "XML syntax error on line 1: invalid XML name: 0"
+  pos 2 1 3
+doc 29
+  ERR "XML syntax error on line 1: invalid XML name: 0"
+  again ERR "XML syntax error on line 1: invalid XML name: 0"
+  pos 3 1 4
+doc 30
+  ERR "XML syntax error on line 1: invalid XML name: 0"
+  again ERR "XML syntax error on line 1: invalid XML name: 0"
+  pos 3 1 4
+doc 31
+  ERR "XML syntax error on line 1: invalid XML name: 0"
+  again ERR "XML syntax error on line 1: invalid XML name: 0"
+  pos 4 1 5
+doc 32
+  ERR "XML syntax error on line 1: invalid character entity & (no semicolon)"
+  again ERR "XML syntax error on line 1: invalid character entity & (no semicolon)"
+  pos 7 1 8
+doc 33
+  ERR "XML syntax error on line 1: unescaped < inside quoted string"
+  again ERR "XML syntax error on line 1: unescaped < inside quoted string"
+  pos 7 1 8
+doc 34
+  S <t>
+  ERR "XML syntax error on line 1: invalid character entity &nbspc;"
+  again ERR "XML syntax error on line 1: invalid character entity &nbspc;"
+  pos 10 1 11
+doc 35
+  ERR "XML syntax error on line 1: attribute name without = in element"
+  again ERR "XML syntax error on line 1: attribute name without = in element"
+  pos 5 1 6
+doc 36
+  ERR "XML syntax error on line 1: unquoted or missing attribute value in element"
+  again ERR "XML syntax error on line 1: unquoted or missing attribute value in element"
+  pos 6 1 7
+doc 37
+  ERR "XML syntax error on line 1: unquoted or missing attribute value in element"
+  again ERR "XML syntax error on line 1: unquoted or missing attribute value in element"
+  pos 6 1 7
+doc 38
+  S <t>
+  ERR "XML syntax error on line 1: element <t> closed by </e>"
+  again ERR "XML syntax error on line 1: element <t> closed by </e>"
+  pos 7 1 8
+doc 39
+  S <t>
+  ERR "XML syntax error on line 1: expected element name after </"
+  again ERR "XML syntax error on line 1: expected element name after </"
+  pos 5 1 6
+doc 40
+  S <t>
+  ERR "XML syntax error on line 1: invalid characters between </t and >"
+  again ERR "XML syntax error on line 1: invalid characters between </t and >"
+  pos 7 1 8
+doc 41
+  S <t>
+  ERR "XML syntax error on line 1: unescaped ]]> not in CDATA section"
+  again ERR "XML syntax error on line 1: unescaped ]]> not in CDATA section"
+  pos 11 1 12
+doc 42
+  D "0 "
+  EOF
+  again EOF
+  pos 5 1 6
+doc 43
+  C "d"
+  EOF
+  again EOF
+  pos 13 1 14
+doc 44
+  ERR "XML syntax error on line 1: illegal character code U+0012"
+  again ERR "XML syntax error on line 1: illegal character code U+0012"
+  pos 1 1 2
+doc 45
+  P xml "version=\"1.0\""
+  ERR "XML syntax error on line 1: illegal character code U+000B"
+  again ERR "XML syntax error on line 1: illegal character code U+000B"
+  pos 22 1 23
+doc 46
+  ERR "XML syntax error on line 1: illegal character code U+FFFE"
+  again ERR "XML syntax error on line 1: illegal character code U+FFFE"
+  pos 3 1 4
+doc 47
+  P xml "version=\"1.0\""
+  S <doc>
+  C "\n"
+  S <hiya>
+  E </hiya>
+  ERR "XML syntax error on line 2: illegal character code U+0007"
+  again ERR "XML syntax error on line 2: illegal character code U+0007"
+  pos 36 2 9
+doc 48
+  P xml "version=\"1.0\""
+  ERR "XML syntax error on line 1: expected attribute name in element"
+  again ERR "XML syntax error on line 1: expected attribute name in element"
+  pos 26 1 27
+doc 49
+  S <doc>
+  ERR "XML syntax error on line 1: invalid character entity &abc (no semicolon)"
+  again ERR "XML syntax error on line 1: invalid character entity &abc (no semicolon)"
+  pos 9 1 10
+doc 50
+  S <doc>
+  ERR "XML syntax error on line 1: invalid character entity & (no semicolon)"
+  again ERR "XML syntax error on line 1: invalid character entity & (no semicolon)"
+  pos 6 1 7
+doc 51
+  S <doc>
+  ERR "XML syntax error on line 1: invalid character entity &\xef\xbf\xbe;"
+  again ERR "XML syntax error on line 1: invalid character entity &\xef\xbf\xbe;"
+  pos 10 1 11
+doc 52
+  S <doc>
+  ERR "XML syntax error on line 1: invalid character entity &hello;"
+  again ERR "XML syntax error on line 1: invalid character entity &hello;"
+  pos 12 1 13
+doc 53
+  S <a>
+  C "\n"
+  S <b>
+  C "\n"
+  ERR "XML syntax error on line 3: element <b> closed by </a>"
+  again ERR "XML syntax error on line 3: element <b> closed by </a>"
+  pos 12 3 5
+doc 54
+  ERR "XML syntax error on line 1: unexpected end element </a>"
+  again ERR "XML syntax error on line 1: unexpected end element </a>"
+  pos 4 1 5
+doc 55
+  S <a>
+  E </a>
+  ERR "XML syntax error on line 1: unexpected end element </a>"
+  again ERR "XML syntax error on line 1: unexpected end element </a>"
+  pos 11 1 12
+doc 56
+  S <{x}b {xmlns}a="x">
+  ERR "XML syntax error on line 1: element <b> in space a closed by </b> in space c"
+  again ERR "XML syntax error on line 1: element <b> in space a closed by </b> in space c"
+  pos 23 1 24
+doc 57
+  S <{x}b {xmlns}a="x">
+  ERR "XML syntax error on line 1: element <b> in space a closed by </b> in space \"\""
+  again ERR "XML syntax error on line 1: element <b> in space a closed by </b> in space \"\""
+  pos 21 1 22
+doc 58
+  S <b>
+  ERR "XML syntax error on line 1: element <b> in space  closed by </b> in space a"
+  again ERR "XML syntax error on line 1: element <b> in space  closed by </b> in space a"
+  pos 9 1 10
+doc 59
+  S <a b="1" b="2">
+  E </a>
+  EOF
+  again EOF
+  pos 16 1 17
+doc 60
+  S <a b="x\ny">
+  E </a>
+  EOF
+  again EOF
+  pos 16 7 3
+doc 61
+  S <a b="x\ty\nz\nw">
+  E </a>
+  EOF
+  again EOF
+  pos 17 2 7
+doc 62
+  S <a>
+  ERR "XML syntax error on line 1: illegal character code U+0000"
+  again ERR "XML syntax error on line 1: illegal character code U+0000"
+  pos 7 1 8
+doc 63
+  S <a>
+  C "\xef\xbf\xbd"
+  E </a>
+  EOF
+  again EOF
+  pos 15 1 16
+doc 64
+  S <a>
+  ERR "XML syntax error on line 1: invalid character entity &#x110000;"
+  again ERR "XML syntax error on line 1: invalid character entity &#x110000;"
+  pos 13 1 14
+doc 65
+  S <a>
+  C "\xf4\x8f\xbf\xbf"
+  E </a>
+  EOF
+  again EOF
+  pos 17 1 18
+doc 66
+  S <a>
+  ERR "XML syntax error on line 1: invalid character entity &#99999999999999999999999;"
+  again ERR "XML syntax error on line 1: invalid character entity &#99999999999999999999999;"
+  pos 29 1 30
+doc 67
+  S <a>
+  ERR "XML syntax error on line 1: invalid character entity &#;"
+  again ERR "XML syntax error on line 1: invalid character entity &#;"
+  pos 6 1 7
+doc 68
+  S <a>
+  ERR "XML syntax error on line 1: invalid character entity &#x;"
+  again ERR "XML syntax error on line 1: invalid character entity &#x;"
+  pos 7 1 8
+doc 69
+  S <a>
+  ERR "XML syntax error on line 1: invalid character entity &#65 (no semicolon)"
+  again ERR "XML syntax error on line 1: invalid character entity &#65 (no semicolon)"
+  pos 7 1 8
+doc 70
+  S <a>
+  ERR "XML syntax error on line 1: invalid character entity &#x4 (no semicolon)"
+  again ERR "XML syntax error on line 1: invalid character entity &#x4 (no semicolon)"
+  pos 7 1 8
+doc 71
+  S <a>
+  ERR "XML syntax error on line 1: invalid character entity &amp (no semicolon)"
+  again ERR "XML syntax error on line 1: invalid character entity &amp (no semicolon)"
+  pos 7 1 8
+doc 72
+  S <a>
+  C "<>&'\""
+  E </a>
+  EOF
+  again EOF
+  pos 32 1 33
+doc 73
+  S <a>
+  ERR "XML syntax error on line 1: invalid character entity &# (no semicolon)"
+  again ERR "XML syntax error on line 1: invalid character entity &# (no semicolon)"
+  pos 22 1 23
+doc 74
+  ERR "xml: unsupported version \"1.1\"; only version 1.0 is supported"
+  again ERR "xml: unsupported version \"1.1\"; only version 1.0 is supported"
+  pos 21 1 22
+doc 75
+  ERR "xml: unsupported version \"2\"; only version 1.0 is supported"
+  again ERR "xml: unsupported version \"2\"; only version 1.0 is supported"
+  pos 36 1 37
+doc 76
+  ERR "xml: encoding \"latin1\" declared but Decoder.CharsetReader is nil"
+  again ERR "xml: encoding \"latin1\" declared but Decoder.CharsetReader is nil"
+  pos 25 1 26
+doc 77
+  P xml "version='1.0' encoding='UTF-8'"
+  S <a>
+  E </a>
+  EOF
+  again EOF
+  pos 42 1 43
+doc 78
+  P xml "version='1.0' encoding='uTf-8'"
+  S <a>
+  E </a>
+  EOF
+  again EOF
+  pos 42 1 43
+doc 79
+  P xml-stylesheet "href='a.css'"
+  S <a>
+  E </a>
+  EOF
+  again EOF
+  pos 35 1 36
+doc 80
+  P pi ""
+  EOF
+  again EOF
+  pos 6 1 7
+doc 81
+  P pi "data with "
+  C " ?>"
+  EOF
+  again EOF
+  pos 22 1 23
+doc 82
+  ERR "XML syntax error on line 1: unexpected EOF"
+  again ERR "XML syntax error on line 1: unexpected EOF"
+  pos 9 1 10
+doc 83
+  ERR "XML syntax error on line 1: unexpected EOF"
+  again ERR "XML syntax error on line 1: unexpected EOF"
+  pos 7 1 8
+doc 84
+  ERR "XML syntax error on line 1: invalid sequence \"--\" not allowed in comments"
+  again ERR "XML syntax error on line 1: invalid sequence \"--\" not allowed in comments"
+  pos 10 1 11
+doc 85
+  ERR "XML syntax error on line 1: invalid sequence \"--\" not allowed in comments"
+  again ERR "XML syntax error on line 1: invalid sequence \"--\" not allowed in comments"
+  pos 8 1 9
+doc 86
+  M ""
+  EOF
+  again EOF
+  pos 7 1 8
+doc 87
+  ERR "XML syntax error on line 1: invalid sequence <!- not part of <!--"
+  again ERR "XML syntax error on line 1: invalid sequence <!- not part of <!--"
+  pos 4 1 5
+doc 88
+  C "a]]b]"
+  EOF
+  again EOF
+  pos 17 1 18
+doc 89
+  C "<&>"
+  EOF
+  again EOF
+  pos 15 1 16
+doc 90
+  ERR "XML syntax error on line 1: invalid <![ sequence"
+  again ERR "XML syntax error on line 1: invalid <![ sequence"
+  pos 8 1 9
+doc 91
+  S <a>
+  ERR "XML syntax error on line 1: unescaped ]]> not in CDATA section"
+  again ERR "XML syntax error on line 1: unescaped ]]> not in CDATA section"
+  pos 6 1 7
+doc 92
+  S <a>
+  C "]]"
+  E </a>
+  EOF
+  again EOF
+  pos 9 1 10
+doc 93
+  S <a>
+  C "]>]]>"
+  E </a>
+  EOF
+  again EOF
+  pos 15 1 16
+doc 94
+  S <a>
+  C "x\ny\nz\n\n"
+  E </a>
+  EOF
+  again EOF
+  pos 15 3 6
+doc 95
+  D "DOCTYPE a [<!ENTITY e 'v'>]"
+  S <a>
+  E </a>
+  EOF
+  again EOF
+  pos 34 1 35
+doc 96
+  D "DOCTYPE a 'x>y' \"q>\" "
+  EOF
+  again EOF
+  pos 24 1 25
+doc 97
+  D "DOCTYPE a <b <c>> "
+  EOF
+  again EOF
+  pos 21 1 22
+doc 98
+  D "DOCTYPE  "
+  EOF
+  again EOF
+  pos 25 1 26
+doc 99
+  ERR "XML syntax error on line 1: unexpected EOF"
+  again ERR "XML syntax error on line 1: unexpected EOF"
+  pos 17 1 18
+doc 100
+  ERR "XML syntax error on line 1: unexpected EOF"
+  again ERR "XML syntax error on line 1: unexpected EOF"
+  pos 11 1 12
+doc 101
+  ERR "XML syntax error on line 1: unexpected EOF"
+  again ERR "XML syntax error on line 1: unexpected EOF"
+  pos 17 1 18
+doc 102
+  ERR "XML syntax error on line 1: unexpected EOF"
+  again ERR "XML syntax error on line 1: unexpected EOF"
+  pos 13 1 14
+doc 103
+  ERR "XML syntax error on line 1: expected element name after <"
+  again ERR "XML syntax error on line 1: expected element name after <"
+  pos 6 1 7
+doc 104
+  S <:a>
+  E </:a>
+  EOF
+  again EOF
+  pos 5 1 6
+doc 105
+  S <a:>
+  E </a:>
+  EOF
+  again EOF
+  pos 5 1 6
+doc 106
+  ERR "XML syntax error on line 1: expected attribute name in element"
+  again ERR "XML syntax error on line 1: expected attribute name in element"
+  pos 22 1 23
+doc 107
+  S <a b:="1">
+  E </a>
+  EOF
+  again EOF
+  pos 11 1 12
+doc 108
+  S <a :b="1">
+  E </a>
+  EOF
+  again EOF
+  pos 11 1 12
+doc 109
+  S <é>
+  E </é>
+  EOF
+  again EOF
+  pos 5 1 6
+doc 110
+  S <a é="\xc3\xa9">
+  C "\xc3\xa9"
+  E </a>
+  EOF
+  again EOF
+  pos 17 1 18
+doc 111
+  S <a-b.c_d1>
+  E </a-b.c_d1>
+  EOF
+  again EOF
+  pos 11 1 12
+doc 112
+  ERR "XML syntax error on line 1: invalid XML name: -a"
+  again ERR "XML syntax error on line 1: invalid XML name: -a"
+  pos 3 1 4
+doc 113
+  ERR "XML syntax error on line 1: invalid XML name: .a"
+  again ERR "XML syntax error on line 1: invalid XML name: .a"
+  pos 3 1 4
+doc 114
+  ERR "XML syntax error on line 1: invalid XML name: 1a"
+  again ERR "XML syntax error on line 1: invalid XML name: 1a"
+  pos 3 1 4
+doc 115
+  S <a·b>
+  E </a·b>
+  EOF
+  again EOF
+  pos 7 1 8
+doc 116
+  S <à>
+  E </à>
+  EOF
+  again EOF
+  pos 6 1 7
+doc 117
+  S <一>
+  E </一>
+  EOF
+  again EOF
+  pos 6 1 7
+doc 118
+  S <〇x>
+  E </〇x>
+  EOF
+  again EOF
+  pos 7 1 8
+doc 119
+  ERR "XML syntax error on line 1: invalid XML name: a\xe2\x80\xa8"
+  again ERR "XML syntax error on line 1: invalid XML name: a\xe2\x80\xa8"
+  pos 5 1 6
+doc 120
+  ERR "XML syntax error on line 1: expected /> in element"
+  again ERR "XML syntax error on line 1: expected /> in element"
+  pos 4 1 5
+doc 121
+  ERR "XML syntax error on line 1: expected /> in element"
+  again ERR "XML syntax error on line 1: expected /> in element"
+  pos 5 1 6
+doc 122
+  S <a b="1" c="2">
+  E </a>
+  EOF
+  again EOF
+  pos 15 1 16
+doc 123
+  S <a b="1">
+  E </a>
+  EOF
+  again EOF
+  pos 13 1 14
+doc 124
+  S <a>
+  C "\t text \t"
+  E </a>
+  EOF
+  again EOF
+  pos 15 1 16
+doc 125
+  C "text only"
+  EOF
+  again EOF
+  pos 9 1 10
+doc 126
+  EOF
+  again EOF
+  pos 0 1 1
+doc 127
+  C "  \n "
+  EOF
+  again EOF
+  pos 4 2 2
+doc 128
+  S <{u1}a xmlns="u1">
+  S <{u1}b {xmlns}p="u2" {u2}c="1" c="2">
+  S <{u2}d>
+  E </{u2}d>
+  E </{u1}b>
+  S <{p}e>
+  E </{p}e>
+  E </{u1}a>
+  EOF
+  again EOF
+  pos 64 1 65
+doc 129
+  S <a {xmlns}p="u1">
+  S <{u2}b {xmlns}p="u2">
+  S <{u2}c>
+  E </{u2}c>
+  E </{u2}b>
+  S <{u1}d>
+  E </{u1}d>
+  E </a>
+  EOF
+  again EOF
+  pos 56 1 57
+doc 130
+  S <a {http://www.w3.org/XML/1998/namespace}lang="en" {xmlns}xml="bogus">
+  S <{http://www.w3.org/XML/1998/namespace}b>
+  E </{http://www.w3.org/XML/1998/namespace}b>
+  E </a>
+  EOF
+  again EOF
+  pos 47 1 48
+doc 131
+  S <{x}a>
+  E </{x}a>
+  EOF
+  again EOF
+  pos 6 1 7
+doc 132
+  S <{xmlns}a>
+  E </{xmlns}a>
+  EOF
+  again EOF
+  pos 10 1 11
+doc 133
+  S <a xmlns:="u">
+  E </a>
+  EOF
+  again EOF
+  pos 15 1 16
+doc 134
+  S <{u}a xmlns="u">
+  S <b xmlns="">
+  S <c>
+  E </c>
+  E </b>
+  S <{u}d>
+  E </{u}d>
+  E </{u}a>
+  EOF
+  again EOF
+  pos 41 1 42
+doc 135
+  S <{&<}a xmlns="&<">
+  E </{&<}a>
+  EOF
+  again EOF
+  pos 23 1 24
+doc 136
+  S <{u}a {xmlns}p="u">
+  E </{u}a>
+  EOF
+  again EOF
+  pos 23 1 24
+doc 137
+  S <a>
+  S <b>
+  E </b>
+  E </a>
+  S <c>
+  E </c>
+  C "tail"
+  EOF
+  again EOF
+  pos 22 1 23
+doc 138
+  S <a>
+  ERR "XML syntax error on line 1: invalid UTF-8"
+  again ERR "XML syntax error on line 1: invalid UTF-8"
+  pos 4 1 5
+doc 139
+  ERR "XML syntax error on line 1: invalid UTF-8"
+  again ERR "XML syntax error on line 1: invalid UTF-8"
+  pos 8 1 9
+doc 140
+  M "\xff"
+  EOF
+  again EOF
+  pos 8 1 9
+doc 141
+  P pi "\xfe"
+  EOF
+  again EOF
+  pos 8 1 9
+doc 142
+  D "DOCTYPE \xff"
+  EOF
+  again EOF
+  pos 12 1 13
+doc 143
+  S <a>
+  ERR "XML syntax error on line 1: invalid UTF-8"
+  again ERR "XML syntax error on line 1: invalid UTF-8"
+  pos 6 1 7
+doc 144
+  S <a>
+  ERR "XML syntax error on line 1: illegal character code U+FFFF"
+  again ERR "XML syntax error on line 1: illegal character code U+FFFF"
+  pos 6 1 7
+doc 145
+  S <a>
+  ERR "XML syntax error on line 1: illegal character code U+0000"
+  again ERR "XML syntax error on line 1: illegal character code U+0000"
+  pos 4 1 5
+== RawToken
+raw 0
+  C "\n"
+  P xml "version=\"1.0\" encoding=\"UTF-8\""
+  C "\n"
+  D "DOCTYPE html PUBLIC \"-//W3C//DTD XHTML 1.0 Transitional//EN\"\n  \"http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd\""
+  C "\n"
+  S <body {xmlns}foo="ns1" xmlns="ns2" {xmlns}tag="ns3">
+  C "\n  "
+  S <hello lang="en">
+  C "World <>'\" \xe7\x99\xbd\xe9\xb5\xac\xe7\xbf\x94"
+  E </hello>
+  C "\n  "
+  S <query>
+  ERR "XML syntax error on line 8: invalid character entity &\xe4\xbd\x95;"
+  again ERR "XML syntax error on line 8: invalid character entity &\xe4\xbd\x95;"
+  pos 309 8 15
+raw 1
+  C "\n"
+  D "DOCTYPE [ <!ENTITY rdf \"http://www.w3.org/1999/02/22-rdf-syntax-ns#\">]"
+  C "\n"
+  D "DOCTYPE [<!ENTITY go \"Golang\"> ]"
+  C "\n"
+  D "DOCTYPE <!-> <!>       [<!ENTITY go \"Golang\"> ]"
+  C "\n"
+  EOF
+  again EOF
+  pos 232 5 1
+raw 2
+  C "\n"
+  S <tag>
+  ERR "XML syntax error on line 2: invalid character entity &entity (no semicolon)"
+  again ERR "XML syntax error on line 2: invalid character entity &entity (no semicolon)"
+  pos 16 2 16
+raw 3
+  S <a>
+  E </b>
+  S <c>
+  S <d>
+  E </d>
+  E </e>
+  EOF
+  again EOF
+  pos 18 1 19
+raw 4
+  E </x>
+  E </y>
+  EOF
+  again EOF
+  pos 8 1 9
+raw 5
+  S <{p}a {xmlns}p="u">
+  S <{p}b>
+  E </{p}b>
+  E </{q}a>
+  EOF
+  again EOF
+  pos 29 1 30
+raw 6
+  ERR "XML syntax error on line 1: unexpected EOF"
+  again ERR "XML syntax error on line 1: unexpected EOF"
+  pos 1 1 2
+raw 7
+  ERR "XML syntax error on line 1: unexpected EOF"
+  again ERR "XML syntax error on line 1: unexpected EOF"
+  pos 2 1 3
+raw 8
+  ERR "XML syntax error on line 1: unexpected EOF"
+  again ERR "XML syntax error on line 1: unexpected EOF"
+  pos 3 1 4
+raw 9
+  ERR "XML syntax error on line 1: unexpected EOF"
+  again ERR "XML syntax error on line 1: unexpected EOF"
+  pos 3 1 4
+raw 10
+  ERR "XML syntax error on line 1: unexpected EOF"
+  again ERR "XML syntax error on line 1: unexpected EOF"
+  pos 2 1 3
+raw 11
+  ERR "XML syntax error on line 1: unexpected EOF"
+  again ERR "XML syntax error on line 1: unexpected EOF"
+  pos 3 1 4
+raw 12
+  ERR "XML syntax error on line 1: unexpected EOF"
+  again ERR "XML syntax error on line 1: unexpected EOF"
+  pos 4 1 5
+raw 13
+  ERR "XML syntax error on line 1: unexpected EOF"
+  again ERR "XML syntax error on line 1: unexpected EOF"
+  pos 6 1 7
+raw 14
+  ERR "XML syntax error on line 1: unexpected EOF"
+  again ERR "XML syntax error on line 1: unexpected EOF"
+  pos 7 1 8
+raw 15
+  ERR "XML syntax error on line 1: unexpected EOF"
+  again ERR "XML syntax error on line 1: unexpected EOF"
+  pos 3 1 4
+raw 16
+  S <t>
+  ERR "XML syntax error on line 1: unexpected EOF"
+  again ERR "XML syntax error on line 1: unexpected EOF"
+  pos 5 1 6
+raw 17
+  S <t>
+  ERR "XML syntax error on line 1: unexpected EOF"
+  again ERR "XML syntax error on line 1: unexpected EOF"
+  pos 6 1 7
+raw 18
+  ERR "XML syntax error on line 1: unexpected EOF"
+  again ERR "XML syntax error on line 1: unexpected EOF"
+  pos 2 1 3
+raw 19
+  ERR "XML syntax error on line 1: unexpected EOF"
+  again ERR "XML syntax error on line 1: unexpected EOF"
+  pos 3 1 4
+raw 20
+  ERR "XML syntax error on line 1: unexpected EOF"
+  again ERR "XML syntax error on line 1: unexpected EOF"
+  pos 4 1 5
+raw 21
+  ERR "XML syntax error on line 1: unexpected EOF"
+  again ERR "XML syntax error on line 1: unexpected EOF"
+  pos 5 1 6
+raw 22
+  ERR "XML syntax error on line 1: unexpected EOF"
+  again ERR "XML syntax error on line 1: unexpected EOF"
+  pos 6 1 7
+raw 23
+  ERR "XML syntax error on line 1: unexpected EOF"
+  again ERR "XML syntax error on line 1: unexpected EOF"
+  pos 7 1 8
+raw 24
+  S <t>
+  E </t>
+  ERR "XML syntax error on line 1: unexpected EOF"
+  again ERR "XML syntax error on line 1: unexpected EOF"
+  pos 7 1 8
+raw 25
+  S <t>
+  E </t>
+  ERR "XML syntax error on line 1: unexpected EOF"
+  again ERR "XML syntax error on line 1: unexpected EOF"
+  pos 8 1 9
+raw 26
+  S <t>
+  E </t>
+  ERR "XML syntax error on line 1: unexpected EOF in CDATA section"
+  again ERR "XML syntax error on line 1: unexpected EOF in CDATA section"
+  pos 14 1 15
+raw 27
+  S <t>
+  E </t>
+  ERR "XML syntax error on line 1: unexpected EOF in CDATA section"
+  again ERR "XML syntax error on line 1: unexpected EOF in CDATA section"
+  pos 15 1 16
+raw 28
+  S <t>
+  E </t>
+  ERR "XML syntax error on line 1: unexpected EOF in CDATA section"
+  again ERR "XML syntax error on line 1: unexpected EOF in CDATA section"
+  pos 16 1 17
+raw 29
+  ERR "XML syntax error on line 1: expected element name after <"
+  again ERR "XML syntax error on line 1: expected element name after <"
+  pos 1 1 2
+raw 30
+  ERR "XML syntax error on line 1: expected /> in element"
+  again ERR "XML syntax error on line 1: expected /> in element"
+  pos 4 1 5
+raw 31
+  ERR "XML syntax error on line 1: invalid XML name: 0"
+  again ERR "XML syntax error on line 1: invalid XML name: 0"
+  pos 2 1 3
+raw 32
+  ERR "XML syntax error on line 1: invalid XML name: 0"
+  again ERR "XML syntax error on line 1: invalid XML name: 0"
+  pos 3 1 4
+raw 33
+  ERR "XML syntax error on line 1: invalid XML name: 0"
+  again ERR "XML syntax error on line 1: invalid XML name: 0"
+  pos 3 1 4
+raw 34
+  ERR "XML syntax error on line 1: invalid XML name: 0"
+  again ERR "XML syntax error on line 1: invalid XML name: 0"
+  pos 4 1 5
+raw 35
+  ERR "XML syntax error on line 1: invalid character entity & (no semicolon)"
+  again ERR "XML syntax error on line 1: invalid character entity & (no semicolon)"
+  pos 7 1 8
+raw 36
+  ERR "XML syntax error on line 1: unescaped < inside quoted string"
+  again ERR "XML syntax error on line 1: unescaped < inside quoted string"
+  pos 7 1 8
+raw 37
+  S <t>
+  ERR "XML syntax error on line 1: invalid character entity &nbspc;"
+  again ERR "XML syntax error on line 1: invalid character entity &nbspc;"
+  pos 10 1 11
+raw 38
+  ERR "XML syntax error on line 1: attribute name without = in element"
+  again ERR "XML syntax error on line 1: attribute name without = in element"
+  pos 5 1 6
+raw 39
+  ERR "XML syntax error on line 1: unquoted or missing attribute value in element"
+  again ERR "XML syntax error on line 1: unquoted or missing attribute value in element"
+  pos 6 1 7
+raw 40
+  ERR "XML syntax error on line 1: unquoted or missing attribute value in element"
+  again ERR "XML syntax error on line 1: unquoted or missing attribute value in element"
+  pos 6 1 7
+raw 41
+  S <t>
+  E </e>
+  EOF
+  again EOF
+  pos 7 1 8
+raw 42
+  S <t>
+  ERR "XML syntax error on line 1: expected element name after </"
+  again ERR "XML syntax error on line 1: expected element name after </"
+  pos 5 1 6
+raw 43
+  S <t>
+  ERR "XML syntax error on line 1: invalid characters between </t and >"
+  again ERR "XML syntax error on line 1: invalid characters between </t and >"
+  pos 7 1 8
+raw 44
+  S <t>
+  ERR "XML syntax error on line 1: unescaped ]]> not in CDATA section"
+  again ERR "XML syntax error on line 1: unescaped ]]> not in CDATA section"
+  pos 11 1 12
+raw 45
+  D "0 "
+  EOF
+  again EOF
+  pos 5 1 6
+== entity map
+  C "\n"
+  P xml "version=\"1.0\" encoding=\"UTF-8\""
+  C "\n"
+  D "DOCTYPE html PUBLIC \"-//W3C//DTD XHTML 1.0 Transitional//EN\"\n  \"http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd\""
+  C "\n"
+  S <{ns2}body {xmlns}foo="ns1" xmlns="ns2" {xmlns}tag="ns3">
+  C "\n  "
+  S <{ns2}hello lang="en">
+  C "World <>'\" \xe7\x99\xbd\xe9\xb5\xac\xe7\xbf\x94"
+  E </{ns2}hello>
+  C "\n  "
+  S <{ns2}query>
+  C "What is it?"
+  E </{ns2}query>
+  C "\n  "
+  S <{ns2}goodbye>
+  E </{ns2}goodbye>
+  C "\n  "
+  S <{ns2}outer {ns1}attr="value" {xmlns}tag="ns4">
+  C "\n    "
+  S <{ns2}inner>
+  E </{ns2}inner>
+  C "\n  "
+  E </{ns2}outer>
+  C "\n  "
+  S <{ns3}name>
+  C "\n    "
+  C "Some text here."
+  C "\n  "
+  E </{ns3}name>
+  C "\n"
+  E </{ns2}body>
+  M " missing final newline "
+  EOF
+  again EOF
+  pos 503 16 38
+== non-strict
+ns 0 0
+  C "\n"
+  S <tag>
+  C "non&entity"
+  E </tag>
+  C "\n"
+  S <tag>
+  C "&unknown;entity"
+  E </tag>
+  C "\n"
+  S <tag>
+  C "&#123"
+  E </tag>
+  C "\n"
+  S <tag>
+  C "&#zzz;"
+  E </tag>
+  C "\n"
+  S <tag>
+  C "&\xe3\x81\xaa\xe3\x81\xbe\xe3\x81\x883;"
+  E </tag>
+  C "\n"
+  S <tag>
+  C "&lt-gt;"
+  E </tag>
+  C "\n"
+  S <tag>
+  C "&;"
+  E </tag>
+  C "\n"
+  S <tag>
+  C "&0a;"
+  E </tag>
+  C "\n"
+  EOF
+  again EOF
+  pos 158 10 1
+ns 0 1
+  C "\n"
+  S <tag>
+  C "non&entity"
+  E </tag>
+  C "\n"
+  S <tag>
+  C "&unknown;entity"
+  E </tag>
+  C "\n"
+  S <tag>
+  C "&#123"
+  E </tag>
+  C "\n"
+  S <tag>
+  C "&#zzz;"
+  E </tag>
+  C "\n"
+  S <tag>
+  C "&\xe3\x81\xaa\xe3\x81\xbe\xe3\x81\x883;"
+  E </tag>
+  C "\n"
+  S <tag>
+  C "&lt-gt;"
+  E </tag>
+  C "\n"
+  S <tag>
+  C "&;"
+  E </tag>
+  C "\n"
+  S <tag>
+  C "&0a;"
+  E </tag>
+  C "\n"
+  EOF
+  again EOF
+  pos 158 10 1
+ns 0 2
+  C "\n"
+  S <tag>
+  C "non&entity"
+  E </tag>
+  C "\n"
+  S <tag>
+  C "&unknown;entity"
+  E </tag>
+  C "\n"
+  S <tag>
+  C "&#123"
+  E </tag>
+  C "\n"
+  S <tag>
+  C "&#zzz;"
+  E </tag>
+  C "\n"
+  S <tag>
+  C "&\xe3\x81\xaa\xe3\x81\xbe\xe3\x81\x883;"
+  E </tag>
+  C "\n"
+  S <tag>
+  C "&lt-gt;"
+  E </tag>
+  C "\n"
+  S <tag>
+  C "&;"
+  E </tag>
+  C "\n"
+  S <tag>
+  C "&0a;"
+  E </tag>
+  C "\n"
+  EOF
+  again EOF
+  pos 158 10 1
+ns 1 0
+  S <p>
+  C "Hello"
+  S <br>
+  C "World&nbsp;&copy; &eacute;t&eacute; &euro;"
+  S <img src="x" alt="alt">
+  C "done"
+  E </img>
+  E </br>
+  E </p>
+  EOF
+  again EOF
+  pos 77 1 78
+ns 1 1
+  S <p>
+  C "Hello"
+  S <br>
+  E </br>
+  C "World\xc2\xa0\xc2\xa9 \xc3\xa9t\xc3\xa9 \xe2\x82\xac"
+  S <img src="x" alt="alt">
+  E </img>
+  C "done"
+  E </p>
+  EOF
+  again EOF
+  pos 77 1 78
+ns 1 2
+  S <p>
+  C "Hello"
+  S <br>
+  C "World\xc2\xa0\xc2\xa9 \xc3\xa9t\xc3\xa9 \xe2\x82\xac"
+  S <img src="x" alt="alt">
+  C "done"
+  E </p>
+  EOF
+  again EOF
+  pos 77 1 78
+ns 2 0
+  S <html>
+  S <body>
+  S <p>
+  C "one"
+  S <p>
+  C "two"
+  E </p>
+  E </p>
+  E </body>
+  E </html>
+  EOF
+  again EOF
+  pos 38 1 39
+ns 2 1
+  S <html>
+  S <body>
+  S <p>
+  C "one"
+  S <p>
+  C "two"
+  E </p>
+  E </p>
+  E </body>
+  E </html>
+  EOF
+  again EOF
+  pos 38 1 39
+ns 2 2
+  S <html>
+  S <body>
+  S <p>
+  C "one"
+  S <p>
+  C "two"
+  E </body>
+  E </html>
+  EOF
+  again EOF
+  pos 38 1 39
+ns 3 0
+  S <a>
+  S <b>
+  E </b>
+  E </a>
+  EOF
+  again EOF
+  pos 10 1 11
+ns 3 1
+  S <a>
+  S <b>
+  E </b>
+  E </a>
+  EOF
+  again EOF
+  pos 10 1 11
+ns 3 2
+  S <a>
+  S <b>
+  E </a>
+  EOF
+  again EOF
+  pos 10 1 11
+ns 4 0
+  S <a>
+  S <b>
+  S <c>
+  E </c>
+  E </b>
+  E </a>
+  C "more"
+  EOF
+  again EOF
+  pos 17 1 18
+ns 4 1
+  S <a>
+  S <b>
+  S <c>
+  E </c>
+  E </b>
+  E </a>
+  C "more"
+  EOF
+  again EOF
+  pos 17 1 18
+ns 4 2
+  S <a>
+  S <b>
+  S <c>
+  E </a>
+  C "more"
+  EOF
+  again EOF
+  pos 17 1 18
+ns 5 0
+  S <A x="1" y="y">
+  C "t"
+  E </A>
+  ERR "XML syntax error on line 1: unexpected end element </a>"
+  again ERR "XML syntax error on line 1: unexpected end element </a>"
+  pos 14 1 15
+ns 5 1
+  S <A x="1" y="y">
+  C "t"
+  E </A>
+  ERR "XML syntax error on line 1: unexpected end element </a>"
+  again ERR "XML syntax error on line 1: unexpected end element </a>"
+  pos 14 1 15
+ns 5 2
+  S <A x="1" y="y">
+  C "t"
+  E </a>
+  EOF
+  again EOF
+  pos 14 1 15
+ns 6 0
+  S <a x="1">
+  E </a>
+  EOF
+  again EOF
+  pos 8 1 9
+ns 6 1
+  S <a x="1">
+  E </a>
+  EOF
+  again EOF
+  pos 8 1 9
+ns 6 2
+  S <a x="1">
+  E </a>
+  EOF
+  again EOF
+  pos 8 1 9
+ns 7 0
+  S <a x="">
+  ERR "XML syntax error on line 1: unexpected EOF"
+  again ERR "XML syntax error on line 1: unexpected EOF"
+  pos 6 1 7
+ns 7 1
+  S <a x="">
+  ERR "XML syntax error on line 1: unexpected EOF"
+  again ERR "XML syntax error on line 1: unexpected EOF"
+  pos 6 1 7
+ns 7 2
+  S <a x="">
+  EOF
+  again EOF
+  pos 6 1 7
+ns 8 0
+  S <a x="1" y="b-c:d_e">
+  C "z"
+  E </a>
+  EOF
+  again EOF
+  pos 24 1 25
+ns 8 1
+  S <a x="1" y="b-c:d_e">
+  C "z"
+  E </a>
+  EOF
+  again EOF
+  pos 24 1 25
+ns 8 2
+  S <a x="1" y="b-c:d_e">
+  C "z"
+  E </a>
+  EOF
+  again EOF
+  pos 24 1 25
+ns 9 0
+  S <ul>
+  S <li>
+  C "1"
+  S <li>
+  C "2"
+  S <LI>
+  C "3"
+  E </LI>
+  E </li>
+  E </li>
+  E </ul>
+  EOF
+  again EOF
+  pos 24 1 25
+ns 9 1
+  S <ul>
+  S <li>
+  C "1"
+  S <li>
+  C "2"
+  S <LI>
+  C "3"
+  E </LI>
+  E </li>
+  E </li>
+  E </ul>
+  EOF
+  again EOF
+  pos 24 1 25
+ns 9 2
+  S <ul>
+  S <li>
+  C "1"
+  S <li>
+  C "2"
+  S <LI>
+  C "3"
+  E </ul>
+  EOF
+  again EOF
+  pos 24 1 25
+ns 10 0
+  S <input type="text">
+  S <br>
+  E </br>
+  S <hr>
+  E </hr>
+  C "end"
+  ERR "XML syntax error on line 1: unexpected EOF"
+  again ERR "XML syntax error on line 1: unexpected EOF"
+  pos 34 1 35
+ns 10 1
+  S <input type="text">
+  E </input>
+  S <br>
+  E </br>
+  S <hr>
+  E </hr>
+  C "end"
+  EOF
+  again EOF
+  pos 34 1 35
+ns 10 2
+  S <input type="text">
+  S <br>
+  E </br>
+  S <hr>
+  E </hr>
+  C "end"
+  EOF
+  again EOF
+  pos 34 1 35
+ns 11 0
+  S <a>
+  C "&foo; &#zz; &#12 &amp"
+  E </a>
+  EOF
+  again EOF
+  pos 28 1 29
+ns 11 1
+  S <a>
+  C "&foo; &#zz; &#12 &amp"
+  E </a>
+  EOF
+  again EOF
+  pos 28 1 29
+ns 11 2
+  S <a>
+  C "&foo; &#zz; &#12 &amp"
+  E </a>
+  EOF
+  again EOF
+  pos 28 1 29
+ns 12 0
+  S <p>
+  C "x"
+  S <BR>
+  C "y"
+  E </BR>
+  E </p>
+  ERR "XML syntax error on line 1: unexpected end element </P>"
+  again ERR "XML syntax error on line 1: unexpected end element </P>"
+  pos 13 1 14
+ns 12 1
+  S <p>
+  C "x"
+  S <BR>
+  E </BR>
+  C "y"
+  E </p>
+  ERR "XML syntax error on line 1: unexpected end element </P>"
+  again ERR "XML syntax error on line 1: unexpected end element </P>"
+  pos 13 1 14
+ns 12 2
+  S <p>
+  C "x"
+  S <BR>
+  C "y"
+  E </P>
+  EOF
+  again EOF
+  pos 13 1 14
+ns 13 0
+  S <a>
+  S <b>
+  E </b>
+  ERR "XML syntax error on line 1: unexpected EOF"
+  again ERR "XML syntax error on line 1: unexpected EOF"
+  pos 10 1 11
+ns 13 1
+  S <a>
+  S <b>
+  E </b>
+  ERR "XML syntax error on line 1: unexpected EOF"
+  again ERR "XML syntax error on line 1: unexpected EOF"
+  pos 10 1 11
+ns 13 2
+  S <a>
+  S <b>
+  E </b>
+  EOF
+  again EOF
+  pos 10 1 11
+ns 14 0
+  ERR "XML syntax error on line 1: unexpected end element </a>"
+  again ERR "XML syntax error on line 1: unexpected end element </a>"
+  pos 4 1 5
+ns 14 1
+  ERR "XML syntax error on line 1: unexpected end element </a>"
+  again ERR "XML syntax error on line 1: unexpected end element </a>"
+  pos 4 1 5
+ns 14 2
+  E </a>
+  EOF
+  again EOF
+  pos 4 1 5
+== html entity strict
+  S <p>
+  ERR "XML syntax error on line 1: invalid character entity &bogus;"
+  again ERR "XML syntax error on line 1: invalid character entity &bogus;"
+  pos 31 1 32
+252 13
+defspace 0
+  S <{dflt}a {xmlns}p="u">
+  S <{dflt}b>
+  E </{dflt}b>
+  S <{u}c x="1" {u}y="2">
+  E </{u}c>
+  S <{v}d xmlns="v">
+  S <{v}e>
+  E </{v}e>
+  E </{v}d>
+  E </{dflt}a>
+  EOF
+  again EOF
+  pos 64 1 65
+defspace 1
+  S <{x}a>
+  E </{x}a>
+  EOF
+  again EOF
+  pos 6 1 7
+charset 0
+  P xml "version='1.0' encoding='latin1'"
+  S <a b="\xc3\xa9">
+  C "caf\xc3\xa9"
+  E </a>
+  EOF
+  again EOF
+  pos 58 1 59
+charset 1
+  ERR "xml: opening charset \"ebcdic\": unsupported charset ebcdic"
+  again ERR "xml: opening charset \"ebcdic\": unsupported charset ebcdic"
+  pos 25 1 26
+charset 2
+  P xml "encoding=\"utf-8\""
+  S <a>
+  C "\xc3\xa9"
+  E </a>
+  EOF
+  again EOF
+  pos 33 1 34
+charset 3
+  P xml "version='1.0' encoding='LATIN1' standalone='yes'"
+  C "\n"
+  S <r>
+  C "\xc3\xbf\n"
+  E </r>
+  EOF
+  again EOF
+  pos 67 3 5
+== Encoder
+enc ns
+  ok 0
+  out "<local xmlns=\"space\">"
+enc noname
+  err "xml: start tag with no name" 0
+  out ""
+enc endnoname
+  err "xml: end tag with no name" 0
+  out ""
+enc chardata
+  ok 0
+  ok 0
+  ok 0
+  out "foo &#x9;\n&#xD;&lt;&gt;&amp;&#39;&#34;xa\xef\xbf\xbdb\xef\xbf\xbd"
+enc comment
+  ok 0
+  err "xml: EncodeToken of Comment containing --> marker" 0
+  ok 0
+  out "<!--foo--><!--a--b-->"
+enc procinst
+  ok 0
+  err "xml: EncodeToken of ProcInst with invalid Target" 0
+  err "xml: EncodeToken of ProcInst containing ?> marker" 0
+  ok 0
+  err "xml: EncodeToken of ProcInst with invalid Target" 0
+  out "<?Target Instruction?><?T?>"
+enc directive
+  ok 0
+  ok 0
+  err "xml: EncodeToken of Directive containing wrong < or > markers" 0
+  out "<!foo><!DOCTYPE doc [ <!ELEMENT doc '>'> <!-- com>ment --> ]>"
+enc dirs
+  ok 0
+  ok 0
+  ok 0
+  ok 0
+  ok 0
+  err "xml: EncodeToken of Directive containing wrong < or > markers" 0
+  err "xml: EncodeToken of Directive containing wrong < or > markers" 0
+  err "xml: EncodeToken of Directive containing wrong < or > markers" 0
+  err "xml: EncodeToken of Directive containing wrong < or > markers" 0
+  err "xml: EncodeToken of Directive containing wrong < or > markers" 0
+  err "xml: EncodeToken of Directive containing wrong < or > markers" 0
+  err "xml: EncodeToken of Directive containing wrong < or > markers" 0
+  err "xml: EncodeToken of Directive containing wrong < or > markers" 0
+  err "xml: EncodeToken of Directive containing wrong < or > markers" 0
+  out "<!<>><!< < > >><!<!DOCTYPE '<' '>' '>' <!--nothing-->>><!<!DOCTYPE doc [ <!ELEMENT doc \"ANY> '<' <!E\" LEMENT '>' doc ANY> ]>><!<!DOCTYPE doc <!-- just>>>> a < comment --> [ <!ITEM anything> ] >>"
+enc endnostart
+  err "xml: end tag </bar> without start tag" 0
+  out ""
+enc mismatch
+  ok 0
+  err "xml: end tag </bar> does not match start tag <foo>" 0
+  out "<foo>"
+enc mismatchns
+  ok 0
+  err "xml: end tag </foo> in namespace another does not match start tag <foo> in namespace space" 0
+  out "<foo xmlns=\"space\">"
+enc explicitns
+  ok 0
+  out "<local xmlns=\"space\" xmlns:_xmlns=\"xmlns\" _xmlns:x=\"space\" xmlns:space=\"space\" space:foo=\"value\">"
+enc collide
+  ok 0
+  out "<local xmlns=\"space\" xmlns:_xmlns=\"xmlns\" _xmlns:x=\"space\" xmlns:space=\"space\" space:foo=\"value\" xmlns:x=\"x\" x:bar=\"other\">"
+enc prevns
+  ok 0
+  ok 0
+  out "<local xmlns:_xmlns=\"xmlns\" _xmlns:x=\"space\"><foo xmlns=\"space\" xmlns:space=\"space\" space:x=\"y\">"
+enc nested
+  ok 0
+  ok 0
+  ok 0
+  ok 0
+  ok 0
+  ok 0
+  out "<foo xmlns:_xmlns=\"xmlns\" _xmlns:x=\"space1\"><foo _xmlns:x=\"space2\"><foo xmlns:space1=\"space1\" space1:a=\"space1 value\" xmlns:space2=\"space2\" space2:b=\"space2 value\"></foo></foo><foo xmlns:space1=\"space1\" space1:a=\"space1 value\" xmlns:space2=\"space2\" space2:b=\"space2 value\">"
+enc several
+  ok 0
+  out "<foo xmlns=\"space\" xmlns:_xmlns=\"xmlns\" _xmlns:a=\"space\" _xmlns:b=\"space\" xmlns:space=\"space\" space:x=\"value\">"
+enc redefine
+  ok 0
+  out "<foo xmlns:foo=\"foo\" foo:xmlns=\"space\">"
+enc xmlxmlns
+  ok 0
+  ok 0
+  out "<foo xmlns=\"space\" xmlns:_xml=\"xml\" _xml:xmlns=\"space\"><foo xmlns=\"space\" xml:xmlns=\"space\">"
+enc emptyattr
+  ok 0
+  out "<foo xmlns:_xmlns=\"xmlns\" _xmlns:foo=\"\">"
+enc badurl
+  ok 0
+  out "<foo xmlns=\"/34\" xmlns:_=\"/34\" _:x=\"value\" xmlns:b=\"a/b/\" b:y=\"1\" xmlns:__1=\"u:v\" __1:z=\"2\" xmlns:__2=\"http://x/1abc\" __2:w=\"3\">"
+enc reserved
+  ok 0
+  out "<foo xmlns:_xmlSchema-instance=\"http://www.w3.org/2001/xmlSchema-instance\" _xmlSchema-instance:nil=\"true\" xmlns:_XMLSchema-instance=\"http://www.w3.org/2001/XMLSchema-instance\" _XMLSchema-instance:nil=\"true\" xmlns:_XmL=\"http://w/XmL\" _XmL:a=\"1\" xmlns:xm=\"http://w/xm\" xm:b=\"2\">"
+enc seq
+  ok 0
+  ok 0
+  ok 0
+  out "<r xmlns:p=\"http://a/p\" p:x=\"1\" xmlns:p_1=\"http://b/p\" p_1:y=\"2\" xmlns:p_2=\"http://c/p\" p_2:z=\"3\" xmlns:p_3=\"p\" p_3:w=\"4\"></r><r xmlns:p=\"http://d/p\" p:x=\"1\">"
+enc attrescape
+  ok 0
+  out "<a xmlns=\"sp&amp;ce&#34;\" v=\"&lt;&#34;&amp;&#39;&#x9;&#xA;&#xD;&gt;\">"
+enc indent
+  ok 0
+  ok 0
+  ok 0
+  ok 0
+  ok 0
+  ok 0
+  ok 0
+  ok 0
+  ok 0
+  ok 0
+  ok 0
+  ok 0
+  ok 0
+  out "<?xml version=\"1.0\"?><a>\n  <b>text</b>\n  <c></c><!--note-->\n  <d>\n    <e></e>\n  </d>\n</a>"
+enc prefix
+  ok 0
+  ok 0
+  ok 0
+  ok 0
+  ok 0
+  ok 0
+  out ">><a x=\"1\">\n>>\t<b xmlns=\"u\"></b>\n>></a>\n>><z></z>"
+enc prefixonly
+  ok 0
+  ok 0
+  ok 0
+  ok 0
+  out "#<a>\n#<b></b>\n#</a>"
+enc xmlprocinst
+  ok 0
+  ok 0
+  err "xml: EncodeToken of ProcInst xml target only valid for xml declaration, first token encoded" 0
+  ok 41
+  ok 41
+  out "<?xml Instruction?><?Target Instruction?><?xml again?>"
+enc close
+  ok 0
+  err "unclosed tag <a>" 3
+  err "use of closed Encoder" 3
+  ok 3
+  out "<a>"
+enc closeok
+  ok 0
+  ok 0
+  ok 7
+  err "xml: end tag </a> without start tag" 7
+  err "use of closed Encoder" 7
+  out "<a></a>"
+enc bigflush
+  ok 0
+  ok 4096
+  ok 8192
+  ok 8192
+  err "xml: EncodeToken of ProcInst xml target only valid for xml declaration, first token encoded" 8192
+  out "yyyyyyyyyyxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzwwwwwwwwwwwwwwwwwwww"
+enc bigdirect
+  ok 5000
+  ok 5000
+  ok 5000
+  out "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx<?xml ok?><a>"
+== roundtrip
+  enc xml: EncodeToken of ProcInst xml target only valid for xml declaration, first token encoded
+  EOF
+  "\n\n<!DOCTYPE html PUBLIC \"-//W3C//DTD XHTML 1.0 Transitional//EN\"\n  \"http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd\">\n<body xmlns=\"ns2\" xmlns:_xmlns=\"xmlns\" _xmlns:foo=\"ns1\" xmlns=\"ns2\" _xmlns:tag=\"ns3\">\n  <hello xmlns=\"ns2\" lang=\"en\">World &lt;&gt;&#39;&#34; \xe7\x99\xbd\xe9\xb5\xac\xe7\xbf\x94</hello>\n  <query xmlns=\"ns2\">q</query>\n  <goodbye xmlns=\"ns2\"></goodbye>\n  <outer xmlns=\"ns2\" xmlns:ns1=\"ns1\" ns1:attr=\"value\" _xmlns:tag=\"ns4\">\n    <inner xmlns=\"ns2\"></inner>\n  </outer>\n  <name xmlns=\"ns3\">\n    Some text here.\n  </name>\n</body><!-- missing final newline -->"
+== escape
+  "" ""
+  "plain" "plain"
+  "&lt;a href=&#34;x&#34;&gt;&amp;&#39;&lt;/a&gt;" "&lt;a href=&#34;x&#34;&gt;&amp;&#39;&lt;/a&gt;"
+  "&#x9;&#xA;&#xD;" "&#x9;&#xA;&#xD;"
+  "\xef\xbf\xbd\xef\xbf\xbd\xef\xbf\xbd" "\xef\xbf\xbd\xef\xbf\xbd\xef\xbf\xbd"
+  "\xed\x9f\xbf\xee\x80\x80\xef\xbf\xbd\xef\xbf\xbd\xef\xbf\xbd" "\xed\x9f\xbf\xee\x80\x80\xef\xbf\xbd\xef\xbf\xbd\xef\xbf\xbd"
+  "\xc3\xa9\xf0\x9f\x98\x80" "\xc3\xa9\xf0\x9f\x98\x80"
+  "\xef\xbf\xbd" "\xef\xbf\xbd"
+  "a\xef\xbf\xbd" "a\xef\xbf\xbd"
+  "\xef\xbf\xbd\xef\xbf\xbd\xef\xbf\xbd" "\xef\xbf\xbd\xef\xbf\xbd\xef\xbf\xbd"
+== tree
+tree 0
+  "<root a=\"1\">hello <b>bold</b> world<!--c--><i x=\"y\"></i>cd&amp; end</root>"
+  "<root a=\"1\">hello \n  <b>bold</b> world<!--c-->\n  <i x=\"y\"></i>cd&amp; end\n</root>"
+  text "hello  worldcd& end" kids 6
+  find b found b "bold"
+  all b 1
+  find item none
+  all item 0
+  find c none
+  all c 0
+  find zz none
+  all zz 0
+  attr a true "1"
+  attr x false ""
+  attr xmlns false ""
+tree 1
+  "<list xmlns=\"urn:x\" xmlns=\"urn:x\" xmlns:_xmlns=\"xmlns\" _xmlns:q=\"urn:q\">\n  <item xmlns=\"urn:x\" xmlns:_=\"urn:q\" _:id=\"1\">one</item>\n  <item xmlns=\"urn:x\" xmlns:_=\"urn:q\" _:id=\"2\">two &amp; more</item>\n</list>"
+  "<list xmlns=\"urn:x\" xmlns=\"urn:x\" xmlns:_xmlns=\"xmlns\" _xmlns:q=\"urn:q\">\n  \n  <item xmlns=\"urn:x\" xmlns:_=\"urn:q\" _:id=\"1\">one</item>\n  \n  <item xmlns=\"urn:x\" xmlns:_=\"urn:q\" _:id=\"2\">two &amp; more</item>\n\n</list>"
+  text "\n  \n  \n" kids 5
+  find b none
+  all b 0
+  find item found {urn:x}item "one"
+  all item 2
+  find c none
+  all c 0
+  find zz none
+  all zz 0
+  attr a false ""
+  attr x false ""
+  attr xmlns true "urn:x"
+tree 2
+  "<a><b><c></c></b></a>"
+  "<a>\n  <b>\n    <c></c>\n  </b>\n</a>"
+  text "" kids 1
+  find b found b ""
+  all b 1
+  find item none
+  all item 0
+  find c none
+  all c 0
+  find zz none
+  all zz 0
+  attr a false ""
+  attr x false ""
+  attr xmlns false ""
+tree 3
+  error "XML syntax error on line 1: unexpected EOF"
+tree 4
+  error "xml: no root element"
+tree 5
+  error "XML syntax error on line 1: element <a> closed by </b>"
+tree 6
+  "<a></a>"
+  "<a></a>"
+  text "" kids 0
+  find b none
+  all b 0
+  find item none
+  all item 0
+  find c none
+  all c 0
+  find zz none
+  all zz 0
+  attr a false ""
+  attr x false ""
+  attr xmlns false ""
+tree 7
+  "<x>&lt;tag&gt; &#34;q&#34; &#39;a&#39;&#x9;tab\nnl</x>"
+  "<x>&lt;tag&gt; &#34;q&#34; &#39;a&#39;&#x9;tab\nnl</x>"
+  text "<tag> \"q\" 'a'\ttab\nnl" kids 1
+  find b none
+  all b 0
+  find item none
+  all item 0
+  find c none
+  all c 0
+  find zz none
+  all zz 0
+  attr a false ""
+  attr x false ""
+  attr xmlns false ""
+== build
+  "<doc v=\"1 &lt; 2\"><x xmlns=\"urn:a\" xmlns:_=\"urn:b\" _:y=\"q\">t&amp;t</x><!-- hi --><empty></empty>tail</doc>" <nil>
+  "> <doc v=\"1 &lt; 2\">\n> \t<x xmlns=\"urn:a\" xmlns:_=\"urn:b\" _:y=\"q\">t&amp;t</x><!-- hi -->\n> \t<empty></empty>tail\n> </doc>" <nil>
+  xml: EncodeToken of Comment containing --> marker
+  xml: start tag with no name

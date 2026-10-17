@@ -1,0 +1,92 @@
+H "Content-Type: text/plain\r\nX-Foo: bar\r\n baz\r\n\tqux\r\nx-foo: second\r\n\r\nbody" -> Content-Type="text/plain" X-Foo="bar baz qux","second" | <nil> | "body"
+H "my-key: Value 1  \r\nLong-key: Even \n Longer Value\r\nmy-Key: Value 2\r\n\n" -> Long-Key="Even Longer Value" My-Key="Value 1","Value 2" | <nil> | ""
+H " leading: space\r\n\r\n" ->  | malformed MIME header initial line: " leading: space" | ""
+H "Foo\r\n\r\n" ->  | malformed MIME header: missing colon: "Foo" | ""
+H "bad key: v\r\n\r\n" -> bad key="v" | <nil> | ""
+H "Foo: bar\r\n" -> Foo="bar" | EOF | ""
+H "Foo: bar\x01baz\r\n\r\n" ->  | malformed MIME header line: "Foo: bar\x01baz" | ""
+H "Foo: café\r\n\r\n" -> Foo="café" | <nil> | ""
+H "Content-type: x\r\nCONTENT-LENGTH: 5\r\naccept-encoding: gzip\r\nx-imforwards: a\r\nUser-agent: k\r\n\r\n" -> Accept-Encoding="gzip" Content-Length="5" Content-Type="x" User-Agent="k" X-Imforwards="a" | <nil> | ""
+H "" ->  | EOF | ""
+H "\r\n" ->  | <nil> | ""
+H ": empty key\r\n\r\n" ->  | malformed MIME header line: ": empty key" | ""
+H "Key:\r\n\r\n" -> Key="" | <nil> | ""
+H "A: 1\r\n  \r\nB: 2\r\n\r\n" -> A="1 " B="2" | <nil> | ""
+L "line one" <nil>
+L "line two" <nil>
+L "line three\r" <nil>
+L "" <nil>
+L "last" <nil>
+L "" EOF
+C "first cont1 cont2" <nil>
+C "next" <nil>
+C "" <nil>
+C "end" <nil>
+C "" EOF
+R "220 ready\r\n" 0 220 "ready" <nil> | 220 "ready" <nil>
+R "220 ready\r\n" 2 220 "ready" <nil> | 220 "ready" <nil>
+R "220 ready\r\n" 22 220 "ready" <nil> | 220 "ready" <nil>
+R "220 ready\r\n" 220 220 "ready" <nil> | 220 "ready" <nil>
+R "220-multi\r\n220-line\r\n220 end\r\n" 0 220 "multi\nline\nend" <nil> | 220 "multi" unexpected multi-line response: "multi"
+R "220-multi\r\n220-line\r\n220 end\r\n" 2 220 "multi\nline\nend" <nil> | 220 "multi" unexpected multi-line response: "multi"
+R "220-multi\r\n220-line\r\n220 end\r\n" 22 220 "multi\nline\nend" <nil> | 220 "multi" unexpected multi-line response: "multi"
+R "220-multi\r\n220-line\r\n220 end\r\n" 220 220 "multi\nline\nend" <nil> | 220 "multi" unexpected multi-line response: "multi"
+R "250 ok\r\n" 0 250 "ok" <nil> | 250 "ok" <nil>
+R "250 ok\r\n" 2 250 "ok" <nil> | 250 "ok" <nil>
+R "250 ok\r\n" 22 250 "ok" 250 "ok" | 250 "ok" 250 "ok"
+R "250 ok\r\n" 220 250 "ok" 250 "ok" | 250 "ok" 250 "ok"
+R "2x0 bad\r\n" 0 0 "" invalid response code: "2x0 bad" | 0 "" invalid response code: "2x0 bad"
+R "2x0 bad\r\n" 2 0 "" invalid response code: "2x0 bad" | 0 "" invalid response code: "2x0 bad"
+R "2x0 bad\r\n" 22 0 "" invalid response code: "2x0 bad" | 0 "" invalid response code: "2x0 bad"
+R "2x0 bad\r\n" 220 0 "" invalid response code: "2x0 bad" | 0 "" invalid response code: "2x0 bad"
+R "22\r\n" 0 0 "" short response: "22" | 0 "" short response: "22"
+R "22\r\n" 2 0 "" short response: "22" | 0 "" short response: "22"
+R "22\r\n" 22 0 "" short response: "22" | 0 "" short response: "22"
+R "22\r\n" 220 0 "" short response: "22" | 0 "" short response: "22"
+R "099 low\r\n" 0 99 "" invalid response code: "099 low" | 99 "" invalid response code: "099 low"
+R "099 low\r\n" 2 99 "" invalid response code: "099 low" | 99 "" invalid response code: "099 low"
+R "099 low\r\n" 22 99 "" invalid response code: "099 low" | 99 "" invalid response code: "099 low"
+R "099 low\r\n" 220 99 "" invalid response code: "099 low" | 99 "" invalid response code: "099 low"
+R "500 fail\r\n" 0 500 "fail" <nil> | 500 "fail" <nil>
+R "500 fail\r\n" 2 500 "fail" 500 "fail" | 500 "fail" 500 "fail"
+R "500 fail\r\n" 22 500 "fail" 500 "fail" | 500 "fail" 500 "fail"
+R "500 fail\r\n" 220 500 "fail" 500 "fail" | 500 "fail" 500 "fail"
+R "220-a\r\nnot code\r\n221 other\r\n220 done\r\n" 0 220 "a\nnot code\n221 other\ndone" <nil> | 220 "a" unexpected multi-line response: "a"
+R "220-a\r\nnot code\r\n221 other\r\n220 done\r\n" 2 220 "a\nnot code\n221 other\ndone" <nil> | 220 "a" unexpected multi-line response: "a"
+R "220-a\r\nnot code\r\n221 other\r\n220 done\r\n" 22 220 "a\nnot code\n221 other\ndone" <nil> | 220 "a" unexpected multi-line response: "a"
+R "220-a\r\nnot code\r\n221 other\r\n220 done\r\n" 220 220 "a\nnot code\n221 other\ndone" <nil> | 220 "a" unexpected multi-line response: "a"
+R "220-a\r\n" 0 0 "" EOF | 220 "a" unexpected multi-line response: "a"
+R "220-a\r\n" 2 0 "" EOF | 220 "a" unexpected multi-line response: "a"
+R "220-a\r\n" 22 0 "" EOF | 220 "a" unexpected multi-line response: "a"
+R "220-a\r\n" 220 0 "" EOF | 220 "a" unexpected multi-line response: "a"
+D "dotlines\r\n..dot\r\n.\r\nafter" ["dotlines" ".dot"] <nil> | "dotlines\n.dot\n" <nil>
+D "a\r\nb\n.\nrest" ["a" "b"] <nil> | "a\nb\n" <nil>
+D "no end\r\n" ["no end"] unexpected EOF | "no end\n" unexpected EOF
+D ".\r\n" [] <nil> | "" <nil>
+D "x\r\n..\r\n.\r\n" ["x" "."] <nil> | "x\n.\n" <nil>
+W "" "\r\n.\r\n"
+W "hello" "hello\r\n.\r\n"
+W "line\n.dot\r\nend\r" "line\r\n..dot\r\nend\r\n.\r\n"
+W "a\r\n" "a\r\n.\r\n"
+W "\n\n" "\r\n\r\n.\r\n"
+W ".\n" "..\r\n.\r\n"
+W "x\ry" "x\ry\r\n.\r\n"
+W "end\r\n." "end\r\n..\r\n.\r\n"
+K "content-type" "Content-Type"
+K "CONTENT-TYPE" "Content-Type"
+K "Content-Type" "Content-Type"
+K "x-a-b-c" "X-A-B-C"
+K "foo bar" "foo bar"
+K "foo_bar" "Foo_bar"
+K "é" "é"
+K "" ""
+K "-a" "-A"
+K "a--b" "A--B"
+K "Accept-encoding" "Accept-Encoding"
+K "ü-key" "ü-key"
+K "MIME-version" "Mime-Version"
+T "  x \r\n" "x"
+T "\t\n" ""
+T "a b" "a b"
+T "" ""
+M X-A="1","2" Y-B="4" 1 [1 2] 

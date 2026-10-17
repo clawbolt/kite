@@ -1,0 +1,452 @@
+case basic ok w5:ok ok ok ok ok ok ok w1000:ok ok close:ok len=6656 crc=c6f968f1
+  hdr: typ=48 name="hello.txt" link="" size=5 mode=420 uid=1000 gid=100 uname="alice" gname="staff" mtime=1700000000.0 atime=-62135596800.0 ctime=-62135596800.0 dev=0,0 fmt=USTAR pax={} xattr={}
+  data: "hello" ok
+  hdr: typ=53 name="dir/" link="" size=0 mode=493 uid=0 gid=0 uname="" gname="" mtime=1700000000.0 atime=-62135596800.0 ctime=-62135596800.0 dev=0,0 fmt=USTAR pax={} xattr={}
+  data: "" ok
+  hdr: typ=50 name="dir/link" link="../hello.txt" size=0 mode=511 uid=0 gid=0 uname="" gname="" mtime=1700000000.0 atime=-62135596800.0 ctime=-62135596800.0 dev=0,0 fmt=USTAR pax={} xattr={}
+  data: "" ok
+  hdr: typ=49 name="hard" link="hello.txt" size=0 mode=0 uid=0 gid=0 uname="" gname="" mtime=1700000000.0 atime=-62135596800.0 ctime=-62135596800.0 dev=0,0 fmt=USTAR pax={} xattr={}
+  data: "" ok
+  hdr: typ=51 name="dev/tty" link="" size=0 mode=400 uid=0 gid=0 uname="" gname="" mtime=1700000000.0 atime=-62135596800.0 ctime=-62135596800.0 dev=4,64 fmt=USTAR pax={} xattr={}
+  data: "" ok
+  hdr: typ=54 name="fifo" link="" size=0 mode=384 uid=0 gid=0 uname="" gname="" mtime=0.0 atime=-62135596800.0 ctime=-62135596800.0 dev=0,0 fmt=USTAR pax={} xattr={}
+  data: "" ok
+  hdr: typ=48 name="big.bin" link="" size=1000 mode=384 uid=0 gid=0 uname="" gname="" mtime=1700000000.0 atime=-62135596800.0 ctime=-62135596800.0 dev=0,0 fmt=USTAR pax={} xattr={}
+  data: len=1000 crc=7c858ff1 ok
+  hdr: typ=48 name="empty" link="" size=0 mode=384 uid=0 gid=0 uname="" gname="" mtime=1700000000.0 atime=-62135596800.0 ctime=-62135596800.0 dev=0,0 fmt=USTAR pax={} xattr={}
+  data: "" ok
+  next: err EOF
+case rega ok ok w1:ok close:ok len=2560 crc=96feab8c
+  hdr: typ=53 name="d/" link="" size=0 mode=0 uid=0 gid=0 uname="" gname="" mtime=1700000000.0 atime=-62135596800.0 ctime=-62135596800.0 dev=0,0 fmt=USTAR pax={} xattr={}
+  data: "" ok
+  hdr: typ=48 name="f" link="" size=1 mode=0 uid=0 gid=0 uname="" gname="" mtime=1700000000.0 atime=-62135596800.0 ctime=-62135596800.0 dev=0,0 fmt=USTAR pax={} xattr={}
+  data: "x" ok
+  next: err EOF
+case ustar-split ok w2:ok ok ok close:ok len=3072 crc=beca2273
+  hdr: typ=48 name="abcdefghi/abcdefghi/abcdefghi/abcdefghi/abcdefghi/abcdefghi/abcdefghi/abcdefghi/abcdefghi/abcdefghi/file.txt" link="" size=2 mode=420 uid=0 gid=0 uname="" gname="" mtime=1700000000.0 atime=-62135596800.0 ctime=-62135596800.0 dev=0,0 fmt=USTAR pax={} xattr={}
+  data: "ok" ok
+  hdr: typ=53 name="dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd/eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee/" link="" size=0 mode=493 uid=0 gid=0 uname="" gname="" mtime=1700000000.0 atime=-62135596800.0 ctime=-62135596800.0 dev=0,0 fmt=USTAR pax={} xattr={}
+  data: "" ok
+  hdr: typ=48 name="ppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnn" link="" size=0 mode=0 uid=0 gid=0 uname="" gname="" mtime=1700000000.0 atime=-62135596800.0 ctime=-62135596800.0 dev=0,0 fmt=USTAR pax={} xattr={}
+  data: "" ok
+  next: err EOF
+case pax-longname ok w3:ok ok ok ok close:ok len=7680 crc=2061426d
+  hdr: typ=48 name="xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" link="" size=3 mode=420 uid=0 gid=0 uname="" gname="" mtime=1700000000.0 atime=-62135596800.0 ctime=-62135596800.0 dev=0,0 fmt=PAX pax={"path":"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"} xattr={}
+  data: "abc" ok
+  hdr: typ=48 name="dir/yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy" link="" size=0 mode=420 uid=0 gid=0 uname="" gname="" mtime=1700000000.0 atime=-62135596800.0 ctime=-62135596800.0 dev=0,0 fmt=PAX pax={"path":"dir/yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy"} xattr={}
+  data: "" ok
+  hdr: typ=48 name="pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/nnnnnnnnnn" link="" size=0 mode=0 uid=0 gid=0 uname="" gname="" mtime=1700000000.0 atime=-62135596800.0 ctime=-62135596800.0 dev=0,0 fmt=PAX pax={"path":"pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/nnnnnnnnnn"} xattr={}
+  data: "" ok
+  hdr: typ=50 name="l" link="t/t/t/t/t/t/t/t/t/t/t/t/t/t/t/t/t/t/t/t/t/t/t/t/t/t/t/t/t/t/t/t/t/t/t/t/t/t/t/t/t/t/t/t/t/t/t/t/t/t/t/t/t/t/t/t/t/t/t/t/" size=0 mode=0 uid=0 gid=0 uname="" gname="" mtime=1700000000.0 atime=-62135596800.0 ctime=-62135596800.0 dev=0,0 fmt=PAX pax={"linkpath":"t/t/t/t/t/t/t/t/t/t/t/t/t/t/t/t/t/t/t/t/t/t/t/t/t/t/t/t/t/t/t/t/t/t/t/t/t/t/t/t/t/t/t/t/t/t/t/t/t/t/t/t/t/t/t/t/t/t/t/t/"} xattr={}
+  data: "" ok
+  next: err EOF
+case pax-nonascii ok w6:ok ok close:ok len=4608 crc=ccfd2e69
+  hdr: typ=48 name="日本語/ファイル.txt" link="" size=6 mode=420 uid=0 gid=0 uname="ユーザー" gname="grüppe" mtime=1700000000.0 atime=-62135596800.0 ctime=-62135596800.0 dev=0,0 fmt=PAX pax={"gname":"grüppe","path":"日本語/ファイル.txt","uname":"ユーザー"} xattr={}
+  data: "héllo" ok
+  hdr: typ=53 name="über/" link="" size=0 mode=0 uid=0 gid=0 uname="" gname="" mtime=1700000000.0 atime=-62135596800.0 ctime=-62135596800.0 dev=0,0 fmt=PAX pax={"path":"über/"} xattr={}
+  data: "" ok
+  next: err EOF
+case pax-numbers ok ok ok ok ok ok close:ok len=10240 crc=b3a24e08
+  hdr: typ=48 name="biguid" link="" size=0 mode=0 uid=4194304 gid=2097151 uname="" gname="" mtime=1700000000.0 atime=-62135596800.0 ctime=-62135596800.0 dev=0,0 fmt=PAX pax={"uid":"4194304"} xattr={}
+  data: "" ok
+  hdr: typ=48 name="neguid" link="" size=0 mode=0 uid=-1 gid=-5 uname="" gname="" mtime=1700000000.0 atime=-62135596800.0 ctime=-62135596800.0 dev=0,0 fmt=PAX pax={"gid":"-5","uid":"-1"} xattr={}
+  data: "" ok
+  hdr: typ=53 name="hugedir/" link="" size=17179869184 mode=0 uid=0 gid=0 uname="" gname="" mtime=1700000000.0 atime=-62135596800.0 ctime=-62135596800.0 dev=0,0 fmt=PAX pax={"size":"17179869184"} xattr={}
+  hdr: typ=48 name="oldfile" link="" size=0 mode=0 uid=0 gid=0 uname="" gname="" mtime=-100.0 atime=-62135596800.0 ctime=-62135596800.0 dev=0,0 fmt=PAX pax={"mtime":"-100"} xattr={}
+  data: "" ok
+  hdr: typ=48 name="future" link="" size=0 mode=0 uid=0 gid=0 uname="" gname="" mtime=17179869184.0 atime=-62135596800.0 ctime=-62135596800.0 dev=0,0 fmt=PAX pax={"mtime":"17179869184"} xattr={}
+  data: "" ok
+  hdr: typ=48 name="longuname" link="" size=0 mode=0 uid=0 gid=0 uname="uuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuu" gname="ggggggggggggggggggggggggggggggggg" mtime=1700000000.0 atime=-62135596800.0 ctime=-62135596800.0 dev=0,0 fmt=PAX pax={"gname":"ggggggggggggggggggggggggggggggggg","uname":"uuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuu"} xattr={}
+  data: "" ok
+  next: err EOF
+case times ok ok ok ok ok ok ok close:ok len=7680 crc=d6e68148
+  hdr: typ=48 name="round-down" link="" size=0 mode=0 uid=0 gid=0 uname="" gname="" mtime=1700000000.0 atime=-62135596800.0 ctime=-62135596800.0 dev=0,0 fmt=USTAR pax={} xattr={}
+  data: "" ok
+  hdr: typ=48 name="round-up" link="" size=0 mode=0 uid=0 gid=0 uname="" gname="" mtime=1700000001.0 atime=-62135596800.0 ctime=-62135596800.0 dev=0,0 fmt=USTAR pax={} xattr={}
+  data: "" ok
+  hdr: typ=48 name="pax-nano" link="" size=0 mode=0 uid=0 gid=0 uname="" gname="" mtime=1700000000.123456789 atime=-62135596800.0 ctime=-62135596800.0 dev=0,0 fmt=PAX pax={"mtime":"1700000000.123456789"} xattr={}
+  data: "" ok
+  hdr: typ=48 name="pax-atime" link="" size=0 mode=0 uid=0 gid=0 uname="" gname="" mtime=1700000000.0 atime=1600000000.5 ctime=-3.250000000 dev=0,0 fmt=PAX pax={"atime":"1600000000.000000005","ctime":"-2.75"} xattr={}
+  data: "" ok
+  hdr: typ=48 name="pax-plain" link="" size=0 mode=0 uid=0 gid=0 uname="" gname="" mtime=1700000000.0 atime=-62135596800.0 ctime=-62135596800.0 dev=0,0 fmt=USTAR pax={} xattr={}
+  data: "" ok
+  hdr: typ=48 name="zero-mtime" link="" size=0 mode=0 uid=0 gid=0 uname="" gname="" mtime=0.0 atime=-62135596800.0 ctime=-62135596800.0 dev=0,0 fmt=USTAR pax={} xattr={}
+  data: "" ok
+  hdr: typ=48 name="neg-nano" link="" size=0 mode=0 uid=0 gid=0 uname="" gname="" mtime=-2.700000000 atime=-62135596800.0 ctime=-62135596800.0 dev=0,0 fmt=PAX pax={"mtime":"-1.3"} xattr={}
+  data: "" ok
+  next: err EOF
+case gnu ok w4:ok ok ok ok ok ok close:ok len=7680 crc=be3b0c28
+  hdr: typ=48 name="plain" link="" size=4 mode=420 uid=0 gid=0 uname="" gname="" mtime=1700000000.0 atime=-62135596800.0 ctime=-62135596800.0 dev=0,0 fmt=GNU pax={} xattr={}
+  data: "gnu!" ok
+  hdr: typ=48 name="LLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLL" link="" size=0 mode=420 uid=0 gid=0 uname="" gname="" mtime=1700000000.0 atime=-62135596800.0 ctime=-62135596800.0 dev=0,0 fmt=GNU pax={} xattr={}
+  data: "" ok
+  hdr: typ=50 name="sym" link="KKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKK" size=0 mode=0 uid=0 gid=0 uname="" gname="" mtime=1700000000.0 atime=-62135596800.0 ctime=-62135596800.0 dev=0,0 fmt=GNU pax={} xattr={}
+  data: "" ok
+  hdr: typ=48 name="times" link="" size=0 mode=0 uid=0 gid=0 uname="" gname="" mtime=1700000000.0 atime=1600000000.0 ctime=1650000000.0 dev=0,0 fmt=GNU pax={} xattr={}
+  data: "" ok
+  hdr: typ=53 name="ssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssss/" link="" size=0 mode=0 uid=0 gid=0 uname="" gname="" mtime=1700000000.0 atime=-62135596800.0 ctime=-62135596800.0 dev=0,0 fmt=GNU pax={} xattr={}
+  data: "" ok
+  hdr: typ=48 name="日本" link="" size=0 mode=0 uid=-1 gid=0 uname="" gname="" mtime=-5.0 atime=-62135596800.0 ctime=-62135596800.0 dev=0,0 fmt=GNU pax={} xattr={}
+  data: "" ok
+  next: err EOF
+case auto-gnu ok ok ok close:ok len=2560 crc=ee3833f2
+  hdr: typ=48 name="bigmode" link="" size=0 mode=1073741824 uid=0 gid=0 uname="" gname="" mtime=1700000000.0 atime=-62135596800.0 ctime=-62135596800.0 dev=0,0 fmt=GNU pax={} xattr={}
+  data: "" ok
+  hdr: typ=52 name="bigdev" link="" size=0 mode=0 uid=0 gid=0 uname="" gname="" mtime=1700000000.0 atime=-62135596800.0 ctime=-62135596800.0 dev=1099511627776,-7 fmt=GNU pax={} xattr={}
+  data: "" ok
+  hdr: typ=48 name="negmode" link="" size=0 mode=-1 uid=0 gid=0 uname="" gname="" mtime=1700000000.0 atime=-62135596800.0 ctime=-62135596800.0 dev=0,0 fmt=GNU pax={} xattr={}
+  data: "" ok
+  next: err EOF
+case records ok ok ok ok ok ok ok close:ok len=10752 crc=b5b1d49c
+  hdr: typ=103 name="ignored?" link="" size=0 mode=0 uid=0 gid=0 uname="" gname="" mtime=-62135596800.0 atime=-62135596800.0 ctime=-62135596800.0 dev=0,0 fmt=PAX pax={"comment":"global!","path":"ignored?"} xattr={}
+  data: "" ok
+  hdr: typ=103 name="myglobal" link="" size=0 mode=0 uid=0 gid=0 uname="" gname="" mtime=-62135596800.0 atime=-62135596800.0 ctime=-62135596800.0 dev=0,0 fmt=PAX pax={"x":"1"} xattr={}
+  data: "" ok
+  hdr: typ=48 name="withrec" link="" size=0 mode=0 uid=0 gid=0 uname="" gname="" mtime=1700000000.0 atime=-62135596800.0 ctime=-62135596800.0 dev=0,0 fmt=PAX pax={"foo":"bar","zz":"多字节"} xattr={}
+  data: "" ok
+  hdr: typ=48 name="xattr" link="" size=0 mode=0 uid=0 gid=0 uname="" gname="" mtime=1700000000.0 atime=-62135596800.0 ctime=-62135596800.0 dev=0,0 fmt=PAX pax={"SCHILY.xattr.user.a":"1","SCHILY.xattr.user.b":"two"} xattr={"user.a":"1","user.b":"two"}
+  data: "" ok
+  hdr: typ=48 name="qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq" link="" size=0 mode=0 uid=0 gid=0 uname="" gname="" mtime=1700000000.0 atime=-62135596800.0 ctime=-62135596800.0 dev=0,0 fmt=PAX pax={"path":"qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq"} xattr={}
+  data: "" ok
+  hdr: typ=48 name="short" link="" size=0 mode=0 uid=7 gid=0 uname="" gname="" mtime=1700000000.0 atime=-62135596800.0 ctime=-62135596800.0 dev=0,0 fmt=PAX pax={"mtime":"1700000000","uid":"7"} xattr={}
+  data: "" ok
+  hdr: typ=48 name="long-record" link="" size=0 mode=0 uid=0 gid=0 uname="" gname="" mtime=1700000000.0 atime=-62135596800.0 ctime=-62135596800.0 dev=0,0 fmt=PAX pax={"k":"vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv"} xattr={}
+  data: "" ok
+  next: err EOF
+case errors err archive/tar: cannot encode header: Format specifies USTAR; and USTAR cannot encode Name="nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnn" err archive/tar: cannot encode header: Format specifies USTAR; and only PAX supports PAXRecords err archive/tar: cannot encode header: cannot manually encode TypeXHeader, TypeGNULongName, or TypeGNULongLink headers err archive/tar: cannot encode header: cannot manually encode TypeXHeader, TypeGNULongName, or TypeGNULongLink headers err archive/tar: cannot encode header: filename may not have trailing slash err archive/tar: cannot encode header: negative size on header-only type err archive/tar: cannot encode header: only PAXRecords should be set for TypeXGlobalHeader err archive/tar: cannot encode header: invalid PAX record: "a=b = x" err archive/tar: cannot encode header: invalid PAX record: "path = nul\x00name" err archive/tar: cannot encode header: Format specifies USTAR; and USTAR cannot encode AccessTime=2009-11-10 23:00:00 +0000 UTC ok err archive/tar: cannot encode header: Format specifies GNU; and only PAX supports PAXRecords err archive/tar: cannot encode header: Format specifies PAX; and PAX cannot encode Mode=1073741824 err archive/tar: cannot encode header: invalid PAX record: "uname = a\x00b" err archive/tar: cannot encode header: USTAR cannot encode Mode=4611686018427387904; and PAX cannot encode Mode=4611686018427387904; and GNU cannot encode Mode=4611686018427387904 err archive/tar: cannot encode header: Format specifies GNU; and only PAX supports PAXRecords err archive/tar: cannot encode header: Format specifies USTAR; and only PAX supports TypeXGlobalHeader err archive/tar: cannot encode header: Format specifies GNU; and only PAX supports Xattrs err archive/tar: cannot encode header: invalid PAX record: "bad\x00key = v" err archive/tar: cannot encode header: invalid PAX record: " = v" err archive/tar: cannot encode header: invalid PAX record: "linkpath = l\x00" ok w2:ok close:ok len=2560 crc=e6b5ca65
+  hdr: typ=48 name="nano" link="" size=0 mode=0 uid=0 gid=0 uname="" gname="" mtime=1257894000.0 atime=-62135596800.0 ctime=-62135596800.0 dev=0,0 fmt=USTAR pax={} xattr={}
+  data: "" ok
+  hdr: typ=48 name="ok-after-errors" link="" size=2 mode=0 uid=0 gid=0 uname="" gname="" mtime=1700000000.0 atime=-62135596800.0 ctime=-62135596800.0 dev=0,0 fmt=USTAR pax={} xattr={}
+  data: "hi" ok
+  next: err EOF
+case pax-paths ok ok ok ok ok ok ok ok ok ok w1:ok ok ok close:ok len=17408 crc=6b68f3be
+  hdr: typ=48 name="/absabsabsabsabsabsabsabsabsabsabsabsabsabsabsabsabsabsabsabsabsabsabsabsabsabsabsabsabsabsabsabsabsabsabsabsabsabsabsabs" link="" size=0 mode=0 uid=0 gid=0 uname="" gname="" mtime=1700000000.0 atime=-62135596800.0 ctime=-62135596800.0 dev=0,0 fmt=PAX pax={"path":"/absabsabsabsabsabsabsabsabsabsabsabsabsabsabsabsabsabsabsabsabsabsabsabsabsabsabsabsabsabsabsabsabsabsabsabsabsabsabsabs"} xattr={}
+  data: "" ok
+  hdr: typ=48 name="a//b/./ü" link="" size=0 mode=0 uid=0 gid=0 uname="" gname="" mtime=1700000000.0 atime=-62135596800.0 ctime=-62135596800.0 dev=0,0 fmt=PAX pax={"path":"a//b/./ü"} xattr={}
+  data: "" ok
+  hdr: typ=48 name="ü" link="" size=0 mode=0 uid=0 gid=0 uname="" gname="" mtime=1700000000.0 atime=-62135596800.0 ctime=-62135596800.0 dev=0,0 fmt=PAX pax={"path":"ü"} xattr={}
+  data: "" ok
+  hdr: typ=53 name="dir/sub/ü/" link="" size=0 mode=0 uid=0 gid=0 uname="" gname="" mtime=1700000000.0 atime=-62135596800.0 ctime=-62135596800.0 dev=0,0 fmt=PAX pax={"path":"dir/sub/ü/"} xattr={}
+  data: "" ok
+  hdr: typ=48 name="../ü" link="" size=0 mode=0 uid=0 gid=0 uname="" gname="" mtime=1700000000.0 atime=-62135596800.0 ctime=-62135596800.0 dev=0,0 fmt=PAX pax={"path":"../ü"} xattr={}
+  data: "" ok
+  hdr: typ=48 name="x/../../y/ü" link="" size=0 mode=0 uid=0 gid=0 uname="" gname="" mtime=1700000000.0 atime=-62135596800.0 ctime=-62135596800.0 dev=0,0 fmt=PAX pax={"path":"x/../../y/ü"} xattr={}
+  data: "" ok
+  hdr: typ=48 name="éa/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/f" link="" size=0 mode=0 uid=0 gid=0 uname="" gname="" mtime=1700000000.0 atime=-62135596800.0 ctime=-62135596800.0 dev=0,0 fmt=PAX pax={"path":"éa/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/f"} xattr={}
+  data: "" ok
+  hdr: typ=48 name="éééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz" link="" size=0 mode=0 uid=0 gid=0 uname="" gname="" mtime=1700000000.0 atime=-62135596800.0 ctime=-62135596800.0 dev=0,0 fmt=PAX pax={"path":"éééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz"} xattr={}
+  data: "" ok
+  next: err archive/tar: invalid tar header
+case too-long ok w3:err archive/tar: write too long ok w0:err archive/tar: write too long close:ok len=2560 crc=3063c239
+  hdr: typ=48 name="f" link="" size=3 mode=0 uid=0 gid=0 uname="" gname="" mtime=1700000000.0 atime=-62135596800.0 ctime=-62135596800.0 dev=0,0 fmt=USTAR pax={} xattr={}
+  data: "abc" ok
+  hdr: typ=53 name="d/" link="" size=10 mode=0 uid=0 gid=0 uname="" gname="" mtime=1700000000.0 atime=-62135596800.0 ctime=-62135596800.0 dev=0,0 fmt=USTAR pax={} xattr={}
+  data: "" ok
+  next: err EOF
+ok
+4 ok
+err archive/tar: missed writing 6 bytes
+err archive/tar: missed writing 6 bytes
+6 ok
+ok
+ok
+err archive/tar: missed writing 3 bytes
+ok
+err archive/tar: write after close
+0 err archive/tar: write after close
+err archive/tar: write after close
+len=1536 crc=7ddd4026
+ok len=2560 crc=6f7561c6
+chunks ok
+"abc" ok
+"def" ok
+"g" err EOF
+"" err EOF
+"" err EOF
+"" err EOF
+second ok
+"x" ok
+err EOF
+err EOF
+0 err EOF
+cut 0
+  next: err EOF
+cut 100
+  next: err unexpected EOF
+cut 512
+  hdr: typ=48 name="chunks" link="" size=7 mode=0 uid=0 gid=0 uname="" gname="" mtime=1700000000.0 atime=-62135596800.0 ctime=-62135596800.0 dev=0,0 fmt=USTAR pax={} xattr={}
+  data: "" err unexpected EOF
+  next: err unexpected EOF
+cut 513
+  hdr: typ=48 name="chunks" link="" size=7 mode=0 uid=0 gid=0 uname="" gname="" mtime=1700000000.0 atime=-62135596800.0 ctime=-62135596800.0 dev=0,0 fmt=USTAR pax={} xattr={}
+  data: "a" err unexpected EOF
+  next: err unexpected EOF
+cut 515
+  hdr: typ=48 name="chunks" link="" size=7 mode=0 uid=0 gid=0 uname="" gname="" mtime=1700000000.0 atime=-62135596800.0 ctime=-62135596800.0 dev=0,0 fmt=USTAR pax={} xattr={}
+  data: "abc" err unexpected EOF
+  next: err unexpected EOF
+cut 519
+  hdr: typ=48 name="chunks" link="" size=7 mode=0 uid=0 gid=0 uname="" gname="" mtime=1700000000.0 atime=-62135596800.0 ctime=-62135596800.0 dev=0,0 fmt=USTAR pax={} xattr={}
+  data: "abcdefg" ok
+  next: err EOF
+cut 1024
+  hdr: typ=48 name="chunks" link="" size=7 mode=0 uid=0 gid=0 uname="" gname="" mtime=1700000000.0 atime=-62135596800.0 ctime=-62135596800.0 dev=0,0 fmt=USTAR pax={} xattr={}
+  data: "abcdefg" ok
+  next: err EOF
+cut 1030
+  hdr: typ=48 name="chunks" link="" size=7 mode=0 uid=0 gid=0 uname="" gname="" mtime=1700000000.0 atime=-62135596800.0 ctime=-62135596800.0 dev=0,0 fmt=USTAR pax={} xattr={}
+  data: "abcdefg" ok
+  next: err unexpected EOF
+cut 1536
+  hdr: typ=48 name="chunks" link="" size=7 mode=0 uid=0 gid=0 uname="" gname="" mtime=1700000000.0 atime=-62135596800.0 ctime=-62135596800.0 dev=0,0 fmt=USTAR pax={} xattr={}
+  data: "abcdefg" ok
+  hdr: typ=48 name="second" link="" size=2 mode=0 uid=0 gid=0 uname="" gname="" mtime=1700000000.0 atime=-62135596800.0 ctime=-62135596800.0 dev=0,0 fmt=USTAR pax={} xattr={}
+  data: "" err unexpected EOF
+  next: err unexpected EOF
+cut 2048
+  hdr: typ=48 name="chunks" link="" size=7 mode=0 uid=0 gid=0 uname="" gname="" mtime=1700000000.0 atime=-62135596800.0 ctime=-62135596800.0 dev=0,0 fmt=USTAR pax={} xattr={}
+  data: "abcdefg" ok
+  hdr: typ=48 name="second" link="" size=2 mode=0 uid=0 gid=0 uname="" gname="" mtime=1700000000.0 atime=-62135596800.0 ctime=-62135596800.0 dev=0,0 fmt=USTAR pax={} xattr={}
+  data: "xy" ok
+  next: err EOF
+cut 2560
+  hdr: typ=48 name="chunks" link="" size=7 mode=0 uid=0 gid=0 uname="" gname="" mtime=1700000000.0 atime=-62135596800.0 ctime=-62135596800.0 dev=0,0 fmt=USTAR pax={} xattr={}
+  data: "abcdefg" ok
+  hdr: typ=48 name="second" link="" size=2 mode=0 uid=0 gid=0 uname="" gname="" mtime=1700000000.0 atime=-62135596800.0 ctime=-62135596800.0 dev=0,0 fmt=USTAR pax={} xattr={}
+  data: "xy" ok
+  next: err EOF
+badsum
+  next: err archive/tar: invalid tar header
+zero-then-data
+  next: err archive/tar: invalid tar header
+badsize
+  next: err archive/tar: invalid tar header
+file v7.tar
+  hdr: typ=48 name="small.txt" link="" size=5 mode=292 uid=73025 gid=5000 uname="" gname="" mtime=1244593104.0 atime=-62135596800.0 ctime=-62135596800.0 dev=0,0 fmt=<unknown> pax={} xattr={}
+  data: "Kilts" ok
+  hdr: typ=48 name="small2.txt" link="" size=11 mode=292 uid=73025 gid=5000 uname="" gname="" mtime=1244593104.0 atime=-62135596800.0 ctime=-62135596800.0 dev=0,0 fmt=<unknown> pax={} xattr={}
+  data: "Google.com\n" ok
+  next: err EOF
+file ustar.tar
+  hdr: typ=48 name="longname/longname/longname/longname/longname/longname/longname/longname/longname/longname/longname/longname/longname/longname/longname/file.txt" link="" size=6 mode=420 uid=501 gid=20 uname="shane" gname="staff" mtime=1360135598.0 atime=-62135596800.0 ctime=-62135596800.0 dev=0,0 fmt=USTAR pax={} xattr={}
+  data: "hello\n" ok
+  next: err EOF
+file gnu.tar
+  hdr: typ=48 name="small.txt" link="" size=5 mode=416 uid=73025 gid=5000 uname="dsymonds" gname="eng" mtime=1244428340.0 atime=-62135596800.0 ctime=-62135596800.0 dev=0,0 fmt=GNU pax={} xattr={}
+  data: "Kilts" ok
+  hdr: typ=48 name="small2.txt" link="" size=11 mode=416 uid=73025 gid=5000 uname="dsymonds" gname="eng" mtime=1244436044.0 atime=-62135596800.0 ctime=-62135596800.0 dev=0,0 fmt=GNU pax={} xattr={}
+  data: "Google.com\n" ok
+  next: err EOF
+file star.tar
+  hdr: typ=48 name="small.txt" link="" size=5 mode=416 uid=73025 gid=5000 uname="dsymonds" gname="eng" mtime=1244592783.0 atime=1244592783.0 ctime=1244592783.0 dev=0,0 fmt=<unknown> pax={} xattr={}
+  data: "Kilts" ok
+  hdr: typ=48 name="small2.txt" link="" size=11 mode=416 uid=73025 gid=5000 uname="dsymonds" gname="eng" mtime=1244592783.0 atime=1244592783.0 ctime=1244592783.0 dev=0,0 fmt=<unknown> pax={} xattr={}
+  data: "Google.com\n" ok
+  next: err EOF
+file pax.tar
+  hdr: typ=48 name="a/123456789101112131415161718192021222324252627282930313233343536373839404142434445464748495051525354555657585960616263646566676869707172737475767778798081828384858687888990919293949596979899100" link="" size=7 mode=436 uid=1000 gid=1000 uname="shane" gname="shane" mtime=1350244992.23960108 atime=1350244992.23960108 ctime=1350244992.23960108 dev=0,0 fmt=PAX pax={"atime":"1350244992.023960108","ctime":"1350244992.023960108","mtime":"1350244992.023960108","path":"a/123456789101112131415161718192021222324252627282930313233343536373839404142434445464748495051525354555657585960616263646566676869707172737475767778798081828384858687888990919293949596979899100"} xattr={}
+  data: "shaner\n" ok
+  hdr: typ=50 name="a/b" link="123456789101112131415161718192021222324252627282930313233343536373839404142434445464748495051525354555657585960616263646566676869707172737475767778798081828384858687888990919293949596979899100" size=0 mode=511 uid=1000 gid=1000 uname="shane" gname="shane" mtime=1350266320.910238425 atime=1350266320.910238425 ctime=1350266320.910238425 dev=0,0 fmt=PAX pax={"atime":"1350266320.910238425","ctime":"1350266320.910238425","linkpath":"123456789101112131415161718192021222324252627282930313233343536373839404142434445464748495051525354555657585960616263646566676869707172737475767778798081828384858687888990919293949596979899100","mtime":"1350266320.910238425"} xattr={}
+  data: "" ok
+  next: err EOF
+file pax-records.tar
+  hdr: typ=48 name="file" link="" size=0 mode=0 uid=0 gid=0 uname="longlonglonglonglonglonglonglonglonglong" gname="" mtime=0.0 atime=-62135596800.0 ctime=-62135596800.0 dev=0,0 fmt=PAX pax={"GOLANG.pkg":"tar","comment":"Hello, 世界","uname":"longlonglonglonglonglonglonglonglonglong"} xattr={}
+  data: "" ok
+  next: err EOF
+file pax-global-records.tar
+  hdr: typ=103 name="global1" link="" size=0 mode=0 uid=0 gid=0 uname="" gname="" mtime=-62135596800.0 atime=-62135596800.0 ctime=-62135596800.0 dev=0,0 fmt=PAX pax={"mtime":"1500000000.0","path":"global1"} xattr={}
+  data: "" ok
+  hdr: typ=48 name="file1" link="" size=0 mode=0 uid=0 gid=0 uname="" gname="" mtime=0.0 atime=-62135596800.0 ctime=-62135596800.0 dev=0,0 fmt=USTAR pax={} xattr={}
+  data: "" ok
+  hdr: typ=48 name="file2" link="" size=0 mode=0 uid=0 gid=0 uname="" gname="" mtime=0.0 atime=-62135596800.0 ctime=-62135596800.0 dev=0,0 fmt=PAX pax={"path":"file2"} xattr={}
+  data: "" ok
+  hdr: typ=103 name="GlobalHead.0.0" link="" size=0 mode=0 uid=0 gid=0 uname="" gname="" mtime=-62135596800.0 atime=-62135596800.0 ctime=-62135596800.0 dev=0,0 fmt=PAX pax={"path":""} xattr={}
+  data: "" ok
+  hdr: typ=48 name="file3" link="" size=0 mode=0 uid=0 gid=0 uname="" gname="" mtime=0.0 atime=-62135596800.0 ctime=-62135596800.0 dev=0,0 fmt=USTAR pax={} xattr={}
+  data: "" ok
+  hdr: typ=48 name="file4" link="" size=0 mode=0 uid=0 gid=0 uname="" gname="" mtime=1400000000.0 atime=-62135596800.0 ctime=-62135596800.0 dev=0,0 fmt=PAX pax={"mtime":"1400000000"} xattr={}
+  data: "" ok
+  next: err EOF
+file gnu-long-nul.tar
+  hdr: typ=48 name="0123456789" link="" size=0 mode=420 uid=1000 gid=1000 uname="rawr" gname="dsnet" mtime=1486082191.0 atime=-62135596800.0 ctime=-62135596800.0 dev=0,0 fmt=GNU pax={} xattr={}
+  data: "" ok
+  next: err EOF
+file gnu-utf8.tar
+  hdr: typ=48 name="☺☻☹☺☻☹☺☻☹☺☻☹☺☻☹☺☻☹☺☻☹☺☻☹☺☻☹☺☻☹☺☻☹☺☻☹☺☻☹☺☻☹☺☻☹☺☻☹☺☻☹☺☻☹" link="" size=0 mode=420 uid=1000 gid=1000 uname="☺" gname="⚹" mtime=0.0 atime=-62135596800.0 ctime=-62135596800.0 dev=0,0 fmt=GNU pax={} xattr={}
+  data: "" ok
+  next: err EOF
+file nil-uid.tar
+  hdr: typ=48 name="P1050238.JPG.log" link="" size=14 mode=436 uid=0 gid=0 uname="eyefi" gname="eyefi" mtime=1365454838.0 atime=-62135596800.0 ctime=-62135596800.0 dev=0,0 fmt=GNU pax={} xattr={}
+  data: "44,44,POWERON\x00" ok
+  next: err EOF
+file neg-size.tar
+  next: err archive/tar: invalid tar header
+file issue10968.tar
+  next: err archive/tar: invalid tar header
+file issue11169.tar
+  next: err archive/tar: invalid tar header
+file issue12435.tar
+  next: err archive/tar: invalid tar header
+file pax-bad-hdr-file.tar
+  next: err archive/tar: invalid tar header
+file pax-bad-mtime-file.tar
+  next: err archive/tar: invalid tar header
+file pax-pos-size-file.tar
+  hdr: typ=48 name="foo" link="" size=999 mode=416 uid=319973 gid=5000 uname="joetsai" gname="eng" mtime=1442282516.0 atime=-62135596800.0 ctime=-62135596800.0 dev=0,0 fmt=PAX pax={"size":"000000000000000000000999"} xattr={}
+  data: len=999 crc=5fd7e86a ok
+  next: err EOF
+file pax-nul-path.tar
+  next: err archive/tar: invalid tar header
+file pax-nul-xattrs.tar
+  next: err archive/tar: invalid tar header
+file pax-path-hdr.tar
+  next: err EOF
+file hardlink.tar
+  hdr: typ=48 name="file.txt" link="" size=15 mode=420 uid=1000 gid=100 uname="vbatts" gname="users" mtime=1425484303.0 atime=-62135596800.0 ctime=-62135596800.0 dev=0,0 fmt=USTAR pax={} xattr={}
+  data: "Slartibartfast\n" ok
+  hdr: typ=49 name="hard.txt" link="file.txt" size=0 mode=420 uid=1000 gid=100 uname="vbatts" gname="users" mtime=1425484303.0 atime=-62135596800.0 ctime=-62135596800.0 dev=0,0 fmt=USTAR pax={} xattr={}
+  data: "" ok
+  next: err EOF
+file file-and-dir.tar
+  hdr: typ=48 name="small.txt" link="" size=5 mode=0 uid=0 gid=0 uname="" gname="" mtime=0.0 atime=-62135596800.0 ctime=-62135596800.0 dev=0,0 fmt=USTAR pax={} xattr={}
+  data: "Kilts" ok
+  hdr: typ=53 name="dir/" link="" size=0 mode=0 uid=0 gid=0 uname="" gname="" mtime=0.0 atime=-62135596800.0 ctime=-62135596800.0 dev=0,0 fmt=USTAR pax={} xattr={}
+  data: "" ok
+  next: err EOF
+file trailing-slash.tar
+  hdr: typ=53 name="123456789/123456789/123456789/123456789/123456789/123456789/123456789/123456789/123456789/123456789/123456789/123456789/123456789/123456789/123456789/123456789/123456789/123456789/123456789/123456789/123456789/123456789/123456789/123456789/123456789/123456789/123456789/123456789/123456789/123456789/" link="" size=0 mode=0 uid=0 gid=0 uname="" gname="" mtime=0.0 atime=-62135596800.0 ctime=-62135596800.0 dev=0,0 fmt=PAX pax={"path":"123456789/123456789/123456789/123456789/123456789/123456789/123456789/123456789/123456789/123456789/123456789/123456789/123456789/123456789/123456789/123456789/123456789/123456789/123456789/123456789/123456789/123456789/123456789/123456789/123456789/123456789/123456789/123456789/123456789/123456789/"} xattr={}
+  data: "" ok
+  next: err EOF
+file ustar-file-devs.tar
+  hdr: typ=48 name="file" link="" size=0 mode=420 uid=0 gid=0 uname="" gname="" mtime=0.0 atime=-62135596800.0 ctime=-62135596800.0 dev=1,1 fmt=USTAR pax={} xattr={}
+  data: "" ok
+  next: err EOF
+file ustar-file-reg.tar
+  hdr: typ=48 name="foo" link="" size=684 mode=416 uid=319973 gid=5000 uname="joetsai" gname="eng" mtime=1442282516.0 atime=-62135596800.0 ctime=-62135596800.0 dev=0,0 fmt=USTAR pax={} xattr={}
+  data: len=684 crc=50086c36 ok
+  next: err EOF
+file xattrs.tar
+  hdr: typ=48 name="small.txt" link="" size=5 mode=420 uid=1000 gid=10 uname="alex" gname="wheel" mtime=1386065770.448252320 atime=1389782991.419875220 ctime=1389782956.794414986 dev=0,0 fmt=PAX pax={"SCHILY.xattr.security.selinux":"unconfined_u:object_r:default_t:s0\x00","SCHILY.xattr.user.key":"value","SCHILY.xattr.user.key2":"value2","atime":"1389782991.41987522","ctime":"1389782956.794414986","mtime":"1386065770.44825232"} xattr={"security.selinux":"unconfined_u:object_r:default_t:s0\x00","user.key":"value","user.key2":"value2"}
+  data: "Kilts" ok
+  hdr: typ=48 name="small2.txt" link="" size=11 mode=420 uid=1000 gid=10 uname="alex" gname="wheel" mtime=1386065770.449252304 atime=1389782991.419875220 ctime=1386065770.449252304 dev=0,0 fmt=PAX pax={"SCHILY.xattr.security.selinux":"unconfined_u:object_r:default_t:s0\x00","atime":"1389782991.41987522","ctime":"1386065770.449252304","mtime":"1386065770.449252304"} xattr={"security.selinux":"unconfined_u:object_r:default_t:s0\x00"}
+  data: "Google.com\n" ok
+  next: err EOF
+file gnu-multi-hdrs.tar
+  hdr: typ=50 name="GNU2/GNU2/long-path-name" link="GNU4/GNU4/long-linkpath-name" size=0 mode=0 uid=0 gid=0 uname="" gname="" mtime=0.0 atime=-62135596800.0 ctime=-62135596800.0 dev=0,0 fmt=GNU pax={} xattr={}
+  data: "" ok
+  next: err EOF
+file pax-multi-hdrs.tar
+  hdr: typ=50 name="bar" link="PAX4/PAX4/long-linkpath-name" size=0 mode=0 uid=0 gid=0 uname="" gname="" mtime=0.0 atime=-62135596800.0 ctime=-62135596800.0 dev=0,0 fmt=PAX pax={"linkpath":"PAX4/PAX4/long-linkpath-name"} xattr={}
+  data: "" ok
+  next: err EOF
+file invalid-go17.tar
+  hdr: typ=48 name="aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/foo" link="" size=0 mode=0 uid=2097152 gid=0 uname="" gname="" mtime=0.0 atime=-62135596800.0 ctime=-62135596800.0 dev=0,0 fmt=<unknown> pax={} xattr={}
+  data: "" ok
+  next: err EOF
+file hdr-only.tar
+  hdr: typ=53 name="dir/" link="" size=0 mode=488 uid=319973 gid=5000 uname="joetsai" gname="eng" mtime=1442273732.0 atime=-62135596800.0 ctime=-62135596800.0 dev=0,0 fmt=GNU pax={} xattr={}
+  data: "" ok
+  hdr: typ=54 name="fifo" link="" size=0 mode=416 uid=319973 gid=5000 uname="joetsai" gname="eng" mtime=1442273806.0 atime=-62135596800.0 ctime=-62135596800.0 dev=0,0 fmt=GNU pax={} xattr={}
+  data: "" ok
+  hdr: typ=48 name="file" link="" size=46 mode=416 uid=319973 gid=5000 uname="joetsai" gname="eng" mtime=1442273747.0 atime=-62135596800.0 ctime=-62135596800.0 dev=0,0 fmt=GNU pax={} xattr={}
+  data: len=46 crc=2d1f99a6 ok
+  hdr: typ=49 name="hardlink" link="file" size=0 mode=416 uid=319973 gid=5000 uname="joetsai" gname="eng" mtime=1442273747.0 atime=-62135596800.0 ctime=-62135596800.0 dev=0,0 fmt=GNU pax={} xattr={}
+  data: "" ok
+  hdr: typ=51 name="null" link="" size=0 mode=438 uid=319973 gid=5000 uname="joetsai" gname="eng" mtime=1442264573.0 atime=-62135596800.0 ctime=-62135596800.0 dev=1,3 fmt=GNU pax={} xattr={}
+  data: "" ok
+  hdr: typ=52 name="sda" link="" size=0 mode=432 uid=319973 gid=5000 uname="joetsai" gname="eng" mtime=1442264573.0 atime=-62135596800.0 ctime=-62135596800.0 dev=8,0 fmt=GNU pax={} xattr={}
+  data: "" ok
+  hdr: typ=50 name="symlink" link="file" size=0 mode=511 uid=319973 gid=5000 uname="joetsai" gname="eng" mtime=1442273756.0 atime=-62135596800.0 ctime=-62135596800.0 dev=0,0 fmt=GNU pax={} xattr={}
+  data: "" ok
+  hdr: typ=50 name="badlink" link="missing" size=0 mode=511 uid=319973 gid=5000 uname="joetsai" gname="eng" mtime=1442274044.0 atime=-62135596800.0 ctime=-62135596800.0 dev=0,0 fmt=GNU pax={} xattr={}
+  data: "" ok
+  hdr: typ=53 name="dir/" link="" size=5 mode=488 uid=319973 gid=5000 uname="joetsai" gname="eng" mtime=1442273732.0 atime=-62135596800.0 ctime=-62135596800.0 dev=0,0 fmt=GNU pax={} xattr={}
+  data: "" ok
+  hdr: typ=54 name="fifo" link="" size=5 mode=416 uid=319973 gid=5000 uname="joetsai" gname="eng" mtime=1442273806.0 atime=-62135596800.0 ctime=-62135596800.0 dev=0,0 fmt=GNU pax={} xattr={}
+  data: "" ok
+  hdr: typ=48 name="file" link="" size=46 mode=416 uid=319973 gid=5000 uname="joetsai" gname="eng" mtime=1442273747.0 atime=-62135596800.0 ctime=-62135596800.0 dev=0,0 fmt=GNU pax={} xattr={}
+  data: len=46 crc=2d1f99a6 ok
+  hdr: typ=49 name="hardlink" link="file" size=5 mode=416 uid=319973 gid=5000 uname="joetsai" gname="eng" mtime=1442273747.0 atime=-62135596800.0 ctime=-62135596800.0 dev=0,0 fmt=GNU pax={} xattr={}
+  data: "" ok
+  hdr: typ=51 name="null" link="" size=5 mode=438 uid=319973 gid=5000 uname="joetsai" gname="eng" mtime=1442264573.0 atime=-62135596800.0 ctime=-62135596800.0 dev=1,3 fmt=GNU pax={} xattr={}
+  data: "" ok
+  hdr: typ=52 name="sda" link="" size=5 mode=432 uid=319973 gid=5000 uname="joetsai" gname="eng" mtime=1442264573.0 atime=-62135596800.0 ctime=-62135596800.0 dev=8,0 fmt=GNU pax={} xattr={}
+  data: "" ok
+  hdr: typ=50 name="symlink" link="file" size=5 mode=511 uid=319973 gid=5000 uname="joetsai" gname="eng" mtime=1442273756.0 atime=-62135596800.0 ctime=-62135596800.0 dev=0,0 fmt=GNU pax={} xattr={}
+  data: "" ok
+  hdr: typ=50 name="badlink" link="missing" size=5 mode=511 uid=319973 gid=5000 uname="joetsai" gname="eng" mtime=1442274044.0 atime=-62135596800.0 ctime=-62135596800.0 dev=0,0 fmt=GNU pax={} xattr={}
+  data: "" ok
+  next: err EOF
+file writer-big-long.tar
+  hdr: typ=48 name="longname/longname/longname/longname/longname/longname/longname/longname/longname/longname/longname/longname/longname/longname/longname/16gig.txt" link="" size=17179869184 mode=420 uid=1000 gid=1000 uname="guillaume" gname="guillaume" mtime=1399583047.0 atime=-62135596800.0 ctime=-62135596800.0 dev=0,0 fmt=PAX pax={"path":"longname/longname/longname/longname/longname/longname/longname/longname/longname/longname/longname/longname/longname/longname/longname/16gig.txt","size":"17179869184"} xattr={}
+  next: err unexpected EOF
+file writer-big.tar
+  hdr: typ=48 name="tmp/16gig.txt" link="" size=17179869184 mode=416 uid=73025 gid=5000 uname="dsymonds" gname="eng" mtime=1254699560.0 atime=-62135596800.0 ctime=-62135596800.0 dev=0,0 fmt=GNU pax={} xattr={}
+  next: err unexpected EOF
+file gnu-incremental.tar
+  hdr: typ=68 name="test2/" link="" size=14 mode=16877 uid=1000 gid=1000 uname="rawr" gname="dsnet" mtime=1441973427.0 atime=1441974501.0 ctime=1441973436.0 dev=0,0 fmt=GNU pax={} xattr={}
+  data: "Yfoo\x00Ysparse\x00\x00" ok
+  hdr: typ=48 name="test2/foo" link="" size=64 mode=33188 uid=1000 gid=1000 uname="rawr" gname="dsnet" mtime=1441973363.0 atime=1441974501.0 ctime=1441973436.0 dev=0,0 fmt=GNU pax={} xattr={}
+  data: len=64 crc=7fc4a157 ok
+  hdr: typ=83 name="test2/sparse" link="" size=536870912 mode=33188 uid=1000 gid=1000 uname="rawr" gname="dsnet" mtime=1441973427.0 atime=1441991948.0 ctime=1441973436.0 dev=0,0 fmt=GNU pax={} xattr={}
+  next: err EOF
+file sparse-formats.tar
+  hdr: typ=83 name="sparse-gnu" link="" size=200 mode=420 uid=1000 gid=1000 uname="david" gname="david" mtime=1392395740.0 atime=-62135596800.0 ctime=-62135596800.0 dev=0,0 fmt=GNU pax={} xattr={}
+  data: len=200 crc=5375e1d2 ok
+  hdr: typ=48 name="sparse-posix-0.0" link="" size=200 mode=420 uid=1000 gid=1000 uname="david" gname="david" mtime=1392342187.0 atime=-62135596800.0 ctime=-62135596800.0 dev=0,0 fmt=PAX pax={"GNU.sparse.map":"1,1,3,1,5,1,7,1,9,1,11,1,13,1,15,1,17,1,19,1,21,1,23,1,25,1,27,1,29,1,31,1,33,1,35,1,37,1,39,1,41,1,43,1,45,1,47,1,49,1,51,1,53,1,55,1,57,1,59,1,61,1,63,1,65,1,67,1,69,1,71,1,73,1,75,1,77,1,79,1,81,1,83,1,85,1,87,1,89,1,91,1,93,1,95,1,97,1,99,1,101,1,103,1,105,1,107,1,109,1,111,1,113,1,115,1,117,1,119,1,121,1,123,1,125,1,127,1,129,1,131,1,133,1,135,1,137,1,139,1,141,1,143,1,145,1,147,1,149,1,151,1,153,1,155,1,157,1,159,1,161,1,163,1,165,1,167,1,169,1,171,1,173,1,175,1,177,1,179,1,181,1,183,1,185,1,187,1,189,1","GNU.sparse.numblocks":"95","GNU.sparse.size":"200"} xattr={}
+  data: len=200 crc=5375e1d2 ok
+  hdr: typ=48 name="sparse-posix-0.1" link="" size=200 mode=420 uid=1000 gid=1000 uname="david" gname="david" mtime=1392340456.0 atime=-62135596800.0 ctime=-62135596800.0 dev=0,0 fmt=PAX pax={"GNU.sparse.map":"1,1,3,1,5,1,7,1,9,1,11,1,13,1,15,1,17,1,19,1,21,1,23,1,25,1,27,1,29,1,31,1,33,1,35,1,37,1,39,1,41,1,43,1,45,1,47,1,49,1,51,1,53,1,55,1,57,1,59,1,61,1,63,1,65,1,67,1,69,1,71,1,73,1,75,1,77,1,79,1,81,1,83,1,85,1,87,1,89,1,91,1,93,1,95,1,97,1,99,1,101,1,103,1,105,1,107,1,109,1,111,1,113,1,115,1,117,1,119,1,121,1,123,1,125,1,127,1,129,1,131,1,133,1,135,1,137,1,139,1,141,1,143,1,145,1,147,1,149,1,151,1,153,1,155,1,157,1,159,1,161,1,163,1,165,1,167,1,169,1,171,1,173,1,175,1,177,1,179,1,181,1,183,1,185,1,187,1,189,1","GNU.sparse.name":"sparse-posix-0.1","GNU.sparse.numblocks":"95","GNU.sparse.size":"200"} xattr={}
+  data: len=200 crc=5375e1d2 ok
+  hdr: typ=48 name="sparse-posix-1.0" link="" size=200 mode=420 uid=1000 gid=1000 uname="david" gname="david" mtime=1392337404.0 atime=-62135596800.0 ctime=-62135596800.0 dev=0,0 fmt=PAX pax={"GNU.sparse.major":"1","GNU.sparse.minor":"0","GNU.sparse.name":"sparse-posix-1.0","GNU.sparse.realsize":"200"} xattr={}
+  data: len=200 crc=5375e1d2 ok
+  hdr: typ=48 name="end" link="" size=4 mode=420 uid=1000 gid=1000 uname="david" gname="david" mtime=1392398319.0 atime=-62135596800.0 ctime=-62135596800.0 dev=0,0 fmt=GNU pax={} xattr={}
+  data: "end\n" ok
+  next: err EOF
+  chunks: sparse-gnu 64:c2b9d07a:ok 64:c2b9d07a:ok 64:53ee1b21:ok 8:6522df69:err EOF
+  chunks: sparse-posix-0.0 64:c2b9d07a:ok 64:c2b9d07a:ok 64:53ee1b21:ok 8:6522df69:err EOF
+  chunks: sparse-posix-0.1 64:c2b9d07a:ok 64:c2b9d07a:ok 64:53ee1b21:ok 8:6522df69:err EOF
+  chunks: sparse-posix-1.0 64:c2b9d07a:ok 64:c2b9d07a:ok 64:53ee1b21:ok 8:6522df69:err EOF
+  chunks: end 4:8eb179ba:err EOF
+  chunk next: err EOF
+file gnu-sparse-big.tar
+  hdr: typ=83 name="gnu-sparse" link="" size=60000000000 mode=0 uid=0 gid=0 uname="" gname="" mtime=0.0 atime=-62135596800.0 ctime=-62135596800.0 dev=0,0 fmt=GNU pax={} xattr={}
+  next: err EOF
+  chunks: gnu-sparse 64:758d6336:ok 64:758d6336:ok 64:758d6336:ok 64:758d6336:ok 64:758d6336:ok
+  chunk next: err EOF
+file pax-sparse-big.tar
+  hdr: typ=48 name="pax-sparse" link="" size=60000000000 mode=0 uid=0 gid=0 uname="" gname="" mtime=0.0 atime=-62135596800.0 ctime=-62135596800.0 dev=0,0 fmt=PAX pax={"GNU.sparse.major":"1","GNU.sparse.minor":"0","GNU.sparse.name":"pax-sparse","GNU.sparse.realsize":"60000000000","size":"3584"} xattr={}
+  next: err EOF
+  chunks: pax-sparse 64:758d6336:ok 64:758d6336:ok 64:758d6336:ok 64:758d6336:ok 64:758d6336:ok
+  chunk next: err EOF
+file gnu-nil-sparse-data.tar
+  hdr: typ=83 name="sparse.db" link="" size=1000 mode=0 uid=0 gid=0 uname="" gname="" mtime=0.0 atime=-62135596800.0 ctime=-62135596800.0 dev=0,0 fmt=GNU pax={} xattr={}
+  data: len=1000 crc=7c858ff1 ok
+  next: err EOF
+  chunks: sparse.db 64:bc103d92:ok 64:51d90472:ok 64:119423f4:ok 64:342b836a:ok 64:02bee506:ok
+  chunk next: err EOF
+file gnu-nil-sparse-hole.tar
+  hdr: typ=83 name="sparse.db" link="" size=1000 mode=0 uid=0 gid=0 uname="" gname="" mtime=0.0 atime=-62135596800.0 ctime=-62135596800.0 dev=0,0 fmt=GNU pax={} xattr={}
+  data: len=1000 crc=060b1780 ok
+  next: err EOF
+  chunks: sparse.db 64:758d6336:ok 64:758d6336:ok 64:758d6336:ok 64:758d6336:ok 64:758d6336:ok
+  chunk next: err EOF
+file pax-nil-sparse-data.tar
+  hdr: typ=48 name="sparse.db" link="" size=1000 mode=0 uid=0 gid=0 uname="" gname="" mtime=0.0 atime=-62135596800.0 ctime=-62135596800.0 dev=0,0 fmt=PAX pax={"GNU.sparse.major":"1","GNU.sparse.minor":"0","GNU.sparse.name":"sparse.db","GNU.sparse.realsize":"1000","size":"1512"} xattr={}
+  data: len=1000 crc=7c858ff1 ok
+  next: err EOF
+  chunks: sparse.db 64:bc103d92:ok 64:51d90472:ok 64:119423f4:ok 64:342b836a:ok 64:02bee506:ok
+  chunk next: err EOF
+file pax-nil-sparse-hole.tar
+  hdr: typ=48 name="sparse.db" link="" size=1000 mode=0 uid=0 gid=0 uname="" gname="" mtime=0.0 atime=-62135596800.0 ctime=-62135596800.0 dev=0,0 fmt=PAX pax={"GNU.sparse.major":"1","GNU.sparse.minor":"0","GNU.sparse.name":"sparse.db","GNU.sparse.realsize":"1000","size":"512"} xattr={}
+  data: len=1000 crc=060b1780 ok
+  next: err EOF
+  chunks: sparse.db 64:758d6336:ok 64:758d6336:ok 64:758d6336:ok 64:758d6336:ok 64:758d6336:ok
+  chunk next: err EOF
+file writer.tar
+  hdr: typ=48 name="small.txt" link="" size=5 mode=416 uid=73025 gid=5000 uname="dsymonds" gname="eng" mtime=1246508266.0 atime=-62135596800.0 ctime=-62135596800.0 dev=0,0 fmt=USTAR pax={} xattr={}
+  data: "Kilts" ok
+  hdr: typ=48 name="small2.txt" link="" size=11 mode=416 uid=73025 gid=5000 uname="dsymonds" gname="eng" mtime=1245217492.0 atime=-62135596800.0 ctime=-62135596800.0 dev=0,0 fmt=USTAR pax={} xattr={}
+  data: "Google.com\n" ok
+  hdr: typ=50 name="link.txt" link="small.txt" size=0 mode=511 uid=1000 gid=1000 uname="strings" gname="strings" mtime=1314603082.0 atime=-62135596800.0 ctime=-62135596800.0 dev=0,0 fmt=USTAR pax={} xattr={}
+  data: "" ok
+  next: err EOF

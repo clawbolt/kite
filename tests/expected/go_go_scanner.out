@@ -1,0 +1,2596 @@
+ILLEGAL 0 false false false false|EOF 0 false false false false|COMMENT 0 false false false false|token(3) 0 false false false false|IDENT 0 true false false true|INT 0 true false false false|FLOAT 0 true false false false|IMAG 0 true false false false|CHAR 0 true false false false|STRING 0 true false false false|token(10) 0 false false false false|token(11) 0 false false false false|+ 4 false true false false|- 4 false true false false|* 5 false true false false|/ 5 false true false false|% 5 false true false false|& 5 false true false false|| 4 false true false false|^ 4 false true false false|<< 5 false true false false|>> 5 false true false false|&^ 5 false true false false|+= 0 false true false false|-= 0 false true false false|*= 0 false true false false|/= 0 false true false false|%= 0 false true false false|&= 0 false true false false||= 0 false true false false|^= 0 false true false false|<<= 0 false true false false|>>= 0 false true false false|&^= 0 false true false false|&& 2 false true false false||| 1 false true false false|<- 0 false true false false|++ 0 false true false false|-- 0 false true false false|== 3 false true false false|< 3 false true false false|> 3 false true false false|= 0 false true false false|! 0 false true false false|!= 3 false true false false|<= 3 false true false false|>= 3 false true false false|:= 0 false true false false|... 0 false true false false|( 0 false true false false|[ 0 false true false false|{ 0 false true false false|, 0 false true false false|. 0 false true false false|) 0 false true false false|] 0 false true false false|} 0 false true false false|; 0 false true false false|: 0 false true false false|token(59) 0 false false false false|token(60) 0 false false false false|break 0 false false true true|case 0 false false true true|chan 0 false false true true|const 0 false false true true|continue 0 false false true true|default 0 false false true true|defer 0 false false true true|else 0 false false true true|fallthrough 0 false false true true|for 0 false false true true|func 0 false false true true|go 0 false false true true|goto 0 false false true true|if 0 false false true true|import 0 false false true true|interface 0 false false true true|map 0 false false true true|package 0 false false true true|range 0 false false true true|return 0 false false true true|select 0 false false true true|struct 0 false false true true|switch 0 false false true true|type 0 false false true true|var 0 false false true true|token(86) 0 false false false false|token(87) 0 false false false false|~ 0 false true false false|token(89) 0 false false false false|token(90) 0 false false false false|token(91) 0 false false false false|
+false false false true false false true false false true false false false false false true false false true false false false true false true false true true false false true false true false false false true false false 
+a.go(1-31) b.go(37-47) 48 6 [0 3 6 7 11 21] [0 4 8]
+0=nil 1=a.go:a.go:1:1/a.go:1:1 2=a.go:a.go:1:2/a.go:1:2 3=a.go:a.go:1:3/a.go:1:3 4=a.go:a.go:2:1/a.go:2:1 5=a.go:a.go:2:2/a.go:2:2 6=a.go:a.go:2:3/a.go:2:3 7=a.go:a.go:3:1/a.go:3:1 8=a.go:a.go:4:1/a.go:4:1 9=a.go:x.go:50:3/a.go:4:2 10=a.go:x.go:50:4/a.go:4:3 11=a.go:x.go:50:5/a.go:4:4 12=a.go:x.go:51:1/a.go:5:1 13=a.go:x.go:51:2/a.go:5:2 14=a.go:x.go:51:3/a.go:5:3 15=a.go:7:1/a.go:5:4 16=a.go:7:2/a.go:5:5 17=a.go:7:3/a.go:5:6 18=a.go:7:4/a.go:5:7 19=a.go:7:5/a.go:5:8 20=a.go:7:6/a.go:5:9 21=a.go:7:7/a.go:5:10 22=a.go:8:1/a.go:6:1 23=a.go:8:2/a.go:6:2 24=a.go:8:3/a.go:6:3 25=a.go:8:4/a.go:6:4 26=a.go:8:5/a.go:6:5 27=a.go:8:6/a.go:6:6 28=a.go:8:7/a.go:6:7 29=a.go:8:8/a.go:6:8 30=a.go:8:9/a.go:6:9 31=a.go:8:10/a.go:6:10 32=nil 33=nil 34=nil 35=nil 36=nil 37=b.go:b.go:1:1/b.go:1:1 38=b.go:b.go:1:2/b.go:1:2 39=b.go:b.go:1:3/b.go:1:3 40=b.go:b.go:1:4/b.go:1:4 41=b.go:b.go:2:1/b.go:2:1 42=b.go:b.go:2:2/b.go:2:2 43=b.go:b.go:2:3/b.go:2:3 44=b.go:b.go:2:4/b.go:2:4 45=b.go:b.go:3:1/b.go:3:1 46=b.go:b.go:3:2/b.go:3:2 47=b.go:b.go:3:3/b.go:3:3 48=nil 
+false false true [0 5 9] 10
+[0 9] a.go:1:8 31 0 - z
+#1 tokens "/* a comment */  \t  \n\n\n// a comment \n  \t  \n\n\n/*\r*/  \t  \n\n\n/**\r/*/  \t  \n\n\n/**\r\r/*/  \t  \n\n\n//\r\n  \t  \n\n\nfoobar  \t  \n\n\na۰۱۸  \t  \n\n\nfoo६४  \t  \n\n\nbar９８７６  \t  \n\n\nŝ  \t  \n\n\nŝfoo  \t  \n\n\n0  \t  \n\n\n1  \t  \n\n\n123456789012345678890  \t  \n\n\n01234567  \t  \n\n\n0xcafebabe  \t  \n\n\n0.  \t  \n\n\n.0  \t  \n\n\n3.14159265  \t  \n\n\n1e0  \t  \n\n\n1e+100  \t  \n\n\n1e-100  \t  \n\n\n2.71828e-1000  \t  \n\n\n0i  \t  \n\n\n1i  \t  \n\n\n012345678901234567889i  \t  \n\n\n123456789012345678890i  \t  \n\n\n0.i  \t  \n\n\n.0i  \t  \n\n\n3.14159265i  \t  \n\n\n1e0i  \t  \n\n\n1e+100i  \t  \n\n\n1e-100i  \t  \n\n\n2.71828e-1000i  \t  \n\n\n'a'  \t  \n\n\n'\\000'  \t  \n\n\n'\\xFF'  \t  \n\n\n'\\uff16'  \t  \n\n\n'\\U0000ff16'  \t  \n\n\n`foobar`  \t  \n\n\n`foo\n\t                        bar`  \t  \n\n\n`\r`  \t  \n\n\n`foo\r\nbar`  \t  \n\n\n+  \t  \n\n\n-  \t  \n\n\n*  \t  \n\n\n/  \t  \n\n\n%  \t  \n\n\n&  \t  \n\n\n|  \t  \n\n\n^  \t  \n\n\n<<  \t  \n\n\n>>  \t  \n\n\n&^  \t  \n\n\n+=  \t  \n\n\n-=  \t  \n\n\n*=  \t  \n\n\n/=  \t  \n\n\n%=  \t  \n\n\n&=  \t  \n\n\n|=  \t  \n\n\n^=  \t  \n\n\n<<=  \t  \n\n\n>>=  \t  \n\n\n&^=  \t  \n\n\n&&  \t  \n\n\n||  \t  \n\n\n<-  \t  \n\n\n++  \t  \n\n\n--  \t  \n\n\n==  \t  \n\n\n<  \t  \n\n\n>  \t  \n\n\n=  \t  \n\n\n!  \t  \n\n\n!=  \t  \n\n\n<=  \t  \n\n\n>=  \t  \n\n\n:=  \t  \n\n\n...  \t  \n\n\n(  \t  \n\n\n[  \t  \n\n\n{  \t  \n\n\n,  \t  \n\n\n.  \t  \n\n\n)  \t  \n\n\n]  \t  \n\n\n}  \t  \n\n\n;  \t  \n\n\n:  \t  \n\n\n~  \t  \n\n\nbreak  \t  \n\n\ncase  \t  \n\n\nchan  \t  \n\n\nconst  \t  \n\n\ncontinue  \t  \n\n\ndefault  \t  \n\n\ndefer  \t  \n\n\nelse  \t  \n\n\nfallthrough  \t  \n\n\nfor  \t  \n\n\nfunc  \t  \n\n\ngo  \t  \n\n\ngoto  \t  \n\n\nif  \t  \n\n\nimport  \t  \n\n\ninterface  \t  \n\n\nmap  \t  \n\n\npackage  \t  \n\n\nrange  \t  \n\n\nreturn  \t  \n\n\nselect  \t  \n\n\nstruct  \t  \n\n\nswitch  \t  \n\n\ntype  \t  \n\n\nvar  \t  \n\n\n"
+  0 tokens:1:1 COMMENT "/* a comment */" end=16
+  23 tokens:4:1 COMMENT "// a comment " end=37
+  45 tokens:8:1 COMMENT "/**/" end=51
+  58 tokens:11:1 COMMENT "/**\r/*/" end=66
+  73 tokens:14:1 COMMENT "/**\r/*/" end=82
+  89 tokens:17:1 COMMENT "//" end=93
+  101 tokens:21:1 IDENT "foobar" end=108
+  112 tokens:21:12 ; "\n" end=114
+  115 tokens:24:1 IDENT "a۰۱۸" end=123
+  127 tokens:24:13 ; "\n" end=129
+  130 tokens:27:1 IDENT "foo६४" end=140
+  144 tokens:27:15 ; "\n" end=146
+  147 tokens:30:1 IDENT "bar９８７６" end=163
+  167 tokens:30:21 ; "\n" end=169
+  170 tokens:33:1 IDENT "ŝ" end=173
+  177 tokens:33:8 ; "\n" end=179
+  180 tokens:36:1 IDENT "ŝfoo" end=186
+  190 tokens:36:11 ; "\n" end=192
+  193 tokens:39:1 INT "0" end=195
+  199 tokens:39:7 ; "\n" end=201
+  202 tokens:42:1 INT "1" end=204
+  208 tokens:42:7 ; "\n" end=210
+  211 tokens:45:1 INT "123456789012345678890" end=233
+  237 tokens:45:27 ; "\n" end=239
+  240 tokens:48:1 INT "01234567" end=249
+  253 tokens:48:14 ; "\n" end=255
+  256 tokens:51:1 INT "0xcafebabe" end=267
+  271 tokens:51:16 ; "\n" end=273
+  274 tokens:54:1 FLOAT "0." end=277
+  281 tokens:54:8 ; "\n" end=283
+  284 tokens:57:1 FLOAT ".0" end=287
+  291 tokens:57:8 ; "\n" end=293
+  294 tokens:60:1 FLOAT "3.14159265" end=305
+  309 tokens:60:16 ; "\n" end=311
+  312 tokens:63:1 FLOAT "1e0" end=316
+  320 tokens:63:9 ; "\n" end=322
+  323 tokens:66:1 FLOAT "1e+100" end=330
+  334 tokens:66:12 ; "\n" end=336
+  337 tokens:69:1 FLOAT "1e-100" end=344
+  348 tokens:69:12 ; "\n" end=350
+  351 tokens:72:1 FLOAT "2.71828e-1000" end=365
+  369 tokens:72:19 ; "\n" end=371
+  372 tokens:75:1 IMAG "0i" end=375
+  379 tokens:75:8 ; "\n" end=381
+  382 tokens:78:1 IMAG "1i" end=385
+  389 tokens:78:8 ; "\n" end=391
+  392 tokens:81:1 IMAG "012345678901234567889i" end=415
+  419 tokens:81:28 ; "\n" end=421
+  422 tokens:84:1 IMAG "123456789012345678890i" end=445
+  449 tokens:84:28 ; "\n" end=451
+  452 tokens:87:1 IMAG "0.i" end=456
+  460 tokens:87:9 ; "\n" end=462
+  463 tokens:90:1 IMAG ".0i" end=467
+  471 tokens:90:9 ; "\n" end=473
+  474 tokens:93:1 IMAG "3.14159265i" end=486
+  490 tokens:93:17 ; "\n" end=492
+  493 tokens:96:1 IMAG "1e0i" end=498
+  502 tokens:96:10 ; "\n" end=504
+  505 tokens:99:1 IMAG "1e+100i" end=513
+  517 tokens:99:13 ; "\n" end=519
+  520 tokens:102:1 IMAG "1e-100i" end=528
+  532 tokens:102:13 ; "\n" end=534
+  535 tokens:105:1 IMAG "2.71828e-1000i" end=550
+  554 tokens:105:20 ; "\n" end=556
+  557 tokens:108:1 CHAR "'a'" end=561
+  565 tokens:108:9 ; "\n" end=567
+  568 tokens:111:1 CHAR "'\\000'" end=575
+  579 tokens:111:12 ; "\n" end=581
+  582 tokens:114:1 CHAR "'\\xFF'" end=589
+  593 tokens:114:12 ; "\n" end=595
+  596 tokens:117:1 CHAR "'\\uff16'" end=605
+  609 tokens:117:14 ; "\n" end=611
+  612 tokens:120:1 CHAR "'\\U0000ff16'" end=625
+  629 tokens:120:18 ; "\n" end=631
+  632 tokens:123:1 STRING "`foobar`" end=641
+  645 tokens:123:14 ; "\n" end=647
+  648 tokens:126:1 STRING "`foo\n\t                        bar`" end=683
+  687 tokens:127:35 ; "\n" end=689
+  690 tokens:130:1 STRING "``" end=694
+  698 tokens:130:9 ; "\n" end=700
+  701 tokens:133:1 STRING "`foo\nbar`" end=712
+  716 tokens:134:10 ; "\n" end=718
+  719 tokens:137:1 + "" end=721
+  728 tokens:140:1 - "" end=730
+  737 tokens:143:1 * "" end=739
+  746 tokens:146:1 / "" end=748
+  755 tokens:149:1 % "" end=757
+  764 tokens:152:1 & "" end=766
+  773 tokens:155:1 | "" end=775
+  782 tokens:158:1 ^ "" end=784
+  791 tokens:161:1 << "" end=794
+  801 tokens:164:1 >> "" end=804
+  811 tokens:167:1 &^ "" end=814
+  821 tokens:170:1 += "" end=824
+  831 tokens:173:1 -= "" end=834
+  841 tokens:176:1 *= "" end=844
+  851 tokens:179:1 /= "" end=854
+  861 tokens:182:1 %= "" end=864
+  871 tokens:185:1 &= "" end=874
+  881 tokens:188:1 |= "" end=884
+  891 tokens:191:1 ^= "" end=894
+  901 tokens:194:1 <<= "" end=905
+  912 tokens:197:1 >>= "" end=916
+  923 tokens:200:1 &^= "" end=927
+  934 tokens:203:1 && "" end=937
+  944 tokens:206:1 || "" end=947
+  954 tokens:209:1 <- "" end=957
+  964 tokens:212:1 ++ "" end=967
+  971 tokens:212:8 ; "\n" end=973
+  974 tokens:215:1 -- "" end=977
+  981 tokens:215:8 ; "\n" end=983
+  984 tokens:218:1 == "" end=987
+  994 tokens:221:1 < "" end=996
+  1003 tokens:224:1 > "" end=1005
+  1012 tokens:227:1 = "" end=1014
+  1021 tokens:230:1 ! "" end=1023
+  1030 tokens:233:1 != "" end=1033
+  1040 tokens:236:1 <= "" end=1043
+  1050 tokens:239:1 >= "" end=1053
+  1060 tokens:242:1 := "" end=1063
+  1070 tokens:245:1 ... "" end=1074
+  1081 tokens:248:1 ( "" end=1083
+  1090 tokens:251:1 [ "" end=1092
+  1099 tokens:254:1 { "" end=1101
+  1108 tokens:257:1 , "" end=1110
+  1117 tokens:260:1 . "" end=1119
+  1126 tokens:263:1 ) "" end=1128
+  1132 tokens:263:7 ; "\n" end=1134
+  1135 tokens:266:1 ] "" end=1137
+  1141 tokens:266:7 ; "\n" end=1143
+  1144 tokens:269:1 } "" end=1146
+  1150 tokens:269:7 ; "\n" end=1152
+  1153 tokens:272:1 ; ";" end=1155
+  1162 tokens:275:1 : "" end=1164
+  1171 tokens:278:1 ~ "" end=1173
+  1180 tokens:281:1 break "break" end=1186
+  1190 tokens:281:11 ; "\n" end=1192
+  1193 tokens:284:1 case "case" end=1198
+  1205 tokens:287:1 chan "chan" end=1210
+  1217 tokens:290:1 const "const" end=1223
+  1230 tokens:293:1 continue "continue" end=1239
+  1243 tokens:293:14 ; "\n" end=1245
+  1246 tokens:296:1 default "default" end=1254
+  1261 tokens:299:1 defer "defer" end=1267
+  1274 tokens:302:1 else "else" end=1279
+  1286 tokens:305:1 fallthrough "fallthrough" end=1298
+  1302 tokens:305:17 ; "\n" end=1304
+  1305 tokens:308:1 for "for" end=1309
+  1316 tokens:311:1 func "func" end=1321
+  1328 tokens:314:1 go "go" end=1331
+  1338 tokens:317:1 goto "goto" end=1343
+  1350 tokens:320:1 if "if" end=1353
+  1360 tokens:323:1 import "import" end=1367
+  1374 tokens:326:1 interface "interface" end=1384
+  1391 tokens:329:1 map "map" end=1395
+  1402 tokens:332:1 package "package" end=1410
+  1417 tokens:335:1 range "range" end=1423
+  1430 tokens:338:1 return "return" end=1437
+  1441 tokens:338:12 ; "\n" end=1443
+  1444 tokens:341:1 select "select" end=1451
+  1458 tokens:344:1 struct "struct" end=1465
+  1472 tokens:347:1 switch "switch" end=1479
+  1486 tokens:350:1 type "type" end=1491
+  1498 tokens:353:1 var "var" end=1502
+  1509 tokens:355:2 EOF "" end=1510
+  tokens=165 hash=0 errors=0 lines=355
+  list: "no errors"
+  unadj: tokens:355:2 tokens:355:2
+  tokens=159 hash=610992247 errors=0 lines=355
+  list: "no errors"
+  unadj: tokens:355:2 tokens:355:2
+#2 semi ""
+  0 semi:1:1 EOF "" end=3021
+  tokens=1 hash=0 errors=0 lines=1
+  list: "no errors"
+  unadj: semi:1:1 semi:1:1
+  0 semi:1:1 EOF "" end=3022
+  tokens=1 hash=0 errors=0 lines=1
+  list: "no errors"
+  unadj: semi:1:1 semi:1:1
+#3 semi "\ufeff;"
+  3 semi:1:4 ; ";" end=3027
+  4 semi:1:5 EOF "" end=3027
+  tokens=2 hash=0 errors=0 lines=1
+  list: "no errors"
+  unadj: semi:1:5 semi:1:5
+  3 semi:1:4 ; ";" end=3032
+  4 semi:1:5 EOF "" end=3032
+  tokens=2 hash=0 errors=0 lines=1
+  list: "no errors"
+  unadj: semi:1:5 semi:1:5
+#4 semi ";"
+  0 semi:1:1 ; ";" end=3034
+  1 semi:1:2 EOF "" end=3034
+  tokens=2 hash=0 errors=0 lines=1
+  list: "no errors"
+  unadj: semi:1:2 semi:1:2
+  0 semi:1:1 ; ";" end=3036
+  1 semi:1:2 EOF "" end=3036
+  tokens=2 hash=0 errors=0 lines=1
+  list: "no errors"
+  unadj: semi:1:2 semi:1:2
+#5 semi "foo\n"
+  0 semi:1:1 IDENT "foo" end=3040
+  3 semi:1:4 ; "\n" end=3041
+  4 semi:1:5 EOF "" end=3041
+  tokens=3 hash=0 errors=0 lines=1
+  list: "no errors"
+  unadj: semi:1:5 semi:1:5
+  0 semi:1:1 IDENT "foo" end=3045
+  3 semi:1:4 ; "\n" end=3046
+  4 semi:1:5 EOF "" end=3046
+  tokens=3 hash=0 errors=0 lines=1
+  list: "no errors"
+  unadj: semi:1:5 semi:1:5
+#6 semi "123\n"
+  0 semi:1:1 INT "123" end=3050
+  3 semi:1:4 ; "\n" end=3051
+  4 semi:1:5 EOF "" end=3051
+  tokens=3 hash=0 errors=0 lines=1
+  list: "no errors"
+  unadj: semi:1:5 semi:1:5
+  0 semi:1:1 INT "123" end=3055
+  3 semi:1:4 ; "\n" end=3056
+  4 semi:1:5 EOF "" end=3056
+  tokens=3 hash=0 errors=0 lines=1
+  list: "no errors"
+  unadj: semi:1:5 semi:1:5
+#7 semi "1.2\n"
+  0 semi:1:1 FLOAT "1.2" end=3060
+  3 semi:1:4 ; "\n" end=3061
+  4 semi:1:5 EOF "" end=3061
+  tokens=3 hash=0 errors=0 lines=1
+  list: "no errors"
+  unadj: semi:1:5 semi:1:5
+  0 semi:1:1 FLOAT "1.2" end=3065
+  3 semi:1:4 ; "\n" end=3066
+  4 semi:1:5 EOF "" end=3066
+  tokens=3 hash=0 errors=0 lines=1
+  list: "no errors"
+  unadj: semi:1:5 semi:1:5
+#8 semi "'x'\n"
+  0 semi:1:1 CHAR "'x'" end=3070
+  3 semi:1:4 ; "\n" end=3071
+  4 semi:1:5 EOF "" end=3071
+  tokens=3 hash=0 errors=0 lines=1
+  list: "no errors"
+  unadj: semi:1:5 semi:1:5
+  0 semi:1:1 CHAR "'x'" end=3075
+  3 semi:1:4 ; "\n" end=3076
+  4 semi:1:5 EOF "" end=3076
+  tokens=3 hash=0 errors=0 lines=1
+  list: "no errors"
+  unadj: semi:1:5 semi:1:5
+#9 semi "\"x\"\n"
+  0 semi:1:1 STRING "\"x\"" end=3080
+  3 semi:1:4 ; "\n" end=3081
+  4 semi:1:5 EOF "" end=3081
+  tokens=3 hash=0 errors=0 lines=1
+  list: "no errors"
+  unadj: semi:1:5 semi:1:5
+  0 semi:1:1 STRING "\"x\"" end=3085
+  3 semi:1:4 ; "\n" end=3086
+  4 semi:1:5 EOF "" end=3086
+  tokens=3 hash=0 errors=0 lines=1
+  list: "no errors"
+  unadj: semi:1:5 semi:1:5
+#10 semi "`x`\n"
+  0 semi:1:1 STRING "`x`" end=3090
+  3 semi:1:4 ; "\n" end=3091
+  4 semi:1:5 EOF "" end=3091
+  tokens=3 hash=0 errors=0 lines=1
+  list: "no errors"
+  unadj: semi:1:5 semi:1:5
+  0 semi:1:1 STRING "`x`" end=3095
+  3 semi:1:4 ; "\n" end=3096
+  4 semi:1:5 EOF "" end=3096
+  tokens=3 hash=0 errors=0 lines=1
+  list: "no errors"
+  unadj: semi:1:5 semi:1:5
+#11 semi "+\n"
+  0 semi:1:1 + "" end=3098
+  2 semi:1:3 EOF "" end=3099
+  tokens=2 hash=0 errors=0 lines=1
+  list: "no errors"
+  unadj: semi:1:3 semi:1:3
+  0 semi:1:1 + "" end=3101
+  2 semi:1:3 EOF "" end=3102
+  tokens=2 hash=0 errors=0 lines=1
+  list: "no errors"
+  unadj: semi:1:3 semi:1:3
+#12 semi "-\n"
+  0 semi:1:1 - "" end=3104
+  2 semi:1:3 EOF "" end=3105
+  tokens=2 hash=0 errors=0 lines=1
+  list: "no errors"
+  unadj: semi:1:3 semi:1:3
+  0 semi:1:1 - "" end=3107
+  2 semi:1:3 EOF "" end=3108
+  tokens=2 hash=0 errors=0 lines=1
+  list: "no errors"
+  unadj: semi:1:3 semi:1:3
+#13 semi "*\n"
+  0 semi:1:1 * "" end=3110
+  2 semi:1:3 EOF "" end=3111
+  tokens=2 hash=0 errors=0 lines=1
+  list: "no errors"
+  unadj: semi:1:3 semi:1:3
+  0 semi:1:1 * "" end=3113
+  2 semi:1:3 EOF "" end=3114
+  tokens=2 hash=0 errors=0 lines=1
+  list: "no errors"
+  unadj: semi:1:3 semi:1:3
+#14 semi "/\n"
+  0 semi:1:1 / "" end=3116
+  2 semi:1:3 EOF "" end=3117
+  tokens=2 hash=0 errors=0 lines=1
+  list: "no errors"
+  unadj: semi:1:3 semi:1:3
+  0 semi:1:1 / "" end=3119
+  2 semi:1:3 EOF "" end=3120
+  tokens=2 hash=0 errors=0 lines=1
+  list: "no errors"
+  unadj: semi:1:3 semi:1:3
+#15 semi "%\n"
+  0 semi:1:1 % "" end=3122
+  2 semi:1:3 EOF "" end=3123
+  tokens=2 hash=0 errors=0 lines=1
+  list: "no errors"
+  unadj: semi:1:3 semi:1:3
+  0 semi:1:1 % "" end=3125
+  2 semi:1:3 EOF "" end=3126
+  tokens=2 hash=0 errors=0 lines=1
+  list: "no errors"
+  unadj: semi:1:3 semi:1:3
+#16 semi "&\n"
+  0 semi:1:1 & "" end=3128
+  2 semi:1:3 EOF "" end=3129
+  tokens=2 hash=0 errors=0 lines=1
+  list: "no errors"
+  unadj: semi:1:3 semi:1:3
+  0 semi:1:1 & "" end=3131
+  2 semi:1:3 EOF "" end=3132
+  tokens=2 hash=0 errors=0 lines=1
+  list: "no errors"
+  unadj: semi:1:3 semi:1:3
+#17 semi "|\n"
+  0 semi:1:1 | "" end=3134
+  2 semi:1:3 EOF "" end=3135
+  tokens=2 hash=0 errors=0 lines=1
+  list: "no errors"
+  unadj: semi:1:3 semi:1:3
+  0 semi:1:1 | "" end=3137
+  2 semi:1:3 EOF "" end=3138
+  tokens=2 hash=0 errors=0 lines=1
+  list: "no errors"
+  unadj: semi:1:3 semi:1:3
+#18 semi "^\n"
+  0 semi:1:1 ^ "" end=3140
+  2 semi:1:3 EOF "" end=3141
+  tokens=2 hash=0 errors=0 lines=1
+  list: "no errors"
+  unadj: semi:1:3 semi:1:3
+  0 semi:1:1 ^ "" end=3143
+  2 semi:1:3 EOF "" end=3144
+  tokens=2 hash=0 errors=0 lines=1
+  list: "no errors"
+  unadj: semi:1:3 semi:1:3
+#19 semi "<<\n"
+  0 semi:1:1 << "" end=3147
+  3 semi:1:4 EOF "" end=3148
+  tokens=2 hash=0 errors=0 lines=1
+  list: "no errors"
+  unadj: semi:1:4 semi:1:4
+  0 semi:1:1 << "" end=3151
+  3 semi:1:4 EOF "" end=3152
+  tokens=2 hash=0 errors=0 lines=1
+  list: "no errors"
+  unadj: semi:1:4 semi:1:4
+#20 semi ">>\n"
+  0 semi:1:1 >> "" end=3155
+  3 semi:1:4 EOF "" end=3156
+  tokens=2 hash=0 errors=0 lines=1
+  list: "no errors"
+  unadj: semi:1:4 semi:1:4
+  0 semi:1:1 >> "" end=3159
+  3 semi:1:4 EOF "" end=3160
+  tokens=2 hash=0 errors=0 lines=1
+  list: "no errors"
+  unadj: semi:1:4 semi:1:4
+#21 semi "&^\n"
+  0 semi:1:1 &^ "" end=3163
+  3 semi:1:4 EOF "" end=3164
+  tokens=2 hash=0 errors=0 lines=1
+  list: "no errors"
+  unadj: semi:1:4 semi:1:4
+  0 semi:1:1 &^ "" end=3167
+  3 semi:1:4 EOF "" end=3168
+  tokens=2 hash=0 errors=0 lines=1
+  list: "no errors"
+  unadj: semi:1:4 semi:1:4
+#22 semi "+=\n"
+  0 semi:1:1 += "" end=3171
+  3 semi:1:4 EOF "" end=3172
+  tokens=2 hash=0 errors=0 lines=1
+  list: "no errors"
+  unadj: semi:1:4 semi:1:4
+  0 semi:1:1 += "" end=3175
+  3 semi:1:4 EOF "" end=3176
+  tokens=2 hash=0 errors=0 lines=1
+  list: "no errors"
+  unadj: semi:1:4 semi:1:4
+#23 semi "-=\n"
+  0 semi:1:1 -= "" end=3179
+  3 semi:1:4 EOF "" end=3180
+  tokens=2 hash=0 errors=0 lines=1
+  list: "no errors"
+  unadj: semi:1:4 semi:1:4
+  0 semi:1:1 -= "" end=3183
+  3 semi:1:4 EOF "" end=3184
+  tokens=2 hash=0 errors=0 lines=1
+  list: "no errors"
+  unadj: semi:1:4 semi:1:4
+#24 semi "*=\n"
+  0 semi:1:1 *= "" end=3187
+  3 semi:1:4 EOF "" end=3188
+  tokens=2 hash=0 errors=0 lines=1
+  list: "no errors"
+  unadj: semi:1:4 semi:1:4
+  0 semi:1:1 *= "" end=3191
+  3 semi:1:4 EOF "" end=3192
+  tokens=2 hash=0 errors=0 lines=1
+  list: "no errors"
+  unadj: semi:1:4 semi:1:4
+#25 semi "/=\n"
+  0 semi:1:1 /= "" end=3195
+  3 semi:1:4 EOF "" end=3196
+  tokens=2 hash=0 errors=0 lines=1
+  list: "no errors"
+  unadj: semi:1:4 semi:1:4
+  0 semi:1:1 /= "" end=3199
+  3 semi:1:4 EOF "" end=3200
+  tokens=2 hash=0 errors=0 lines=1
+  list: "no errors"
+  unadj: semi:1:4 semi:1:4
+#26 semi "%=\n"
+  0 semi:1:1 %= "" end=3203
+  3 semi:1:4 EOF "" end=3204
+  tokens=2 hash=0 errors=0 lines=1
+  list: "no errors"
+  unadj: semi:1:4 semi:1:4
+  0 semi:1:1 %= "" end=3207
+  3 semi:1:4 EOF "" end=3208
+  tokens=2 hash=0 errors=0 lines=1
+  list: "no errors"
+  unadj: semi:1:4 semi:1:4
+#27 semi "&=\n"
+  0 semi:1:1 &= "" end=3211
+  3 semi:1:4 EOF "" end=3212
+  tokens=2 hash=0 errors=0 lines=1
+  list: "no errors"
+  unadj: semi:1:4 semi:1:4
+  0 semi:1:1 &= "" end=3215
+  3 semi:1:4 EOF "" end=3216
+  tokens=2 hash=0 errors=0 lines=1
+  list: "no errors"
+  unadj: semi:1:4 semi:1:4
+#28 semi "|=\n"
+  0 semi:1:1 |= "" end=3219
+  3 semi:1:4 EOF "" end=3220
+  tokens=2 hash=0 errors=0 lines=1
+  list: "no errors"
+  unadj: semi:1:4 semi:1:4
+  0 semi:1:1 |= "" end=3223
+  3 semi:1:4 EOF "" end=3224
+  tokens=2 hash=0 errors=0 lines=1
+  list: "no errors"
+  unadj: semi:1:4 semi:1:4
+#29 semi "^=\n"
+  0 semi:1:1 ^= "" end=3227
+  3 semi:1:4 EOF "" end=3228
+  tokens=2 hash=0 errors=0 lines=1
+  list: "no errors"
+  unadj: semi:1:4 semi:1:4
+  0 semi:1:1 ^= "" end=3231
+  3 semi:1:4 EOF "" end=3232
+  tokens=2 hash=0 errors=0 lines=1
+  list: "no errors"
+  unadj: semi:1:4 semi:1:4
+#30 semi "<<=\n"
+  0 semi:1:1 <<= "" end=3236
+  4 semi:1:5 EOF "" end=3237
+  tokens=2 hash=0 errors=0 lines=1
+  list: "no errors"
+  unadj: semi:1:5 semi:1:5
+  0 semi:1:1 <<= "" end=3241
+  4 semi:1:5 EOF "" end=3242
+  tokens=2 hash=0 errors=0 lines=1
+  list: "no errors"
+  unadj: semi:1:5 semi:1:5
+#31 semi ">>=\n"
+  0 semi:1:1 >>= "" end=3246
+  4 semi:1:5 EOF "" end=3247
+  tokens=2 hash=0 errors=0 lines=1
+  list: "no errors"
+  unadj: semi:1:5 semi:1:5
+  0 semi:1:1 >>= "" end=3251
+  4 semi:1:5 EOF "" end=3252
+  tokens=2 hash=0 errors=0 lines=1
+  list: "no errors"
+  unadj: semi:1:5 semi:1:5
+#32 semi "&^=\n"
+  0 semi:1:1 &^= "" end=3256
+  4 semi:1:5 EOF "" end=3257
+  tokens=2 hash=0 errors=0 lines=1
+  list: "no errors"
+  unadj: semi:1:5 semi:1:5
+  0 semi:1:1 &^= "" end=3261
+  4 semi:1:5 EOF "" end=3262
+  tokens=2 hash=0 errors=0 lines=1
+  list: "no errors"
+  unadj: semi:1:5 semi:1:5
+#33 semi "&&\n"
+  0 semi:1:1 && "" end=3265
+  3 semi:1:4 EOF "" end=3266
+  tokens=2 hash=0 errors=0 lines=1
+  list: "no errors"
+  unadj: semi:1:4 semi:1:4
+  0 semi:1:1 && "" end=3269
+  3 semi:1:4 EOF "" end=3270
+  tokens=2 hash=0 errors=0 lines=1
+  list: "no errors"
+  unadj: semi:1:4 semi:1:4
+#34 semi "||\n"
+  0 semi:1:1 || "" end=3273
+  3 semi:1:4 EOF "" end=3274
+  tokens=2 hash=0 errors=0 lines=1
+  list: "no errors"
+  unadj: semi:1:4 semi:1:4
+  0 semi:1:1 || "" end=3277
+  3 semi:1:4 EOF "" end=3278
+  tokens=2 hash=0 errors=0 lines=1
+  list: "no errors"
+  unadj: semi:1:4 semi:1:4
+#35 semi "<-\n"
+  0 semi:1:1 <- "" end=3281
+  3 semi:1:4 EOF "" end=3282
+  tokens=2 hash=0 errors=0 lines=1
+  list: "no errors"
+  unadj: semi:1:4 semi:1:4
+  0 semi:1:1 <- "" end=3285
+  3 semi:1:4 EOF "" end=3286
+  tokens=2 hash=0 errors=0 lines=1
+  list: "no errors"
+  unadj: semi:1:4 semi:1:4
+#36 semi "++\n"
+  0 semi:1:1 ++ "" end=3289
+  2 semi:1:3 ; "\n" end=3290
+  3 semi:1:4 EOF "" end=3290
+  tokens=3 hash=0 errors=0 lines=1
+  list: "no errors"
+  unadj: semi:1:4 semi:1:4
+  0 semi:1:1 ++ "" end=3293
+  2 semi:1:3 ; "\n" end=3294
+  3 semi:1:4 EOF "" end=3294
+  tokens=3 hash=0 errors=0 lines=1
+  list: "no errors"
+  unadj: semi:1:4 semi:1:4
+#37 semi "--\n"
+  0 semi:1:1 -- "" end=3297
+  2 semi:1:3 ; "\n" end=3298
+  3 semi:1:4 EOF "" end=3298
+  tokens=3 hash=0 errors=0 lines=1
+  list: "no errors"
+  unadj: semi:1:4 semi:1:4
+  0 semi:1:1 -- "" end=3301
+  2 semi:1:3 ; "\n" end=3302
+  3 semi:1:4 EOF "" end=3302
+  tokens=3 hash=0 errors=0 lines=1
+  list: "no errors"
+  unadj: semi:1:4 semi:1:4
+#38 semi "==\n"
+  0 semi:1:1 == "" end=3305
+  3 semi:1:4 EOF "" end=3306
+  tokens=2 hash=0 errors=0 lines=1
+  list: "no errors"
+  unadj: semi:1:4 semi:1:4
+  0 semi:1:1 == "" end=3309
+  3 semi:1:4 EOF "" end=3310
+  tokens=2 hash=0 errors=0 lines=1
+  list: "no errors"
+  unadj: semi:1:4 semi:1:4
+#39 semi "<\n"
+  0 semi:1:1 < "" end=3312
+  2 semi:1:3 EOF "" end=3313
+  tokens=2 hash=0 errors=0 lines=1
+  list: "no errors"
+  unadj: semi:1:3 semi:1:3
+  0 semi:1:1 < "" end=3315
+  2 semi:1:3 EOF "" end=3316
+  tokens=2 hash=0 errors=0 lines=1
+  list: "no errors"
+  unadj: semi:1:3 semi:1:3
+#40 semi ">\n"
+  0 semi:1:1 > "" end=3318
+  2 semi:1:3 EOF "" end=3319
+  tokens=2 hash=0 errors=0 lines=1
+  list: "no errors"
+  unadj: semi:1:3 semi:1:3
+  0 semi:1:1 > "" end=3321
+  2 semi:1:3 EOF "" end=3322
+  tokens=2 hash=0 errors=0 lines=1
+  list: "no errors"
+  unadj: semi:1:3 semi:1:3
+#41 semi "=\n"
+  0 semi:1:1 = "" end=3324
+  2 semi:1:3 EOF "" end=3325
+  tokens=2 hash=0 errors=0 lines=1
+  list: "no errors"
+  unadj: semi:1:3 semi:1:3
+  0 semi:1:1 = "" end=3327
+  2 semi:1:3 EOF "" end=3328
+  tokens=2 hash=0 errors=0 lines=1
+  list: "no errors"
+  unadj: semi:1:3 semi:1:3
+#42 semi "!\n"
+  0 semi:1:1 ! "" end=3330
+  2 semi:1:3 EOF "" end=3331
+  tokens=2 hash=0 errors=0 lines=1
+  list: "no errors"
+  unadj: semi:1:3 semi:1:3
+  0 semi:1:1 ! "" end=3333
+  2 semi:1:3 EOF "" end=3334
+  tokens=2 hash=0 errors=0 lines=1
+  list: "no errors"
+  unadj: semi:1:3 semi:1:3
+#43 semi "!=\n"
+  0 semi:1:1 != "" end=3337
+  3 semi:1:4 EOF "" end=3338
+  tokens=2 hash=0 errors=0 lines=1
+  list: "no errors"
+  unadj: semi:1:4 semi:1:4
+  0 semi:1:1 != "" end=3341
+  3 semi:1:4 EOF "" end=3342
+  tokens=2 hash=0 errors=0 lines=1
+  list: "no errors"
+  unadj: semi:1:4 semi:1:4
+#44 semi "<=\n"
+  0 semi:1:1 <= "" end=3345
+  3 semi:1:4 EOF "" end=3346
+  tokens=2 hash=0 errors=0 lines=1
+  list: "no errors"
+  unadj: semi:1:4 semi:1:4
+  0 semi:1:1 <= "" end=3349
+  3 semi:1:4 EOF "" end=3350
+  tokens=2 hash=0 errors=0 lines=1
+  list: "no errors"
+  unadj: semi:1:4 semi:1:4
+#45 semi ">=\n"
+  0 semi:1:1 >= "" end=3353
+  3 semi:1:4 EOF "" end=3354
+  tokens=2 hash=0 errors=0 lines=1
+  list: "no errors"
+  unadj: semi:1:4 semi:1:4
+  0 semi:1:1 >= "" end=3357
+  3 semi:1:4 EOF "" end=3358
+  tokens=2 hash=0 errors=0 lines=1
+  list: "no errors"
+  unadj: semi:1:4 semi:1:4
+#46 semi ":=\n"
+  0 semi:1:1 := "" end=3361
+  3 semi:1:4 EOF "" end=3362
+  tokens=2 hash=0 errors=0 lines=1
+  list: "no errors"
+  unadj: semi:1:4 semi:1:4
+  0 semi:1:1 := "" end=3365
+  3 semi:1:4 EOF "" end=3366
+  tokens=2 hash=0 errors=0 lines=1
+  list: "no errors"
+  unadj: semi:1:4 semi:1:4
+#47 semi "...\n"
+  0 semi:1:1 ... "" end=3370
+  4 semi:1:5 EOF "" end=3371
+  tokens=2 hash=0 errors=0 lines=1
+  list: "no errors"
+  unadj: semi:1:5 semi:1:5
+  0 semi:1:1 ... "" end=3375
+  4 semi:1:5 EOF "" end=3376
+  tokens=2 hash=0 errors=0 lines=1
+  list: "no errors"
+  unadj: semi:1:5 semi:1:5
+#48 semi "(\n"
+  0 semi:1:1 ( "" end=3378
+  2 semi:1:3 EOF "" end=3379
+  tokens=2 hash=0 errors=0 lines=1
+  list: "no errors"
+  unadj: semi:1:3 semi:1:3
+  0 semi:1:1 ( "" end=3381
+  2 semi:1:3 EOF "" end=3382
+  tokens=2 hash=0 errors=0 lines=1
+  list: "no errors"
+  unadj: semi:1:3 semi:1:3
+#49 semi "[\n"
+  0 semi:1:1 [ "" end=3384
+  2 semi:1:3 EOF "" end=3385
+  tokens=2 hash=0 errors=0 lines=1
+  list: "no errors"
+  unadj: semi:1:3 semi:1:3
+  0 semi:1:1 [ "" end=3387
+  2 semi:1:3 EOF "" end=3388
+  tokens=2 hash=0 errors=0 lines=1
+  list: "no errors"
+  unadj: semi:1:3 semi:1:3
+#50 semi "{\n"
+  0 semi:1:1 { "" end=3390
+  2 semi:1:3 EOF "" end=3391
+  tokens=2 hash=0 errors=0 lines=1
+  list: "no errors"
+  unadj: semi:1:3 semi:1:3
+  0 semi:1:1 { "" end=3393
+  2 semi:1:3 EOF "" end=3394
+  tokens=2 hash=0 errors=0 lines=1
+  list: "no errors"
+  unadj: semi:1:3 semi:1:3
+#51 semi ",\n"
+  0 semi:1:1 , "" end=3396
+  2 semi:1:3 EOF "" end=3397
+  tokens=2 hash=0 errors=0 lines=1
+  list: "no errors"
+  unadj: semi:1:3 semi:1:3
+  0 semi:1:1 , "" end=3399
+  2 semi:1:3 EOF "" end=3400
+  tokens=2 hash=0 errors=0 lines=1
+  list: "no errors"
+  unadj: semi:1:3 semi:1:3
+#52 semi ".\n"
+  0 semi:1:1 . "" end=3402
+  2 semi:1:3 EOF "" end=3403
+  tokens=2 hash=0 errors=0 lines=1
+  list: "no errors"
+  unadj: semi:1:3 semi:1:3
+  0 semi:1:1 . "" end=3405
+  2 semi:1:3 EOF "" end=3406
+  tokens=2 hash=0 errors=0 lines=1
+  list: "no errors"
+  unadj: semi:1:3 semi:1:3
+#53 semi ")\n"
+  0 semi:1:1 ) "" end=3408
+  1 semi:1:2 ; "\n" end=3409
+  2 semi:1:3 EOF "" end=3409
+  tokens=3 hash=0 errors=0 lines=1
+  list: "no errors"
+  unadj: semi:1:3 semi:1:3
+  0 semi:1:1 ) "" end=3411
+  1 semi:1:2 ; "\n" end=3412
+  2 semi:1:3 EOF "" end=3412
+  tokens=3 hash=0 errors=0 lines=1
+  list: "no errors"
+  unadj: semi:1:3 semi:1:3
+#54 semi "]\n"
+  0 semi:1:1 ] "" end=3414
+  1 semi:1:2 ; "\n" end=3415
+  2 semi:1:3 EOF "" end=3415
+  tokens=3 hash=0 errors=0 lines=1
+  list: "no errors"
+  unadj: semi:1:3 semi:1:3
+  0 semi:1:1 ] "" end=3417
+  1 semi:1:2 ; "\n" end=3418
+  2 semi:1:3 EOF "" end=3418
+  tokens=3 hash=0 errors=0 lines=1
+  list: "no errors"
+  unadj: semi:1:3 semi:1:3
+#55 semi "}\n"
+  0 semi:1:1 } "" end=3420
+  1 semi:1:2 ; "\n" end=3421
+  2 semi:1:3 EOF "" end=3421
+  tokens=3 hash=0 errors=0 lines=1
+  list: "no errors"
+  unadj: semi:1:3 semi:1:3
+  0 semi:1:1 } "" end=3423
+  1 semi:1:2 ; "\n" end=3424
+  2 semi:1:3 EOF "" end=3424
+  tokens=3 hash=0 errors=0 lines=1
+  list: "no errors"
+  unadj: semi:1:3 semi:1:3
+#56 semi ";\n"
+  0 semi:1:1 ; ";" end=3426
+  2 semi:1:3 EOF "" end=3427
+  tokens=2 hash=0 errors=0 lines=1
+  list: "no errors"
+  unadj: semi:1:3 semi:1:3
+  0 semi:1:1 ; ";" end=3429
+  2 semi:1:3 EOF "" end=3430
+  tokens=2 hash=0 errors=0 lines=1
+  list: "no errors"
+  unadj: semi:1:3 semi:1:3
+#57 semi ":\n"
+  0 semi:1:1 : "" end=3432
+  2 semi:1:3 EOF "" end=3433
+  tokens=2 hash=0 errors=0 lines=1
+  list: "no errors"
+  unadj: semi:1:3 semi:1:3
+  0 semi:1:1 : "" end=3435
+  2 semi:1:3 EOF "" end=3436
+  tokens=2 hash=0 errors=0 lines=1
+  list: "no errors"
+  unadj: semi:1:3 semi:1:3
+#58 semi "break\n"
+  0 semi:1:1 break "break" end=3442
+  5 semi:1:6 ; "\n" end=3443
+  6 semi:1:7 EOF "" end=3443
+  tokens=3 hash=0 errors=0 lines=1
+  list: "no errors"
+  unadj: semi:1:7 semi:1:7
+  0 semi:1:1 break "break" end=3449
+  5 semi:1:6 ; "\n" end=3450
+  6 semi:1:7 EOF "" end=3450
+  tokens=3 hash=0 errors=0 lines=1
+  list: "no errors"
+  unadj: semi:1:7 semi:1:7
+#59 semi "case\n"
+  0 semi:1:1 case "case" end=3455
+  5 semi:1:6 EOF "" end=3456
+  tokens=2 hash=0 errors=0 lines=1
+  list: "no errors"
+  unadj: semi:1:6 semi:1:6
+  0 semi:1:1 case "case" end=3461
+  5 semi:1:6 EOF "" end=3462
+  tokens=2 hash=0 errors=0 lines=1
+  list: "no errors"
+  unadj: semi:1:6 semi:1:6
+#60 semi "chan\n"
+  0 semi:1:1 chan "chan" end=3467
+  5 semi:1:6 EOF "" end=3468
+  tokens=2 hash=0 errors=0 lines=1
+  list: "no errors"
+  unadj: semi:1:6 semi:1:6
+  0 semi:1:1 chan "chan" end=3473
+  5 semi:1:6 EOF "" end=3474
+  tokens=2 hash=0 errors=0 lines=1
+  list: "no errors"
+  unadj: semi:1:6 semi:1:6
+#61 semi "const\n"
+  0 semi:1:1 const "const" end=3480
+  6 semi:1:7 EOF "" end=3481
+  tokens=2 hash=0 errors=0 lines=1
+  list: "no errors"
+  unadj: semi:1:7 semi:1:7
+  0 semi:1:1 const "const" end=3487
+  6 semi:1:7 EOF "" end=3488
+  tokens=2 hash=0 errors=0 lines=1
+  list: "no errors"
+  unadj: semi:1:7 semi:1:7
+#62 semi "continue\n"
+  0 semi:1:1 continue "continue" end=3497
+  8 semi:1:9 ; "\n" end=3498
+  9 semi:1:10 EOF "" end=3498
+  tokens=3 hash=0 errors=0 lines=1
+  list: "no errors"
+  unadj: semi:1:10 semi:1:10
+  0 semi:1:1 continue "continue" end=3507
+  8 semi:1:9 ; "\n" end=3508
+  9 semi:1:10 EOF "" end=3508
+  tokens=3 hash=0 errors=0 lines=1
+  list: "no errors"
+  unadj: semi:1:10 semi:1:10
+#63 semi "default\n"
+  0 semi:1:1 default "default" end=3516
+  8 semi:1:9 EOF "" end=3517
+  tokens=2 hash=0 errors=0 lines=1
+  list: "no errors"
+  unadj: semi:1:9 semi:1:9
+  0 semi:1:1 default "default" end=3525
+  8 semi:1:9 EOF "" end=3526
+  tokens=2 hash=0 errors=0 lines=1
+  list: "no errors"
+  unadj: semi:1:9 semi:1:9
+#64 semi "defer\n"
+  0 semi:1:1 defer "defer" end=3532
+  6 semi:1:7 EOF "" end=3533
+  tokens=2 hash=0 errors=0 lines=1
+  list: "no errors"
+  unadj: semi:1:7 semi:1:7
+  0 semi:1:1 defer "defer" end=3539
+  6 semi:1:7 EOF "" end=3540
+  tokens=2 hash=0 errors=0 lines=1
+  list: "no errors"
+  unadj: semi:1:7 semi:1:7
+#65 semi "else\n"
+  0 semi:1:1 else "else" end=3545
+  5 semi:1:6 EOF "" end=3546
+  tokens=2 hash=0 errors=0 lines=1
+  list: "no errors"
+  unadj: semi:1:6 semi:1:6
+  0 semi:1:1 else "else" end=3551
+  5 semi:1:6 EOF "" end=3552
+  tokens=2 hash=0 errors=0 lines=1
+  list: "no errors"
+  unadj: semi:1:6 semi:1:6
+#66 semi "fallthrough\n"
+  0 semi:1:1 fallthrough "fallthrough" end=3564
+  11 semi:1:12 ; "\n" end=3565
+  12 semi:1:13 EOF "" end=3565
+  tokens=3 hash=0 errors=0 lines=1
+  list: "no errors"
+  unadj: semi:1:13 semi:1:13
+  0 semi:1:1 fallthrough "fallthrough" end=3577
+  11 semi:1:12 ; "\n" end=3578
+  12 semi:1:13 EOF "" end=3578
+  tokens=3 hash=0 errors=0 lines=1
+  list: "no errors"
+  unadj: semi:1:13 semi:1:13
+#67 semi "for\n"
+  0 semi:1:1 for "for" end=3582
+  4 semi:1:5 EOF "" end=3583
+  tokens=2 hash=0 errors=0 lines=1
+  list: "no errors"
+  unadj: semi:1:5 semi:1:5
+  0 semi:1:1 for "for" end=3587
+  4 semi:1:5 EOF "" end=3588
+  tokens=2 hash=0 errors=0 lines=1
+  list: "no errors"
+  unadj: semi:1:5 semi:1:5
+#68 semi "func\n"
+  0 semi:1:1 func "func" end=3593
+  5 semi:1:6 EOF "" end=3594
+  tokens=2 hash=0 errors=0 lines=1
+  list: "no errors"
+  unadj: semi:1:6 semi:1:6
+  0 semi:1:1 func "func" end=3599
+  5 semi:1:6 EOF "" end=3600
+  tokens=2 hash=0 errors=0 lines=1
+  list: "no errors"
+  unadj: semi:1:6 semi:1:6
+#69 semi "go\n"
+  0 semi:1:1 go "go" end=3603
+  3 semi:1:4 EOF "" end=3604
+  tokens=2 hash=0 errors=0 lines=1
+  list: "no errors"
+  unadj: semi:1:4 semi:1:4
+  0 semi:1:1 go "go" end=3607
+  3 semi:1:4 EOF "" end=3608
+  tokens=2 hash=0 errors=0 lines=1
+  list: "no errors"
+  unadj: semi:1:4 semi:1:4
+#70 semi "goto\n"
+  0 semi:1:1 goto "goto" end=3613
+  5 semi:1:6 EOF "" end=3614
+  tokens=2 hash=0 errors=0 lines=1
+  list: "no errors"
+  unadj: semi:1:6 semi:1:6
+  0 semi:1:1 goto "goto" end=3619
+  5 semi:1:6 EOF "" end=3620
+  tokens=2 hash=0 errors=0 lines=1
+  list: "no errors"
+  unadj: semi:1:6 semi:1:6
+#71 semi "if\n"
+  0 semi:1:1 if "if" end=3623
+  3 semi:1:4 EOF "" end=3624
+  tokens=2 hash=0 errors=0 lines=1
+  list: "no errors"
+  unadj: semi:1:4 semi:1:4
+  0 semi:1:1 if "if" end=3627
+  3 semi:1:4 EOF "" end=3628
+  tokens=2 hash=0 errors=0 lines=1
+  list: "no errors"
+  unadj: semi:1:4 semi:1:4
+#72 semi "import\n"
+  0 semi:1:1 import "import" end=3635
+  7 semi:1:8 EOF "" end=3636
+  tokens=2 hash=0 errors=0 lines=1
+  list: "no errors"
+  unadj: semi:1:8 semi:1:8
+  0 semi:1:1 import "import" end=3643
+  7 semi:1:8 EOF "" end=3644
+  tokens=2 hash=0 errors=0 lines=1
+  list: "no errors"
+  unadj: semi:1:8 semi:1:8
+#73 semi "interface\n"
+  0 semi:1:1 interface "interface" end=3654
+  10 semi:1:11 EOF "" end=3655
+  tokens=2 hash=0 errors=0 lines=1
+  list: "no errors"
+  unadj: semi:1:11 semi:1:11
+  0 semi:1:1 interface "interface" end=3665
+  10 semi:1:11 EOF "" end=3666
+  tokens=2 hash=0 errors=0 lines=1
+  list: "no errors"
+  unadj: semi:1:11 semi:1:11
+#74 semi "map\n"
+  0 semi:1:1 map "map" end=3670
+  4 semi:1:5 EOF "" end=3671
+  tokens=2 hash=0 errors=0 lines=1
+  list: "no errors"
+  unadj: semi:1:5 semi:1:5
+  0 semi:1:1 map "map" end=3675
+  4 semi:1:5 EOF "" end=3676
+  tokens=2 hash=0 errors=0 lines=1
+  list: "no errors"
+  unadj: semi:1:5 semi:1:5
+#75 semi "package\n"
+  0 semi:1:1 package "package" end=3684
+  8 semi:1:9 EOF "" end=3685
+  tokens=2 hash=0 errors=0 lines=1
+  list: "no errors"
+  unadj: semi:1:9 semi:1:9
+  0 semi:1:1 package "package" end=3693
+  8 semi:1:9 EOF "" end=3694
+  tokens=2 hash=0 errors=0 lines=1
+  list: "no errors"
+  unadj: semi:1:9 semi:1:9
+#76 semi "range\n"
+  0 semi:1:1 range "range" end=3700
+  6 semi:1:7 EOF "" end=3701
+  tokens=2 hash=0 errors=0 lines=1
+  list: "no errors"
+  unadj: semi:1:7 semi:1:7
+  0 semi:1:1 range "range" end=3707
+  6 semi:1:7 EOF "" end=3708
+  tokens=2 hash=0 errors=0 lines=1
+  list: "no errors"
+  unadj: semi:1:7 semi:1:7
+#77 semi "return\n"
+  0 semi:1:1 return "return" end=3715
+  6 semi:1:7 ; "\n" end=3716
+  7 semi:1:8 EOF "" end=3716
+  tokens=3 hash=0 errors=0 lines=1
+  list: "no errors"
+  unadj: semi:1:8 semi:1:8
+  0 semi:1:1 return "return" end=3723
+  6 semi:1:7 ; "\n" end=3724
+  7 semi:1:8 EOF "" end=3724
+  tokens=3 hash=0 errors=0 lines=1
+  list: "no errors"
+  unadj: semi:1:8 semi:1:8
+#78 semi "select\n"
+  0 semi:1:1 select "select" end=3731
+  7 semi:1:8 EOF "" end=3732
+  tokens=2 hash=0 errors=0 lines=1
+  list: "no errors"
+  unadj: semi:1:8 semi:1:8
+  0 semi:1:1 select "select" end=3739
+  7 semi:1:8 EOF "" end=3740
+  tokens=2 hash=0 errors=0 lines=1
+  list: "no errors"
+  unadj: semi:1:8 semi:1:8
+#79 semi "struct\n"
+  0 semi:1:1 struct "struct" end=3747
+  7 semi:1:8 EOF "" end=3748
+  tokens=2 hash=0 errors=0 lines=1
+  list: "no errors"
+  unadj: semi:1:8 semi:1:8
+  0 semi:1:1 struct "struct" end=3755
+  7 semi:1:8 EOF "" end=3756
+  tokens=2 hash=0 errors=0 lines=1
+  list: "no errors"
+  unadj: semi:1:8 semi:1:8
+#80 semi "switch\n"
+  0 semi:1:1 switch "switch" end=3763
+  7 semi:1:8 EOF "" end=3764
+  tokens=2 hash=0 errors=0 lines=1
+  list: "no errors"
+  unadj: semi:1:8 semi:1:8
+  0 semi:1:1 switch "switch" end=3771
+  7 semi:1:8 EOF "" end=3772
+  tokens=2 hash=0 errors=0 lines=1
+  list: "no errors"
+  unadj: semi:1:8 semi:1:8
+#81 semi "type\n"
+  0 semi:1:1 type "type" end=3777
+  5 semi:1:6 EOF "" end=3778
+  tokens=2 hash=0 errors=0 lines=1
+  list: "no errors"
+  unadj: semi:1:6 semi:1:6
+  0 semi:1:1 type "type" end=3783
+  5 semi:1:6 EOF "" end=3784
+  tokens=2 hash=0 errors=0 lines=1
+  list: "no errors"
+  unadj: semi:1:6 semi:1:6
+#82 semi "var\n"
+  0 semi:1:1 var "var" end=3788
+  4 semi:1:5 EOF "" end=3789
+  tokens=2 hash=0 errors=0 lines=1
+  list: "no errors"
+  unadj: semi:1:5 semi:1:5
+  0 semi:1:1 var "var" end=3793
+  4 semi:1:5 EOF "" end=3794
+  tokens=2 hash=0 errors=0 lines=1
+  list: "no errors"
+  unadj: semi:1:5 semi:1:5
+#83 semi "foo//comment\n"
+  0 semi:1:1 IDENT "foo" end=3798
+  3 semi:1:4 COMMENT "//comment" end=3807
+  12 semi:1:13 ; "\n" end=3808
+  13 semi:1:14 EOF "" end=3808
+  tokens=4 hash=0 errors=0 lines=1
+  list: "no errors"
+  unadj: semi:1:14 semi:1:14
+  0 semi:1:1 IDENT "foo" end=3812
+  12 semi:1:13 ; "\n" end=3822
+  13 semi:1:14 EOF "" end=3822
+  tokens=3 hash=0 errors=0 lines=1
+  list: "no errors"
+  unadj: semi:1:14 semi:1:14
+#84 semi "foo//comment"
+  0 semi:1:1 IDENT "foo" end=3826
+  3 semi:1:4 COMMENT "//comment" end=3835
+  12 semi:1:13 ; "\n" end=3835
+  12 semi:1:13 EOF "" end=3835
+  tokens=4 hash=0 errors=0 lines=1
+  list: "no errors"
+  unadj: semi:1:13 semi:1:13
+  0 semi:1:1 IDENT "foo" end=3839
+  12 semi:1:13 ; "\n" end=3848
+  12 semi:1:13 EOF "" end=3848
+  tokens=3 hash=0 errors=0 lines=1
+  list: "no errors"
+  unadj: semi:1:13 semi:1:13
+#85 semi "foo/*comment*/\n"
+  0 semi:1:1 IDENT "foo" end=3852
+  3 semi:1:4 COMMENT "/*comment*/" end=3863
+  14 semi:1:15 ; "\n" end=3864
+  15 semi:1:16 EOF "" end=3864
+  tokens=4 hash=0 errors=0 lines=1
+  list: "no errors"
+  unadj: semi:1:16 semi:1:16
+  0 semi:1:1 IDENT "foo" end=3868
+  14 semi:1:15 ; "\n" end=3880
+  15 semi:1:16 EOF "" end=3880
+  tokens=3 hash=0 errors=0 lines=1
+  list: "no errors"
+  unadj: semi:1:16 semi:1:16
+#86 semi "foo/*\n*/"
+  0 semi:1:1 IDENT "foo" end=3884
+  3 semi:1:4 COMMENT "/*\n*/" end=3889
+  5 semi:1:6 ; "\n" end=3887
+  8 semi:2:3 EOF "" end=3889
+  tokens=4 hash=0 errors=0 lines=2
+  list: "no errors"
+  unadj: semi:2:3 semi:2:3
+  0 semi:1:1 IDENT "foo" end=3893
+  5 semi:1:6 ; "\n" end=3896
+  8 semi:2:3 EOF "" end=3898
+  tokens=3 hash=0 errors=0 lines=2
+  list: "no errors"
+  unadj: semi:2:3 semi:2:3
+#87 semi "foo/*comment*/    \n"
+  0 semi:1:1 IDENT "foo" end=3902
+  3 semi:1:4 COMMENT "/*comment*/" end=3913
+  18 semi:1:19 ; "\n" end=3918
+  19 semi:1:20 EOF "" end=3918
+  tokens=4 hash=0 errors=0 lines=1
+  list: "no errors"
+  unadj: semi:1:20 semi:1:20
+  0 semi:1:1 IDENT "foo" end=3922
+  18 semi:1:19 ; "\n" end=3938
+  19 semi:1:20 EOF "" end=3938
+  tokens=3 hash=0 errors=0 lines=1
+  list: "no errors"
+  unadj: semi:1:20 semi:1:20
+#88 semi "foo/*\n*/    "
+  0 semi:1:1 IDENT "foo" end=3942
+  3 semi:1:4 COMMENT "/*\n*/" end=3947
+  5 semi:1:6 ; "\n" end=3945
+  12 semi:2:7 EOF "" end=3951
+  tokens=4 hash=0 errors=0 lines=2
+  list: "no errors"
+  unadj: semi:2:7 semi:2:7
+  0 semi:1:1 IDENT "foo" end=3955
+  5 semi:1:6 ; "\n" end=3958
+  12 semi:2:7 EOF "" end=3964
+  tokens=3 hash=0 errors=0 lines=2
+  list: "no errors"
+  unadj: semi:2:7 semi:2:7
+#89 semi "foo    // comment\n"
+  0 semi:1:1 IDENT "foo" end=3968
+  7 semi:1:8 COMMENT "// comment" end=3982
+  17 semi:1:18 ; "\n" end=3983
+  18 semi:1:19 EOF "" end=3983
+  tokens=4 hash=0 errors=0 lines=1
+  list: "no errors"
+  unadj: semi:1:19 semi:1:19
+  0 semi:1:1 IDENT "foo" end=3987
+  17 semi:1:18 ; "\n" end=4002
+  18 semi:1:19 EOF "" end=4002
+  tokens=3 hash=0 errors=0 lines=1
+  list: "no errors"
+  unadj: semi:1:19 semi:1:19
+#90 semi "foo    // comment"
+  0 semi:1:1 IDENT "foo" end=4006
+  7 semi:1:8 COMMENT "// comment" end=4020
+  17 semi:1:18 ; "\n" end=4020
+  17 semi:1:18 EOF "" end=4020
+  tokens=4 hash=0 errors=0 lines=1
+  list: "no errors"
+  unadj: semi:1:18 semi:1:18
+  0 semi:1:1 IDENT "foo" end=4024
+  17 semi:1:18 ; "\n" end=4038
+  17 semi:1:18 EOF "" end=4038
+  tokens=3 hash=0 errors=0 lines=1
+  list: "no errors"
+  unadj: semi:1:18 semi:1:18
+#91 semi "foo    /*comment*/\n"
+  0 semi:1:1 IDENT "foo" end=4042
+  7 semi:1:8 COMMENT "/*comment*/" end=4057
+  18 semi:1:19 ; "\n" end=4058
+  19 semi:1:20 EOF "" end=4058
+  tokens=4 hash=0 errors=0 lines=1
+  list: "no errors"
+  unadj: semi:1:20 semi:1:20
+  0 semi:1:1 IDENT "foo" end=4062
+  18 semi:1:19 ; "\n" end=4078
+  19 semi:1:20 EOF "" end=4078
+  tokens=3 hash=0 errors=0 lines=1
+  list: "no errors"
+  unadj: semi:1:20 semi:1:20
+#92 semi "foo    /*\n*/"
+  0 semi:1:1 IDENT "foo" end=4082
+  7 semi:1:8 COMMENT "/*\n*/" end=4091
+  9 semi:1:10 ; "\n" end=4089
+  12 semi:2:3 EOF "" end=4091
+  tokens=4 hash=0 errors=0 lines=2
+  list: "no errors"
+  unadj: semi:2:3 semi:2:3
+  0 semi:1:1 IDENT "foo" end=4095
+  9 semi:1:10 ; "\n" end=4102
+  12 semi:2:3 EOF "" end=4104
+  tokens=3 hash=0 errors=0 lines=2
+  list: "no errors"
+  unadj: semi:2:3 semi:2:3
+#93 semi "foo    /*  */ /* \n */ bar/**/\n"
+  0 semi:1:1 IDENT "foo" end=4108
+  7 semi:1:8 COMMENT "/*  */" end=4118
+  14 semi:1:15 COMMENT "/* \n */" end=4126
+  17 semi:1:18 ; "\n" end=4123
+  22 semi:2:5 IDENT "bar" end=4130
+  25 semi:2:8 COMMENT "/**/" end=4134
+  29 semi:2:12 ; "\n" end=4135
+  30 semi:2:13 EOF "" end=4135
+  tokens=8 hash=0 errors=0 lines=2
+  list: "no errors"
+  unadj: semi:2:13 semi:2:13
+  0 semi:1:1 IDENT "foo" end=4139
+  17 semi:1:18 ; "\n" end=4154
+  22 semi:2:5 IDENT "bar" end=4161
+  29 semi:2:12 ; "\n" end=4166
+  30 semi:2:13 EOF "" end=4166
+  tokens=5 hash=0 errors=0 lines=2
+  list: "no errors"
+  unadj: semi:2:13 semi:2:13
+#94 semi "foo    /*0*/ /*1*/ /*2*/\n"
+  0 semi:1:1 IDENT "foo" end=4170
+  7 semi:1:8 COMMENT "/*0*/" end=4179
+  13 semi:1:14 COMMENT "/*1*/" end=4185
+  19 semi:1:20 COMMENT "/*2*/" end=4191
+  24 semi:1:25 ; "\n" end=4192
+  25 semi:1:26 EOF "" end=4192
+  tokens=6 hash=0 errors=0 lines=1
+  list: "no errors"
+  unadj: semi:1:26 semi:1:26
+  0 semi:1:1 IDENT "foo" end=4196
+  24 semi:1:25 ; "\n" end=4218
+  25 semi:1:26 EOF "" end=4218
+  tokens=3 hash=0 errors=0 lines=1
+  list: "no errors"
+  unadj: semi:1:26 semi:1:26
+#95 semi "foo    /*comment*/    \n"
+  0 semi:1:1 IDENT "foo" end=4222
+  7 semi:1:8 COMMENT "/*comment*/" end=4237
+  22 semi:1:23 ; "\n" end=4242
+  23 semi:1:24 EOF "" end=4242
+  tokens=4 hash=0 errors=0 lines=1
+  list: "no errors"
+  unadj: semi:1:24 semi:1:24
+  0 semi:1:1 IDENT "foo" end=4246
+  22 semi:1:23 ; "\n" end=4266
+  23 semi:1:24 EOF "" end=4266
+  tokens=3 hash=0 errors=0 lines=1
+  list: "no errors"
+  unadj: semi:1:24 semi:1:24
+#96 semi "foo    /*0*/ /*1*/ /*2*/    \n"
+  0 semi:1:1 IDENT "foo" end=4270
+  7 semi:1:8 COMMENT "/*0*/" end=4279
+  13 semi:1:14 COMMENT "/*1*/" end=4285
+  19 semi:1:20 COMMENT "/*2*/" end=4291
+  28 semi:1:29 ; "\n" end=4296
+  29 semi:1:30 EOF "" end=4296
+  tokens=6 hash=0 errors=0 lines=1
+  list: "no errors"
+  unadj: semi:1:30 semi:1:30
+  0 semi:1:1 IDENT "foo" end=4300
+  28 semi:1:29 ; "\n" end=4326
+  29 semi:1:30 EOF "" end=4326
+  tokens=3 hash=0 errors=0 lines=1
+  list: "no errors"
+  unadj: semi:1:30 semi:1:30
+#97 semi "foo\t/**/ /*-------------*/       /*----\n*/bar       /*  \n*/baa\n"
+  0 semi:1:1 IDENT "foo" end=4330
+  4 semi:1:5 COMMENT "/**/" end=4335
+  9 semi:1:10 COMMENT "/*-------------*/" end=4353
+  33 semi:1:34 COMMENT "/*----\n*/" end=4369
+  39 semi:1:40 ; "\n" end=4367
+  42 semi:2:3 IDENT "bar" end=4372
+  52 semi:2:13 COMMENT "/*  \n*/" end=4386
+  56 semi:2:17 ; "\n" end=4384
+  59 semi:3:3 IDENT "baa" end=4389
+  62 semi:3:6 ; "\n" end=4390
+  63 semi:3:7 EOF "" end=4390
+  tokens=11 hash=0 errors=0 lines=3
+  list: "no errors"
+  unadj: semi:3:7 semi:3:7
+  0 semi:1:1 IDENT "foo" end=4394
+  39 semi:1:40 ; "\n" end=4431
+  42 semi:2:3 IDENT "bar" end=4436
+  56 semi:2:17 ; "\n" end=4448
+  59 semi:3:3 IDENT "baa" end=4453
+  62 semi:3:6 ; "\n" end=4454
+  63 semi:3:7 EOF "" end=4454
+  tokens=7 hash=0 errors=0 lines=3
+  list: "no errors"
+  unadj: semi:3:7 semi:3:7
+#98 semi "foo    /* an EOF terminates a line */"
+  0 semi:1:1 IDENT "foo" end=4458
+  7 semi:1:8 COMMENT "/* an EOF terminates a line */" end=4492
+  37 semi:1:38 ; "\n" end=4492
+  37 semi:1:38 EOF "" end=4492
+  tokens=4 hash=0 errors=0 lines=1
+  list: "no errors"
+  unadj: semi:1:38 semi:1:38
+  0 semi:1:1 IDENT "foo" end=4496
+  37 semi:1:38 ; "\n" end=4530
+  37 semi:1:38 EOF "" end=4530
+  tokens=3 hash=0 errors=0 lines=1
+  list: "no errors"
+  unadj: semi:1:38 semi:1:38
+#99 semi "foo    /* an EOF terminates a line */ /*"
+  0 semi:1:1 IDENT "foo" end=4534
+  7 semi:1:8 COMMENT "/* an EOF terminates a line */" end=4568
+  38 semi:1:39 COMMENT "/*" end=4571
+  40 semi:1:41 ; "\n" end=4571
+  40 semi:1:41 EOF "" end=4571
+  tokens=5 hash=0 errors=1 lines=1
+  E "semi:1:39: comment not terminated"
+  list: "semi:1:39: comment not terminated"
+  unadj: semi:1:41 semi:1:41
+  0 semi:1:1 IDENT "foo" end=4575
+  40 semi:1:41 ; "\n" end=4612
+  40 semi:1:41 EOF "" end=4612
+  tokens=3 hash=0 errors=1 lines=1
+  E "semi:1:39: comment not terminated"
+  list: "semi:1:39: comment not terminated"
+  unadj: semi:1:41 semi:1:41
+#100 semi "foo    /* an EOF terminates a line */ //"
+  0 semi:1:1 IDENT "foo" end=4616
+  7 semi:1:8 COMMENT "/* an EOF terminates a line */" end=4650
+  38 semi:1:39 COMMENT "//" end=4653
+  40 semi:1:41 ; "\n" end=4653
+  40 semi:1:41 EOF "" end=4653
+  tokens=5 hash=0 errors=0 lines=1
+  list: "no errors"
+  unadj: semi:1:41 semi:1:41
+  0 semi:1:1 IDENT "foo" end=4657
+  40 semi:1:41 ; "\n" end=4694
+  40 semi:1:41 EOF "" end=4694
+  tokens=3 hash=0 errors=0 lines=1
+  list: "no errors"
+  unadj: semi:1:41 semi:1:41
+#101 semi "package main\n\nfunc main() {\n\tif {\n\t\treturn /* */ }\n}\n"
+  0 semi:1:1 package "package" end=4702
+  8 semi:1:9 IDENT "main" end=4707
+  12 semi:1:13 ; "\n" end=4708
+  14 semi:3:1 func "func" end=4713
+  19 semi:3:6 IDENT "main" end=4718
+  23 semi:3:10 ( "" end=4719
+  24 semi:3:11 ) "" end=4720
+  26 semi:3:13 { "" end=4722
+  29 semi:4:2 if "if" end=4726
+  32 semi:4:5 { "" end=4728
+  36 semi:5:3 return "return" end=4737
+  43 semi:5:10 COMMENT "/* */" end=4743
+  49 semi:5:16 } "" end=4745
+  50 semi:5:17 ; "\n" end=4746
+  51 semi:6:1 } "" end=4747
+  52 semi:6:2 ; "\n" end=4748
+  53 semi:6:3 EOF "" end=4748
+  tokens=17 hash=0 errors=0 lines=6
+  list: "no errors"
+  unadj: semi:6:3 semi:6:3
+  0 semi:1:1 package "package" end=4756
+  8 semi:1:9 IDENT "main" end=4761
+  12 semi:1:13 ; "\n" end=4762
+  14 semi:3:1 func "func" end=4767
+  19 semi:3:6 IDENT "main" end=4772
+  23 semi:3:10 ( "" end=4773
+  24 semi:3:11 ) "" end=4774
+  26 semi:3:13 { "" end=4776
+  29 semi:4:2 if "if" end=4780
+  32 semi:4:5 { "" end=4782
+  36 semi:5:3 return "return" end=4791
+  49 semi:5:16 } "" end=4799
+  50 semi:5:17 ; "\n" end=4800
+  51 semi:6:1 } "" end=4801
+  52 semi:6:2 ; "\n" end=4802
+  53 semi:6:3 EOF "" end=4802
+  tokens=16 hash=0 errors=0 lines=6
+  list: "no errors"
+  unadj: semi:6:3 semi:6:3
+#102 semi "package main"
+  0 semi:1:1 package "package" end=4810
+  8 semi:1:9 IDENT "main" end=4815
+  12 semi:1:13 ; "\n" end=4815
+  12 semi:1:13 EOF "" end=4815
+  tokens=4 hash=0 errors=0 lines=1
+  list: "no errors"
+  unadj: semi:1:13 semi:1:13
+  0 semi:1:1 package "package" end=4823
+  8 semi:1:9 IDENT "main" end=4828
+  12 semi:1:13 ; "\n" end=4828
+  12 semi:1:13 EOF "" end=4828
+  tokens=4 hash=0 errors=0 lines=1
+  list: "no errors"
+  unadj: semi:1:13 semi:1:13
+#103 dir/TestLineDirectives "  line1\nline2\nline3  //line File1.go:100\nline4\n//line File1.go:100\n  line100\n//line  \t :42\n  line1\n//line File2.go:200\n  line200\n//line foo\t:42\n  line42\n //line foo:42\n  line43\n//line foo 42\n  line44\n//line /bar:42\n  line45\n//line ./foo:42\n  line46\n//line a/b/c/File1.go:100\n  line100\n//line c:\\bar:42\n  line200\n//line c:\\dir\\File1.go:100\n  line201\n//line :100\na1\n//line bar:100\nb1\n//line :100:10\nc1\n//line foo:100:10\nd1\n/*line :100*/a2\n/*line bar:100*/b2\n/*line :100:10*/c2\n/*line foo:100:10*/d2\n/*line foo:100:10*/    e2\n/*line foo:100:10*/\n\nf2"
+  2 dir/TestLineDirectives:1:3 IDENT "line1" end=4836
+  7 dir/TestLineDirectives:1:8 ; "\n" end=4837
+  8 dir/TestLineDirectives:2:1 IDENT "line2" end=4842
+  13 dir/TestLineDirectives:2:6 ; "\n" end=4843
+  14 dir/TestLineDirectives:3:1 IDENT "line3" end=4848
+  21 dir/TestLineDirectives:3:8 COMMENT "//line File1.go:100" end=4869
+  40 dir/TestLineDirectives:3:27 ; "\n" end=4870
+  41 dir/TestLineDirectives:4:1 IDENT "line4" end=4875
+  46 dir/TestLineDirectives:4:6 ; "\n" end=4876
+  47 dir/TestLineDirectives:5:1 COMMENT "//line File1.go:100" end=4895
+  69 dir/File1.go:100 IDENT "line100" end=4905
+  76 dir/File1.go:100 ; "\n" end=4906
+  77 dir/File1.go:101 COMMENT "//line  \t :42" end=4919
+  93 dir/ 	 :42 IDENT "line1" end=4927
+  98 dir/ 	 :42 ; "\n" end=4928
+  99 dir/ 	 :43 COMMENT "//line File2.go:200" end=4947
+  121 dir/File2.go:200 IDENT "line200" end=4957
+  128 dir/File2.go:200 ; "\n" end=4958
+  129 dir/File2.go:201 COMMENT "//line foo\t:42" end=4972
+  146 dir/foo	:42 IDENT "line42" end=4981
+  152 dir/foo	:42 ; "\n" end=4982
+  154 dir/foo	:43 COMMENT "//line foo:42" end=4996
+  170 dir/foo	:44 IDENT "line43" end=5005
+  176 dir/foo	:44 ; "\n" end=5006
+  177 dir/foo	:45 COMMENT "//line foo 42" end=5019
+  193 dir/foo	:46 IDENT "line44" end=5028
+  199 dir/foo	:46 ; "\n" end=5029
+  200 dir/foo	:47 COMMENT "//line /bar:42" end=5043
+  217 /bar:42 IDENT "line45" end=5052
+  223 /bar:42 ; "\n" end=5053
+  224 /bar:43 COMMENT "//line ./foo:42" end=5068
+  242 dir/foo:42 IDENT "line46" end=5077
+  248 dir/foo:42 ; "\n" end=5078
+  249 dir/foo:43 COMMENT "//line a/b/c/File1.go:100" end=5103
+  277 dir/a/b/c/File1.go:100 IDENT "line100" end=5113
+  284 dir/a/b/c/File1.go:100 ; "\n" end=5114
+  285 dir/a/b/c/File1.go:101 COMMENT "//line c:\\bar:42" end=5130
+  304 dir/c:\bar:42 IDENT "line200" end=5140
+  311 dir/c:\bar:42 ; "\n" end=5141
+  312 dir/c:\bar:43 COMMENT "//line c:\\dir\\File1.go:100" end=5167
+  341 dir/c:\dir\File1.go:100 IDENT "line201" end=5177
+  348 dir/c:\dir\File1.go:100 ; "\n" end=5178
+  349 dir/c:\dir\File1.go:101 COMMENT "//line :100" end=5189
+  361 100 IDENT "a1" end=5192
+  363 100 ; "\n" end=5193
+  364 101 COMMENT "//line bar:100" end=5207
+  379 dir/bar:100 IDENT "b1" end=5210
+  381 dir/bar:100 ; "\n" end=5211
+  382 dir/bar:101 COMMENT "//line :100:10" end=5225
+  397 dir/bar:100:10 IDENT "c1" end=5228
+  399 dir/bar:100:12 ; "\n" end=5229
+  400 dir/bar:101:1 COMMENT "//line foo:100:10" end=5246
+  418 dir/foo:100:10 IDENT "d1" end=5249
+  420 dir/foo:100:12 ; "\n" end=5250
+  421 dir/foo:101:1 COMMENT "/*line :100*/" end=5263
+  434 100 IDENT "a2" end=5265
+  436 100 ; "\n" end=5266
+  437 101 COMMENT "/*line bar:100*/" end=5282
+  453 dir/bar:100 IDENT "b2" end=5284
+  455 dir/bar:100 ; "\n" end=5285
+  456 dir/bar:101 COMMENT "/*line :100:10*/" end=5301
+  472 dir/bar:100:10 IDENT "c2" end=5303
+  474 dir/bar:100:12 ; "\n" end=5304
+  475 dir/bar:101:1 COMMENT "/*line foo:100:10*/" end=5323
+  494 dir/foo:100:10 IDENT "d2" end=5325
+  496 dir/foo:100:12 ; "\n" end=5326
+  497 dir/foo:101:1 COMMENT "/*line foo:100:10*/" end=5345
+  520 dir/foo:100:14 IDENT "e2" end=5351
+  522 dir/foo:100:16 ; "\n" end=5352
+  523 dir/foo:101:1 COMMENT "/*line foo:100:10*/" end=5371
+  544 dir/foo:102:1 IDENT "f2" end=5375
+  546 dir/foo:102:3 ; "\n" end=5375
+  546 dir/foo:102:3 EOF "" end=5375
+  tokens=73 hash=0 errors=0 lines=42
+  list: "no errors"
+  unadj: dir/TestLineDirectives:42:3 dir/foo:102:3
+  tokens=51 hash=361970648 errors=0 lines=42
+  list: "no errors"
+  unadj: dir/TestLineDirectives:42:3 dir/foo:102:3
+#104 dir/TestInvalidLineDirectives "\n//line :1:1\n//line foo:42 extra text\ndummy\n//line :2:1\n//line foobar:\ndummy\n//line :5:1\n//line :0\ndummy\n//line :10:1\n//line :1:0\ndummy\n//line :1:1\n//line :foo:0\ndummy"
+  1 dir/TestInvalidLineDirectives:2:1 COMMENT "//line :1:1" end=5935
+  13 dir/TestInvalidLineDirectives:1:1 COMMENT "//line foo:42 extra text" end=5960
+  38 dir/TestInvalidLineDirectives:2:1 IDENT "dummy" end=5966
+  43 dir/TestInvalidLineDirectives:2:6 ; "\n" end=5967
+  44 dir/TestInvalidLineDirectives:3:1 COMMENT "//line :2:1" end=5978
+  56 dir/TestInvalidLineDirectives:2:1 COMMENT "//line foobar:" end=5993
+  71 dir/TestInvalidLineDirectives:3:1 IDENT "dummy" end=5999
+  76 dir/TestInvalidLineDirectives:3:6 ; "\n" end=6000
+  77 dir/TestInvalidLineDirectives:4:1 COMMENT "//line :5:1" end=6011
+  89 dir/TestInvalidLineDirectives:5:1 COMMENT "//line :0" end=6021
+  99 dir/TestInvalidLineDirectives:6:1 IDENT "dummy" end=6027
+  104 dir/TestInvalidLineDirectives:6:6 ; "\n" end=6028
+  105 dir/TestInvalidLineDirectives:7:1 COMMENT "//line :10:1" end=6040
+  118 dir/TestInvalidLineDirectives:10:1 COMMENT "//line :1:0" end=6052
+  130 dir/TestInvalidLineDirectives:11:1 IDENT "dummy" end=6058
+  135 dir/TestInvalidLineDirectives:11:6 ; "\n" end=6059
+  136 dir/TestInvalidLineDirectives:12:1 COMMENT "//line :1:1" end=6070
+  148 dir/TestInvalidLineDirectives:1:1 COMMENT "//line :foo:0" end=6084
+  162 dir/TestInvalidLineDirectives:2:1 IDENT "dummy" end=6090
+  167 dir/TestInvalidLineDirectives:2:6 ; "\n" end=6090
+  167 dir/TestInvalidLineDirectives:2:6 EOF "" end=6090
+  tokens=21 hash=0 errors=5 lines=16
+  E "dir/TestInvalidLineDirectives:1:12: invalid line number: 42 extra text"
+  E "dir/TestInvalidLineDirectives:2:15: invalid line number: "
+  E "dir/TestInvalidLineDirectives:5:9: invalid line number: 0"
+  E "dir/TestInvalidLineDirectives:10:11: invalid column number: 0"
+  E "dir/TestInvalidLineDirectives:1:13: invalid line number: 0"
+  list: "dir/TestInvalidLineDirectives:1:12: invalid line number: 42 extra text (and 3 more errors)"
+  unadj: dir/TestInvalidLineDirectives:16:6 dir/TestInvalidLineDirectives:2:6
+  38 dir/TestInvalidLineDirectives:2:1 IDENT "dummy" end=6134
+  43 dir/TestInvalidLineDirectives:2:6 ; "\n" end=6135
+  71 dir/TestInvalidLineDirectives:3:1 IDENT "dummy" end=6167
+  76 dir/TestInvalidLineDirectives:3:6 ; "\n" end=6168
+  99 dir/TestInvalidLineDirectives:6:1 IDENT "dummy" end=6195
+  104 dir/TestInvalidLineDirectives:6:6 ; "\n" end=6196
+  130 dir/TestInvalidLineDirectives:11:1 IDENT "dummy" end=6226
+  135 dir/TestInvalidLineDirectives:11:6 ; "\n" end=6227
+  162 dir/TestInvalidLineDirectives:2:1 IDENT "dummy" end=6258
+  167 dir/TestInvalidLineDirectives:2:6 ; "\n" end=6258
+  167 dir/TestInvalidLineDirectives:2:6 EOF "" end=6258
+  tokens=11 hash=0 errors=5 lines=16
+  E "dir/TestInvalidLineDirectives:1:12: invalid line number: 42 extra text"
+  E "dir/TestInvalidLineDirectives:2:15: invalid line number: "
+  E "dir/TestInvalidLineDirectives:5:9: invalid line number: 0"
+  E "dir/TestInvalidLineDirectives:10:11: invalid column number: 0"
+  E "dir/TestInvalidLineDirectives:1:13: invalid line number: 0"
+  list: "dir/TestInvalidLineDirectives:1:12: invalid line number: 42 extra text (and 3 more errors)"
+  unadj: dir/TestInvalidLineDirectives:16:6 dir/TestInvalidLineDirectives:2:6
+#105 err "\a"
+  0 err:1:1 ILLEGAL "\a" end=6260
+  1 err:1:2 EOF "" end=6260
+  tokens=2 hash=0 errors=1 lines=1
+  E "err:1:1: illegal character U+0007"
+  list: "err:1:1: illegal character U+0007"
+  unadj: err:1:2 err:1:2
+  0 err:1:1 ILLEGAL "\a" end=6262
+  1 err:1:2 EOF "" end=6262
+  tokens=2 hash=0 errors=1 lines=1
+  E "err:1:1: illegal character U+0007"
+  list: "err:1:1: illegal character U+0007"
+  unadj: err:1:2 err:1:2
+#106 err "#"
+  0 err:1:1 ILLEGAL "#" end=6264
+  1 err:1:2 EOF "" end=6264
+  tokens=2 hash=0 errors=1 lines=1
+  E "err:1:1: illegal character U+0023 '#'"
+  list: "err:1:1: illegal character U+0023 '#'"
+  unadj: err:1:2 err:1:2
+  0 err:1:1 ILLEGAL "#" end=6266
+  1 err:1:2 EOF "" end=6266
+  tokens=2 hash=0 errors=1 lines=1
+  E "err:1:1: illegal character U+0023 '#'"
+  list: "err:1:1: illegal character U+0023 '#'"
+  unadj: err:1:2 err:1:2
+#107 err "…"
+  0 err:1:1 ILLEGAL "…" end=6270
+  3 err:1:4 EOF "" end=6270
+  tokens=2 hash=0 errors=1 lines=1
+  E "err:1:1: illegal character U+2026 '…'"
+  list: "err:1:1: illegal character U+2026 '…'"
+  unadj: err:1:4 err:1:4
+  0 err:1:1 ILLEGAL "…" end=6274
+  3 err:1:4 EOF "" end=6274
+  tokens=2 hash=0 errors=1 lines=1
+  E "err:1:1: illegal character U+2026 '…'"
+  list: "err:1:1: illegal character U+2026 '…'"
+  unadj: err:1:4 err:1:4
+#108 err ".."
+  0 err:1:1 . "" end=6276
+  1 err:1:2 . "" end=6277
+  2 err:1:3 EOF "" end=6277
+  tokens=3 hash=0 errors=0 lines=1
+  list: "no errors"
+  unadj: err:1:3 err:1:3
+  0 err:1:1 . "" end=6279
+  1 err:1:2 . "" end=6280
+  2 err:1:3 EOF "" end=6280
+  tokens=3 hash=0 errors=0 lines=1
+  list: "no errors"
+  unadj: err:1:3 err:1:3
+#109 err "' '"
+  0 err:1:1 CHAR "' '" end=6284
+  3 err:1:4 ; "\n" end=6284
+  3 err:1:4 EOF "" end=6284
+  tokens=3 hash=0 errors=0 lines=1
+  list: "no errors"
+  unadj: err:1:4 err:1:4
+  0 err:1:1 CHAR "' '" end=6288
+  3 err:1:4 ; "\n" end=6288
+  3 err:1:4 EOF "" end=6288
+  tokens=3 hash=0 errors=0 lines=1
+  list: "no errors"
+  unadj: err:1:4 err:1:4
+#110 err "''"
+  0 err:1:1 CHAR "''" end=6291
+  2 err:1:3 ; "\n" end=6291
+  2 err:1:3 EOF "" end=6291
+  tokens=3 hash=0 errors=1 lines=1
+  E "err:1:1: illegal rune literal"
+  list: "err:1:1: illegal rune literal"
+  unadj: err:1:3 err:1:3
+  0 err:1:1 CHAR "''" end=6294
+  2 err:1:3 ; "\n" end=6294
+  2 err:1:3 EOF "" end=6294
+  tokens=3 hash=0 errors=1 lines=1
+  E "err:1:1: illegal rune literal"
+  list: "err:1:1: illegal rune literal"
+  unadj: err:1:3 err:1:3
+#111 err "'12'"
+  0 err:1:1 CHAR "'12'" end=6299
+  4 err:1:5 ; "\n" end=6299
+  4 err:1:5 EOF "" end=6299
+  tokens=3 hash=0 errors=1 lines=1
+  E "err:1:1: illegal rune literal"
+  list: "err:1:1: illegal rune literal"
+  unadj: err:1:5 err:1:5
+  0 err:1:1 CHAR "'12'" end=6304
+  4 err:1:5 ; "\n" end=6304
+  4 err:1:5 EOF "" end=6304
+  tokens=3 hash=0 errors=1 lines=1
+  E "err:1:1: illegal rune literal"
+  list: "err:1:1: illegal rune literal"
+  unadj: err:1:5 err:1:5
+#112 err "'123'"
+  0 err:1:1 CHAR "'123'" end=6310
+  5 err:1:6 ; "\n" end=6310
+  5 err:1:6 EOF "" end=6310
+  tokens=3 hash=0 errors=1 lines=1
+  E "err:1:1: illegal rune literal"
+  list: "err:1:1: illegal rune literal"
+  unadj: err:1:6 err:1:6
+  0 err:1:1 CHAR "'123'" end=6316
+  5 err:1:6 ; "\n" end=6316
+  5 err:1:6 EOF "" end=6316
+  tokens=3 hash=0 errors=1 lines=1
+  E "err:1:1: illegal rune literal"
+  list: "err:1:1: illegal rune literal"
+  unadj: err:1:6 err:1:6
+#113 err "'\\0'"
+  0 err:1:1 CHAR "'\\0'" end=6321
+  4 err:1:5 ; "\n" end=6321
+  4 err:1:5 EOF "" end=6321
+  tokens=3 hash=0 errors=1 lines=1
+  E "err:1:4: illegal character U+0027 ''' in escape sequence"
+  list: "err:1:4: illegal character U+0027 ''' in escape sequence"
+  unadj: err:1:5 err:1:5
+  0 err:1:1 CHAR "'\\0'" end=6326
+  4 err:1:5 ; "\n" end=6326
+  4 err:1:5 EOF "" end=6326
+  tokens=3 hash=0 errors=1 lines=1
+  E "err:1:4: illegal character U+0027 ''' in escape sequence"
+  list: "err:1:4: illegal character U+0027 ''' in escape sequence"
+  unadj: err:1:5 err:1:5
+#114 err "'\\07'"
+  0 err:1:1 CHAR "'\\07'" end=6332
+  5 err:1:6 ; "\n" end=6332
+  5 err:1:6 EOF "" end=6332
+  tokens=3 hash=0 errors=1 lines=1
+  E "err:1:5: illegal character U+0027 ''' in escape sequence"
+  list: "err:1:5: illegal character U+0027 ''' in escape sequence"
+  unadj: err:1:6 err:1:6
+  0 err:1:1 CHAR "'\\07'" end=6338
+  5 err:1:6 ; "\n" end=6338
+  5 err:1:6 EOF "" end=6338
+  tokens=3 hash=0 errors=1 lines=1
+  E "err:1:5: illegal character U+0027 ''' in escape sequence"
+  list: "err:1:5: illegal character U+0027 ''' in escape sequence"
+  unadj: err:1:6 err:1:6
+#115 err "'\\8'"
+  0 err:1:1 CHAR "'\\8'" end=6343
+  4 err:1:5 ; "\n" end=6343
+  4 err:1:5 EOF "" end=6343
+  tokens=3 hash=0 errors=1 lines=1
+  E "err:1:3: unknown escape sequence"
+  list: "err:1:3: unknown escape sequence"
+  unadj: err:1:5 err:1:5
+  0 err:1:1 CHAR "'\\8'" end=6348
+  4 err:1:5 ; "\n" end=6348
+  4 err:1:5 EOF "" end=6348
+  tokens=3 hash=0 errors=1 lines=1
+  E "err:1:3: unknown escape sequence"
+  list: "err:1:3: unknown escape sequence"
+  unadj: err:1:5 err:1:5
+#116 err "'\\08'"
+  0 err:1:1 CHAR "'\\08'" end=6354
+  5 err:1:6 ; "\n" end=6354
+  5 err:1:6 EOF "" end=6354
+  tokens=3 hash=0 errors=1 lines=1
+  E "err:1:4: illegal character U+0038 '8' in escape sequence"
+  list: "err:1:4: illegal character U+0038 '8' in escape sequence"
+  unadj: err:1:6 err:1:6
+  0 err:1:1 CHAR "'\\08'" end=6360
+  5 err:1:6 ; "\n" end=6360
+  5 err:1:6 EOF "" end=6360
+  tokens=3 hash=0 errors=1 lines=1
+  E "err:1:4: illegal character U+0038 '8' in escape sequence"
+  list: "err:1:4: illegal character U+0038 '8' in escape sequence"
+  unadj: err:1:6 err:1:6
+#117 err "'\\x'"
+  0 err:1:1 CHAR "'\\x'" end=6365
+  4 err:1:5 ; "\n" end=6365
+  4 err:1:5 EOF "" end=6365
+  tokens=3 hash=0 errors=1 lines=1
+  E "err:1:4: illegal character U+0027 ''' in escape sequence"
+  list: "err:1:4: illegal character U+0027 ''' in escape sequence"
+  unadj: err:1:5 err:1:5
+  0 err:1:1 CHAR "'\\x'" end=6370
+  4 err:1:5 ; "\n" end=6370
+  4 err:1:5 EOF "" end=6370
+  tokens=3 hash=0 errors=1 lines=1
+  E "err:1:4: illegal character U+0027 ''' in escape sequence"
+  list: "err:1:4: illegal character U+0027 ''' in escape sequence"
+  unadj: err:1:5 err:1:5
+#118 err "'\\x0'"
+  0 err:1:1 CHAR "'\\x0'" end=6376
+  5 err:1:6 ; "\n" end=6376
+  5 err:1:6 EOF "" end=6376
+  tokens=3 hash=0 errors=1 lines=1
+  E "err:1:5: illegal character U+0027 ''' in escape sequence"
+  list: "err:1:5: illegal character U+0027 ''' in escape sequence"
+  unadj: err:1:6 err:1:6
+  0 err:1:1 CHAR "'\\x0'" end=6382
+  5 err:1:6 ; "\n" end=6382
+  5 err:1:6 EOF "" end=6382
+  tokens=3 hash=0 errors=1 lines=1
+  E "err:1:5: illegal character U+0027 ''' in escape sequence"
+  list: "err:1:5: illegal character U+0027 ''' in escape sequence"
+  unadj: err:1:6 err:1:6
+#119 err "'\\x0g'"
+  0 err:1:1 CHAR "'\\x0g'" end=6389
+  6 err:1:7 ; "\n" end=6389
+  6 err:1:7 EOF "" end=6389
+  tokens=3 hash=0 errors=1 lines=1
+  E "err:1:5: illegal character U+0067 'g' in escape sequence"
+  list: "err:1:5: illegal character U+0067 'g' in escape sequence"
+  unadj: err:1:7 err:1:7
+  0 err:1:1 CHAR "'\\x0g'" end=6396
+  6 err:1:7 ; "\n" end=6396
+  6 err:1:7 EOF "" end=6396
+  tokens=3 hash=0 errors=1 lines=1
+  E "err:1:5: illegal character U+0067 'g' in escape sequence"
+  list: "err:1:5: illegal character U+0067 'g' in escape sequence"
+  unadj: err:1:7 err:1:7
+#120 err "'\\u'"
+  0 err:1:1 CHAR "'\\u'" end=6401
+  4 err:1:5 ; "\n" end=6401
+  4 err:1:5 EOF "" end=6401
+  tokens=3 hash=0 errors=1 lines=1
+  E "err:1:4: illegal character U+0027 ''' in escape sequence"
+  list: "err:1:4: illegal character U+0027 ''' in escape sequence"
+  unadj: err:1:5 err:1:5
+  0 err:1:1 CHAR "'\\u'" end=6406
+  4 err:1:5 ; "\n" end=6406
+  4 err:1:5 EOF "" end=6406
+  tokens=3 hash=0 errors=1 lines=1
+  E "err:1:4: illegal character U+0027 ''' in escape sequence"
+  list: "err:1:4: illegal character U+0027 ''' in escape sequence"
+  unadj: err:1:5 err:1:5
+#121 err "'\\u0'"
+  0 err:1:1 CHAR "'\\u0'" end=6412
+  5 err:1:6 ; "\n" end=6412
+  5 err:1:6 EOF "" end=6412
+  tokens=3 hash=0 errors=1 lines=1
+  E "err:1:5: illegal character U+0027 ''' in escape sequence"
+  list: "err:1:5: illegal character U+0027 ''' in escape sequence"
+  unadj: err:1:6 err:1:6
+  0 err:1:1 CHAR "'\\u0'" end=6418
+  5 err:1:6 ; "\n" end=6418
+  5 err:1:6 EOF "" end=6418
+  tokens=3 hash=0 errors=1 lines=1
+  E "err:1:5: illegal character U+0027 ''' in escape sequence"
+  list: "err:1:5: illegal character U+0027 ''' in escape sequence"
+  unadj: err:1:6 err:1:6
+#122 err "'\\u00'"
+  0 err:1:1 CHAR "'\\u00'" end=6425
+  6 err:1:7 ; "\n" end=6425
+  6 err:1:7 EOF "" end=6425
+  tokens=3 hash=0 errors=1 lines=1
+  E "err:1:6: illegal character U+0027 ''' in escape sequence"
+  list: "err:1:6: illegal character U+0027 ''' in escape sequence"
+  unadj: err:1:7 err:1:7
+  0 err:1:1 CHAR "'\\u00'" end=6432
+  6 err:1:7 ; "\n" end=6432
+  6 err:1:7 EOF "" end=6432
+  tokens=3 hash=0 errors=1 lines=1
+  E "err:1:6: illegal character U+0027 ''' in escape sequence"
+  list: "err:1:6: illegal character U+0027 ''' in escape sequence"
+  unadj: err:1:7 err:1:7
+#123 err "'\\u000'"
+  0 err:1:1 CHAR "'\\u000'" end=6440
+  7 err:1:8 ; "\n" end=6440
+  7 err:1:8 EOF "" end=6440
+  tokens=3 hash=0 errors=1 lines=1
+  E "err:1:7: illegal character U+0027 ''' in escape sequence"
+  list: "err:1:7: illegal character U+0027 ''' in escape sequence"
+  unadj: err:1:8 err:1:8
+  0 err:1:1 CHAR "'\\u000'" end=6448
+  7 err:1:8 ; "\n" end=6448
+  7 err:1:8 EOF "" end=6448
+  tokens=3 hash=0 errors=1 lines=1
+  E "err:1:7: illegal character U+0027 ''' in escape sequence"
+  list: "err:1:7: illegal character U+0027 ''' in escape sequence"
+  unadj: err:1:8 err:1:8
+#124 err "'\\u000"
+  0 err:1:1 CHAR "'\\u000" end=6455
+  6 err:1:7 ; "\n" end=6455
+  6 err:1:7 EOF "" end=6455
+  tokens=3 hash=0 errors=1 lines=1
+  E "err:1:7: escape sequence not terminated"
+  list: "err:1:7: escape sequence not terminated"
+  unadj: err:1:7 err:1:7
+  0 err:1:1 CHAR "'\\u000" end=6462
+  6 err:1:7 ; "\n" end=6462
+  6 err:1:7 EOF "" end=6462
+  tokens=3 hash=0 errors=1 lines=1
+  E "err:1:7: escape sequence not terminated"
+  list: "err:1:7: escape sequence not terminated"
+  unadj: err:1:7 err:1:7
+#125 err "'\\u0000'"
+  0 err:1:1 CHAR "'\\u0000'" end=6471
+  8 err:1:9 ; "\n" end=6471
+  8 err:1:9 EOF "" end=6471
+  tokens=3 hash=0 errors=0 lines=1
+  list: "no errors"
+  unadj: err:1:9 err:1:9
+  0 err:1:1 CHAR "'\\u0000'" end=6480
+  8 err:1:9 ; "\n" end=6480
+  8 err:1:9 EOF "" end=6480
+  tokens=3 hash=0 errors=0 lines=1
+  list: "no errors"
+  unadj: err:1:9 err:1:9
+#126 err "'\\U'"
+  0 err:1:1 CHAR "'\\U'" end=6485
+  4 err:1:5 ; "\n" end=6485
+  4 err:1:5 EOF "" end=6485
+  tokens=3 hash=0 errors=1 lines=1
+  E "err:1:4: illegal character U+0027 ''' in escape sequence"
+  list: "err:1:4: illegal character U+0027 ''' in escape sequence"
+  unadj: err:1:5 err:1:5
+  0 err:1:1 CHAR "'\\U'" end=6490
+  4 err:1:5 ; "\n" end=6490
+  4 err:1:5 EOF "" end=6490
+  tokens=3 hash=0 errors=1 lines=1
+  E "err:1:4: illegal character U+0027 ''' in escape sequence"
+  list: "err:1:4: illegal character U+0027 ''' in escape sequence"
+  unadj: err:1:5 err:1:5
+#127 err "'\\U0'"
+  0 err:1:1 CHAR "'\\U0'" end=6496
+  5 err:1:6 ; "\n" end=6496
+  5 err:1:6 EOF "" end=6496
+  tokens=3 hash=0 errors=1 lines=1
+  E "err:1:5: illegal character U+0027 ''' in escape sequence"
+  list: "err:1:5: illegal character U+0027 ''' in escape sequence"
+  unadj: err:1:6 err:1:6
+  0 err:1:1 CHAR "'\\U0'" end=6502
+  5 err:1:6 ; "\n" end=6502
+  5 err:1:6 EOF "" end=6502
+  tokens=3 hash=0 errors=1 lines=1
+  E "err:1:5: illegal character U+0027 ''' in escape sequence"
+  list: "err:1:5: illegal character U+0027 ''' in escape sequence"
+  unadj: err:1:6 err:1:6
+#128 err "'\\U00'"
+  0 err:1:1 CHAR "'\\U00'" end=6509
+  6 err:1:7 ; "\n" end=6509
+  6 err:1:7 EOF "" end=6509
+  tokens=3 hash=0 errors=1 lines=1
+  E "err:1:6: illegal character U+0027 ''' in escape sequence"
+  list: "err:1:6: illegal character U+0027 ''' in escape sequence"
+  unadj: err:1:7 err:1:7
+  0 err:1:1 CHAR "'\\U00'" end=6516
+  6 err:1:7 ; "\n" end=6516
+  6 err:1:7 EOF "" end=6516
+  tokens=3 hash=0 errors=1 lines=1
+  E "err:1:6: illegal character U+0027 ''' in escape sequence"
+  list: "err:1:6: illegal character U+0027 ''' in escape sequence"
+  unadj: err:1:7 err:1:7
+#129 err "'\\U000'"
+  0 err:1:1 CHAR "'\\U000'" end=6524
+  7 err:1:8 ; "\n" end=6524
+  7 err:1:8 EOF "" end=6524
+  tokens=3 hash=0 errors=1 lines=1
+  E "err:1:7: illegal character U+0027 ''' in escape sequence"
+  list: "err:1:7: illegal character U+0027 ''' in escape sequence"
+  unadj: err:1:8 err:1:8
+  0 err:1:1 CHAR "'\\U000'" end=6532
+  7 err:1:8 ; "\n" end=6532
+  7 err:1:8 EOF "" end=6532
+  tokens=3 hash=0 errors=1 lines=1
+  E "err:1:7: illegal character U+0027 ''' in escape sequence"
+  list: "err:1:7: illegal character U+0027 ''' in escape sequence"
+  unadj: err:1:8 err:1:8
+#130 err "'\\U0000'"
+  0 err:1:1 CHAR "'\\U0000'" end=6541
+  8 err:1:9 ; "\n" end=6541
+  8 err:1:9 EOF "" end=6541
+  tokens=3 hash=0 errors=1 lines=1
+  E "err:1:8: illegal character U+0027 ''' in escape sequence"
+  list: "err:1:8: illegal character U+0027 ''' in escape sequence"
+  unadj: err:1:9 err:1:9
+  0 err:1:1 CHAR "'\\U0000'" end=6550
+  8 err:1:9 ; "\n" end=6550
+  8 err:1:9 EOF "" end=6550
+  tokens=3 hash=0 errors=1 lines=1
+  E "err:1:8: illegal character U+0027 ''' in escape sequence"
+  list: "err:1:8: illegal character U+0027 ''' in escape sequence"
+  unadj: err:1:9 err:1:9
+#131 err "'\\U00000'"
+  0 err:1:1 CHAR "'\\U00000'" end=6560
+  9 err:1:10 ; "\n" end=6560
+  9 err:1:10 EOF "" end=6560
+  tokens=3 hash=0 errors=1 lines=1
+  E "err:1:9: illegal character U+0027 ''' in escape sequence"
+  list: "err:1:9: illegal character U+0027 ''' in escape sequence"
+  unadj: err:1:10 err:1:10
+  0 err:1:1 CHAR "'\\U00000'" end=6570
+  9 err:1:10 ; "\n" end=6570
+  9 err:1:10 EOF "" end=6570
+  tokens=3 hash=0 errors=1 lines=1
+  E "err:1:9: illegal character U+0027 ''' in escape sequence"
+  list: "err:1:9: illegal character U+0027 ''' in escape sequence"
+  unadj: err:1:10 err:1:10
+#132 err "'\\U000000'"
+  0 err:1:1 CHAR "'\\U000000'" end=6581
+  10 err:1:11 ; "\n" end=6581
+  10 err:1:11 EOF "" end=6581
+  tokens=3 hash=0 errors=1 lines=1
+  E "err:1:10: illegal character U+0027 ''' in escape sequence"
+  list: "err:1:10: illegal character U+0027 ''' in escape sequence"
+  unadj: err:1:11 err:1:11
+  0 err:1:1 CHAR "'\\U000000'" end=6592
+  10 err:1:11 ; "\n" end=6592
+  10 err:1:11 EOF "" end=6592
+  tokens=3 hash=0 errors=1 lines=1
+  E "err:1:10: illegal character U+0027 ''' in escape sequence"
+  list: "err:1:10: illegal character U+0027 ''' in escape sequence"
+  unadj: err:1:11 err:1:11
+#133 err "'\\U0000000'"
+  0 err:1:1 CHAR "'\\U0000000'" end=6604
+  11 err:1:12 ; "\n" end=6604
+  11 err:1:12 EOF "" end=6604
+  tokens=3 hash=0 errors=1 lines=1
+  E "err:1:11: illegal character U+0027 ''' in escape sequence"
+  list: "err:1:11: illegal character U+0027 ''' in escape sequence"
+  unadj: err:1:12 err:1:12
+  0 err:1:1 CHAR "'\\U0000000'" end=6616
+  11 err:1:12 ; "\n" end=6616
+  11 err:1:12 EOF "" end=6616
+  tokens=3 hash=0 errors=1 lines=1
+  E "err:1:11: illegal character U+0027 ''' in escape sequence"
+  list: "err:1:11: illegal character U+0027 ''' in escape sequence"
+  unadj: err:1:12 err:1:12
+#134 err "'\\U0000000"
+  0 err:1:1 CHAR "'\\U0000000" end=6627
+  10 err:1:11 ; "\n" end=6627
+  10 err:1:11 EOF "" end=6627
+  tokens=3 hash=0 errors=1 lines=1
+  E "err:1:11: escape sequence not terminated"
+  list: "err:1:11: escape sequence not terminated"
+  unadj: err:1:11 err:1:11
+  0 err:1:1 CHAR "'\\U0000000" end=6638
+  10 err:1:11 ; "\n" end=6638
+  10 err:1:11 EOF "" end=6638
+  tokens=3 hash=0 errors=1 lines=1
+  E "err:1:11: escape sequence not terminated"
+  list: "err:1:11: escape sequence not terminated"
+  unadj: err:1:11 err:1:11
+#135 err "'\\U00000000'"
+  0 err:1:1 CHAR "'\\U00000000'" end=6651
+  12 err:1:13 ; "\n" end=6651
+  12 err:1:13 EOF "" end=6651
+  tokens=3 hash=0 errors=0 lines=1
+  list: "no errors"
+  unadj: err:1:13 err:1:13
+  0 err:1:1 CHAR "'\\U00000000'" end=6664
+  12 err:1:13 ; "\n" end=6664
+  12 err:1:13 EOF "" end=6664
+  tokens=3 hash=0 errors=0 lines=1
+  list: "no errors"
+  unadj: err:1:13 err:1:13
+#136 err "'\\Uffffffff'"
+  0 err:1:1 CHAR "'\\Uffffffff'" end=6677
+  12 err:1:13 ; "\n" end=6677
+  12 err:1:13 EOF "" end=6677
+  tokens=3 hash=0 errors=1 lines=1
+  E "err:1:3: escape sequence is invalid Unicode code point"
+  list: "err:1:3: escape sequence is invalid Unicode code point"
+  unadj: err:1:13 err:1:13
+  0 err:1:1 CHAR "'\\Uffffffff'" end=6690
+  12 err:1:13 ; "\n" end=6690
+  12 err:1:13 EOF "" end=6690
+  tokens=3 hash=0 errors=1 lines=1
+  E "err:1:3: escape sequence is invalid Unicode code point"
+  list: "err:1:3: escape sequence is invalid Unicode code point"
+  unadj: err:1:13 err:1:13
+#137 err "'"
+  0 err:1:1 CHAR "'" end=6692
+  1 err:1:2 ; "\n" end=6692
+  1 err:1:2 EOF "" end=6692
+  tokens=3 hash=0 errors=1 lines=1
+  E "err:1:1: rune literal not terminated"
+  list: "err:1:1: rune literal not terminated"
+  unadj: err:1:2 err:1:2
+  0 err:1:1 CHAR "'" end=6694
+  1 err:1:2 ; "\n" end=6694
+  1 err:1:2 EOF "" end=6694
+  tokens=3 hash=0 errors=1 lines=1
+  E "err:1:1: rune literal not terminated"
+  list: "err:1:1: rune literal not terminated"
+  unadj: err:1:2 err:1:2
+#138 err "'\\"
+  0 err:1:1 CHAR "'\\" end=6697
+  2 err:1:3 ; "\n" end=6697
+  2 err:1:3 EOF "" end=6697
+  tokens=3 hash=0 errors=1 lines=1
+  E "err:1:3: escape sequence not terminated"
+  list: "err:1:3: escape sequence not terminated"
+  unadj: err:1:3 err:1:3
+  0 err:1:1 CHAR "'\\" end=6700
+  2 err:1:3 ; "\n" end=6700
+  2 err:1:3 EOF "" end=6700
+  tokens=3 hash=0 errors=1 lines=1
+  E "err:1:3: escape sequence not terminated"
+  list: "err:1:3: escape sequence not terminated"
+  unadj: err:1:3 err:1:3
+#139 err "'\n"
+  0 err:1:1 CHAR "'" end=6702
+  1 err:1:2 ; "\n" end=6703
+  2 err:1:3 EOF "" end=6703
+  tokens=3 hash=0 errors=1 lines=1
+  E "err:1:1: rune literal not terminated"
+  list: "err:1:1: rune literal not terminated"
+  unadj: err:1:3 err:1:3
+  0 err:1:1 CHAR "'" end=6705
+  1 err:1:2 ; "\n" end=6706
+  2 err:1:3 EOF "" end=6706
+  tokens=3 hash=0 errors=1 lines=1
+  E "err:1:1: rune literal not terminated"
+  list: "err:1:1: rune literal not terminated"
+  unadj: err:1:3 err:1:3
+#140 err "'\n   "
+  0 err:1:1 CHAR "'" end=6708
+  1 err:1:2 ; "\n" end=6709
+  5 err:2:4 EOF "" end=6712
+  tokens=3 hash=0 errors=1 lines=2
+  E "err:1:1: rune literal not terminated"
+  list: "err:1:1: rune literal not terminated"
+  unadj: err:2:4 err:2:4
+  0 err:1:1 CHAR "'" end=6714
+  1 err:1:2 ; "\n" end=6715
+  5 err:2:4 EOF "" end=6718
+  tokens=3 hash=0 errors=1 lines=2
+  E "err:1:1: rune literal not terminated"
+  list: "err:1:1: rune literal not terminated"
+  unadj: err:2:4 err:2:4
+#141 err "\"\""
+  0 err:1:1 STRING "\"\"" end=6721
+  2 err:1:3 ; "\n" end=6721
+  2 err:1:3 EOF "" end=6721
+  tokens=3 hash=0 errors=0 lines=1
+  list: "no errors"
+  unadj: err:1:3 err:1:3
+  0 err:1:1 STRING "\"\"" end=6724
+  2 err:1:3 ; "\n" end=6724
+  2 err:1:3 EOF "" end=6724
+  tokens=3 hash=0 errors=0 lines=1
+  list: "no errors"
+  unadj: err:1:3 err:1:3
+#142 err "\"abc"
+  0 err:1:1 STRING "\"abc" end=6729
+  4 err:1:5 ; "\n" end=6729
+  4 err:1:5 EOF "" end=6729
+  tokens=3 hash=0 errors=1 lines=1
+  E "err:1:1: string literal not terminated"
+  list: "err:1:1: string literal not terminated"
+  unadj: err:1:5 err:1:5
+  0 err:1:1 STRING "\"abc" end=6734
+  4 err:1:5 ; "\n" end=6734
+  4 err:1:5 EOF "" end=6734
+  tokens=3 hash=0 errors=1 lines=1
+  E "err:1:1: string literal not terminated"
+  list: "err:1:1: string literal not terminated"
+  unadj: err:1:5 err:1:5
+#143 err "\"abc\n"
+  0 err:1:1 STRING "\"abc" end=6739
+  4 err:1:5 ; "\n" end=6740
+  5 err:1:6 EOF "" end=6740
+  tokens=3 hash=0 errors=1 lines=1
+  E "err:1:1: string literal not terminated"
+  list: "err:1:1: string literal not terminated"
+  unadj: err:1:6 err:1:6
+  0 err:1:1 STRING "\"abc" end=6745
+  4 err:1:5 ; "\n" end=6746
+  5 err:1:6 EOF "" end=6746
+  tokens=3 hash=0 errors=1 lines=1
+  E "err:1:1: string literal not terminated"
+  list: "err:1:1: string literal not terminated"
+  unadj: err:1:6 err:1:6
+#144 err "\"abc\n   "
+  0 err:1:1 STRING "\"abc" end=6751
+  4 err:1:5 ; "\n" end=6752
+  8 err:2:4 EOF "" end=6755
+  tokens=3 hash=0 errors=1 lines=2
+  E "err:1:1: string literal not terminated"
+  list: "err:1:1: string literal not terminated"
+  unadj: err:2:4 err:2:4
+  0 err:1:1 STRING "\"abc" end=6760
+  4 err:1:5 ; "\n" end=6761
+  8 err:2:4 EOF "" end=6764
+  tokens=3 hash=0 errors=1 lines=2
+  E "err:1:1: string literal not terminated"
+  list: "err:1:1: string literal not terminated"
+  unadj: err:2:4 err:2:4
+#145 err "``"
+  0 err:1:1 STRING "``" end=6767
+  2 err:1:3 ; "\n" end=6767
+  2 err:1:3 EOF "" end=6767
+  tokens=3 hash=0 errors=0 lines=1
+  list: "no errors"
+  unadj: err:1:3 err:1:3
+  0 err:1:1 STRING "``" end=6770
+  2 err:1:3 ; "\n" end=6770
+  2 err:1:3 EOF "" end=6770
+  tokens=3 hash=0 errors=0 lines=1
+  list: "no errors"
+  unadj: err:1:3 err:1:3
+#146 err "`"
+  0 err:1:1 STRING "`" end=6772
+  1 err:1:2 ; "\n" end=6772
+  1 err:1:2 EOF "" end=6772
+  tokens=3 hash=0 errors=1 lines=1
+  E "err:1:1: raw string literal not terminated"
+  list: "err:1:1: raw string literal not terminated"
+  unadj: err:1:2 err:1:2
+  0 err:1:1 STRING "`" end=6774
+  1 err:1:2 ; "\n" end=6774
+  1 err:1:2 EOF "" end=6774
+  tokens=3 hash=0 errors=1 lines=1
+  E "err:1:1: raw string literal not terminated"
+  list: "err:1:1: raw string literal not terminated"
+  unadj: err:1:2 err:1:2
+#147 err "/**/"
+  0 err:1:1 COMMENT "/**/" end=6779
+  4 err:1:5 EOF "" end=6779
+  tokens=2 hash=0 errors=0 lines=1
+  list: "no errors"
+  unadj: err:1:5 err:1:5
+  4 err:1:5 EOF "" end=6784
+  tokens=1 hash=0 errors=0 lines=1
+  list: "no errors"
+  unadj: err:1:5 err:1:5
+#148 err "/*"
+  0 err:1:1 COMMENT "/*" end=6787
+  2 err:1:3 EOF "" end=6787
+  tokens=2 hash=0 errors=1 lines=1
+  E "err:1:1: comment not terminated"
+  list: "err:1:1: comment not terminated"
+  unadj: err:1:3 err:1:3
+  2 err:1:3 EOF "" end=6790
+  tokens=1 hash=0 errors=1 lines=1
+  E "err:1:1: comment not terminated"
+  list: "err:1:1: comment not terminated"
+  unadj: err:1:3 err:1:3
+#149 err "077"
+  0 err:1:1 INT "077" end=6794
+  3 err:1:4 ; "\n" end=6794
+  3 err:1:4 EOF "" end=6794
+  tokens=3 hash=0 errors=0 lines=1
+  list: "no errors"
+  unadj: err:1:4 err:1:4
+  0 err:1:1 INT "077" end=6798
+  3 err:1:4 ; "\n" end=6798
+  3 err:1:4 EOF "" end=6798
+  tokens=3 hash=0 errors=0 lines=1
+  list: "no errors"
+  unadj: err:1:4 err:1:4
+#150 err "078."
+  0 err:1:1 FLOAT "078." end=6803
+  4 err:1:5 ; "\n" end=6803
+  4 err:1:5 EOF "" end=6803
+  tokens=3 hash=0 errors=0 lines=1
+  list: "no errors"
+  unadj: err:1:5 err:1:5
+  0 err:1:1 FLOAT "078." end=6808
+  4 err:1:5 ; "\n" end=6808
+  4 err:1:5 EOF "" end=6808
+  tokens=3 hash=0 errors=0 lines=1
+  list: "no errors"
+  unadj: err:1:5 err:1:5
+#151 err "07801234567."
+  0 err:1:1 FLOAT "07801234567." end=6821
+  12 err:1:13 ; "\n" end=6821
+  12 err:1:13 EOF "" end=6821
+  tokens=3 hash=0 errors=0 lines=1
+  list: "no errors"
+  unadj: err:1:13 err:1:13
+  0 err:1:1 FLOAT "07801234567." end=6834
+  12 err:1:13 ; "\n" end=6834
+  12 err:1:13 EOF "" end=6834
+  tokens=3 hash=0 errors=0 lines=1
+  list: "no errors"
+  unadj: err:1:13 err:1:13
+#152 err "078e0"
+  0 err:1:1 FLOAT "078e0" end=6840
+  5 err:1:6 ; "\n" end=6840
+  5 err:1:6 EOF "" end=6840
+  tokens=3 hash=0 errors=0 lines=1
+  list: "no errors"
+  unadj: err:1:6 err:1:6
+  0 err:1:1 FLOAT "078e0" end=6846
+  5 err:1:6 ; "\n" end=6846
+  5 err:1:6 EOF "" end=6846
+  tokens=3 hash=0 errors=0 lines=1
+  list: "no errors"
+  unadj: err:1:6 err:1:6
+#153 err "0E"
+  0 err:1:1 FLOAT "0E" end=6849
+  2 err:1:3 ; "\n" end=6849
+  2 err:1:3 EOF "" end=6849
+  tokens=3 hash=0 errors=1 lines=1
+  E "err:1:3: exponent has no digits"
+  list: "err:1:3: exponent has no digits"
+  unadj: err:1:3 err:1:3
+  0 err:1:1 FLOAT "0E" end=6852
+  2 err:1:3 ; "\n" end=6852
+  2 err:1:3 EOF "" end=6852
+  tokens=3 hash=0 errors=1 lines=1
+  E "err:1:3: exponent has no digits"
+  list: "err:1:3: exponent has no digits"
+  unadj: err:1:3 err:1:3
+#154 err "078"
+  0 err:1:1 INT "078" end=6856
+  3 err:1:4 ; "\n" end=6856
+  3 err:1:4 EOF "" end=6856
+  tokens=3 hash=0 errors=1 lines=1
+  E "err:1:3: invalid digit '8' in octal literal"
+  list: "err:1:3: invalid digit '8' in octal literal"
+  unadj: err:1:4 err:1:4
+  0 err:1:1 INT "078" end=6860
+  3 err:1:4 ; "\n" end=6860
+  3 err:1:4 EOF "" end=6860
+  tokens=3 hash=0 errors=1 lines=1
+  E "err:1:3: invalid digit '8' in octal literal"
+  list: "err:1:3: invalid digit '8' in octal literal"
+  unadj: err:1:4 err:1:4
+#155 err "07090000008"
+  0 err:1:1 INT "07090000008" end=6872
+  11 err:1:12 ; "\n" end=6872
+  11 err:1:12 EOF "" end=6872
+  tokens=3 hash=0 errors=1 lines=1
+  E "err:1:4: invalid digit '9' in octal literal"
+  list: "err:1:4: invalid digit '9' in octal literal"
+  unadj: err:1:12 err:1:12
+  0 err:1:1 INT "07090000008" end=6884
+  11 err:1:12 ; "\n" end=6884
+  11 err:1:12 EOF "" end=6884
+  tokens=3 hash=0 errors=1 lines=1
+  E "err:1:4: invalid digit '9' in octal literal"
+  list: "err:1:4: invalid digit '9' in octal literal"
+  unadj: err:1:12 err:1:12
+#156 err "0x"
+  0 err:1:1 INT "0x" end=6887
+  2 err:1:3 ; "\n" end=6887
+  2 err:1:3 EOF "" end=6887
+  tokens=3 hash=0 errors=1 lines=1
+  E "err:1:3: hexadecimal literal has no digits"
+  list: "err:1:3: hexadecimal literal has no digits"
+  unadj: err:1:3 err:1:3
+  0 err:1:1 INT "0x" end=6890
+  2 err:1:3 ; "\n" end=6890
+  2 err:1:3 EOF "" end=6890
+  tokens=3 hash=0 errors=1 lines=1
+  E "err:1:3: hexadecimal literal has no digits"
+  list: "err:1:3: hexadecimal literal has no digits"
+  unadj: err:1:3 err:1:3
+#157 err "\"abc\x00def\""
+  0 err:1:1 STRING "\"abc\x00def\"" end=6900
+  9 err:1:10 ; "\n" end=6900
+  9 err:1:10 EOF "" end=6900
+  tokens=3 hash=0 errors=1 lines=1
+  E "err:1:5: illegal character NUL"
+  list: "err:1:5: illegal character NUL"
+  unadj: err:1:10 err:1:10
+  0 err:1:1 STRING "\"abc\x00def\"" end=6910
+  9 err:1:10 ; "\n" end=6910
+  9 err:1:10 EOF "" end=6910
+  tokens=3 hash=0 errors=1 lines=1
+  E "err:1:5: illegal character NUL"
+  list: "err:1:5: illegal character NUL"
+  unadj: err:1:10 err:1:10
+#158 err "\"abc�def\""
+  0 err:1:1 STRING "\"abc�def\"" end=6920
+  9 err:1:10 ; "\n" end=6920
+  9 err:1:10 EOF "" end=6920
+  tokens=3 hash=0 errors=1 lines=1
+  E "err:1:5: illegal UTF-8 encoding"
+  list: "err:1:5: illegal UTF-8 encoding"
+  unadj: err:1:10 err:1:10
+  0 err:1:1 STRING "\"abc�def\"" end=6930
+  9 err:1:10 ; "\n" end=6930
+  9 err:1:10 EOF "" end=6930
+  tokens=3 hash=0 errors=1 lines=1
+  E "err:1:5: illegal UTF-8 encoding"
+  list: "err:1:5: illegal UTF-8 encoding"
+  unadj: err:1:10 err:1:10
+#159 err "\ufeff\ufeff"
+  3 err:1:4 ILLEGAL "\ufeff" end=6937
+  6 err:1:7 EOF "" end=6937
+  tokens=2 hash=0 errors=1 lines=1
+  E "err:1:4: illegal byte order mark"
+  list: "err:1:4: illegal byte order mark"
+  unadj: err:1:7 err:1:7
+  3 err:1:4 ILLEGAL "\ufeff" end=6944
+  6 err:1:7 EOF "" end=6944
+  tokens=2 hash=0 errors=1 lines=1
+  E "err:1:4: illegal byte order mark"
+  list: "err:1:4: illegal byte order mark"
+  unadj: err:1:7 err:1:7
+#160 err "//\ufeff"
+  0 err:1:1 COMMENT "//\ufeff" end=6950
+  5 err:1:6 EOF "" end=6950
+  tokens=2 hash=0 errors=1 lines=1
+  E "err:1:3: illegal byte order mark"
+  list: "err:1:3: illegal byte order mark"
+  unadj: err:1:6 err:1:6
+  5 err:1:6 EOF "" end=6956
+  tokens=1 hash=0 errors=1 lines=1
+  E "err:1:3: illegal byte order mark"
+  list: "err:1:3: illegal byte order mark"
+  unadj: err:1:6 err:1:6
+#161 err "'\ufeff'"
+  0 err:1:1 CHAR "'\ufeff'" end=6962
+  5 err:1:6 ; "\n" end=6962
+  5 err:1:6 EOF "" end=6962
+  tokens=3 hash=0 errors=1 lines=1
+  E "err:1:2: illegal byte order mark"
+  list: "err:1:2: illegal byte order mark"
+  unadj: err:1:6 err:1:6
+  0 err:1:1 CHAR "'\ufeff'" end=6968
+  5 err:1:6 ; "\n" end=6968
+  5 err:1:6 EOF "" end=6968
+  tokens=3 hash=0 errors=1 lines=1
+  E "err:1:2: illegal byte order mark"
+  list: "err:1:2: illegal byte order mark"
+  unadj: err:1:6 err:1:6
+#162 err "\"abc\ufeffdef\""
+  0 err:1:1 STRING "\"abc\ufeffdef\"" end=6980
+  11 err:1:12 ; "\n" end=6980
+  11 err:1:12 EOF "" end=6980
+  tokens=3 hash=0 errors=1 lines=1
+  E "err:1:5: illegal byte order mark"
+  list: "err:1:5: illegal byte order mark"
+  unadj: err:1:12 err:1:12
+  0 err:1:1 STRING "\"abc\ufeffdef\"" end=6992
+  11 err:1:12 ; "\n" end=6992
+  11 err:1:12 EOF "" end=6992
+  tokens=3 hash=0 errors=1 lines=1
+  E "err:1:5: illegal byte order mark"
+  list: "err:1:5: illegal byte order mark"
+  unadj: err:1:12 err:1:12
+#163 err "abc\x00def"
+  0 err:1:1 IDENT "abc" end=6996
+  3 err:1:4 ILLEGAL "\x00" end=6997
+  4 err:1:5 IDENT "def" end=7000
+  7 err:1:8 ; "\n" end=7000
+  7 err:1:8 EOF "" end=7000
+  tokens=5 hash=0 errors=2 lines=1
+  E "err:1:4: illegal character NUL"
+  E "err:1:4: illegal character U+0000"
+  list: "err:1:4: illegal character NUL"
+  unadj: err:1:8 err:1:8
+  0 err:1:1 IDENT "abc" end=7004
+  3 err:1:4 ILLEGAL "\x00" end=7005
+  4 err:1:5 IDENT "def" end=7008
+  7 err:1:8 ; "\n" end=7008
+  7 err:1:8 EOF "" end=7008
+  tokens=5 hash=0 errors=2 lines=1
+  E "err:1:4: illegal character NUL"
+  E "err:1:4: illegal character U+0000"
+  list: "err:1:4: illegal character NUL"
+  unadj: err:1:8 err:1:8
+#164 err "abc\x00"
+  0 err:1:1 IDENT "abc" end=7012
+  3 err:1:4 ILLEGAL "\x00" end=7013
+  4 err:1:5 ; "\n" end=7013
+  4 err:1:5 EOF "" end=7013
+  tokens=4 hash=0 errors=2 lines=1
+  E "err:1:4: illegal character NUL"
+  E "err:1:4: illegal character U+0000"
+  list: "err:1:4: illegal character NUL"
+  unadj: err:1:5 err:1:5
+  0 err:1:1 IDENT "abc" end=7017
+  3 err:1:4 ILLEGAL "\x00" end=7018
+  4 err:1:5 ; "\n" end=7018
+  4 err:1:5 EOF "" end=7018
+  tokens=4 hash=0 errors=2 lines=1
+  E "err:1:4: illegal character NUL"
+  E "err:1:4: illegal character U+0000"
+  list: "err:1:4: illegal character NUL"
+  unadj: err:1:5 err:1:5
+#165 err "“abc”"
+  0 err:1:1 ILLEGAL "“" end=7022
+  3 err:1:4 IDENT "abc" end=7025
+  6 err:1:7 ILLEGAL "”" end=7028
+  9 err:1:10 ; "\n" end=7028
+  9 err:1:10 EOF "" end=7028
+  tokens=5 hash=0 errors=2 lines=1
+  E "err:1:1: curly quotation mark '“' (use neutral '\"')"
+  E "err:1:7: curly quotation mark '”' (use neutral '\"')"
+  list: "err:1:1: curly quotation mark '“' (use neutral '\"')"
+  unadj: err:1:10 err:1:10
+  0 err:1:1 ILLEGAL "“" end=7032
+  3 err:1:4 IDENT "abc" end=7035
+  6 err:1:7 ILLEGAL "”" end=7038
+  9 err:1:10 ; "\n" end=7038
+  9 err:1:10 EOF "" end=7038
+  tokens=5 hash=0 errors=2 lines=1
+  E "err:1:1: curly quotation mark '“' (use neutral '\"')"
+  E "err:1:7: curly quotation mark '”' (use neutral '\"')"
+  list: "err:1:1: curly quotation mark '“' (use neutral '\"')"
+  unadj: err:1:10 err:1:10
+#166 bom "\ufeffpackage p\n\ufeffx"
+  3 bom:1:4 package "package" end=7049
+  11 bom:1:12 IDENT "p" end=7051
+  12 bom:1:13 ; "\n" end=7052
+  13 bom:2:1 ILLEGAL "\ufeff" end=7055
+  16 bom:2:4 IDENT "x" end=7056
+  17 bom:2:5 ; "\n" end=7056
+  17 bom:2:5 EOF "" end=7056
+  tokens=7 hash=0 errors=1 lines=2
+  E "bom:2:1: illegal byte order mark"
+  list: "bom:2:1: illegal byte order mark"
+  unadj: bom:2:5 bom:2:5
+  3 bom:1:4 package "package" end=7067
+  11 bom:1:12 IDENT "p" end=7069
+  12 bom:1:13 ; "\n" end=7070
+  13 bom:2:1 ILLEGAL "\ufeff" end=7073
+  16 bom:2:4 IDENT "x" end=7074
+  17 bom:2:5 ; "\n" end=7074
+  17 bom:2:5 EOF "" end=7074
+  tokens=7 hash=0 errors=1 lines=2
+  E "bom:2:1: illegal byte order mark"
+  list: "bom:2:1: illegal byte order mark"
+  unadj: bom:2:5 bom:2:5
+#167 utf16 "�package"
+  0 utf16:1:1 ILLEGAL "�" end=7084
+  9 utf16:1:10 EOF "" end=7084
+  tokens=2 hash=0 errors=2 lines=1
+  E "utf16:1:1: illegal UTF-8 encoding (got UTF-16)"
+  E "utf16:1:1: illegal character U+FFFD '�'"
+  list: "utf16:1:1: illegal UTF-8 encoding (got UTF-16)"
+  unadj: utf16:1:10 utf16:1:10
+  0 utf16:1:1 ILLEGAL "�" end=7094
+  9 utf16:1:10 EOF "" end=7094
+  tokens=2 hash=0 errors=2 lines=1
+  E "utf16:1:1: illegal UTF-8 encoding (got UTF-16)"
+  E "utf16:1:1: illegal character U+FFFD '�'"
+  list: "utf16:1:1: illegal UTF-8 encoding (got UTF-16)"
+  unadj: utf16:1:10 utf16:1:10
+#168 badutf8 "x := \"a�b\"\n"
+  0 badutf8:1:1 IDENT "x" end=7096
+  2 badutf8:1:3 := "" end=7099
+  5 badutf8:1:6 STRING "\"a�b\"" end=7105
+  10 badutf8:1:11 ; "\n" end=7106
+  11 badutf8:1:12 EOF "" end=7106
+  tokens=5 hash=0 errors=1 lines=1
+  E "badutf8:1:8: illegal UTF-8 encoding"
+  list: "badutf8:1:8: illegal UTF-8 encoding"
+  unadj: badutf8:1:12 badutf8:1:12
+  0 badutf8:1:1 IDENT "x" end=7108
+  2 badutf8:1:3 := "" end=7111
+  5 badutf8:1:6 STRING "\"a�b\"" end=7117
+  10 badutf8:1:11 ; "\n" end=7118
+  11 badutf8:1:12 EOF "" end=7118
+  tokens=5 hash=0 errors=1 lines=1
+  E "badutf8:1:8: illegal UTF-8 encoding"
+  list: "badutf8:1:8: illegal UTF-8 encoding"
+  unadj: badutf8:1:12 badutf8:1:12
+#169 cr "/* a\r\nb */ // c\r\n`x\r\ny`\n"
+  0 cr:1:1 COMMENT "/* a\nb */" end=7129
+  11 cr:2:6 COMMENT "// c" end=7135
+  17 cr:3:1 STRING "`x\ny`" end=7142
+  23 cr:4:3 ; "\n" end=7143
+  24 cr:4:4 EOF "" end=7143
+  tokens=5 hash=0 errors=0 lines=4
+  list: "no errors"
+  unadj: cr:4:4 cr:4:4
+  17 cr:3:1 STRING "`x\ny`" end=7167
+  23 cr:4:3 ; "\n" end=7168
+  24 cr:4:4 EOF "" end=7168
+  tokens=3 hash=0 errors=0 lines=4
+  list: "no errors"
+  unadj: cr:4:4 cr:4:4
+#170 nul "a\x00b"
+  0 nul:1:1 IDENT "a" end=7170
+  1 nul:1:2 ILLEGAL "\x00" end=7171
+  2 nul:1:3 IDENT "b" end=7172
+  3 nul:1:4 ; "\n" end=7172
+  3 nul:1:4 EOF "" end=7172
+  tokens=5 hash=0 errors=2 lines=1
+  E "nul:1:2: illegal character NUL"
+  E "nul:1:2: illegal character U+0000"
+  list: "nul:1:2: illegal character NUL"
+  unadj: nul:1:4 nul:1:4
+  0 nul:1:1 IDENT "a" end=7174
+  1 nul:1:2 ILLEGAL "\x00" end=7175
+  2 nul:1:3 IDENT "b" end=7176
+  3 nul:1:4 ; "\n" end=7176
+  3 nul:1:4 EOF "" end=7176
+  tokens=5 hash=0 errors=2 lines=1
+  E "nul:1:2: illegal character NUL"
+  E "nul:1:2: illegal character U+0000"
+  list: "nul:1:2: illegal character NUL"
+  unadj: nul:1:4 nul:1:4
+#171 curly "x := “foo”"
+  0 curly:1:1 IDENT "x" end=7178
+  2 curly:1:3 := "" end=7181
+  5 curly:1:6 ILLEGAL "“" end=7185
+  8 curly:1:9 IDENT "foo" end=7188
+  11 curly:1:12 ILLEGAL "”" end=7191
+  14 curly:1:15 ; "\n" end=7191
+  14 curly:1:15 EOF "" end=7191
+  tokens=7 hash=0 errors=2 lines=1
+  E "curly:1:6: curly quotation mark '“' (use neutral '\"')"
+  E "curly:1:12: curly quotation mark '”' (use neutral '\"')"
+  list: "curly:1:6: curly quotation mark '“' (use neutral '\"')"
+  unadj: curly:1:15 curly:1:15
+  0 curly:1:1 IDENT "x" end=7193
+  2 curly:1:3 := "" end=7196
+  5 curly:1:6 ILLEGAL "“" end=7200
+  8 curly:1:9 IDENT "foo" end=7203
+  11 curly:1:12 ILLEGAL "”" end=7206
+  14 curly:1:15 ; "\n" end=7206
+  14 curly:1:15 EOF "" end=7206
+  tokens=7 hash=0 errors=2 lines=1
+  E "curly:1:6: curly quotation mark '“' (use neutral '\"')"
+  E "curly:1:12: curly quotation mark '”' (use neutral '\"')"
+  list: "curly:1:6: curly quotation mark '“' (use neutral '\"')"
+  unadj: curly:1:15 curly:1:15
+# scanner.go
+  tokens=5094 hash=891396328 errors=0 lines=999
+  list: "no errors"
+  unadj: scanner.go:999:3 scanner.go:999:3
+  tokens=4862 hash=216464897 errors=0 lines=999
+  list: "no errors"
+  unadj: scanner.go:999:3 scanner.go:999:3
+# quote.go
+  tokens=3051 hash=393844872 errors=0 lines=581
+  list: "no errors"
+  unadj: quote.go:581:3 quote.go:581:3
+  tokens=2920 hash=437271340 errors=0 lines=581
+  list: "no errors"
+  unadj: quote.go:581:3 quote.go:581:3
+# position.go
+  tokens=2681 hash=656352325 errors=0 lines=629
+  list: "no errors"
+  unadj: position.go:629:3 position.go:629:3
+  tokens=2414 hash=53990147 errors=0 lines=629
+  list: "no errors"
+  unadj: position.go:629:3 position.go:629:3
+# walk.go
+  tokens=1962 hash=48901747 errors=0 lines=428
+  list: "no errors"
+  unadj: walk.go:428:3 walk.go:428:3
+  tokens=1901 hash=678628693 errors=0 lines=428
+  list: "no errors"
+  unadj: walk.go:428:3 walk.go:428:3

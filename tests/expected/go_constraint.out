@@ -1,0 +1,116 @@
+"//go:build linux && amd64" gobuild=true plus=false
+  expr linux && amd64 true ""
+  plus ["// +build linux,amd64"] <nil>
+"//go:build linux || !cgo" gobuild=true plus=false
+  expr linux || !cgo true ""
+  plus ["// +build linux !cgo"] <nil>
+"//go:build !(linux && amd64) || darwin" gobuild=true plus=false
+  expr !(linux && amd64) || darwin false ""
+  plus ["// +build !linux !amd64 darwin"] <nil>
+"//go:build (a || b) && (c || d)" gobuild=true plus=false
+  expr (a || b) && (c || d) true ""
+  plus ["// +build a b" "// +build c d"] <nil>
+"//go:build go1.20" gobuild=true plus=false
+  expr go1.20 true "go1.20"
+  plus ["// +build go1.20"] <nil>
+"//go:build go1.21 && !go1.22" gobuild=true plus=false
+  expr go1.21 && !go1.22 false "go1.21"
+  plus ["// +build go1.21,!go1.22"] <nil>
+"//go:build !go1.5 || go1.18" gobuild=true plus=false
+  expr !go1.5 || go1.18 true ""
+  plus ["// +build !go1.5 go1.18"] <nil>
+"//go:build go1" gobuild=true plus=false
+  expr go1 false "go1"
+  plus ["// +build go1"] <nil>
+"//go:build gox1.3" gobuild=true plus=false
+  expr gox1.3 false ""
+  plus ["// +build gox1.3"] <nil>
+"//go:build" gobuild=true plus=false
+  err 0 unexpected end of expression
+"//go:build " gobuild=true plus=false
+  err 0 unexpected end of expression
+"//go:buildlinux" gobuild=false plus=false
+  err -1 not a build constraint
+"//go:build linux\n" gobuild=true plus=false
+  expr linux true ""
+  plus ["// +build linux"] <nil>
+"//go:build a\nb" gobuild=false plus=false
+  err -1 not a build constraint
+"  //go:build x" gobuild=false plus=false
+  err -1 not a build constraint
+"//go:build !!a" gobuild=true plus=false
+  err 1 double negation not allowed
+"//go:build a &" gobuild=true plus=false
+  err 2 invalid syntax at &
+"//go:build a | b" gobuild=true plus=false
+  err 2 invalid syntax at |
+"//go:build (a" gobuild=true plus=false
+  err 0 missing close paren
+"//go:build a)" gobuild=true plus=false
+  err 1 unexpected token )
+"//go:build ((a) || (b && !c))" gobuild=true plus=false
+  expr a || (b && !c) true ""
+  plus ["// +build a b,!c"] <nil>
+"//go:build a && " gobuild=true plus=false
+  err 4 unexpected end of expression
+"//go:build $x" gobuild=true plus=false
+  err 0 invalid syntax at $
+"//go:build héllo && 世界" gobuild=true plus=false
+  expr héllo && 世界 false ""
+  plus ["// +build héllo,世界"] <nil>
+"//go:build a b" gobuild=true plus=false
+  err 2 unexpected token b
+"//go:build !" gobuild=true plus=false
+  err 1 unexpected end of expression
+"//go:build ()" gobuild=true plus=false
+  err 1 unexpected token )
+"//go:build a.b_c9" gobuild=true plus=false
+  expr a.b_c9 false ""
+  plus ["// +build a.b_c9"] <nil>
+"//go:build (a || b" gobuild=true plus=false
+  err 0 missing close paren
+"//go:build (a ||" gobuild=true plus=false
+  err 5 missing close paren
+"//go:build ((a)" gobuild=true plus=false
+  err 0 missing close paren
+"//go:build a && (b || c) && !d" gobuild=true plus=false
+  expr a && (b || c) && !d false ""
+  plus ["// +build a" "// +build b c" "// +build !d"] <nil>
+"// +build linux darwin" gobuild=false plus=true
+  expr linux || darwin true ""
+  plus ["// +build linux darwin"] <nil>
+"// +build linux,amd64 !cgo" gobuild=false plus=true
+  expr (linux && amd64) || !cgo true ""
+  plus ["// +build linux,amd64 !cgo"] <nil>
+"// +build" gobuild=false plus=true
+  expr ignore false ""
+  plus ["// +build ignore"] <nil>
+"// +build " gobuild=false plus=true
+  expr ignore false ""
+  plus ["// +build ignore"] <nil>
+"//+build x" gobuild=false plus=true
+  expr x false ""
+  plus ["// +build x"] <nil>
+"// +buildx" gobuild=false plus=false
+  err -1 not a build constraint
+"// +build !!a b" gobuild=false plus=true
+  expr ignore || b false ""
+  plus ["// +build ignore b"] <nil>
+"// +build ! a" gobuild=false plus=true
+  expr ignore || a true ""
+  plus ["// +build ignore a"] <nil>
+"// +build a,!b,c d,e" gobuild=false plus=true
+  expr (a && !b && c) || (d && e) false ""
+  plus ["// +build a,!b,c d,e"] <nil>
+"// +build $bad ok" gobuild=false plus=true
+  expr ignore || ok false ""
+  plus ["// +build ignore ok"] <nil>
+"// +build go1.18,!go1.20" gobuild=false plus=true
+  expr go1.18 && !go1.20 false "go1.18"
+  plus ["// +build go1.18,!go1.20"] <nil>
+"// hello" gobuild=false plus=false
+  err -1 not a build constraint
+"package main" gobuild=false plus=false
+  err -1 not a build constraint
+"" gobuild=false plus=false
+  err -1 not a build constraint

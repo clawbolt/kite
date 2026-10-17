@@ -1,0 +1,748 @@
+0.0.0.0 0.0.0.0 true 32 true false false  false false false false false true false false [0, 0, 0, 0] [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 255, 255, 0, 0, 0, 0]
+  unmap 0.0.0.0 next 0.0.0.1 prev invalid IP wz 0.0.0.0 0.0.0.0
+  as4 [0, 0, 0, 0]
+  prefix -1 ERR negative Prefix bits
+  prefix 0 0.0.0.0/0 0 true false
+  prefix 8 0.0.0.0/8 8 true false
+  prefix 17 0.0.0.0/17 17 true false
+  prefix 24 0.0.0.0/24 24 true false
+  prefix 32 0.0.0.0/32 32 true true
+  prefix 33 ERR prefix length 33 too large for IPv4
+  prefix 64 ERR prefix length 64 too large for IPv4
+  prefix 127 ERR prefix length 127 too large for IPv4
+  prefix 128 ERR prefix length 128 too large for IPv4
+  prefix 129 ERR prefix length 129 too large for IPv4
+127.0.0.1 127.0.0.1 true 32 true false false  true false false false false false false false [127, 0, 0, 1] [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 255, 255, 127, 0, 0, 1]
+  unmap 127.0.0.1 next 127.0.0.2 prev 127.0.0.0 wz 127.0.0.1 127.0.0.1
+  as4 [127, 0, 0, 1]
+  prefix -1 ERR negative Prefix bits
+  prefix 0 0.0.0.0/0 0 true false
+  prefix 8 127.0.0.0/8 8 true false
+  prefix 17 127.0.0.0/17 17 true false
+  prefix 24 127.0.0.0/24 24 true false
+  prefix 32 127.0.0.1/32 32 true true
+  prefix 33 ERR prefix length 33 too large for IPv4
+  prefix 64 ERR prefix length 64 too large for IPv4
+  prefix 127 ERR prefix length 127 too large for IPv4
+  prefix 128 ERR prefix length 128 too large for IPv4
+  prefix 129 ERR prefix length 129 too large for IPv4
+10.1.2.3 10.1.2.3 true 32 true false false  false true false false true false false false [10, 1, 2, 3] [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 255, 255, 10, 1, 2, 3]
+  unmap 10.1.2.3 next 10.1.2.4 prev 10.1.2.2 wz 10.1.2.3 10.1.2.3
+  as4 [10, 1, 2, 3]
+  prefix -1 ERR negative Prefix bits
+  prefix 0 0.0.0.0/0 0 true false
+  prefix 8 10.0.0.0/8 8 true false
+  prefix 17 10.1.0.0/17 17 true false
+  prefix 24 10.1.2.0/24 24 true false
+  prefix 32 10.1.2.3/32 32 true true
+  prefix 33 ERR prefix length 33 too large for IPv4
+  prefix 64 ERR prefix length 64 too large for IPv4
+  prefix 127 ERR prefix length 127 too large for IPv4
+  prefix 128 ERR prefix length 128 too large for IPv4
+  prefix 129 ERR prefix length 129 too large for IPv4
+172.16.0.1 172.16.0.1 true 32 true false false  false true false false true false false false [172, 16, 0, 1] [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 255, 255, 172, 16, 0, 1]
+  unmap 172.16.0.1 next 172.16.0.2 prev 172.16.0.0 wz 172.16.0.1 172.16.0.1
+  as4 [172, 16, 0, 1]
+  prefix -1 ERR negative Prefix bits
+  prefix 0 0.0.0.0/0 0 true false
+  prefix 8 172.0.0.0/8 8 true false
+  prefix 17 172.16.0.0/17 17 true false
+  prefix 24 172.16.0.0/24 24 true false
+  prefix 32 172.16.0.1/32 32 true true
+  prefix 33 ERR prefix length 33 too large for IPv4
+  prefix 64 ERR prefix length 64 too large for IPv4
+  prefix 127 ERR prefix length 127 too large for IPv4
+  prefix 128 ERR prefix length 128 too large for IPv4
+  prefix 129 ERR prefix length 129 too large for IPv4
+172.32.0.1 172.32.0.1 true 32 true false false  false false false false true false false false [172, 32, 0, 1] [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 255, 255, 172, 32, 0, 1]
+  unmap 172.32.0.1 next 172.32.0.2 prev 172.32.0.0 wz 172.32.0.1 172.32.0.1
+  as4 [172, 32, 0, 1]
+  prefix -1 ERR negative Prefix bits
+  prefix 0 0.0.0.0/0 0 true false
+  prefix 8 172.0.0.0/8 8 true false
+  prefix 17 172.32.0.0/17 17 true false
+  prefix 24 172.32.0.0/24 24 true false
+  prefix 32 172.32.0.1/32 32 true true
+  prefix 33 ERR prefix length 33 too large for IPv4
+  prefix 64 ERR prefix length 64 too large for IPv4
+  prefix 127 ERR prefix length 127 too large for IPv4
+  prefix 128 ERR prefix length 128 too large for IPv4
+  prefix 129 ERR prefix length 129 too large for IPv4
+192.168.1.1 192.168.1.1 true 32 true false false  false true false false true false false false [192, 168, 1, 1] [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 255, 255, 192, 168, 1, 1]
+  unmap 192.168.1.1 next 192.168.1.2 prev 192.168.1.0 wz 192.168.1.1 192.168.1.1
+  as4 [192, 168, 1, 1]
+  prefix -1 ERR negative Prefix bits
+  prefix 0 0.0.0.0/0 0 true false
+  prefix 8 192.0.0.0/8 8 true false
+  prefix 17 192.168.0.0/17 17 true false
+  prefix 24 192.168.1.0/24 24 true false
+  prefix 32 192.168.1.1/32 32 true true
+  prefix 33 ERR prefix length 33 too large for IPv4
+  prefix 64 ERR prefix length 64 too large for IPv4
+  prefix 127 ERR prefix length 127 too large for IPv4
+  prefix 128 ERR prefix length 128 too large for IPv4
+  prefix 129 ERR prefix length 129 too large for IPv4
+169.254.1.1 169.254.1.1 true 32 true false false  false false false true false false false false [169, 254, 1, 1] [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 255, 255, 169, 254, 1, 1]
+  unmap 169.254.1.1 next 169.254.1.2 prev 169.254.1.0 wz 169.254.1.1 169.254.1.1
+  as4 [169, 254, 1, 1]
+  prefix -1 ERR negative Prefix bits
+  prefix 0 0.0.0.0/0 0 true false
+  prefix 8 169.0.0.0/8 8 true false
+  prefix 17 169.254.0.0/17 17 true false
+  prefix 24 169.254.1.0/24 24 true false
+  prefix 32 169.254.1.1/32 32 true true
+  prefix 33 ERR prefix length 33 too large for IPv4
+  prefix 64 ERR prefix length 64 too large for IPv4
+  prefix 127 ERR prefix length 127 too large for IPv4
+  prefix 128 ERR prefix length 128 too large for IPv4
+  prefix 129 ERR prefix length 129 too large for IPv4
+224.0.0.1 224.0.0.1 true 32 true false false  false false true false false false true false [224, 0, 0, 1] [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 255, 255, 224, 0, 0, 1]
+  unmap 224.0.0.1 next 224.0.0.2 prev 224.0.0.0 wz 224.0.0.1 224.0.0.1
+  as4 [224, 0, 0, 1]
+  prefix -1 ERR negative Prefix bits
+  prefix 0 0.0.0.0/0 0 true false
+  prefix 8 224.0.0.0/8 8 true false
+  prefix 17 224.0.0.0/17 17 true false
+  prefix 24 224.0.0.0/24 24 true false
+  prefix 32 224.0.0.1/32 32 true true
+  prefix 33 ERR prefix length 33 too large for IPv4
+  prefix 64 ERR prefix length 64 too large for IPv4
+  prefix 127 ERR prefix length 127 too large for IPv4
+  prefix 128 ERR prefix length 128 too large for IPv4
+  prefix 129 ERR prefix length 129 too large for IPv4
+239.1.2.3 239.1.2.3 true 32 true false false  false false true false false false false false [239, 1, 2, 3] [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 255, 255, 239, 1, 2, 3]
+  unmap 239.1.2.3 next 239.1.2.4 prev 239.1.2.2 wz 239.1.2.3 239.1.2.3
+  as4 [239, 1, 2, 3]
+  prefix -1 ERR negative Prefix bits
+  prefix 0 0.0.0.0/0 0 true false
+  prefix 8 239.0.0.0/8 8 true false
+  prefix 17 239.1.0.0/17 17 true false
+  prefix 24 239.1.2.0/24 24 true false
+  prefix 32 239.1.2.3/32 32 true true
+  prefix 33 ERR prefix length 33 too large for IPv4
+  prefix 64 ERR prefix length 64 too large for IPv4
+  prefix 127 ERR prefix length 127 too large for IPv4
+  prefix 128 ERR prefix length 128 too large for IPv4
+  prefix 129 ERR prefix length 129 too large for IPv4
+255.255.255.255 255.255.255.255 true 32 true false false  false false false false false false false false [255, 255, 255, 255] [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 255, 255, 255, 255, 255, 255]
+  unmap 255.255.255.255 next invalid IP prev 255.255.255.254 wz 255.255.255.255 255.255.255.255
+  as4 [255, 255, 255, 255]
+  prefix -1 ERR negative Prefix bits
+  prefix 0 0.0.0.0/0 0 true false
+  prefix 8 255.0.0.0/8 8 true false
+  prefix 17 255.255.128.0/17 17 true false
+  prefix 24 255.255.255.0/24 24 true false
+  prefix 32 255.255.255.255/32 32 true true
+  prefix 33 ERR prefix length 33 too large for IPv4
+  prefix 64 ERR prefix length 64 too large for IPv4
+  prefix 127 ERR prefix length 127 too large for IPv4
+  prefix 128 ERR prefix length 128 too large for IPv4
+  prefix 129 ERR prefix length 129 too large for IPv4
+8.8.8.8 8.8.8.8 true 32 true false false  false false false false true false false false [8, 8, 8, 8] [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 255, 255, 8, 8, 8, 8]
+  unmap 8.8.8.8 next 8.8.8.9 prev 8.8.8.7 wz 8.8.8.8 8.8.8.8
+  as4 [8, 8, 8, 8]
+  prefix -1 ERR negative Prefix bits
+  prefix 0 0.0.0.0/0 0 true false
+  prefix 8 8.0.0.0/8 8 true false
+  prefix 17 8.8.0.0/17 17 true false
+  prefix 24 8.8.8.0/24 24 true false
+  prefix 32 8.8.8.8/32 32 true true
+  prefix 33 ERR prefix length 33 too large for IPv4
+  prefix 64 ERR prefix length 64 too large for IPv4
+  prefix 127 ERR prefix length 127 too large for IPv4
+  prefix 128 ERR prefix length 128 too large for IPv4
+  prefix 129 ERR prefix length 129 too large for IPv4
+1.2.3.4 1.2.3.4 true 32 true false false  false false false false true false false false [1, 2, 3, 4] [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 255, 255, 1, 2, 3, 4]
+  unmap 1.2.3.4 next 1.2.3.5 prev 1.2.3.3 wz 1.2.3.4 1.2.3.4
+  as4 [1, 2, 3, 4]
+  prefix -1 ERR negative Prefix bits
+  prefix 0 0.0.0.0/0 0 true false
+  prefix 8 1.0.0.0/8 8 true false
+  prefix 17 1.2.0.0/17 17 true false
+  prefix 24 1.2.3.0/24 24 true false
+  prefix 32 1.2.3.4/32 32 true true
+  prefix 33 ERR prefix length 33 too large for IPv4
+  prefix 64 ERR prefix length 64 too large for IPv4
+  prefix 127 ERR prefix length 127 too large for IPv4
+  prefix 128 ERR prefix length 128 too large for IPv4
+  prefix 129 ERR prefix length 129 too large for IPv4
+:: 0000:0000:0000:0000:0000:0000:0000:0000 true 128 false true false  false false false false false true false false [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0] [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+  unmap :: next ::1 prev invalid IP wz ::%lo0 ::
+  prefix -1 ERR negative Prefix bits
+  prefix 0 ::/0 0 true false
+  prefix 8 ::/8 8 true false
+  prefix 17 ::/17 17 true false
+  prefix 24 ::/24 24 true false
+  prefix 32 ::/32 32 true false
+  prefix 33 ::/33 33 true false
+  prefix 64 ::/64 64 true false
+  prefix 127 ::/127 127 true false
+  prefix 128 ::/128 128 true true
+  prefix 129 ERR prefix length 129 too large for IPv6
+::1 0000:0000:0000:0000:0000:0000:0000:0001 true 128 false true false  true false false false false false false false [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1] [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]
+  unmap ::1 next ::2 prev :: wz ::1%lo0 ::1
+  prefix -1 ERR negative Prefix bits
+  prefix 0 ::/0 0 true false
+  prefix 8 ::/8 8 true false
+  prefix 17 ::/17 17 true false
+  prefix 24 ::/24 24 true false
+  prefix 32 ::/32 32 true false
+  prefix 33 ::/33 33 true false
+  prefix 64 ::/64 64 true false
+  prefix 127 ::/127 127 true false
+  prefix 128 ::1/128 128 true true
+  prefix 129 ERR prefix length 129 too large for IPv6
+fe80::1 fe80:0000:0000:0000:0000:0000:0000:0001 true 128 false true false  false false false true false false false false [254, 128, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1] [254, 128, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]
+  unmap fe80::1 next fe80::2 prev fe80:: wz fe80::1%lo0 fe80::1
+  prefix -1 ERR negative Prefix bits
+  prefix 0 ::/0 0 true false
+  prefix 8 fe00::/8 8 true false
+  prefix 17 fe80::/17 17 true false
+  prefix 24 fe80::/24 24 true false
+  prefix 32 fe80::/32 32 true false
+  prefix 33 fe80::/33 33 true false
+  prefix 64 fe80::/64 64 true false
+  prefix 127 fe80::/127 127 true false
+  prefix 128 fe80::1/128 128 true true
+  prefix 129 ERR prefix length 129 too large for IPv6
+fe80::1%eth0 fe80:0000:0000:0000:0000:0000:0000:0001%eth0 true 128 false true false eth0 false false false true false false false false [254, 128, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1] [254, 128, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]
+  unmap fe80::1%eth0 next fe80::2%eth0 prev fe80::%eth0 wz fe80::1%lo0 fe80::1
+  prefix -1 ERR negative Prefix bits
+  prefix 0 ::/0 0 true false
+  prefix 8 fe00::/8 8 true false
+  prefix 17 fe80::/17 17 true false
+  prefix 24 fe80::/24 24 true false
+  prefix 32 fe80::/32 32 true false
+  prefix 33 fe80::/33 33 true false
+  prefix 64 fe80::/64 64 true false
+  prefix 127 fe80::/127 127 true false
+  prefix 128 fe80::1/128 128 true true
+  prefix 129 ERR prefix length 129 too large for IPv6
+ff02::1 ff02:0000:0000:0000:0000:0000:0000:0001 true 128 false true false  false false true false false false true false [255, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1] [255, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]
+  unmap ff02::1 next ff02::2 prev ff02:: wz ff02::1%lo0 ff02::1
+  prefix -1 ERR negative Prefix bits
+  prefix 0 ::/0 0 true false
+  prefix 8 ff00::/8 8 true false
+  prefix 17 ff02::/17 17 true false
+  prefix 24 ff02::/24 24 true false
+  prefix 32 ff02::/32 32 true false
+  prefix 33 ff02::/33 33 true false
+  prefix 64 ff02::/64 64 true false
+  prefix 127 ff02::/127 127 true false
+  prefix 128 ff02::1/128 128 true true
+  prefix 129 ERR prefix length 129 too large for IPv6
+ff01::1 ff01:0000:0000:0000:0000:0000:0000:0001 true 128 false true false  false false true false false false false true [255, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1] [255, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]
+  unmap ff01::1 next ff01::2 prev ff01:: wz ff01::1%lo0 ff01::1
+  prefix -1 ERR negative Prefix bits
+  prefix 0 ::/0 0 true false
+  prefix 8 ff00::/8 8 true false
+  prefix 17 ff01::/17 17 true false
+  prefix 24 ff01::/24 24 true false
+  prefix 32 ff01::/32 32 true false
+  prefix 33 ff01::/33 33 true false
+  prefix 64 ff01::/64 64 true false
+  prefix 127 ff01::/127 127 true false
+  prefix 128 ff01::1/128 128 true true
+  prefix 129 ERR prefix length 129 too large for IPv6
+ff05::2 ff05:0000:0000:0000:0000:0000:0000:0002 true 128 false true false  false false true false false false false false [255, 5, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2] [255, 5, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2]
+  unmap ff05::2 next ff05::3 prev ff05::1 wz ff05::2%lo0 ff05::2
+  prefix -1 ERR negative Prefix bits
+  prefix 0 ::/0 0 true false
+  prefix 8 ff00::/8 8 true false
+  prefix 17 ff05::/17 17 true false
+  prefix 24 ff05::/24 24 true false
+  prefix 32 ff05::/32 32 true false
+  prefix 33 ff05::/33 33 true false
+  prefix 64 ff05::/64 64 true false
+  prefix 127 ff05::2/127 127 true false
+  prefix 128 ff05::2/128 128 true true
+  prefix 129 ERR prefix length 129 too large for IPv6
+fc00::1 fc00:0000:0000:0000:0000:0000:0000:0001 true 128 false true false  false true false false true false false false [252, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1] [252, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]
+  unmap fc00::1 next fc00::2 prev fc00:: wz fc00::1%lo0 fc00::1
+  prefix -1 ERR negative Prefix bits
+  prefix 0 ::/0 0 true false
+  prefix 8 fc00::/8 8 true false
+  prefix 17 fc00::/17 17 true false
+  prefix 24 fc00::/24 24 true false
+  prefix 32 fc00::/32 32 true false
+  prefix 33 fc00::/33 33 true false
+  prefix 64 fc00::/64 64 true false
+  prefix 127 fc00::/127 127 true false
+  prefix 128 fc00::1/128 128 true true
+  prefix 129 ERR prefix length 129 too large for IPv6
+fd12:3456::1 fd12:3456:0000:0000:0000:0000:0000:0001 true 128 false true false  false true false false true false false false [253, 18, 52, 86, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1] [253, 18, 52, 86, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]
+  unmap fd12:3456::1 next fd12:3456::2 prev fd12:3456:: wz fd12:3456::1%lo0 fd12:3456::1
+  prefix -1 ERR negative Prefix bits
+  prefix 0 ::/0 0 true false
+  prefix 8 fd00::/8 8 true false
+  prefix 17 fd12::/17 17 true false
+  prefix 24 fd12:3400::/24 24 true false
+  prefix 32 fd12:3456::/32 32 true false
+  prefix 33 fd12:3456::/33 33 true false
+  prefix 64 fd12:3456::/64 64 true false
+  prefix 127 fd12:3456::/127 127 true false
+  prefix 128 fd12:3456::1/128 128 true true
+  prefix 129 ERR prefix length 129 too large for IPv6
+2001:db8::68 2001:0db8:0000:0000:0000:0000:0000:0068 true 128 false true false  false false false false true false false false [32, 1, 13, 184, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 104] [32, 1, 13, 184, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 104]
+  unmap 2001:db8::68 next 2001:db8::69 prev 2001:db8::67 wz 2001:db8::68%lo0 2001:db8::68
+  prefix -1 ERR negative Prefix bits
+  prefix 0 ::/0 0 true false
+  prefix 8 2000::/8 8 true false
+  prefix 17 2001::/17 17 true false
+  prefix 24 2001:d00::/24 24 true false
+  prefix 32 2001:db8::/32 32 true false
+  prefix 33 2001:db8::/33 33 true false
+  prefix 64 2001:db8::/64 64 true false
+  prefix 127 2001:db8::68/127 127 true false
+  prefix 128 2001:db8::68/128 128 true true
+  prefix 129 ERR prefix length 129 too large for IPv6
+2001:db8::8:800:200c:417a 2001:0db8:0000:0000:0008:0800:200c:417a true 128 false true false  false false false false true false false false [32, 1, 13, 184, 0, 0, 0, 0, 0, 8, 8, 0, 32, 12, 65, 122] [32, 1, 13, 184, 0, 0, 0, 0, 0, 8, 8, 0, 32, 12, 65, 122]
+  unmap 2001:db8::8:800:200c:417a next 2001:db8::8:800:200c:417b prev 2001:db8::8:800:200c:4179 wz 2001:db8::8:800:200c:417a%lo0 2001:db8::8:800:200c:417a
+  prefix -1 ERR negative Prefix bits
+  prefix 0 ::/0 0 true false
+  prefix 8 2000::/8 8 true false
+  prefix 17 2001::/17 17 true false
+  prefix 24 2001:d00::/24 24 true false
+  prefix 32 2001:db8::/32 32 true false
+  prefix 33 2001:db8::/33 33 true false
+  prefix 64 2001:db8::/64 64 true false
+  prefix 127 2001:db8::8:800:200c:417a/127 127 true false
+  prefix 128 2001:db8::8:800:200c:417a/128 128 true true
+  prefix 129 ERR prefix length 129 too large for IPv6
+::ffff:1.2.3.4 0000:0000:0000:0000:0000:ffff:0102:0304 true 128 false true true  false false false false true false false false [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 255, 255, 1, 2, 3, 4] [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 255, 255, 1, 2, 3, 4]
+  unmap 1.2.3.4 next ::ffff:1.2.3.5 prev ::ffff:1.2.3.3 wz ::ffff:1.2.3.4%lo0 ::ffff:1.2.3.4
+  as4 [1, 2, 3, 4]
+  prefix -1 ERR negative Prefix bits
+  prefix 0 ::/0 0 true false
+  prefix 8 ::/8 8 true false
+  prefix 17 ::/17 17 true false
+  prefix 24 ::/24 24 true false
+  prefix 32 ::/32 32 true false
+  prefix 33 ::/33 33 true false
+  prefix 64 ::/64 64 true false
+  prefix 127 ::ffff:1.2.3.4/127 127 true false
+  prefix 128 ::ffff:1.2.3.4/128 128 true true
+  prefix 129 ERR prefix length 129 too large for IPv6
+::ffff:127.0.0.1 0000:0000:0000:0000:0000:ffff:7f00:0001 true 128 false true true  true false false false false false false false [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 255, 255, 127, 0, 0, 1] [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 255, 255, 127, 0, 0, 1]
+  unmap 127.0.0.1 next ::ffff:127.0.0.2 prev ::ffff:127.0.0.0 wz ::ffff:127.0.0.1%lo0 ::ffff:127.0.0.1
+  as4 [127, 0, 0, 1]
+  prefix -1 ERR negative Prefix bits
+  prefix 0 ::/0 0 true false
+  prefix 8 ::/8 8 true false
+  prefix 17 ::/17 17 true false
+  prefix 24 ::/24 24 true false
+  prefix 32 ::/32 32 true false
+  prefix 33 ::/33 33 true false
+  prefix 64 ::/64 64 true false
+  prefix 127 ::ffff:127.0.0.0/127 127 true false
+  prefix 128 ::ffff:127.0.0.1/128 128 true true
+  prefix 129 ERR prefix length 129 too large for IPv6
+::ffff:10.0.0.1 0000:0000:0000:0000:0000:ffff:0a00:0001 true 128 false true true  false true false false true false false false [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 255, 255, 10, 0, 0, 1] [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 255, 255, 10, 0, 0, 1]
+  unmap 10.0.0.1 next ::ffff:10.0.0.2 prev ::ffff:10.0.0.0 wz ::ffff:10.0.0.1%lo0 ::ffff:10.0.0.1
+  as4 [10, 0, 0, 1]
+  prefix -1 ERR negative Prefix bits
+  prefix 0 ::/0 0 true false
+  prefix 8 ::/8 8 true false
+  prefix 17 ::/17 17 true false
+  prefix 24 ::/24 24 true false
+  prefix 32 ::/32 32 true false
+  prefix 33 ::/33 33 true false
+  prefix 64 ::/64 64 true false
+  prefix 127 ::ffff:10.0.0.0/127 127 true false
+  prefix 128 ::ffff:10.0.0.1/128 128 true true
+  prefix 129 ERR prefix length 129 too large for IPv6
+::ffff:169.254.3.3 0000:0000:0000:0000:0000:ffff:a9fe:0303 true 128 false true true  false false false true false false false false [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 255, 255, 169, 254, 3, 3] [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 255, 255, 169, 254, 3, 3]
+  unmap 169.254.3.3 next ::ffff:169.254.3.4 prev ::ffff:169.254.3.2 wz ::ffff:169.254.3.3%lo0 ::ffff:169.254.3.3
+  as4 [169, 254, 3, 3]
+  prefix -1 ERR negative Prefix bits
+  prefix 0 ::/0 0 true false
+  prefix 8 ::/8 8 true false
+  prefix 17 ::/17 17 true false
+  prefix 24 ::/24 24 true false
+  prefix 32 ::/32 32 true false
+  prefix 33 ::/33 33 true false
+  prefix 64 ::/64 64 true false
+  prefix 127 ::ffff:169.254.3.2/127 127 true false
+  prefix 128 ::ffff:169.254.3.3/128 128 true true
+  prefix 129 ERR prefix length 129 too large for IPv6
+::ffff:224.0.0.5 0000:0000:0000:0000:0000:ffff:e000:0005 true 128 false true true  false false true false false false true false [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 255, 255, 224, 0, 0, 5] [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 255, 255, 224, 0, 0, 5]
+  unmap 224.0.0.5 next ::ffff:224.0.0.6 prev ::ffff:224.0.0.4 wz ::ffff:224.0.0.5%lo0 ::ffff:224.0.0.5
+  as4 [224, 0, 0, 5]
+  prefix -1 ERR negative Prefix bits
+  prefix 0 ::/0 0 true false
+  prefix 8 ::/8 8 true false
+  prefix 17 ::/17 17 true false
+  prefix 24 ::/24 24 true false
+  prefix 32 ::/32 32 true false
+  prefix 33 ::/33 33 true false
+  prefix 64 ::/64 64 true false
+  prefix 127 ::ffff:224.0.0.4/127 127 true false
+  prefix 128 ::ffff:224.0.0.5/128 128 true true
+  prefix 129 ERR prefix length 129 too large for IPv6
+::ffff:0.0.0.0 0000:0000:0000:0000:0000:ffff:0000:0000 true 128 false true true  false false false false false false false false [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 255, 255, 0, 0, 0, 0] [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 255, 255, 0, 0, 0, 0]
+  unmap 0.0.0.0 next ::ffff:0.0.0.1 prev ::fffe:ffff:ffff wz ::ffff:0.0.0.0%lo0 ::ffff:0.0.0.0
+  as4 [0, 0, 0, 0]
+  prefix -1 ERR negative Prefix bits
+  prefix 0 ::/0 0 true false
+  prefix 8 ::/8 8 true false
+  prefix 17 ::/17 17 true false
+  prefix 24 ::/24 24 true false
+  prefix 32 ::/32 32 true false
+  prefix 33 ::/33 33 true false
+  prefix 64 ::/64 64 true false
+  prefix 127 ::ffff:0.0.0.0/127 127 true false
+  prefix 128 ::ffff:0.0.0.0/128 128 true true
+  prefix 129 ERR prefix length 129 too large for IPv6
+::ffff:255.255.255.255%z 0000:0000:0000:0000:0000:ffff:ffff:ffff%z true 128 false true true z false false false false false false false false [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 255, 255, 255, 255, 255, 255] [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 255, 255, 255, 255, 255, 255]
+  unmap 255.255.255.255 next ::1:0:0:0%z prev ::ffff:255.255.255.254%z wz ::ffff:255.255.255.255%lo0 ::ffff:255.255.255.255
+  as4 [255, 255, 255, 255]
+  prefix -1 ERR negative Prefix bits
+  prefix 0 ::/0 0 true false
+  prefix 8 ::/8 8 true false
+  prefix 17 ::/17 17 true false
+  prefix 24 ::/24 24 true false
+  prefix 32 ::/32 32 true false
+  prefix 33 ::/33 33 true false
+  prefix 64 ::/64 64 true false
+  prefix 127 ::ffff:255.255.255.254/127 127 true false
+  prefix 128 ::ffff:255.255.255.255/128 128 true true
+  prefix 129 ERR prefix length 129 too large for IPv6
+1:2:3:4:5:6:7:8 0001:0002:0003:0004:0005:0006:0007:0008 true 128 false true false  false false false false true false false false [0, 1, 0, 2, 0, 3, 0, 4, 0, 5, 0, 6, 0, 7, 0, 8] [0, 1, 0, 2, 0, 3, 0, 4, 0, 5, 0, 6, 0, 7, 0, 8]
+  unmap 1:2:3:4:5:6:7:8 next 1:2:3:4:5:6:7:9 prev 1:2:3:4:5:6:7:7 wz 1:2:3:4:5:6:7:8%lo0 1:2:3:4:5:6:7:8
+  prefix -1 ERR negative Prefix bits
+  prefix 0 ::/0 0 true false
+  prefix 8 ::/8 8 true false
+  prefix 17 1::/17 17 true false
+  prefix 24 1::/24 24 true false
+  prefix 32 1:2::/32 32 true false
+  prefix 33 1:2::/33 33 true false
+  prefix 64 1:2:3:4::/64 64 true false
+  prefix 127 1:2:3:4:5:6:7:8/127 127 true false
+  prefix 128 1:2:3:4:5:6:7:8/128 128 true true
+  prefix 129 ERR prefix length 129 too large for IPv6
+1:0:0:4::8 0001:0000:0000:0004:0000:0000:0000:0008 true 128 false true false  false false false false true false false false [0, 1, 0, 0, 0, 0, 0, 4, 0, 0, 0, 0, 0, 0, 0, 8] [0, 1, 0, 0, 0, 0, 0, 4, 0, 0, 0, 0, 0, 0, 0, 8]
+  unmap 1:0:0:4::8 next 1:0:0:4::9 prev 1:0:0:4::7 wz 1:0:0:4::8%lo0 1:0:0:4::8
+  prefix -1 ERR negative Prefix bits
+  prefix 0 ::/0 0 true false
+  prefix 8 ::/8 8 true false
+  prefix 17 1::/17 17 true false
+  prefix 24 1::/24 24 true false
+  prefix 32 1::/32 32 true false
+  prefix 33 1::/33 33 true false
+  prefix 64 1:0:0:4::/64 64 true false
+  prefix 127 1:0:0:4::8/127 127 true false
+  prefix 128 1:0:0:4::8/128 128 true true
+  prefix 129 ERR prefix length 129 too large for IPv6
+1::4:5:0:0:8 0001:0000:0000:0004:0005:0000:0000:0008 true 128 false true false  false false false false true false false false [0, 1, 0, 0, 0, 0, 0, 4, 0, 5, 0, 0, 0, 0, 0, 8] [0, 1, 0, 0, 0, 0, 0, 4, 0, 5, 0, 0, 0, 0, 0, 8]
+  unmap 1::4:5:0:0:8 next 1::4:5:0:0:9 prev 1::4:5:0:0:7 wz 1::4:5:0:0:8%lo0 1::4:5:0:0:8
+  prefix -1 ERR negative Prefix bits
+  prefix 0 ::/0 0 true false
+  prefix 8 ::/8 8 true false
+  prefix 17 1::/17 17 true false
+  prefix 24 1::/24 24 true false
+  prefix 32 1::/32 32 true false
+  prefix 33 1::/33 33 true false
+  prefix 64 1:0:0:4::/64 64 true false
+  prefix 127 1::4:5:0:0:8/127 127 true false
+  prefix 128 1::4:5:0:0:8/128 128 true true
+  prefix 129 ERR prefix length 129 too large for IPv6
+0:0:1:: 0000:0000:0001:0000:0000:0000:0000:0000 true 128 false true false  false false false false true false false false [0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0] [0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+  unmap 0:0:1:: next 0:0:1::1 prev ::ffff:ffff:ffff:ffff:ffff wz 0:0:1::%lo0 0:0:1::
+  prefix -1 ERR negative Prefix bits
+  prefix 0 ::/0 0 true false
+  prefix 8 ::/8 8 true false
+  prefix 17 ::/17 17 true false
+  prefix 24 ::/24 24 true false
+  prefix 32 ::/32 32 true false
+  prefix 33 ::/33 33 true false
+  prefix 64 0:0:1::/64 64 true false
+  prefix 127 0:0:1::/127 127 true false
+  prefix 128 0:0:1::/128 128 true true
+  prefix 129 ERR prefix length 129 too large for IPv6
+0:2:3:4:5:6:7:8 0000:0002:0003:0004:0005:0006:0007:0008 true 128 false true false  false false false false true false false false [0, 0, 0, 2, 0, 3, 0, 4, 0, 5, 0, 6, 0, 7, 0, 8] [0, 0, 0, 2, 0, 3, 0, 4, 0, 5, 0, 6, 0, 7, 0, 8]
+  unmap 0:2:3:4:5:6:7:8 next 0:2:3:4:5:6:7:9 prev 0:2:3:4:5:6:7:7 wz 0:2:3:4:5:6:7:8%lo0 0:2:3:4:5:6:7:8
+  prefix -1 ERR negative Prefix bits
+  prefix 0 ::/0 0 true false
+  prefix 8 ::/8 8 true false
+  prefix 17 ::/17 17 true false
+  prefix 24 ::/24 24 true false
+  prefix 32 0:2::/32 32 true false
+  prefix 33 0:2::/33 33 true false
+  prefix 64 0:2:3:4::/64 64 true false
+  prefix 127 0:2:3:4:5:6:7:8/127 127 true false
+  prefix 128 0:2:3:4:5:6:7:8/128 128 true true
+  prefix 129 ERR prefix length 129 too large for IPv6
+1:2:3:4:5:6:: 0001:0002:0003:0004:0005:0006:0000:0000 true 128 false true false  false false false false true false false false [0, 1, 0, 2, 0, 3, 0, 4, 0, 5, 0, 6, 0, 0, 0, 0] [0, 1, 0, 2, 0, 3, 0, 4, 0, 5, 0, 6, 0, 0, 0, 0]
+  unmap 1:2:3:4:5:6:: next 1:2:3:4:5:6:0:1 prev 1:2:3:4:5:5:ffff:ffff wz 1:2:3:4:5:6::%lo0 1:2:3:4:5:6::
+  prefix -1 ERR negative Prefix bits
+  prefix 0 ::/0 0 true false
+  prefix 8 ::/8 8 true false
+  prefix 17 1::/17 17 true false
+  prefix 24 1::/24 24 true false
+  prefix 32 1:2::/32 32 true false
+  prefix 33 1:2::/33 33 true false
+  prefix 64 1:2:3:4::/64 64 true false
+  prefix 127 1:2:3:4:5:6::/127 127 true false
+  prefix 128 1:2:3:4:5:6::/128 128 true true
+  prefix 129 ERR prefix length 129 too large for IPv6
+::102:304 0000:0000:0000:0000:0000:0000:0102:0304 true 128 false true false  false false false false true false false false [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 2, 3, 4] [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 2, 3, 4]
+  unmap ::102:304 next ::102:305 prev ::102:303 wz ::102:304%lo0 ::102:304
+  prefix -1 ERR negative Prefix bits
+  prefix 0 ::/0 0 true false
+  prefix 8 ::/8 8 true false
+  prefix 17 ::/17 17 true false
+  prefix 24 ::/24 24 true false
+  prefix 32 ::/32 32 true false
+  prefix 33 ::/33 33 true false
+  prefix 64 ::/64 64 true false
+  prefix 127 ::102:304/127 127 true false
+  prefix 128 ::102:304/128 128 true true
+  prefix 129 ERR prefix length 129 too large for IPv6
+1:2:3:4:5:6:102:304 0001:0002:0003:0004:0005:0006:0102:0304 true 128 false true false  false false false false true false false false [0, 1, 0, 2, 0, 3, 0, 4, 0, 5, 0, 6, 1, 2, 3, 4] [0, 1, 0, 2, 0, 3, 0, 4, 0, 5, 0, 6, 1, 2, 3, 4]
+  unmap 1:2:3:4:5:6:102:304 next 1:2:3:4:5:6:102:305 prev 1:2:3:4:5:6:102:303 wz 1:2:3:4:5:6:102:304%lo0 1:2:3:4:5:6:102:304
+  prefix -1 ERR negative Prefix bits
+  prefix 0 ::/0 0 true false
+  prefix 8 ::/8 8 true false
+  prefix 17 1::/17 17 true false
+  prefix 24 1::/24 24 true false
+  prefix 32 1:2::/32 32 true false
+  prefix 33 1:2::/33 33 true false
+  prefix 64 1:2:3:4::/64 64 true false
+  prefix 127 1:2:3:4:5:6:102:304/127 127 true false
+  prefix 128 1:2:3:4:5:6:102:304/128 128 true true
+  prefix 129 ERR prefix length 129 too large for IPv6
+::ffff:192.0.2.128 0000:0000:0000:0000:0000:ffff:c000:0280 true 128 false true true  false false false false true false false false [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 255, 255, 192, 0, 2, 128] [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 255, 255, 192, 0, 2, 128]
+  unmap 192.0.2.128 next ::ffff:192.0.2.129 prev ::ffff:192.0.2.127 wz ::ffff:192.0.2.128%lo0 ::ffff:192.0.2.128
+  as4 [192, 0, 2, 128]
+  prefix -1 ERR negative Prefix bits
+  prefix 0 ::/0 0 true false
+  prefix 8 ::/8 8 true false
+  prefix 17 ::/17 17 true false
+  prefix 24 ::/24 24 true false
+  prefix 32 ::/32 32 true false
+  prefix 33 ::/33 33 true false
+  prefix 64 ::/64 64 true false
+  prefix 127 ::ffff:192.0.2.128/127 127 true false
+  prefix 128 ::ffff:192.0.2.128/128 128 true true
+  prefix 129 ERR prefix length 129 too large for IPv6
+ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff true 128 false true false  false false true false false false false false [255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255] [255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255]
+  unmap ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff next invalid IP prev ffff:ffff:ffff:ffff:ffff:ffff:ffff:fffe wz ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff%lo0 ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff
+  prefix -1 ERR negative Prefix bits
+  prefix 0 ::/0 0 true false
+  prefix 8 ff00::/8 8 true false
+  prefix 17 ffff:8000::/17 17 true false
+  prefix 24 ffff:ff00::/24 24 true false
+  prefix 32 ffff:ffff::/32 32 true false
+  prefix 33 ffff:ffff:8000::/33 33 true false
+  prefix 64 ffff:ffff:ffff:ffff::/64 64 true false
+  prefix 127 ffff:ffff:ffff:ffff:ffff:ffff:ffff:fffe/127 127 true false
+  prefix 128 ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff/128 128 true true
+  prefix 129 ERR prefix length 129 too large for IPv6
+2001:db8:85a3::8a2e:370:7334 2001:0db8:85a3:0000:0000:8a2e:0370:7334 true 128 false true false  false false false false true false false false [32, 1, 13, 184, 133, 163, 0, 0, 0, 0, 138, 46, 3, 112, 115, 52] [32, 1, 13, 184, 133, 163, 0, 0, 0, 0, 138, 46, 3, 112, 115, 52]
+  unmap 2001:db8:85a3::8a2e:370:7334 next 2001:db8:85a3::8a2e:370:7335 prev 2001:db8:85a3::8a2e:370:7333 wz 2001:db8:85a3::8a2e:370:7334%lo0 2001:db8:85a3::8a2e:370:7334
+  prefix -1 ERR negative Prefix bits
+  prefix 0 ::/0 0 true false
+  prefix 8 2000::/8 8 true false
+  prefix 17 2001::/17 17 true false
+  prefix 24 2001:d00::/24 24 true false
+  prefix 32 2001:db8::/32 32 true false
+  prefix 33 2001:db8:8000::/33 33 true false
+  prefix 64 2001:db8:85a3::/64 64 true false
+  prefix 127 2001:db8:85a3::8a2e:370:7334/127 127 true false
+  prefix 128 2001:db8:85a3::8a2e:370:7334/128 128 true true
+  prefix 129 ERR prefix length 129 too large for IPv6
+fe80::1cc0:3e8c:119f:c2e1%ens18 fe80:0000:0000:0000:1cc0:3e8c:119f:c2e1%ens18 true 128 false true false ens18 false false false true false false false false [254, 128, 0, 0, 0, 0, 0, 0, 28, 192, 62, 140, 17, 159, 194, 225] [254, 128, 0, 0, 0, 0, 0, 0, 28, 192, 62, 140, 17, 159, 194, 225]
+  unmap fe80::1cc0:3e8c:119f:c2e1%ens18 next fe80::1cc0:3e8c:119f:c2e2%ens18 prev fe80::1cc0:3e8c:119f:c2e0%ens18 wz fe80::1cc0:3e8c:119f:c2e1%lo0 fe80::1cc0:3e8c:119f:c2e1
+  prefix -1 ERR negative Prefix bits
+  prefix 0 ::/0 0 true false
+  prefix 8 fe00::/8 8 true false
+  prefix 17 fe80::/17 17 true false
+  prefix 24 fe80::/24 24 true false
+  prefix 32 fe80::/32 32 true false
+  prefix 33 fe80::/33 33 true false
+  prefix 64 fe80::/64 64 true false
+  prefix 127 fe80::1cc0:3e8c:119f:c2e0/127 127 true false
+  prefix 128 fe80::1cc0:3e8c:119f:c2e1/128 128 true true
+  prefix 129 ERR prefix length 129 too large for IPv6
+fe80::%25 fe80:0000:0000:0000:0000:0000:0000:0000%25 true 128 false true false 25 false false false true false false false false [254, 128, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0] [254, 128, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+  unmap fe80::%25 next fe80::1%25 prev fe7f:ffff:ffff:ffff:ffff:ffff:ffff:ffff%25 wz fe80::%lo0 fe80::
+  prefix -1 ERR negative Prefix bits
+  prefix 0 ::/0 0 true false
+  prefix 8 fe00::/8 8 true false
+  prefix 17 fe80::/17 17 true false
+  prefix 24 fe80::/24 24 true false
+  prefix 32 fe80::/32 32 true false
+  prefix 33 fe80::/33 33 true false
+  prefix 64 fe80::/64 64 true false
+  prefix 127 fe80::/127 127 true false
+  prefix 128 fe80::/128 128 true true
+  prefix 129 ERR prefix length 129 too large for IPv6
+::%x y 0000:0000:0000:0000:0000:0000:0000:0000%x y true 128 false true false x y false false false false true false false false [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0] [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+  unmap ::%x y next ::1%x y prev invalid IP wz ::%lo0 ::
+  prefix -1 ERR negative Prefix bits
+  prefix 0 ::/0 0 true false
+  prefix 8 ::/8 8 true false
+  prefix 17 ::/17 17 true false
+  prefix 24 ::/24 24 true false
+  prefix 32 ::/32 32 true false
+  prefix 33 ::/33 33 true false
+  prefix 64 ::/64 64 true false
+  prefix 127 ::/127 127 true false
+  prefix 128 ::/128 128 true true
+  prefix 129 ERR prefix length 129 too large for IPv6
+ERR ParseAddr(""): unable to parse IP
+ERR ParseAddr("1"): unable to parse IP
+ERR ParseAddr("1.2.3"): IPv4 address too short
+ERR ParseAddr("1.2.3.4.5"): IPv4 address too long
+ERR ParseAddr("01.2.3.4"): IPv4 field has octet with leading zero
+ERR ParseAddr("1.2.3.256"): IPv4 field has value >255
+ERR ParseAddr("1..2.3"): IPv4 field must have at least one digit (at ".2.3")
+ERR ParseAddr(".1.2.3"): IPv4 field must have at least one digit (at ".1.2.3")
+ERR ParseAddr("1.2.3."): IPv4 field must have at least one digit (at ".")
+ERR ParseAddr("1.2.3.a"): unexpected character (at "a")
+ERR ParseAddr("1.2.3.4%eth0"): unexpected character (at "%eth0")
+ERR ParseAddr("%eth0"): missing IPv6 address
+ERR ParseAddr("abc"): unable to parse IP
+ERR ParseAddr("::1%"): zone must be a non-empty string
+ERR ParseAddr("12345::1"): each group must have 4 or less digits (at "12345::1")
+ERR ParseAddr("1:2:3:4:5:6:7:8:9"): trailing garbage after address (at "9")
+ERR ParseAddr("1:2:3:4:5:6:7"): address string too short
+ERR ParseAddr("1::2::3"): multiple :: in address (at ":3")
+ERR ParseAddr(":1:2::"): each colon-separated field must have at least one digit (at ":1:2::")
+ERR ParseAddr("1:2:3:"): colon must be followed by more characters (at ":")
+ERR ParseAddr("1:2:3:4:5:6:7:8::"): the :: must expand to at least one field of zeros
+ERR ParseAddr("::1.2.3"): IPv4 address too short
+ERR ParseAddr("1:2:3:4:5:6:7:1.2.3.4"): embedded IPv4 address must replace the final 2 fields of the address (at "1.2.3.4")
+ERR ParseAddr("1:2:1.2.3.4"): embedded IPv4 address must replace the final 2 fields of the address (at "1.2.3.4")
+ERR ParseAddr("1:2:3:4:5:6:7:8%"): zone must be a non-empty string
+ERR ParseAddr("fe80::1%"): zone must be a non-empty string
+ERR ParseAddr("g::1"): each colon-separated field must have at least one digit (at "g::1")
+ERR ParseAddr("1:2:3:4:5:6:7:8x"): unexpected character, want colon (at "x")
+ERR ParseAddr("[::1]"): each colon-separated field must have at least one digit (at "[::1]")
+ERR ParseAddr("::ffff:1.2.3.04"): IPv4 field has octet with leading zero
+ERR ParseAddr("1.2.3.4 "): unexpected character (at " ")
+ERR ParseAddr("1:2:3:4:5::6:7:8"): the :: must expand to at least one field of zeros
+ERR ParseAddr("::1.2.3.4.5"): IPv4 address too long
+ERR ParseAddr("::ffff:1.2.3.4:5"): unexpected character (at ":5")
+ERR ParseAddr("1.2.3.4\x00"): unexpected character (at "\x00")
+ERR ParseAddr("日本.1.2.3"): unexpected character (at "日本.1.2.3")
+fe80::1%	 fe80:0000:0000:0000:0000:0000:0000:0001%	 true 128 false true false 	 false false false true false false false false [254, 128, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1] [254, 128, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]
+  unmap fe80::1%	 next fe80::2%	 prev fe80::%	 wz fe80::1%lo0 fe80::1
+  prefix -1 ERR negative Prefix bits
+  prefix 0 ::/0 0 true false
+  prefix 8 fe00::/8 8 true false
+  prefix 17 fe80::/17 17 true false
+  prefix 24 fe80::/24 24 true false
+  prefix 32 fe80::/32 32 true false
+  prefix 33 fe80::/33 33 true false
+  prefix 64 fe80::/64 64 true false
+  prefix 127 fe80::/127 127 true false
+  prefix 128 fe80::1/128 128 true true
+  prefix 129 ERR prefix length 129 too large for IPv6
+ERR ParseAddr("1:2::3:4:5:6:7:8:9"): trailing garbage after address (at "9")
+ERR ParseAddr("0x1.2.3.4"): unexpected character (at "x1.2.3.4")
+invalid IP invalid IP false 0 false false false  false false false false false false false false [] invalid IP invalid IP
+ff02::1 ff02::2 ::1 :: 0.0.0.0
+192.0.2.1 2001:db8::1 ::ffff:9.8.7.6
+slice 1.2.3.4
+slice3 false
+np 255.255.255.255 invalid IP 255.255.255.254
+np 0.0.0.0 0.0.0.1 invalid IP
+np ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff invalid IP ffff:ffff:ffff:ffff:ffff:ffff:ffff:fffe
+np :: ::1 invalid IP
+np ::ffff:255.255.255.255 ::1:0:0:0 ::ffff:255.255.255.254
+np 1.2.3.255 1.2.4.0 1.2.3.254
+np ::ff:ffff ::100:0 ::ff:fffe
+np fe80::ffff%eth1 fe80::1:0%eth1 fe80::fffe%eth1
+cmp 1.2.3.4 0 false -1 true -1 true -1 true -1 true -1 true -1 true 1 false -1 true
+cmp 1.2.3.5 1 false 0 false -1 true -1 true -1 true -1 true -1 true 1 false -1 true
+cmp ::1 1 false 1 false 0 false -1 true -1 true -1 true -1 true 1 false 1 false
+cmp ::ffff:1.2.3.4 1 false 1 false 1 false 0 false -1 true -1 true -1 true 1 false 1 false
+cmp fe80::1 1 false 1 false 1 false 1 false 0 false -1 true -1 true 1 false 1 false
+cmp fe80::1%a 1 false 1 false 1 false 1 false 1 false 0 false -1 true 1 false 1 false
+cmp fe80::1%b 1 false 1 false 1 false 1 false 1 false 1 false 0 false 1 false 1 false
+cmp 0.0.0.0 -1 true -1 true -1 true -1 true -1 true -1 true -1 true 0 false -1 true
+cmp :: 1 false 1 false -1 true -1 true -1 true -1 true -1 true 1 false 0 false
+cmp0 -1 1
+AP 1.2.3.4:80 1.2.3.4 80 true
+AP [::1]:8080 ::1 8080 true
+AP [fe80::1%eth0]:443 fe80::1%eth0 443 true
+AP [::ffff:1.2.3.4]:1 ::ffff:1.2.3.4 1 true
+AP 0.0.0.0:0 0.0.0.0 0 true
+AP 1.2.3.4:65535 1.2.3.4 65535 true
+AP ERR invalid port "65536" parsing "1.2.3.4:65536"
+AP ERR not an ip:port
+AP ERR no port
+AP ERR no IP
+AP ERR missing ]
+AP ERR missing ]
+AP ERR invalid ip:port "::1:80", IPv6 addresses must be surrounded by square brackets
+AP ERR invalid ip:port "[1.2.3.4]:80", square brackets can only be used with IPv6 addresses
+AP ERR invalid port "-1" parsing "1.2.3.4:-1"
+AP ERR invalid port "0x10" parsing "1.2.3.4:0x10"
+AP ERR ParseAddr(""): unable to parse IP
+AP ERR missing ]
+AP ERR invalid port "+5" parsing "1.2.3.4:+5"
+AP ERR invalid port "b" parsing "a:b"
+AP ERR ParseAddr("1.2.3.400"): IPv4 field has value >255
+AP ERR ParseAddr("fe80::1%"): zone must be a non-empty string
+AP [::1]:7 ::1 7 true
+AP 1.2.3.4:80 1.2.3.4 80 true
+[::ffff:1.1.1.1%x]:9 invalid AddrPort false
+apcmp -1 1 0
+PF 1.2.3.4/24 1.2.3.4 24 true false 1.2.3.0/24
+PF 1.2.3.4/32 1.2.3.4 32 true true 1.2.3.4/32
+PF 1.2.3.4/0 1.2.3.4 0 true false 0.0.0.0/0
+PF 10.0.0.0/8 10.0.0.0 8 true false 10.0.0.0/8
+PF ::1/128 ::1 128 true true ::1/128
+PF 2001:db8::/32 2001:db8:: 32 true false 2001:db8::/32
+PF 2001:db8::1/48 2001:db8::1 48 true false 2001:db8::/48
+PF ::ffff:1.2.3.4/120 ::ffff:1.2.3.4 120 true false ::ffff:1.2.3.0/120
+PF ::ffff:1.2.3.4/96 ::ffff:1.2.3.4 96 true false ::ffff:0.0.0.0/96
+PF fe80::1/10 fe80::1 10 true false fe80::/10
+PF 0.0.0.0/0 0.0.0.0 0 true false 0.0.0.0/0
+PF ::/0 :: 0 true false ::/0
+PF ERR netip.ParsePrefix("1.2.3.4/33"): prefix length out of range
+PF ERR netip.ParsePrefix("::1/129"): prefix length out of range
+PF ERR netip.ParsePrefix("1.2.3.4"): no '/'
+PF ERR netip.ParsePrefix("1.2.3.4/"): bad bits after slash: ""
+PF ERR netip.ParsePrefix("1.2.3.4/-1"): bad bits after slash: "-1"
+PF ERR netip.ParsePrefix("1.2.3.4/+1"): bad bits after slash: "+1"
+PF ERR netip.ParsePrefix("1.2.3.4/01"): bad bits after slash: "01"
+PF ERR netip.ParsePrefix("1.2.3.4/0x1"): bad bits after slash: "0x1"
+PF ERR netip.ParsePrefix("1.2.3.4/a"): bad bits after slash: "a"
+PF ERR netip.ParsePrefix("fe80::1%eth0/64"): IPv6 zones cannot be present in a prefix
+PF ERR netip.ParsePrefix("1.2.3/24"): ParseAddr("1.2.3"): IPv4 address too short
+PF ERR netip.ParsePrefix("/24"): ParseAddr(""): unable to parse IP
+PF ERR netip.ParsePrefix("1.2.3.4/24/"): ParseAddr("1.2.3.4/24"): unexpected character (at "/24")
+PF ERR netip.ParsePrefix("1.2.3.4/99999999999999999999"): bad bits after slash: "99999999999999999999"
+PF ERR netip.ParsePrefix("1.2.3.4/1000"): prefix length out of range
+PF ERR netip.ParsePrefix("1.2.3.4/ 5"): bad bits after slash: " 5"
+PF ERR netip.ParsePrefix("::1/00"): bad bits after slash: "00"
+PF 172.16.5.4/12 172.16.5.4 12 true false 172.16.0.0/12
+PF 1.2.3.4/7 1.2.3.4 7 true false 0.0.0.0/7
+contains 1.2.3.4/24 true false false false false false false false false false false false
+overlaps 1.2.3.4/24 true true true false false false false false false false true false
+contains 1.2.3.4/32 true false false false false false false false false false false false
+overlaps 1.2.3.4/32 true true true false false false false false false false true false
+contains 1.2.3.4/0 true true true true true false false false false false false true
+overlaps 1.2.3.4/0 true true true true false false false false false false true false
+contains 10.0.0.0/8 false false false true false false false false false false false false
+overlaps 10.0.0.0/8 false false true true false false false false false false true false
+contains ::1/128 false false false false false true false false false false false false
+overlaps ::1/128 false false false false true false false false false false false true
+contains 2001:db8::/32 false false false false false false true false false false false false
+overlaps 2001:db8::/32 false false false false false true true false false false false true
+contains 2001:db8::1/48 false false false false false false true false false false false false
+overlaps 2001:db8::1/48 false false false false false true true false false false false true
+contains ::ffff:1.2.3.4/120 false false false false false false false false true false false false
+overlaps ::ffff:1.2.3.4/120 false false false false false false false true true false false true
+contains ::ffff:1.2.3.4/96 false false false false false false false false true false false false
+overlaps ::ffff:1.2.3.4/96 false false false false false false false true true false false true
+contains fe80::1/10 false false false false false false false false false false true false
+overlaps fe80::1/10 false false false false false false false false false true false true
+contains 0.0.0.0/0 true true true true true false false false false false false true
+overlaps 0.0.0.0/0 true true true true false false false false false false true false
+contains ::/0 false false false false false true true true true false true false
+overlaps ::/0 false false false false true true true true true true false true
+invalid Prefix fe80::1/64 invalid Prefix false false invalid Prefix

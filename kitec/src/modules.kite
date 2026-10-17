@@ -1486,7 +1486,19 @@ fn rexpr_m(l: L, r0: R, e: Node) -> Result<(R, Node, Str), ME> {
       }
       // let … else：let_else 和第二个分支的块是同一个对象（Python 版就地解析，两处一起变）
       let le = if is_some(m.let_else) && len(arms) == 2 { Some(arms[1].body) } else { m.let_else }
-      return Ok((r, Node { k: NMatch(MatchD { subject: subj, arms: arms, let_else: le, ..m }), ..e }, "#"))
+      // x is P && R：is_conj 和 subject / 第一个分支共用对象（Python 版就地改名；被换成新节点时 is_conj 保留旧的，模式是元组也保留旧的）
+      let ic = match m.is_conj {
+        Some((isn, rt)) => {
+          let isn2 = match isn.k {
+            NIs(v, p) => if ast.kname(subj) == ast.kname(v) { Node { k: NIs(subj, p), ..isn } } else { isn },
+            _         => isn,
+          }
+          let rt2 = if len(arms) > 0 && ast.kname(arms[0].body) == ast.kname(rt) { arms[0].body } else { rt }
+          Some((isn2, rt2))
+        },
+        None            => None,
+      }
+      return Ok((r, Node { k: NMatch(MatchD { subject: subj, arms: arms, let_else: le, is_conj: ic, ..m }), ..e }, "#"))
     },
     NSelect(arms0)  => {
       var arms: List<SArm> = []
@@ -1512,7 +1524,15 @@ fn rexpr_m(l: L, r0: R, e: Node) -> Result<(R, Node, Str), ME> {
       return Ok((r1, Node { k: NIs(v2, rpat(l, r1, p)?), ..e }, "#"))
     },
     NStructLit(nm, fs, base) => {
-      let nm2 = rnm_t(l, r, nm)?
+      let nm1 = rnm_t(l, r, nm)?
+      // 限定的记录变体 N.Rect { … } / m.N.Rect { … }：限定名也要按导入改名
+      let nm2 = match nm {
+        NmQ(_, Some(q)) => {
+          let nq = type_name(l, r, q, [])?
+          if nq != q { NmQ(ast.nm_str(nm1), Some(nq)) } else { nm1 }
+        },
+        _               => nm1,
+      }
       var out: List<(Str, Node)> = []
       for f in fs {
         let (r1, v) = rexpr(l, r, f.1)?

@@ -1,0 +1,81 @@
+ 0 ok [] 0 ok [] 0
+@/ 5 ok [97] 2 ok [] 0
+@:B 5 ok [97, 98] 3 ok [] 0
+@:E^ 5 ok [97, 98, 99] 4 ok [] 0
+@:E_W 5 ok [97, 98, 99, 100] 5 ok [97, 98, 99, 100] 5
+z 5 ok [0, 0, 0, 0] 1 ok [0, 0, 0, 0] 1
+zGQ 10 ok [0, 0, 0, 0, 120] 3 ok [0, 0, 0, 0] 1
+!!! 5 ok [0, 0] 3 ok [] 0
+9jqo^BlbD-BleB1DJ+*+F(f,q 25 ok [77, 97, 110, 32, 105, 115, 32, 100, 105, 115, 116, 105, 110, 103, 117, 105, 115, 104, 101, 100] 25 ok [77, 97, 110, 32, 105, 115, 32, 100, 105, 115, 116, 105, 110, 103, 117, 105, 115, 104, 101, 100] 25
+jLq5JV7ks"QKONl 15 ok [228, 189, 160, 229, 165, 189, 228, 184, 150, 231, 149, 140] 15 ok [228, 189, 160, 229, 165, 189, 228, 184, 150, 231, 149, 140] 15
+9jqo^ ok [77, 97, 110, 32] 5 ok [77, 97, 110, 32] 5
+9jqo^B err illegal ascii85 data at input byte 6 ok [77, 97, 110, 32] 5
+9jq o^
+Blb ok [77, 97, 110, 32, 105, 115] 10 ok [77, 97, 110, 32] 6
+zz ok [0, 0, 0, 0, 0, 0, 0, 0] 2 ok [0, 0, 0, 0, 0, 0, 0, 0] 2
+9z err illegal ascii85 data at input byte 1 err illegal ascii85 data at input byte 1
+9jqo~ err illegal ascii85 data at input byte 4 err illegal ascii85 data at input byte 4
+uuuuu ok [8, 120, 14, 196] 5 ok [8, 120, 14, 196] 5
+s8W-! ok [255, 255, 255, 255] 5 ok [255, 255, 255, 255] 5
+! err illegal ascii85 data at input byte 1 ok [] 0
+!! ok [0] 2 ok [] 0
+ab{ err illegal ascii85 data at input byte 2 err illegal ascii85 data at input byte 2
+   ok [] 2 ok [] 0
+-----BEGIN TEST DATA-----
+Proc-Type: 4,ENCRYPTED
+Alpha: a b
+Zeta: z
+
+ACVKb5S53gMoTXKXvOEGK1B1mr/kCS5TeJ3C5wwxVnugxeoPNFl+o8jtEjdcgabL
+8BU6X4SpzvMYPWKHrNH2G0Bliq/U+R5DaI2y1/whRmuQtdr/JEluk7jdAidMcZa7
+4AUqTw==
+-----END TEST DATA-----
+
+-----BEGIN EMPTY-----
+-----END EMPTY-----
+
+Err("pem: cannot encode a header key that contains a colon")
+TEST DATA ["Alpha=a b", "Proc-Type=4,ENCRYPTED", "Zeta=z"] [0, 37, 74, 111, 148, 185, 222, 3, 40, 77, 114, 151, 188, 225, 6, 43, 80, 117, 154, 191, 228, 9, 46, 83, 120, 157, 194, 231, 12, 49, 86, 123, 160, 197, 234, 15, 52, 89, 126, 163, 200, 237, 18, 55, 92, 129, 166, 203, 240, 21, 58, 95, 132, 169, 206, 243, 24, 61, 98, 135, 172, 209, 246, 27, 64, 101, 138, 175, 212, 249, 30, 67, 104, 141, 178, 215, 252, 33, 70, 107, 144, 181, 218, 255, 36, 73, 110, 147, 184, 221, 2, 39, 76, 113, 150, 187, 224, 5, 42, 79] ||
+TEST DATA ["Alpha=a b", "Proc-Type=4,ENCRYPTED", "Zeta=z"] [0, 37, 74, 111, 148, 185, 222, 3, 40, 77, 114, 151, 188, 225, 6, 43, 80, 117, 154, 191, 228, 9, 46, 83, 120, 157, 194, 231, 12, 49, 86, 123, 160, 197, 234, 15, 52, 89, 126, 163, 200, 237, 18, 55, 92, 129, 166, 203, 240, 21, 58, 95, 132, 169, 206, 243, 24, 61, 98, 135, 172, 209, 246, 27, 64, 101, 138, 175, 212, 249, 30, 67, 104, 141, 178, 215, 252, 33, 70, 107, 144, 181, 218, 255, 36, 73, 110, 147, 184, 221, 2, 39, 76, 113, 150, 187, 224, 5, 42, 79] |tail|
+EMPTY [] [] |-----BEGIN TEST DATA-----
+Proc-Type: 4,ENCRYPTED
+Alpha: a b
+Zeta: z
+
+ACVKb5S53gMoTXKXvOEGK1B1mr/kCS5TeJ3C5wwxVnugxeoPNFl+o8jtEjdcgabL
+8BU6X4SpzvMYPWKHrNH2G0Bliq/U+R5DaI2y1/whRmuQtdr/JEluk7jdAidMcZa7
+4AUqTw==
+-----END TEST DATA-----
+|
+A [] [1, 2, 3] ||
+nil |-----BEGIN A-----
+AQID
+-----END B-----
+|
+A [] [1, 2, 3] |next|
+nil |-----BEGIN A-----
+AQI*
+-----END A-----
+|
+nil |no pem here|
+C [] [4, 5] ||
+nil |-----BEGIN A-----
+K: v
+
+AQID
+-----END A-----x
+|
+0 false 1 (65533, 65533) [0]
+65 false 1 (65533, 65533) [65]
+55295 false 1 (65533, 65533) [55295]
+55296 true -1 (65533, 65533) [65533]
+57343 true -1 (65533, 65533) [65533]
+57344 false 1 (65533, 65533) [57344]
+65535 false 1 (65533, 65533) [65535]
+65536 false 2 (55296, 56320) [55296, 56320]
+128512 false 2 (55357, 56832) [55357, 56832]
+1114111 false 2 (56319, 57343) [56319, 57343]
+1114112 false -1 (65533, 65533) [65533]
+-1 false -1 (65533, 65533) [65533]
+128512 65533
+[72, 55357, 56832, 65533, 56319, 57343, 65533, 20013] [72, 128512, 65533, 1114111, 65533, 20013] [65533, 65, 65533, 128512, 65533]

@@ -1,0 +1,7 @@
+200 text/plain; charset=utf-8 你好，小明 K
+201 application/json {"body":"数据 123","method":"POST","ua":"kite-test"}
+500 text/plain; charset=utf-8 Internal Server Error
+404 text/plain; charset=utf-8 没有 /nope
+200 text/plain; charset=utf-8 你好，A | 201 application/json {"body":"第二个","method":"POST","ua":"-"} | 404 text/plain; charset=utf-8 没有 /nope
+错误 无效的 URL：ftp://example.com
+true

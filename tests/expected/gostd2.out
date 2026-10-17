@@ -1,0 +1,42 @@
+1.4142135623730951 nan -inf inf 2.718281828459045 1024.0
+1.5574077246549023 nan 2.356194490192345 5.0 1.5 3.0000000000000004
+3 -3 -3 -4 4 3.0 3.0
+true true true -3.0 6 12
+9223372036854775807 -9223372036854775808 1.7976931348623157e+308 5e-324 6.283185307179586 1.618033988749895 0.6931471805599453 1.1752011936438014 0.5493061443340548
+Ok([0, 255, 128, 10, 7]) Ok(()) Ok([0, 255, 128, 10, 7])
+x.txt 5 true false true true
+["D", "D/a", "D/a/b", "D/a/b/y.kite", "D/a/x.txt", "D/bin.dat", "D/c.dat"]
+[("b", true), ("x.txt", false)]
+["D/a/x.txt"] ["D/a/b/y.kite"]
+Some("v1") true
+None true true true
+Ok(()) false Ok(())
+1791637509042 std.time.DateTime { year: 2026, month: 10, day: 10, hour: 13, minute: 5, second: 9, ms: 42, weekday: 6, yday: 283, offset: 0 } 2026-10-10T13:05:09Z Sat, 10 Oct 2026 01:05:09.042 PM UTC Saturday October 10 2026 10 283
+2026-10-10T21:05:09+08:00 +0800 +0800 true
+true true Ok(1791637500000)
+Err("时间超出范围: 2026-02-30") Err("无法按布局 2006-01-02 解析时间: x") 1969-12-31 23:59:59 3
+2024-03-02 2026-10-10 00:00:00 true 28
+1h2m3.5s 250ms -1m30s 0s Ok(5400000) Ok(1500) Ok(-250) Err("无法解析时长: 2x")
+true true
+[line one]
+[line two]
+[]
+[word1   word2]
+ab  c ' ' ["a", "b"] ["x", "y"]
+8
+第一行
+第二行
+0
+true Some("bob@example.com") Some((5, 20)) ["bob@example.com", "ann@test.com"] ["bob@example.com"]
+Some([Some("bob@example.com"), Some("bob"), Some("example")]) Some({"host": "example"}) 2 ["", "host"]
+mail <bob at example>, <ann at test>; x@Y.com mail $, $; x@Y.com a1b2c3
+["", "aaa", ""] [(0, 0), (1, 1), (2, 2), (3, 3)]
+["a", "b", "c ", "d"] ["a", "b", "c"] ["a", "b,c"]
+Some("a") Some("aaa") Some("abcd") Some([Some("abcd"), Some("a"), Some("bcd"), Some("")])
+Some("HeLLo") Some("ABCx") ["one", "two", "three"] None
+Some("abc") Some("a
+c") ["cat", "cat"] Some("12-")
+Some("中文字") Some("中文") Some("555-1234") Some([Some("b"), None, Some("b")])
+Err("regexp: 括号 ( 没有闭合（第 1 个字符）") Err("regexp: 多余的 )（第 1 个字符）") Err("regexp: 重复运算符 * 前面没有内容（第 0 个字符）") Err("regexp: 不能连续使用重复运算符（第 2 个字符）") Err("regexp: 区间顺序颠倒（第 4 个字符）") Err("regexp: 不支持的转义 \q（第 1 个字符）") Err("regexp: 重复次数 {3,2} 不对（第 1 个字符）")
+1\+1=2\? \[yes\] false Ok(true)
+false Some("xxxxxxxxxxxxxxxxxxxxxxxxy")

@@ -1,0 +1,33 @@
+17.0.0 true false true true true true true true
+true true false true true true false true
+true false true true true true true true false
+É σ Ā ā ß ǅ Ǆ HELLO WÖRLD Ж āăą àé αβγ
+Ⓐ ꭰ Ꭰ 1 38
+["语言和", "语言"] ["héllo", "мир"] Some("ÄÖ12")
+Some("123!") Some("abc") Some("äbc") Some("Σ") Err("regexp: 未知的 Unicode 类 Klingon（第 1 个字符）")
+https Some("bob") Some("p@ss") example.com:8443 example.com 8443 /a b/c q=go+lang&x=1&q=2 frag!
+https://bob:p%40ss@example.com:8443/a%20b/c?q=go+lang&x=1&q=2#frag! {"q": ["go lang", "2"], "x": ["1"]} Some("go lang")
+Ok(std.net.url.URL { scheme: "mailto", opaque: "a@b.com", user: None, password: None, host: "", path: "", raw_query: "", fragment: "" }) http://[::1]:80/x ::1 Err("无效的 URL 转义 \"%zz\"")
+a+b%26c%3Dd%2F%C3%A9 a%20b%2Fc Ok("a b&c") Ok("a+b/") Ok("中") Err("无效的 URL 转义 \"%\"")
+a=1&a=x+y&b=2&c= Err("查询串里不能有分号: a=1;b=2")
+g => Ok("http://a/b/c/g")
+./g => Ok("http://a/b/c/g")
+g/ => Ok("http://a/b/c/g/")
+/g => Ok("http://a/g")
+//g => Ok("http://g")
+?y => Ok("http://a/b/c/d;p?y")
+g?y => Ok("http://a/b/c/g?y")
+#s => Ok("http://a/b/c/d;p?q#s")
+g#s => Ok("http://a/b/c/g#s")
+.. => Ok("http://a/b/")
+../g => Ok("http://a/b/g")
+../../g => Ok("http://a/g")
+../../../g => Ok("http://a/g")
+g;x=1/../y => Ok("http://a/b/c/y")
+http:h => Ok("http:h")
+Ok("https://x.com/api/v2/users/") /rel/path?x=1 false
+[1, 2, 3, 4] [4, 3, 2, 1] [255, 255] [255, 255, 255, 255, 255, 255, 255, 255]
+Ok(16909060) Ok(513) Ok(-2) Ok(-1) Err("binary: 需要 4 个字节，只剩 2 个") Ok(-1)
+[1] [172, 2] [255, 255, 255, 255, 255, 255, 255, 255, 255, 1] [1] [126] [127] [255, 255, 255, 255, 255, 255, 255, 255, 255, 1]
+Ok((300, 2)) Ok((-1, 10)) Ok((-12345, 3)) Ok((-9223372036854775808, 10)) Err("binary: varint 被截断")
+18446744073709551615 12 9223372036854775808

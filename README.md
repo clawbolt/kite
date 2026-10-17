@@ -1,7 +1,9 @@
 # Kite 1.00
 
 - `grammar.ebnf`   语言文法
-- `kite.py`        解析器 + 树遍历解释器 + REPL
+- `kitec/`         自举编译器（Kite 写成）：词法 → 语法 → 类型检查（类型化 IR）→ 字节码 / KIR → C
+- `bootstrap/kitec.c` kitec 编译自己产出的 C 种子，`sh bootstrap.sh` 用它构建 bin/kitec
+- `kite.py`        Python 参考实现（逐步淘汰）
 - `typecheck.py`   静态类型检查器
 - `vm.py`          字节码编译器 + 虚拟机（默认引擎）
 - `native.py`      原生后端：字节码 → C → 可执行文件（0.7 新增）
@@ -14,14 +16,22 @@
 - `run_tests.sh`   一键回归测试
 - `kite-spec.md`   生产级设计规格
 
-## 运行
-    python3 kite.py examples/generics.kite     # 类型检查 → 字节码 → 虚拟机
-    python3 kite.py dis examples/bench_fib.kite  # 查看字节码
-    python3 kite.py --tree file.kite           # 用树遍历解释器运行（对照）
-    python3 kite.py check tests/bad.kite       # 只做类型检查
-    python3 kite.py --no-check file.kite       # 跳过检查
-    python3 kite.py                            # REPL（跨输入保留类型）
-    ./run_tests.sh
+## 构建与运行（不需要 Python）
+
+编译器 kitec 用 Kite 写成并且自举；仓库里带一份它编译自己产出的 C（`bootstrap/kitec.c`，种子），只要有 C 编译器（cc / clang / gcc / zig 任一，或设置 `CC`）就能构建：
+
+    sh bootstrap.sh                        # 种子 → bin/kitec → 用它从源码重编一次
+    bin/kitec run examples/generics.kite   # 编译成临时可执行文件并运行（也可写 bin/kitec examples/generics.kite）
+    bin/kitec build app.kite -o app        # 生成可执行文件（--emit-c app.c 保留 C 代码，--no-kir 关闭 KIR）
+    bin/kitec check tests/bad.kite         # 只做类型检查
+    bin/kitec dis examples/bench_fib.kite  # 查看字节码
+    bin/kitec kir examples/kir.kite        # 查看 KIR
+    sh run_tests.sh                        # 回归测试（不需要 Python）
+
+- kitec 在 `$KITE_HOME`、可执行文件所在目录往上、当前目录往上依次寻找 `prelude.kite` 和 `runtime/`
+- 改了 `kitec/src` 之后运行 `sh tools/kitec_bootstrap.sh --update-seed` 刷新种子；`run_tests.sh` 会检查种子 = stage1 = stage2
+- `tests/expected/`：每个示例的标准输出；`tests/gold/*.md5`：kitec 各层输出（AST、检查结果、字节码、KIR、C）的基准，`sh tools/kitec_gold.sh --update` 重新生成
+- REPL 和树遍历解释器（`--tree`）已废弃；Python 参考实现（`kite.py` 等）只剩 `kite test` / `kite fmt` / `kite lsp` / `kite pkg` 还在用，之后会移植到 Kite 并删除
 
 ## 原生编译（0.7）
 
@@ -34,7 +44,7 @@
 - Int / Float / Bool 不装箱；整数加减乘带溢出检查（溢出报错退出，不会悄悄回绕）
 - 调用从未被重新赋值的顶层函数时生成直接 C 调用；方法分派生成 switch 表；每个模式生成专用匹配函数
 - 主程序跑在 1 GB 栈的线程里，深递归不容易爆栈
-- C 编译器自动探测：`$CC` → cc → clang → gcc → zig cc（`pip install ziglang` 即可获得）
+- C 编译器自动探测：`$CC` → cc → clang → gcc → zig cc
 - 差分测试：每个示例编译成可执行文件，输出必须与虚拟机逐字节一致；运行时错误的行号和信息也一致
 - 基准 bench_fib：虚拟机 0.80 秒 → 原生 0.004 秒；bench_native（fib(32) + 2000 万次循环 + 百万元素 map/filter）原生 0.29 秒
 
@@ -1154,7 +1164,7 @@ Go 1.27 的 encoding/json（v1）改由 v2 实现，语法错误、Compact/Inden
 - 新增 `kitec kir FILE prelude.kite`（`src/kirdump.kite`）与 `tools/kir_dump.py`、`tools/kitec_kir_check.py`（190 个一致，0 个不一致）、`tools/kitec_kir_fuzz.py`
 - 新增 `kitec ck FILE prelude.kite`：走 KIR 的 C 源码，与 `tools/c_dump.py --kir`（和 `kite build` 默认相同）逐字节比较：`tools/kitec_ck_check.py`（190 个一致，0 个不一致）、`tools/kitec_ck_fuzz.py`
 - 顺带验证了第 4 步的不动点：`kitec ck kitec/src/main.kite` 产出的 C 编译成 kitec2，kitec2 再编译自己，两轮 C 逐字节相同
-- 在 aarch64 上用 `zig cc` 时，ziglang 会把 CPU 探测成带 SVE 等扩展的型号，个别虚拟化环境里运行会报 Illegal instruction；设 `CC="python3 -m ziglang cc -mcpu=generic"` 即可
+- 在 aarch64 上用 `zig cc` 时，ziglang 会把 CPU 探测成带 SVE 等扩展的型号，个别虚拟化环境里运行会报 Illegal instruction；设 `CC="zig cc -mcpu=generic"` 即可
 
 ### 自举第 3c 步：字节码到 C（0.91）
 

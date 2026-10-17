@@ -1,0 +1,2999 @@
+#1 204 "a"
+S a
+Z a 0 ""
+P   0	fail
+  1*	rune1 "a" -> 2
+  2	match
+ "a" true 0 2
+#2 204 "a."
+S (?s:a.)
+Z (?s:a.) 0 ""
+P   0	fail
+  1*	rune1 "a" -> 2
+  2	any -> 3
+  3	match
+ "a" false 0 2
+#3 204 "a.b"
+S (?s:a.b)
+Z (?s:a.b) 0 ""
+P   0	fail
+  1*	rune1 "a" -> 2
+  2	any -> 3
+  3	rune1 "b" -> 4
+  4	match
+ "a" false 0 2
+#4 204 "ab"
+S ab
+Z ab 0 ""
+P   0	fail
+  1*	rune1 "a" -> 2
+  2	rune1 "b" -> 3
+  3	match
+ "ab" true 0 2
+#5 204 "a.b.c"
+S (?s:a.b.c)
+Z (?s:a.b.c) 0 ""
+P   0	fail
+  1*	rune1 "a" -> 2
+  2	any -> 3
+  3	rune1 "b" -> 4
+  4	any -> 5
+  5	rune1 "c" -> 6
+  6	match
+ "a" false 0 2
+#6 204 "abc"
+S abc
+Z abc 0 ""
+P   0	fail
+  1*	rune1 "a" -> 2
+  2	rune1 "b" -> 3
+  3	rune1 "c" -> 4
+  4	match
+ "abc" true 0 2
+#7 204 "a|^"
+S (?m:a|^)
+Z (?m:a|^) 0 ""
+P   0	fail
+  1	rune1 "a" -> 4
+  2	empty 1 -> 4
+  3*	alt -> 1, 2
+  4	match
+ "" false 0 2
+#8 204 "a|b"
+S [ab]
+Z [ab] 0 ""
+P   0	fail
+  1*	rune "ab" -> 2
+  2	match
+ "" false 0 2
+#9 204 "(a)"
+S (a)
+Z (a) 1 ","
+P   0	fail
+  1*	cap 2 -> 2
+  2	rune1 "a" -> 3
+  3	cap 3 -> 4
+  4	match
+ "a" true 0 4
+#10 204 "(a)|b"
+S (a)|b
+Z (a)|b 1 ","
+P   0	fail
+  1	cap 2 -> 2
+  2	rune1 "a" -> 3
+  3	cap 3 -> 6
+  4	rune1 "b" -> 6
+  5*	alt -> 1, 4
+  6	match
+ "" false 0 4
+#11 204 "a*"
+S a*
+Z a* 0 ""
+P   0	fail
+  1	rune1 "a" -> 2
+  2*	alt -> 1, 3
+  3	match
+ "" false 0 2
+#12 204 "a+"
+S a+
+Z a+ 0 ""
+P   0	fail
+  1*	rune1 "a" -> 2
+  2	alt -> 1, 3
+  3	match
+ "a" false 0 2
+#13 204 "a?"
+S a?
+Z a? 0 ""
+P   0	fail
+  1	rune1 "a" -> 3
+  2*	alt -> 1, 3
+  3	match
+ "" false 0 2
+#14 204 "a{2}"
+S a{2}
+Z aa 0 ""
+P   0	fail
+  1*	rune1 "a" -> 2
+  2	rune1 "a" -> 3
+  3	match
+ "aa" true 0 2
+#15 204 "a{2,3}"
+S a{2,3}
+Z aaa? 0 ""
+P   0	fail
+  1*	rune1 "a" -> 2
+  2	rune1 "a" -> 4
+  3	rune1 "a" -> 5
+  4	alt -> 3, 5
+  5	match
+ "aa" false 0 2
+#16 204 "a{2,}"
+S a{2,}
+Z aa+ 0 ""
+P   0	fail
+  1*	rune1 "a" -> 2
+  2	rune1 "a" -> 3
+  3	alt -> 2, 4
+  4	match
+ "aa" false 0 2
+#17 204 "a*?"
+S a*?
+Z a*? 0 ""
+P   0	fail
+  1	rune1 "a" -> 2
+  2*	alt -> 3, 1
+  3	match
+ "" false 0 2
+#18 204 "a+?"
+S a+?
+Z a+? 0 ""
+P   0	fail
+  1*	rune1 "a" -> 2
+  2	alt -> 3, 1
+  3	match
+ "a" false 0 2
+#19 204 "a??"
+S a??
+Z a?? 0 ""
+P   0	fail
+  1	rune1 "a" -> 3
+  2*	alt -> 3, 1
+  3	match
+ "" false 0 2
+#20 204 "a{2}?"
+S a{2}?
+Z aa 0 ""
+P   0	fail
+  1*	rune1 "a" -> 2
+  2	rune1 "a" -> 3
+  3	match
+ "aa" true 0 2
+#21 204 "a{2,3}?"
+S a{2,3}?
+Z aaa?? 0 ""
+P   0	fail
+  1*	rune1 "a" -> 2
+  2	rune1 "a" -> 4
+  3	rune1 "a" -> 5
+  4	alt -> 5, 3
+  5	match
+ "aa" false 0 2
+#22 204 "a{2,}?"
+S a{2,}?
+Z aa+? 0 ""
+P   0	fail
+  1*	rune1 "a" -> 2
+  2	rune1 "a" -> 3
+  3	alt -> 4, 2
+  4	match
+ "aa" false 0 2
+#23 204 "x{1001"
+S x\{1001
+Z x\{1001 0 ""
+P   0	fail
+  1*	rune1 "x" -> 2
+  2	rune1 "{" -> 3
+  3	rune1 "1" -> 4
+  4	rune1 "0" -> 5
+  5	rune1 "0" -> 6
+  6	rune1 "1" -> 7
+  7	match
+ "x{1001" true 0 2
+#24 204 "x{9876543210"
+S x\{9876543210
+Z x\{9876543210 0 ""
+P   0	fail
+  1*	rune1 "x" -> 2
+  2	rune1 "{" -> 3
+  3	rune1 "9" -> 4
+  4	rune1 "8" -> 5
+  5	rune1 "7" -> 6
+  6	rune1 "6" -> 7
+  7	rune1 "5" -> 8
+  8	rune1 "4" -> 9
+  9	rune1 "3" -> 10
+ 10	rune1 "2" -> 11
+ 11	rune1 "1" -> 12
+ 12	rune1 "0" -> 13
+ 13	match
+ "x{9876543210" true 0 2
+#25 204 "x{9876543210,"
+S x\{9876543210,
+Z x\{9876543210, 0 ""
+P   0	fail
+  1*	rune1 "x" -> 2
+  2	rune1 "{" -> 3
+  3	rune1 "9" -> 4
+  4	rune1 "8" -> 5
+  5	rune1 "7" -> 6
+  6	rune1 "6" -> 7
+  7	rune1 "5" -> 8
+  8	rune1 "4" -> 9
+  9	rune1 "3" -> 10
+ 10	rune1 "2" -> 11
+ 11	rune1 "1" -> 12
+ 12	rune1 "0" -> 13
+ 13	rune1 "," -> 14
+ 14	match
+ "x{9876543210," true 0 2
+#26 204 "x{2,1"
+S x\{2,1
+Z x\{2,1 0 ""
+P   0	fail
+  1*	rune1 "x" -> 2
+  2	rune1 "{" -> 3
+  3	rune1 "2" -> 4
+  4	rune1 "," -> 5
+  5	rune1 "1" -> 6
+  6	match
+ "x{2,1" true 0 2
+#27 204 "x{1,9876543210"
+S x\{1,9876543210
+Z x\{1,9876543210 0 ""
+P   0	fail
+  1*	rune1 "x" -> 2
+  2	rune1 "{" -> 3
+  3	rune1 "1" -> 4
+  4	rune1 "," -> 5
+  5	rune1 "9" -> 6
+  6	rune1 "8" -> 7
+  7	rune1 "7" -> 8
+  8	rune1 "6" -> 9
+  9	rune1 "5" -> 10
+ 10	rune1 "4" -> 11
+ 11	rune1 "3" -> 12
+ 12	rune1 "2" -> 13
+ 13	rune1 "1" -> 14
+ 14	rune1 "0" -> 15
+ 15	match
+ "x{1,9876543210" true 0 2
+#28 204 ""
+S (?:)
+Z (?:) 0 ""
+P   0	fail
+  1*	nop -> 2
+  2	match
+ "" true 0 2
+#29 204 "|"
+S (?:)
+Z (?:) 0 ""
+P   0	fail
+  1*	nop -> 2
+  2	match
+ "" true 0 2
+#30 204 "|x|"
+S (?:)|x|(?:)
+Z (?:)|x|(?:) 0 ""
+P   0	fail
+  1	nop -> 6
+  2	rune1 "x" -> 6
+  3	alt -> 1, 2
+  4	nop -> 6
+  5*	alt -> 3, 4
+  6	match
+ "" false 0 2
+#31 204 "."
+S (?s:.)
+Z (?s:.) 0 ""
+P   0	fail
+  1*	any -> 2
+  2	match
+ "" false 0 2
+#32 204 "^"
+S (?m:^)
+Z (?m:^) 0 ""
+P   0	fail
+  1*	empty 1 -> 2
+  2	match
+ "" false 1 2
+#33 204 "$"
+S (?m:$)
+Z (?m:$) 0 ""
+P   0	fail
+  1*	empty 2 -> 2
+  2	match
+ "" false 2 2
+#34 204 "\\|"
+S \|
+Z \| 0 ""
+P   0	fail
+  1*	rune1 "|" -> 2
+  2	match
+ "|" true 0 2
+#35 204 "\\("
+S \(
+Z \( 0 ""
+P   0	fail
+  1*	rune1 "(" -> 2
+  2	match
+ "(" true 0 2
+#36 204 "\\)"
+S \)
+Z \) 0 ""
+P   0	fail
+  1*	rune1 ")" -> 2
+  2	match
+ ")" true 0 2
+#37 204 "\\*"
+S \*
+Z \* 0 ""
+P   0	fail
+  1*	rune1 "*" -> 2
+  2	match
+ "*" true 0 2
+#38 204 "\\+"
+S \+
+Z \+ 0 ""
+P   0	fail
+  1*	rune1 "+" -> 2
+  2	match
+ "+" true 0 2
+#39 204 "\\?"
+S \?
+Z \? 0 ""
+P   0	fail
+  1*	rune1 "?" -> 2
+  2	match
+ "?" true 0 2
+#40 204 "{"
+S \{
+Z \{ 0 ""
+P   0	fail
+  1*	rune1 "{" -> 2
+  2	match
+ "{" true 0 2
+#41 204 "}"
+S \}
+Z \} 0 ""
+P   0	fail
+  1*	rune1 "}" -> 2
+  2	match
+ "}" true 0 2
+#42 204 "\\."
+S \.
+Z \. 0 ""
+P   0	fail
+  1*	rune1 "." -> 2
+  2	match
+ "." true 0 2
+#43 204 "\\^"
+S \^
+Z \^ 0 ""
+P   0	fail
+  1*	rune1 "^" -> 2
+  2	match
+ "^" true 0 2
+#44 204 "\\$"
+S \$
+Z \$ 0 ""
+P   0	fail
+  1*	rune1 "$" -> 2
+  2	match
+ "$" true 0 2
+#45 204 "\\\\"
+S \\
+Z \\ 0 ""
+P   0	fail
+  1*	rune1 "\\" -> 2
+  2	match
+ "\\" true 0 2
+#46 204 "[ace]"
+S [ace]
+Z [ace] 0 ""
+P   0	fail
+  1*	rune "aaccee" -> 2
+  2	match
+ "" false 0 2
+#47 204 "[abc]"
+S [a-c]
+Z [a-c] 0 ""
+P   0	fail
+  1*	rune "ac" -> 2
+  2	match
+ "" false 0 2
+#48 204 "[a-z]"
+S [a-z]
+Z [a-z] 0 ""
+P   0	fail
+  1*	rune "az" -> 2
+  2	match
+ "" false 0 2
+#49 204 "[a]"
+S a
+Z a 0 ""
+P   0	fail
+  1*	rune1 "a" -> 2
+  2	match
+ "a" true 0 2
+#50 204 "\\-"
+S -
+Z - 0 ""
+P   0	fail
+  1*	rune1 "-" -> 2
+  2	match
+ "-" true 0 2
+#51 204 "-"
+S -
+Z - 0 ""
+P   0	fail
+  1*	rune1 "-" -> 2
+  2	match
+ "-" true 0 2
+#52 204 "\\_"
+S _
+Z _ 0 ""
+P   0	fail
+  1*	rune1 "_" -> 2
+  2	match
+ "_" true 0 2
+#53 204 "abc"
+S abc
+Z abc 0 ""
+P   0	fail
+  1*	rune1 "a" -> 2
+  2	rune1 "b" -> 3
+  3	rune1 "c" -> 4
+  4	match
+ "abc" true 0 2
+#54 204 "abc|def"
+S abc|def
+Z abc|def 0 ""
+P   0	fail
+  1	rune1 "a" -> 2
+  2	rune1 "b" -> 3
+  3	rune1 "c" -> 8
+  4	rune1 "d" -> 5
+  5	rune1 "e" -> 6
+  6	rune1 "f" -> 8
+  7*	alt -> 1, 4
+  8	match
+ "" false 0 2
+#55 204 "abc|def|ghi"
+S abc|def|ghi
+Z abc|def|ghi 0 ""
+P   0	fail
+  1	rune1 "a" -> 2
+  2	rune1 "b" -> 3
+  3	rune1 "c" -> 12
+  4	rune1 "d" -> 5
+  5	rune1 "e" -> 6
+  6	rune1 "f" -> 12
+  7	alt -> 1, 4
+  8	rune1 "g" -> 9
+  9	rune1 "h" -> 10
+ 10	rune1 "i" -> 12
+ 11*	alt -> 7, 8
+ 12	match
+ "" false 0 2
+#56 204 "[[:lower:]]"
+S [a-z]
+Z [a-z] 0 ""
+P   0	fail
+  1*	rune "az" -> 2
+  2	match
+ "" false 0 2
+#57 204 "[a-z]"
+S [a-z]
+Z [a-z] 0 ""
+P   0	fail
+  1*	rune "az" -> 2
+  2	match
+ "" false 0 2
+#58 204 "[^[:lower:]]"
+S [^a-z]
+Z [^a-z] 0 ""
+P   0	fail
+  1*	rune "\x00`{\U0010ffff" -> 2
+  2	match
+ "" false 0 2
+#59 204 "[[:^lower:]]"
+S [^a-z]
+Z [^a-z] 0 ""
+P   0	fail
+  1*	rune "\x00`{\U0010ffff" -> 2
+  2	match
+ "" false 0 2
+#60 204 "(?i)[[:lower:]]"
+S [A-Za-zſK]
+Z [A-Za-zſK] 0 ""
+P   0	fail
+  1*	rune "AZaz\u017f\u017f\u212a\u212a" -> 2
+  2	match
+ "" false 0 2
+#61 204 "(?i)[a-z]"
+S [A-Za-zſK]
+Z [A-Za-zſK] 0 ""
+P   0	fail
+  1*	rune "AZaz\u017f\u017f\u212a\u212a" -> 2
+  2	match
+ "" false 0 2
+#62 204 "(?i)[^[:lower:]]"
+S [^A-Za-zſK]
+Z [^A-Za-zſK] 0 ""
+P   0	fail
+  1*	rune "\x00@[`{\u017e\u0180\u2129\u212b\U0010ffff" -> 2
+  2	match
+ "" false 0 2
+#63 204 "(?i)[[:^lower:]]"
+S [^A-Za-zſK]
+Z [^A-Za-zſK] 0 ""
+P   0	fail
+  1*	rune "\x00@[`{\u017e\u0180\u2129\u212b\U0010ffff" -> 2
+  2	match
+ "" false 0 2
+#64 204 "\\d"
+S [0-9]
+Z [0-9] 0 ""
+P   0	fail
+  1*	rune "09" -> 2
+  2	match
+ "" false 0 2
+#65 204 "\\D"
+S [^0-9]
+Z [^0-9] 0 ""
+P   0	fail
+  1*	rune "\x00/:\U0010ffff" -> 2
+  2	match
+ "" false 0 2
+#66 204 "\\s"
+S [\t\n\f\r ]
+Z [\t\n\f\r ] 0 ""
+P   0	fail
+  1*	rune "\t\n\f\r  " -> 2
+  2	match
+ "" false 0 2
+#67 204 "\\S"
+S [^\t\n\f\r ]
+Z [^\t\n\f\r ] 0 ""
+P   0	fail
+  1*	rune "\x00\b\v\v\x0e\x1f!\U0010ffff" -> 2
+  2	match
+ "" false 0 2
+#68 204 "\\w"
+S [0-9A-Z_a-z]
+Z [0-9A-Z_a-z] 0 ""
+P   0	fail
+  1*	rune "09AZ__az" -> 2
+  2	match
+ "" false 0 2
+#69 204 "\\W"
+S [^0-9A-Z_a-z]
+Z [^0-9A-Z_a-z] 0 ""
+P   0	fail
+  1*	rune "\x00/:@[^``{\U0010ffff" -> 2
+  2	match
+ "" false 0 2
+#70 204 "(?i)\\w"
+S [0-9A-Z_a-zſK]
+Z [0-9A-Z_a-zſK] 0 ""
+P   0	fail
+  1*	rune "09AZ__az\u017f\u017f\u212a\u212a" -> 2
+  2	match
+ "" false 0 2
+#71 204 "(?i)\\W"
+S [^0-9A-Z_a-zſK]
+Z [^0-9A-Z_a-zſK] 0 ""
+P   0	fail
+  1*	rune "\x00/:@[^``{\u017e\u0180\u2129\u212b\U0010ffff" -> 2
+  2	match
+ "" false 0 2
+#72 204 "[^\\\\]"
+S [^\\]
+Z [^\\] 0 ""
+P   0	fail
+  1*	rune "\x00[]\U0010ffff" -> 2
+  2	match
+ "" false 0 2
+#73 204 "\\p{Braille}"
+S [⠀-⣿]
+Z [⠀-⣿] 0 ""
+P   0	fail
+  1*	rune "\u2800\u28ff" -> 2
+  2	match
+ "" false 0 2
+#74 204 "\\P{Braille}"
+S [^⠀-⣿]
+Z [^⠀-⣿] 0 ""
+P   0	fail
+  1*	rune "\x00\u27ff\u2900\U0010ffff" -> 2
+  2	match
+ "" false 0 2
+#75 204 "\\p{^Braille}"
+S [^⠀-⣿]
+Z [^⠀-⣿] 0 ""
+P   0	fail
+  1*	rune "\x00\u27ff\u2900\U0010ffff" -> 2
+  2	match
+ "" false 0 2
+#76 204 "\\P{^Braille}"
+S [⠀-⣿]
+Z [⠀-⣿] 0 ""
+P   0	fail
+  1*	rune "\u2800\u28ff" -> 2
+  2	match
+ "" false 0 2
+#77 204 "\\pZ"
+S [ \xa0\x{1680}\x{2000}-\x{200a}\x{2028}\x{2029}\x{202f}\x{205f}\x{3000}]
+Z [ \xa0\x{1680}\x{2000}-\x{200a}\x{2028}\x{2029}\x{202f}\x{205f}\x{3000}] 0 ""
+P   0	fail
+  1*	rune "  \u00a0\u00a0\u1680\u1680\u2000\u200a\u2028\u2029\u202f\u202f\u205f\u205f\u3000\u3000" -> 2
+  2	match
+ "" false 0 2
+#78 204 "[\\p{Braille}]"
+S [⠀-⣿]
+Z [⠀-⣿] 0 ""
+P   0	fail
+  1*	rune "\u2800\u28ff" -> 2
+  2	match
+ "" false 0 2
+#79 204 "[\\P{Braille}]"
+S [^⠀-⣿]
+Z [^⠀-⣿] 0 ""
+P   0	fail
+  1*	rune "\x00\u27ff\u2900\U0010ffff" -> 2
+  2	match
+ "" false 0 2
+#80 204 "[\\p{^Braille}]"
+S [^⠀-⣿]
+Z [^⠀-⣿] 0 ""
+P   0	fail
+  1*	rune "\x00\u27ff\u2900\U0010ffff" -> 2
+  2	match
+ "" false 0 2
+#81 204 "[\\P{^Braille}]"
+S [⠀-⣿]
+Z [⠀-⣿] 0 ""
+P   0	fail
+  1*	rune "\u2800\u28ff" -> 2
+  2	match
+ "" false 0 2
+#82 204 "[\\pZ]"
+S [ \xa0\x{1680}\x{2000}-\x{200a}\x{2028}\x{2029}\x{202f}\x{205f}\x{3000}]
+Z [ \xa0\x{1680}\x{2000}-\x{200a}\x{2028}\x{2029}\x{202f}\x{205f}\x{3000}] 0 ""
+P   0	fail
+  1*	rune "  \u00a0\u00a0\u1680\u1680\u2000\u200a\u2028\u2029\u202f\u202f\u205f\u205f\u3000\u3000" -> 2
+  2	match
+ "" false 0 2
+#83 204 "\\p{Lu}"
+S <2120 bytes c7bcc4aac046219d>
+Z <2120 bytes c7bcc4aac046219d> 0 ""
+P <8231 bytes ec269129c8382ad0> "" false 0 2
+#84 204 "\\p{Uppercase_Letter}"
+S <2120 bytes c7bcc4aac046219d>
+Z <2120 bytes c7bcc4aac046219d> 0 ""
+P <8231 bytes ec269129c8382ad0> "" false 0 2
+#85 204 "\\p{upper case-let ter}"
+S <2120 bytes c7bcc4aac046219d>
+Z <2120 bytes c7bcc4aac046219d> 0 ""
+P <8231 bytes ec269129c8382ad0> "" false 0 2
+#86 204 "\\p{__upper case-let ter}"
+S <2120 bytes c7bcc4aac046219d>
+Z <2120 bytes c7bcc4aac046219d> 0 ""
+P <8231 bytes ec269129c8382ad0> "" false 0 2
+#87 204 "\\p{Canadian_Aboriginal}"
+S [᐀-ᙿᢰ-ᣵ𑪰-𑪿]
+Z [᐀-ᙿᢰ-ᣵ𑪰-𑪿] 0 ""
+P   0	fail
+  1*	rune "\u1400\u167f\u18b0\u18f5\U00011ab0\U00011abf" -> 2
+  2	match
+ "" false 0 2
+#88 204 "[\\p{Lu}]"
+S <2120 bytes c7bcc4aac046219d>
+Z <2120 bytes c7bcc4aac046219d> 0 ""
+P <8231 bytes ec269129c8382ad0> "" false 0 2
+#89 204 "(?i)[\\p{Lu}]"
+S <1046 bytes 46c3007b7bf8d150>
+Z <1046 bytes 46c3007b7bf8d150> 0 ""
+P <2537 bytes 4cc1d5b0881f17ce> "" false 0 2
+#90 204 "\\p{Any}"
+S (?s:.)
+Z (?s:.) 0 ""
+P   0	fail
+  1*	any -> 2
+  2	match
+ "" false 0 2
+#91 204 "\\p{^Any}"
+S [^\x00-\x{10FFFF}]
+Z [^\x00-\x{10FFFF}] 0 ""
+P   0	fail
+  1*	rune "" -> 2
+  2	match
+ "" false 0 2
+#92 204 "(?i)\\p{ascii}"
+S [\x00-\x7fſK]
+Z [\x00-\x7fſK] 0 ""
+P   0	fail
+  1*	rune "\x00\x7f\u017f\u017f\u212a\u212a" -> 2
+  2	match
+ "" false 0 2
+#93 204 "\\p{Assigned}"
+S <5639 bytes 94bdb080b1836577>
+Z <5639 bytes 94bdb080b1836577> 0 ""
+P <12095 bytes 4365a5d1f5fb9866> "" false 0 2
+#94 204 "\\p{^Assigned}"
+S <10588 bytes 51363084b203a115>
+Z <10588 bytes 51363084b203a115> 0 ""
+P <12097 bytes 3fee5a44ab098928> "" false 0 2
+#95 204 "[\\012-\\234]\\141"
+S [\n-\x9c]a
+Z [\n-\x9c]a 0 ""
+P   0	fail
+  1*	rune "\n\u009c" -> 2
+  2	rune1 "a" -> 3
+  3	match
+ "" false 0 2
+#96 204 "[\\x{41}-\\x7a]\\x61"
+S [A-z]a
+Z [A-z]a 0 ""
+P   0	fail
+  1*	rune "Az" -> 2
+  2	rune1 "a" -> 3
+  3	match
+ "" false 0 2
+#97 204 "a{,2}"
+S a\{,2\}
+Z a\{,2\} 0 ""
+P   0	fail
+  1*	rune1 "a" -> 2
+  2	rune1 "{" -> 3
+  3	rune1 "," -> 4
+  4	rune1 "2" -> 5
+  5	rune1 "}" -> 6
+  6	match
+ "a{,2}" true 0 2
+#98 204 "\\.\\^\\$\\\\"
+S \.\^\$\\
+Z \.\^\$\\ 0 ""
+P   0	fail
+  1*	rune1 "." -> 2
+  2	rune1 "^" -> 3
+  3	rune1 "$" -> 4
+  4	rune1 "\\" -> 5
+  5	match
+ ".^$\\" true 0 2
+#99 204 "[a-zABC]"
+S [A-Ca-z]
+Z [A-Ca-z] 0 ""
+P   0	fail
+  1*	rune "ACaz" -> 2
+  2	match
+ "" false 0 2
+#100 204 "[^a]"
+S [^a]
+Z [^a] 0 ""
+P   0	fail
+  1*	rune "\x00`b\U0010ffff" -> 2
+  2	match
+ "" false 0 2
+#101 204 "[α-ε☺]"
+S [α-ε☺]
+Z [α-ε☺] 0 ""
+P   0	fail
+  1*	rune "\u03b1\u03b5\u263a\u263a" -> 2
+  2	match
+ "" false 0 2
+#102 204 "a*{"
+S a*\{
+Z a*\{ 0 ""
+P   0	fail
+  1	rune1 "a" -> 2
+  2*	alt -> 1, 3
+  3	rune1 "{" -> 4
+  4	match
+ "" false 0 2
+#103 204 "(?:ab)*"
+S (?:ab)*
+Z (?:ab)* 0 ""
+P   0	fail
+  1	rune1 "a" -> 2
+  2	rune1 "b" -> 3
+  3*	alt -> 1, 4
+  4	match
+ "" false 0 2
+#104 204 "(ab)*"
+S (ab)*
+Z (ab)* 1 ","
+P   0	fail
+  1	cap 2 -> 2
+  2	rune1 "a" -> 3
+  3	rune1 "b" -> 4
+  4	cap 3 -> 5
+  5*	alt -> 1, 6
+  6	match
+ "" false 0 4
+#105 204 "ab|cd"
+S ab|cd
+Z ab|cd 0 ""
+P   0	fail
+  1	rune1 "a" -> 2
+  2	rune1 "b" -> 6
+  3	rune1 "c" -> 4
+  4	rune1 "d" -> 6
+  5*	alt -> 1, 3
+  6	match
+ "" false 0 2
+#106 204 "a(b|c)d"
+S a([bc])d
+Z a([bc])d 1 ","
+P   0	fail
+  1*	rune1 "a" -> 2
+  2	cap 2 -> 3
+  3	rune "bc" -> 4
+  4	cap 3 -> 5
+  5	rune1 "d" -> 6
+  6	match
+ "a" false 0 4
+#107 204 "(?:a)"
+S a
+Z a 0 ""
+P   0	fail
+  1*	rune1 "a" -> 2
+  2	match
+ "a" true 0 2
+#108 204 "(?:ab)(?:cd)"
+S abcd
+Z abcd 0 ""
+P   0	fail
+  1*	rune1 "a" -> 2
+  2	rune1 "b" -> 3
+  3	rune1 "c" -> 4
+  4	rune1 "d" -> 5
+  5	match
+ "abcd" true 0 2
+#109 204 "(?:a+b+)(?:c+d+)"
+S a+b+c+d+
+Z a+b+c+d+ 0 ""
+P   0	fail
+  1*	rune1 "a" -> 2
+  2	alt -> 1, 3
+  3	rune1 "b" -> 4
+  4	alt -> 3, 5
+  5	rune1 "c" -> 6
+  6	alt -> 5, 7
+  7	rune1 "d" -> 8
+  8	alt -> 7, 9
+  9	match
+ "a" false 0 2
+#110 204 "(?:a+|b+)|(?:c+|d+)"
+S a+|b+|c+|d+
+Z a+|b+|c+|d+ 0 ""
+P   0	fail
+  1	rune1 "a" -> 2
+  2	alt -> 1, 12
+  3	rune1 "b" -> 4
+  4	alt -> 3, 12
+  5	alt -> 1, 3
+  6	rune1 "c" -> 7
+  7	alt -> 6, 12
+  8	alt -> 5, 6
+  9	rune1 "d" -> 10
+ 10	alt -> 9, 12
+ 11*	alt -> 8, 9
+ 12	match
+ "" false 0 2
+#111 204 "(?:a|b)|(?:c|d)"
+S [a-d]
+Z [a-d] 0 ""
+P   0	fail
+  1*	rune "ad" -> 2
+  2	match
+ "" false 0 2
+#112 204 "a|."
+S (?s:.)
+Z (?s:.) 0 ""
+P   0	fail
+  1*	any -> 2
+  2	match
+ "" false 0 2
+#113 204 ".|a"
+S (?s:.)
+Z (?s:.) 0 ""
+P   0	fail
+  1*	any -> 2
+  2	match
+ "" false 0 2
+#114 204 "(?:[abc]|A|Z|hello|world)"
+S [AZa-c]|hello|world
+Z [AZa-c]|hello|world 0 ""
+P   0	fail
+  1	rune "AAZZac" -> 14
+  2	rune1 "h" -> 3
+  3	rune1 "e" -> 4
+  4	rune1 "l" -> 5
+  5	rune1 "l" -> 6
+  6	rune1 "o" -> 14
+  7	alt -> 1, 2
+  8	rune1 "w" -> 9
+  9	rune1 "o" -> 10
+ 10	rune1 "r" -> 11
+ 11	rune1 "l" -> 12
+ 12	rune1 "d" -> 14
+ 13*	alt -> 7, 8
+ 14	match
+ "" false 0 2
+#115 204 "(?:[abc]|A|Z)"
+S [AZa-c]
+Z [AZa-c] 0 ""
+P   0	fail
+  1*	rune "AAZZac" -> 2
+  2	match
+ "" false 0 2
+#116 204 "\\Q+|*?{[\\E"
+S \+\|\*\?\{\[
+Z \+\|\*\?\{\[ 0 ""
+P   0	fail
+  1*	rune1 "+" -> 2
+  2	rune1 "|" -> 3
+  3	rune1 "*" -> 4
+  4	rune1 "?" -> 5
+  5	rune1 "{" -> 6
+  6	rune1 "[" -> 7
+  7	match
+ "+|*?{[" true 0 2
+#117 204 "\\Q+\\E+"
+S \++
+Z \++ 0 ""
+P   0	fail
+  1*	rune1 "+" -> 2
+  2	alt -> 1, 3
+  3	match
+ "+" false 0 2
+#118 204 "\\Qab\\E+"
+S ab+
+Z ab+ 0 ""
+P   0	fail
+  1*	rune1 "a" -> 2
+  2	rune1 "b" -> 3
+  3	alt -> 2, 4
+  4	match
+ "ab" false 0 2
+#119 204 "\\Q\\\\E"
+S \\
+Z \\ 0 ""
+P   0	fail
+  1*	rune1 "\\" -> 2
+  2	match
+ "\\" true 0 2
+#120 204 "\\Q\\\\\\E"
+S \\\\
+Z \\\\ 0 ""
+P   0	fail
+  1*	rune1 "\\" -> 2
+  2	rune1 "\\" -> 3
+  3	match
+ "\\\\" true 0 2
+#121 204 "(?m)^"
+S (?m:^)
+Z (?m:^) 0 ""
+P   0	fail
+  1*	empty 1 -> 2
+  2	match
+ "" false 1 2
+#122 204 "(?m)$"
+S (?m:$)
+Z (?m:$) 0 ""
+P   0	fail
+  1*	empty 2 -> 2
+  2	match
+ "" false 2 2
+#123 204 "(?-m)^"
+S \A
+Z \A 0 ""
+P   0	fail
+  1*	empty 4 -> 2
+  2	match
+ "" false 4 2
+#124 204 "(?-m)$"
+S (?-m:$)
+Z (?-m:$) 0 ""
+P   0	fail
+  1*	empty 8 -> 2
+  2	match
+ "" false 8 2
+#125 204 "(?m)\\A"
+S \A
+Z \A 0 ""
+P   0	fail
+  1*	empty 4 -> 2
+  2	match
+ "" false 4 2
+#126 204 "(?m)\\z"
+S \z
+Z \z 0 ""
+P   0	fail
+  1*	empty 8 -> 2
+  2	match
+ "" false 8 2
+#127 204 "(?-m)\\A"
+S \A
+Z \A 0 ""
+P   0	fail
+  1*	empty 4 -> 2
+  2	match
+ "" false 4 2
+#128 204 "(?-m)\\z"
+S \z
+Z \z 0 ""
+P   0	fail
+  1*	empty 8 -> 2
+  2	match
+ "" false 8 2
+#129 204 "(?P<name>a)"
+S (?P<name>a)
+Z (?P<name>a) 1 ",name"
+P   0	fail
+  1*	cap 2 -> 2
+  2	rune1 "a" -> 3
+  3	cap 3 -> 4
+  4	match
+ "a" true 0 4
+#130 204 "(?<name>a)"
+S (?P<name>a)
+Z (?P<name>a) 1 ",name"
+P   0	fail
+  1*	cap 2 -> 2
+  2	rune1 "a" -> 3
+  3	cap 3 -> 4
+  4	match
+ "a" true 0 4
+#131 204 "[Aa]"
+S (?i:A)
+Z (?i:A) 0 ""
+P   0	fail
+  1*	rune "A"/i -> 2
+  2	match
+ "" false 0 2
+#132 204 "[\\x{100}\\x{101}]"
+S (?i:Ā)
+Z (?i:Ā) 0 ""
+P   0	fail
+  1*	rune "\u0100"/i -> 2
+  2	match
+ "" false 0 2
+#133 204 "[Δδ]"
+S (?i:Δ)
+Z (?i:Δ) 0 ""
+P   0	fail
+  1*	rune "\u0394"/i -> 2
+  2	match
+ "" false 0 2
+#134 204 "abcde"
+S abcde
+Z abcde 0 ""
+P   0	fail
+  1*	rune1 "a" -> 2
+  2	rune1 "b" -> 3
+  3	rune1 "c" -> 4
+  4	rune1 "d" -> 5
+  5	rune1 "e" -> 6
+  6	match
+ "abcde" true 0 2
+#135 204 "[Aa][Bb]cd"
+S (?i:AB)cd
+Z (?i:AB)cd 0 ""
+P   0	fail
+  1*	rune "A"/i -> 2
+  2	rune "B"/i -> 3
+  3	rune1 "c" -> 4
+  4	rune1 "d" -> 5
+  5	match
+ "" false 0 2
+#136 204 "abc|abd|aef|bcx|bcy"
+S a(?:b[cd]|ef)|bc[xy]
+Z a(?:b[cd]|ef)|bc[xy] 0 ""
+P   0	fail
+  1	rune1 "a" -> 6
+  2	rune1 "b" -> 3
+  3	rune "cd" -> 11
+  4	rune1 "e" -> 5
+  5	rune1 "f" -> 11
+  6	alt -> 2, 4
+  7	rune1 "b" -> 8
+  8	rune1 "c" -> 9
+  9	rune "xy" -> 11
+ 10*	alt -> 1, 7
+ 11	match
+ "" false 0 2
+#137 204 "ax+y|ax+z|ay+w"
+S a(?:x+y|x+z|y+w)
+Z a(?:x+y|x+z|y+w) 0 ""
+P   0	fail
+  1*	rune1 "a" -> 12
+  2	rune1 "x" -> 3
+  3	alt -> 2, 4
+  4	rune1 "y" -> 13
+  5	rune1 "x" -> 6
+  6	alt -> 5, 7
+  7	rune1 "z" -> 13
+  8	alt -> 2, 5
+  9	rune1 "y" -> 10
+ 10	alt -> 9, 11
+ 11	rune1 "w" -> 13
+ 12	alt -> 8, 9
+ 13	match
+ "a" false 0 2
+#138 204 "(?:.)"
+S (?s:.)
+Z (?s:.) 0 ""
+P   0	fail
+  1*	any -> 2
+  2	match
+ "" false 0 2
+#139 204 "(?:x|(?:xa))"
+S x(?:(?:)|a)
+Z x(?:(?:)|a) 0 ""
+P   0	fail
+  1*	rune1 "x" -> 4
+  2	nop -> 5
+  3	rune1 "a" -> 5
+  4	alt -> 2, 3
+  5	match
+ "x" false 0 2
+#140 204 "(?:.|(?:.a))"
+S (?s:.(?:(?:)|a))
+Z (?s:.(?:(?:)|a)) 0 ""
+P   0	fail
+  1*	any -> 4
+  2	nop -> 5
+  3	rune1 "a" -> 5
+  4	alt -> 2, 3
+  5	match
+ "" false 0 2
+#141 204 "(?:A(?:A|a))"
+S A(?i:A)
+Z A(?i:A) 0 ""
+P   0	fail
+  1*	rune1 "A" -> 2
+  2	rune "A"/i -> 3
+  3	match
+ "A" false 0 2
+#142 204 "(?:A|a)"
+S (?i:A)
+Z (?i:A) 0 ""
+P   0	fail
+  1*	rune "A"/i -> 2
+  2	match
+ "" false 0 2
+#143 204 "A|(?:A|a)"
+S (?i:A)
+Z (?i:A) 0 ""
+P   0	fail
+  1*	rune "A"/i -> 2
+  2	match
+ "" false 0 2
+#144 204 "(?s)."
+S (?s:.)
+Z (?s:.) 0 ""
+P   0	fail
+  1*	any -> 2
+  2	match
+ "" false 0 2
+#145 204 "(?-s)."
+S (?-s:.)
+Z (?-s:.) 0 ""
+P   0	fail
+  1*	anynotnl -> 2
+  2	match
+ "" false 0 2
+#146 204 "(?:(?:^).)"
+S (?ms:^.)
+Z (?ms:^.) 0 ""
+P   0	fail
+  1*	empty 1 -> 2
+  2	any -> 3
+  3	match
+ "" false 1 2
+#147 204 "(?-s)(?:(?:^).)"
+S (?m-s:^.)
+Z (?m-s:^.) 0 ""
+P   0	fail
+  1*	empty 1 -> 2
+  2	anynotnl -> 3
+  3	match
+ "" false 1 2
+#148 204 "[\\s\\S]a"
+S [\x00-\x{10ffff}]a
+Z [\x00-\x{10ffff}]a 0 ""
+P   0	fail
+  1*	any -> 2
+  2	rune1 "a" -> 3
+  3	match
+ "" false 0 2
+#149 204 "abc|abd"
+S ab[cd]
+Z ab[cd] 0 ""
+P   0	fail
+  1*	rune1 "a" -> 2
+  2	rune1 "b" -> 3
+  3	rune "cd" -> 4
+  4	match
+ "ab" false 0 2
+#150 204 "a(?:b)c|abd"
+S ab[cd]
+Z ab[cd] 0 ""
+P   0	fail
+  1*	rune1 "a" -> 2
+  2	rune1 "b" -> 3
+  3	rune "cd" -> 4
+  4	match
+ "ab" false 0 2
+#151 204 "abc|abd|aef|bcx|bcy"
+S a(?:b[cd]|ef)|bc[xy]
+Z a(?:b[cd]|ef)|bc[xy] 0 ""
+P   0	fail
+  1	rune1 "a" -> 6
+  2	rune1 "b" -> 3
+  3	rune "cd" -> 11
+  4	rune1 "e" -> 5
+  5	rune1 "f" -> 11
+  6	alt -> 2, 4
+  7	rune1 "b" -> 8
+  8	rune1 "c" -> 9
+  9	rune "xy" -> 11
+ 10*	alt -> 1, 7
+ 11	match
+ "" false 0 2
+#152 204 "abc|x|abd"
+S abc|x|abd
+Z abc|x|abd 0 ""
+P   0	fail
+  1	rune1 "a" -> 2
+  2	rune1 "b" -> 3
+  3	rune1 "c" -> 10
+  4	rune1 "x" -> 10
+  5	alt -> 1, 4
+  6	rune1 "a" -> 7
+  7	rune1 "b" -> 8
+  8	rune1 "d" -> 10
+  9*	alt -> 5, 6
+ 10	match
+ "" false 0 2
+#153 204 "(?i)abc|ABD"
+S (?i:AB[CDcd])
+Z (?i:AB[CDcd]) 0 ""
+P   0	fail
+  1*	rune "A"/i -> 2
+  2	rune "B"/i -> 3
+  3	rune "CDcd" -> 4
+  4	match
+ "" false 0 2
+#154 204 "[ab]c|[ab]d"
+S [ab][cd]
+Z [ab][cd] 0 ""
+P   0	fail
+  1*	rune "ab" -> 2
+  2	rune "cd" -> 3
+  3	match
+ "" false 0 2
+#155 204 ".c|.d"
+S (?s:.[cd])
+Z (?s:.[cd]) 0 ""
+P   0	fail
+  1*	any -> 2
+  2	rune "cd" -> 3
+  3	match
+ "" false 0 2
+#156 204 "x{2}|x{2}[0-9]"
+S x{2}(?:(?:)|[0-9])
+Z xx(?:(?:)|[0-9]) 0 ""
+P   0	fail
+  1*	rune1 "x" -> 2
+  2	rune1 "x" -> 5
+  3	nop -> 6
+  4	rune "09" -> 6
+  5	alt -> 3, 4
+  6	match
+ "xx" false 0 2
+#157 204 "x{2}y|x{2}[0-9]y"
+S x{2}(?:y|[0-9]y)
+Z xx(?:y|[0-9]y) 0 ""
+P   0	fail
+  1*	rune1 "x" -> 2
+  2	rune1 "x" -> 6
+  3	rune1 "y" -> 7
+  4	rune "09" -> 5
+  5	rune1 "y" -> 7
+  6	alt -> 3, 4
+  7	match
+ "xx" false 0 2
+#158 204 "a.*?c|a.*?b"
+S (?s:a(?:.*?c|.*?b))
+Z (?s:a(?:.*?c|.*?b)) 0 ""
+P   0	fail
+  1*	rune1 "a" -> 8
+  2	any -> 3
+  3	alt -> 4, 2
+  4	rune1 "c" -> 9
+  5	any -> 6
+  6	alt -> 7, 5
+  7	rune1 "b" -> 9
+  8	alt -> 3, 6
+  9	match
+ "a" false 0 2
+#159 204 "((((((((((x{2}){2}){2}){2}){2}){2}){2}){2}){2}))"
+S ((((((((((x{2}){2}){2}){2}){2}){2}){2}){2}){2}))
+Z <1536 bytes 137b7c0ef21c4a77> 10 ",,,,,,,,,,"
+P <30158 bytes 8b967e7d5abda399> "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" true 0 22
+#160 204 "((((((((((x{1}){2}){2}){2}){2}){2}){2}){2}){2}){2})"
+S ((((((((((x{1}){2}){2}){2}){2}){2}){2}){2}){2}){2})
+Z <2558 bytes 3a505a9490f15792> 10 ",,,,,,,,,,"
+P <50584 bytes 1f63c67153ce71a8> "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" true 0 22
+#161 204 <2000 bytes b78ef55ff2e23882>
+S <1998 bytes 4b8fb586137f5494>
+Z <1998 bytes 4b8fb586137f5494> 999 ",,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,"
+P <40787 bytes b055bb79605c1bc7> "" true 0 2000
+#162 204 <4997 bytes 59f095d4615c786f>
+S <4995 bytes 73d4f83b07f02d37>
+Z (?:) 0 ""
+P   0	fail
+  1*	nop -> 2
+  2	match
+ "" true 0 2
+#163 204 <12349 bytes ce6ddc495a5f0a7e>
+S ()
+Z () 1 ","
+P   0	fail
+  1*	cap 2 -> 2
+  2	nop -> 3
+  3	cap 3 -> 4
+  4	match
+ "" true 0 4
+#164 1 "AbCdE"
+S (?i:ABCDE)
+Z (?i:ABCDE) 0 ""
+P   0	fail
+  1*	rune "A"/i -> 2
+  2	rune "B"/i -> 3
+  3	rune "C"/i -> 4
+  4	rune "D"/i -> 5
+  5	rune "E"/i -> 6
+  6	match
+ "" false 0 2
+#165 1 "[Aa]"
+S (?i:A)
+Z (?i:A) 0 ""
+P   0	fail
+  1*	rune "A"/i -> 2
+  2	match
+ "" false 0 2
+#166 1 "a"
+S (?i:A)
+Z (?i:A) 0 ""
+P   0	fail
+  1*	rune "A"/i -> 2
+  2	match
+ "" false 0 2
+#167 1 "A[F-g]"
+S (?i:A[A-zſK])
+Z (?i:A[A-zſK]) 0 ""
+P   0	fail
+  1*	rune "A"/i -> 2
+  2	rune "Az\u017f\u017f\u212a\u212a" -> 3
+  3	match
+ "" false 0 2
+#168 1 "[[:upper:]]"
+S [A-Za-zſK]
+Z [A-Za-zſK] 0 ""
+P   0	fail
+  1*	rune "AZaz\u017f\u017f\u212a\u212a" -> 2
+  2	match
+ "" false 0 2
+#169 1 "[[:lower:]]"
+S [A-Za-zſK]
+Z [A-Za-zſK] 0 ""
+P   0	fail
+  1*	rune "AZaz\u017f\u017f\u212a\u212a" -> 2
+  2	match
+ "" false 0 2
+#170 2 "(|)^$.[*+?]{5,10},\\"
+S \(\|\)\^\$\.\[\*\+\?\]\{5,10\},\\
+Z \(\|\)\^\$\.\[\*\+\?\]\{5,10\},\\ 0 ""
+P <393 bytes 83f3badbafe056b5> "(|)^$.[*+?]{5,10},\\" true 0 2
+#171 12 "."
+S (?s:.)
+Z (?s:.) 0 ""
+P   0	fail
+  1*	any -> 2
+  2	match
+ "" false 0 2
+#172 12 "\n"
+S \n
+Z \n 0 ""
+P   0	fail
+  1*	rune1 "\n" -> 2
+  2	match
+ "\n" true 0 2
+#173 12 "[^a]"
+S [^a]
+Z [^a] 0 ""
+P   0	fail
+  1*	rune "\x00`b\U0010ffff" -> 2
+  2	match
+ "" false 0 2
+#174 12 "[a\\n]"
+S [\na]
+Z [\na] 0 ""
+P   0	fail
+  1*	rune "\n\naa" -> 2
+  2	match
+ "" false 0 2
+#175 0 "."
+S (?-s:.)
+Z (?-s:.) 0 ""
+P   0	fail
+  1*	anynotnl -> 2
+  2	match
+ "" false 0 2
+#176 0 "\n"
+S \n
+Z \n 0 ""
+P   0	fail
+  1*	rune1 "\n" -> 2
+  2	match
+ "\n" true 0 2
+#177 0 "[^a]"
+S [^\na]
+Z [^\na] 0 ""
+P   0	fail
+  1*	rune "\x00\t\v`b\U0010ffff" -> 2
+  2	match
+ "" false 0 2
+#178 0 "[a\\n]"
+S [\na]
+Z [\na] 0 ""
+P   0	fail
+  1*	rune "\n\naa" -> 2
+  2	match
+ "" false 0 2
+#179 212 "("
+ERR "error parsing regexp: missing closing ): `(`"
+#180 0 "("
+ERR "error parsing regexp: missing closing ): `(`"
+#181 212 ")"
+ERR "error parsing regexp: unexpected ): `)`"
+#182 0 ")"
+ERR "error parsing regexp: unexpected ): `)`"
+#183 212 "(a"
+ERR "error parsing regexp: missing closing ): `(a`"
+#184 0 "(a"
+ERR "error parsing regexp: missing closing ): `(a`"
+#185 212 "a)"
+ERR "error parsing regexp: unexpected ): `a)`"
+#186 0 "a)"
+ERR "error parsing regexp: unexpected ): `a)`"
+#187 212 "(a))"
+ERR "error parsing regexp: unexpected ): `(a))`"
+#188 0 "(a))"
+ERR "error parsing regexp: unexpected ): `(a))`"
+#189 212 "(a|b|"
+ERR "error parsing regexp: missing closing ): `(a|b|`"
+#190 0 "(a|b|"
+ERR "error parsing regexp: missing closing ): `(a|b|`"
+#191 212 "a|b|)"
+ERR "error parsing regexp: unexpected ): `a|b|)`"
+#192 0 "a|b|)"
+ERR "error parsing regexp: unexpected ): `a|b|)`"
+#193 212 "(a|b|))"
+ERR "error parsing regexp: unexpected ): `(a|b|))`"
+#194 0 "(a|b|))"
+ERR "error parsing regexp: unexpected ): `(a|b|))`"
+#195 212 "(a|b"
+ERR "error parsing regexp: missing closing ): `(a|b`"
+#196 0 "(a|b"
+ERR "error parsing regexp: missing closing ): `(a|b`"
+#197 212 "a|b)"
+ERR "error parsing regexp: unexpected ): `a|b)`"
+#198 0 "a|b)"
+ERR "error parsing regexp: unexpected ): `a|b)`"
+#199 212 "(a|b))"
+ERR "error parsing regexp: unexpected ): `(a|b))`"
+#200 0 "(a|b))"
+ERR "error parsing regexp: unexpected ): `(a|b))`"
+#201 212 "[a-z"
+ERR "error parsing regexp: missing closing ]: `[a-z`"
+#202 0 "[a-z"
+ERR "error parsing regexp: missing closing ]: `[a-z`"
+#203 212 "([a-z)"
+ERR "error parsing regexp: missing closing ]: `[a-z)`"
+#204 0 "([a-z)"
+ERR "error parsing regexp: missing closing ]: `[a-z)`"
+#205 212 "[a-z)"
+ERR "error parsing regexp: missing closing ]: `[a-z)`"
+#206 0 "[a-z)"
+ERR "error parsing regexp: missing closing ]: `[a-z)`"
+#207 212 "([a-z]))"
+ERR "error parsing regexp: unexpected ): `([a-z]))`"
+#208 0 "([a-z]))"
+ERR "error parsing regexp: unexpected ): `([a-z]))`"
+#209 212 "x{1001}"
+ERR "error parsing regexp: invalid repeat count: `{1001}`"
+#210 0 "x{1001}"
+ERR "error parsing regexp: invalid repeat count: `{1001}`"
+#211 212 "x{9876543210}"
+ERR "error parsing regexp: invalid repeat count: `{9876543210}`"
+#212 0 "x{9876543210}"
+ERR "error parsing regexp: invalid repeat count: `{9876543210}`"
+#213 212 "x{2,1}"
+ERR "error parsing regexp: invalid repeat count: `{2,1}`"
+#214 0 "x{2,1}"
+ERR "error parsing regexp: invalid repeat count: `{2,1}`"
+#215 212 "x{1,9876543210}"
+ERR "error parsing regexp: invalid repeat count: `{1,9876543210}`"
+#216 0 "x{1,9876543210}"
+ERR "error parsing regexp: invalid repeat count: `{1,9876543210}`"
+#217 212 "\xff"
+ERR "error parsing regexp: invalid UTF-8: `\xff`"
+#218 0 "\xff"
+ERR "error parsing regexp: invalid UTF-8: `\xff`"
+#219 212 "[\xff]"
+ERR "error parsing regexp: invalid UTF-8: `\xff]`"
+#220 0 "[\xff]"
+ERR "error parsing regexp: invalid UTF-8: `\xff]`"
+#221 212 "[\\\xff]"
+ERR "error parsing regexp: invalid UTF-8: `\xff]`"
+#222 0 "[\\\xff]"
+ERR "error parsing regexp: invalid UTF-8: `\xff]`"
+#223 212 "\\\xff"
+ERR "error parsing regexp: invalid UTF-8: `\xff`"
+#224 0 "\\\xff"
+ERR "error parsing regexp: invalid UTF-8: `\xff`"
+#225 212 "(?P<name>a"
+ERR "error parsing regexp: missing closing ): `(?P<name>a`"
+#226 0 "(?P<name>a"
+ERR "error parsing regexp: missing argument to repetition operator: `?`"
+#227 212 "(?P<name>"
+ERR "error parsing regexp: missing closing ): `(?P<name>`"
+#228 0 "(?P<name>"
+ERR "error parsing regexp: missing argument to repetition operator: `?`"
+#229 212 "(?P<name"
+ERR "error parsing regexp: invalid named capture: `(?P<name`"
+#230 0 "(?P<name"
+ERR "error parsing regexp: missing argument to repetition operator: `?`"
+#231 212 "(?P<x y>a)"
+ERR "error parsing regexp: invalid named capture: `(?P<x y>`"
+#232 0 "(?P<x y>a)"
+ERR "error parsing regexp: missing argument to repetition operator: `?`"
+#233 212 "(?P<>a)"
+ERR "error parsing regexp: invalid named capture: `(?P<>`"
+#234 0 "(?P<>a)"
+ERR "error parsing regexp: missing argument to repetition operator: `?`"
+#235 212 "(?<name>a"
+ERR "error parsing regexp: missing closing ): `(?<name>a`"
+#236 0 "(?<name>a"
+ERR "error parsing regexp: missing argument to repetition operator: `?`"
+#237 212 "(?<name>"
+ERR "error parsing regexp: missing closing ): `(?<name>`"
+#238 0 "(?<name>"
+ERR "error parsing regexp: missing argument to repetition operator: `?`"
+#239 212 "(?<name"
+ERR "error parsing regexp: invalid named capture: `(?<name`"
+#240 0 "(?<name"
+ERR "error parsing regexp: missing argument to repetition operator: `?`"
+#241 212 "(?<x y>a)"
+ERR "error parsing regexp: invalid named capture: `(?<x y>`"
+#242 0 "(?<x y>a)"
+ERR "error parsing regexp: missing argument to repetition operator: `?`"
+#243 212 "(?<>a)"
+ERR "error parsing regexp: invalid named capture: `(?<>`"
+#244 0 "(?<>a)"
+ERR "error parsing regexp: missing argument to repetition operator: `?`"
+#245 212 "[a-Z]"
+ERR "error parsing regexp: invalid character class range: `a-Z`"
+#246 0 "[a-Z]"
+ERR "error parsing regexp: invalid character class range: `a-Z`"
+#247 212 "(?i)[a-Z]"
+ERR "error parsing regexp: invalid character class range: `a-Z`"
+#248 0 "(?i)[a-Z]"
+ERR "error parsing regexp: missing argument to repetition operator: `?`"
+#249 212 "\\Q\\E*"
+ERR "error parsing regexp: missing argument to repetition operator: `*`"
+#250 0 "\\Q\\E*"
+ERR "error parsing regexp: invalid escape sequence: `\\Q`"
+#251 212 "a{100000}"
+ERR "error parsing regexp: invalid repeat count: `{100000}`"
+#252 0 "a{100000}"
+ERR "error parsing regexp: invalid repeat count: `{100000}`"
+#253 212 "a{100000,}"
+ERR "error parsing regexp: invalid repeat count: `{100000,}`"
+#254 0 "a{100000,}"
+ERR "error parsing regexp: invalid repeat count: `{100000,}`"
+#255 212 "((((((((((x{2}){2}){2}){2}){2}){2}){2}){2}){2}){2})"
+ERR "error parsing regexp: invalid repeat count: `{2}`"
+#256 0 "((((((((((x{2}){2}){2}){2}){2}){2}){2}){2}){2}){2})"
+ERR "error parsing regexp: invalid repeat count: `{2}`"
+#257 212 <2002 bytes 2476116189f55f2d>
+ERR <2055 bytes 8b7ebc26137a1608>
+#258 0 <2002 bytes 2476116189f55f2d>
+ERR <2055 bytes 8b7ebc26137a1608>
+#259 212 <5002 bytes f9d14165222b74ed>
+ERR <5055 bytes 7035806bd2746ca8>
+#260 0 <5002 bytes f9d14165222b74ed>
+ERR "error parsing regexp: missing argument to repetition operator: `?`"
+#261 212 <5010 bytes adff7e78a918fcfd>
+ERR <5056 bytes 9a828001ef5efeb9>
+#262 0 <5010 bytes adff7e78a918fcfd>
+ERR <5056 bytes 9a828001ef5efeb9>
+#263 212 <11002 bytes 4dc102472019febd>
+ERR <11048 bytes 7c812d9b8026049d>
+#264 0 <11002 bytes 4dc102472019febd>
+ERR <11048 bytes 7c812d9b8026049d>
+#265 212 <108002 bytes d8ae3cd3d81aaaa5>
+ERR <108048 bytes f4efbb7c75814615>
+#266 0 <108002 bytes d8ae3cd3d81aaaa5>
+ERR "error parsing regexp: invalid escape sequence: `\\p`"
+#267 212 "[a-b-c]"
+S [\-a-c]
+Z [\-a-c] 0 ""
+P   0	fail
+  1*	rune "--ac" -> 2
+  2	match
+ "" false 0 2
+#268 0 "[a-b-c]"
+ERR "error parsing regexp: invalid character class range: `-c`"
+#269 212 "\\Qabc\\E"
+S abc
+Z abc 0 ""
+P   0	fail
+  1*	rune1 "a" -> 2
+  2	rune1 "b" -> 3
+  3	rune1 "c" -> 4
+  4	match
+ "abc" true 0 2
+#270 0 "\\Qabc\\E"
+ERR "error parsing regexp: invalid escape sequence: `\\Q`"
+#271 212 "\\Q*+?{[\\E"
+S \*\+\?\{\[
+Z \*\+\?\{\[ 0 ""
+P   0	fail
+  1*	rune1 "*" -> 2
+  2	rune1 "+" -> 3
+  3	rune1 "?" -> 4
+  4	rune1 "{" -> 5
+  5	rune1 "[" -> 6
+  6	match
+ "*+?{[" true 0 2
+#272 0 "\\Q*+?{[\\E"
+ERR "error parsing regexp: invalid escape sequence: `\\Q`"
+#273 212 "\\Q\\\\E"
+S \\
+Z \\ 0 ""
+P   0	fail
+  1*	rune1 "\\" -> 2
+  2	match
+ "\\" true 0 2
+#274 0 "\\Q\\\\E"
+ERR "error parsing regexp: invalid escape sequence: `\\Q`"
+#275 212 "\\Q\\\\\\E"
+S \\\\
+Z \\\\ 0 ""
+P   0	fail
+  1*	rune1 "\\" -> 2
+  2	rune1 "\\" -> 3
+  3	match
+ "\\\\" true 0 2
+#276 0 "\\Q\\\\\\E"
+ERR "error parsing regexp: invalid escape sequence: `\\Q`"
+#277 212 "\\Q\\\\\\\\E"
+S \\\\\\
+Z \\\\\\ 0 ""
+P   0	fail
+  1*	rune1 "\\" -> 2
+  2	rune1 "\\" -> 3
+  3	rune1 "\\" -> 4
+  4	match
+ "\\\\\\" true 0 2
+#278 0 "\\Q\\\\\\\\E"
+ERR "error parsing regexp: invalid escape sequence: `\\Q`"
+#279 212 "\\Q\\\\\\\\\\E"
+S \\\\\\\\
+Z \\\\\\\\ 0 ""
+P   0	fail
+  1*	rune1 "\\" -> 2
+  2	rune1 "\\" -> 3
+  3	rune1 "\\" -> 4
+  4	rune1 "\\" -> 5
+  5	match
+ "\\\\\\\\" true 0 2
+#280 0 "\\Q\\\\\\\\\\E"
+ERR "error parsing regexp: invalid escape sequence: `\\Q`"
+#281 212 "(?:a)"
+S a
+Z a 0 ""
+P   0	fail
+  1*	rune1 "a" -> 2
+  2	match
+ "a" true 0 2
+#282 0 "(?:a)"
+ERR "error parsing regexp: missing argument to repetition operator: `?`"
+#283 212 "(?P<name>a)"
+S (?P<name>a)
+Z (?P<name>a) 1 ",name"
+P   0	fail
+  1*	cap 2 -> 2
+  2	rune1 "a" -> 3
+  3	cap 3 -> 4
+  4	match
+ "a" true 0 4
+#284 0 "(?P<name>a)"
+ERR "error parsing regexp: missing argument to repetition operator: `?`"
+#285 212 "a++"
+ERR "error parsing regexp: invalid nested repetition operator: `++`"
+#286 0 "a++"
+S (?:a+)+
+Z a+ 0 ""
+P   0	fail
+  1*	rune1 "a" -> 2
+  2	alt -> 1, 3
+  3	match
+ "a" false 0 2
+#287 212 "a**"
+ERR "error parsing regexp: invalid nested repetition operator: `**`"
+#288 0 "a**"
+S (?:a*)*
+Z a* 0 ""
+P   0	fail
+  1	rune1 "a" -> 2
+  2*	alt -> 1, 3
+  3	match
+ "" false 0 2
+#289 212 "a?*"
+ERR "error parsing regexp: invalid nested repetition operator: `?*`"
+#290 0 "a?*"
+S (?:a?)*
+Z (?:a?)* 0 ""
+P   0	fail
+  1	rune1 "a" -> 3
+  2	alt -> 1, 3
+  3	alt -> 2, 5
+  4*	alt -> 2, 5
+  5	match
+ "" false 0 2
+#291 212 "a+*"
+ERR "error parsing regexp: invalid nested repetition operator: `+*`"
+#292 0 "a+*"
+S (?:a+)*
+Z (?:a+)* 0 ""
+P   0	fail
+  1	rune1 "a" -> 2
+  2	alt -> 1, 3
+  3*	alt -> 1, 4
+  4	match
+ "" false 0 2
+#293 212 "a{1}*"
+ERR "error parsing regexp: invalid nested repetition operator: `{1}*`"
+#294 0 "a{1}*"
+S (?:a{1})*
+Z a* 0 ""
+P   0	fail
+  1	rune1 "a" -> 2
+  2*	alt -> 1, 3
+  3	match
+ "" false 0 2
+#295 212 ".{1}{2}.{3}"
+ERR "error parsing regexp: invalid nested repetition operator: `{1}{2}`"
+#296 0 ".{1}{2}.{3}"
+S (?-s:(?:.{1}){2}.{3})
+Z (?-s:.....) 0 ""
+P   0	fail
+  1*	anynotnl -> 2
+  2	anynotnl -> 3
+  3	anynotnl -> 4
+  4	anynotnl -> 5
+  5	anynotnl -> 6
+  6	match
+ "" false 0 2
+#297 212 "x(?i:ab*c|d?e)1"
+S x(?i:AB*C|D?E)1
+Z x(?i:AB*C|D?E)1 0 ""
+P   0	fail
+  1*	rune1 "x" -> 9
+  2	rune "A"/i -> 4
+  3	rune "B"/i -> 4
+  4	alt -> 3, 5
+  5	rune "C"/i -> 10
+  6	rune "D"/i -> 8
+  7	alt -> 6, 8
+  8	rune "E"/i -> 10
+  9	alt -> 2, 7
+ 10	rune1 "1" -> 11
+ 11	match
+ "x" false 0 2
+#298 212 "x(?i:ab*cd?e)1"
+S x(?i:AB*CD?E)1
+Z x(?i:AB*CD?E)1 0 ""
+P   0	fail
+  1*	rune1 "x" -> 2
+  2	rune "A"/i -> 4
+  3	rune "B"/i -> 4
+  4	alt -> 3, 5
+  5	rune "C"/i -> 7
+  6	rune "D"/i -> 8
+  7	alt -> 6, 8
+  8	rune "E"/i -> 9
+  9	rune1 "1" -> 10
+ 10	match
+ "x" false 0 2
+#299 212 "0(?i:ab*c|d?e)1"
+S (?i:0(?:AB*C|D?E)1)
+Z (?i:0(?:AB*C|D?E)1) 0 ""
+P   0	fail
+  1*	rune1 "0" -> 9
+  2	rune "A"/i -> 4
+  3	rune "B"/i -> 4
+  4	alt -> 3, 5
+  5	rune "C"/i -> 10
+  6	rune "D"/i -> 8
+  7	alt -> 6, 8
+  8	rune "E"/i -> 10
+  9	alt -> 2, 7
+ 10	rune1 "1" -> 11
+ 11	match
+ "0" false 0 2
+#300 212 "0(?i:ab*cd?e)1"
+S (?i:0AB*CD?E1)
+Z (?i:0AB*CD?E1) 0 ""
+P   0	fail
+  1*	rune1 "0" -> 2
+  2	rune "A"/i -> 4
+  3	rune "B"/i -> 4
+  4	alt -> 3, 5
+  5	rune "C"/i -> 7
+  6	rune "D"/i -> 8
+  7	alt -> 6, 8
+  8	rune "E"/i -> 9
+  9	rune1 "1" -> 10
+ 10	match
+ "0" false 0 2
+#301 212 "x(?i:ab*c|d?e)"
+S x(?i:AB*C|D?E)
+Z x(?i:AB*C|D?E) 0 ""
+P   0	fail
+  1*	rune1 "x" -> 9
+  2	rune "A"/i -> 4
+  3	rune "B"/i -> 4
+  4	alt -> 3, 5
+  5	rune "C"/i -> 10
+  6	rune "D"/i -> 8
+  7	alt -> 6, 8
+  8	rune "E"/i -> 10
+  9	alt -> 2, 7
+ 10	match
+ "x" false 0 2
+#302 212 "x(?i:ab*cd?e)"
+S x(?i:AB*CD?E)
+Z x(?i:AB*CD?E) 0 ""
+P   0	fail
+  1*	rune1 "x" -> 2
+  2	rune "A"/i -> 4
+  3	rune "B"/i -> 4
+  4	alt -> 3, 5
+  5	rune "C"/i -> 7
+  6	rune "D"/i -> 8
+  7	alt -> 6, 8
+  8	rune "E"/i -> 9
+  9	match
+ "x" false 0 2
+#303 212 "0(?i:ab*c|d?e)"
+S (?i:0(?:AB*C|D?E))
+Z (?i:0(?:AB*C|D?E)) 0 ""
+P   0	fail
+  1*	rune1 "0" -> 9
+  2	rune "A"/i -> 4
+  3	rune "B"/i -> 4
+  4	alt -> 3, 5
+  5	rune "C"/i -> 10
+  6	rune "D"/i -> 8
+  7	alt -> 6, 8
+  8	rune "E"/i -> 10
+  9	alt -> 2, 7
+ 10	match
+ "0" false 0 2
+#304 212 "0(?i:ab*cd?e)"
+S (?i:0AB*CD?E)
+Z (?i:0AB*CD?E) 0 ""
+P   0	fail
+  1*	rune1 "0" -> 2
+  2	rune "A"/i -> 4
+  3	rune "B"/i -> 4
+  4	alt -> 3, 5
+  5	rune "C"/i -> 7
+  6	rune "D"/i -> 8
+  7	alt -> 6, 8
+  8	rune "E"/i -> 9
+  9	match
+ "0" false 0 2
+#305 212 "(?i:ab*c|d?e)1"
+S (?i:(?:AB*C|D?E)1)
+Z (?i:(?:AB*C|D?E)1) 0 ""
+P   0	fail
+  1	rune "A"/i -> 3
+  2	rune "B"/i -> 3
+  3	alt -> 2, 4
+  4	rune "C"/i -> 9
+  5	rune "D"/i -> 7
+  6	alt -> 5, 7
+  7	rune "E"/i -> 9
+  8*	alt -> 1, 6
+  9	rune1 "1" -> 10
+ 10	match
+ "" false 0 2
+#306 212 "(?i:ab*cd?e)1"
+S (?i:AB*CD?E1)
+Z (?i:AB*CD?E1) 0 ""
+P   0	fail
+  1*	rune "A"/i -> 3
+  2	rune "B"/i -> 3
+  3	alt -> 2, 4
+  4	rune "C"/i -> 6
+  5	rune "D"/i -> 7
+  6	alt -> 5, 7
+  7	rune "E"/i -> 8
+  8	rune1 "1" -> 9
+  9	match
+ "" false 0 2
+#307 212 "(?i:ab)[123](?i:cd)"
+S (?i:AB[1-3]CD)
+Z (?i:AB[1-3]CD) 0 ""
+P   0	fail
+  1*	rune "A"/i -> 2
+  2	rune "B"/i -> 3
+  3	rune "13" -> 4
+  4	rune "C"/i -> 5
+  5	rune "D"/i -> 6
+  6	match
+ "" false 0 2
+#308 212 "(?i:ab*c|d?e)"
+S (?i:AB*C|D?E)
+Z (?i:AB*C|D?E) 0 ""
+P   0	fail
+  1	rune "A"/i -> 3
+  2	rune "B"/i -> 3
+  3	alt -> 2, 4
+  4	rune "C"/i -> 9
+  5	rune "D"/i -> 7
+  6	alt -> 5, 7
+  7	rune "E"/i -> 9
+  8*	alt -> 1, 6
+  9	match
+ "" false 0 2
+#309 212 "[Aa][Bb]"
+S (?i:AB)
+Z (?i:AB) 0 ""
+P   0	fail
+  1*	rune "A"/i -> 2
+  2	rune "B"/i -> 3
+  3	match
+ "" false 0 2
+#310 212 "[Aa][Bb]*[Cc]"
+S (?i:AB*C)
+Z (?i:AB*C) 0 ""
+P   0	fail
+  1*	rune "A"/i -> 3
+  2	rune "B"/i -> 3
+  3	alt -> 2, 4
+  4	rune "C"/i -> 5
+  5	match
+ "" false 0 2
+#311 212 "A(?:[Bb][Cc]|[Dd])[Zz]"
+S A(?i:(?:BC|D)Z)
+Z A(?i:(?:BC|D)Z) 0 ""
+P   0	fail
+  1*	rune1 "A" -> 5
+  2	rune "B"/i -> 3
+  3	rune "C"/i -> 6
+  4	rune "D"/i -> 6
+  5	alt -> 2, 4
+  6	rune "Z"/i -> 7
+  7	match
+ "A" false 0 2
+#312 212 "[Aa](?:[Bb][Cc]|[Dd])Z"
+S (?i:A(?:BC|D))Z
+Z (?i:A(?:BC|D))Z 0 ""
+P   0	fail
+  1*	rune "A"/i -> 5
+  2	rune "B"/i -> 3
+  3	rune "C"/i -> 6
+  4	rune "D"/i -> 6
+  5	alt -> 2, 4
+  6	rune1 "Z" -> 7
+  7	match
+ "" false 0 2
+#313 204 "a"
+S a
+Z a 0 ""
+P   0	fail
+  1*	rune1 "a" -> 2
+  2	match
+ "a" true 0 2
+#314 204 "ab"
+S ab
+Z ab 0 ""
+P   0	fail
+  1*	rune1 "a" -> 2
+  2	rune1 "b" -> 3
+  3	match
+ "ab" true 0 2
+#315 204 "a|b"
+S [ab]
+Z [ab] 0 ""
+P   0	fail
+  1*	rune "ab" -> 2
+  2	match
+ "" false 0 2
+#316 204 "ab|cd"
+S ab|cd
+Z ab|cd 0 ""
+P   0	fail
+  1	rune1 "a" -> 2
+  2	rune1 "b" -> 6
+  3	rune1 "c" -> 4
+  4	rune1 "d" -> 6
+  5*	alt -> 1, 3
+  6	match
+ "" false 0 2
+#317 204 "(ab)*"
+S (ab)*
+Z (ab)* 1 ","
+P   0	fail
+  1	cap 2 -> 2
+  2	rune1 "a" -> 3
+  3	rune1 "b" -> 4
+  4	cap 3 -> 5
+  5*	alt -> 1, 6
+  6	match
+ "" false 0 4
+#318 204 "(ab)+"
+S (ab)+
+Z (ab)+ 1 ","
+P   0	fail
+  1*	cap 2 -> 2
+  2	rune1 "a" -> 3
+  3	rune1 "b" -> 4
+  4	cap 3 -> 5
+  5	alt -> 1, 6
+  6	match
+ "ab" false 0 4
+#319 204 "(ab)?"
+S (ab)?
+Z (ab)? 1 ","
+P   0	fail
+  1	cap 2 -> 2
+  2	rune1 "a" -> 3
+  3	rune1 "b" -> 4
+  4	cap 3 -> 6
+  5*	alt -> 1, 6
+  6	match
+ "" false 0 4
+#320 204 "."
+S (?s:.)
+Z (?s:.) 0 ""
+P   0	fail
+  1*	any -> 2
+  2	match
+ "" false 0 2
+#321 204 "^"
+S (?m:^)
+Z (?m:^) 0 ""
+P   0	fail
+  1*	empty 1 -> 2
+  2	match
+ "" false 1 2
+#322 204 "$"
+S (?m:$)
+Z (?m:$) 0 ""
+P   0	fail
+  1*	empty 2 -> 2
+  2	match
+ "" false 2 2
+#323 204 "[ac]"
+S [ac]
+Z [ac] 0 ""
+P   0	fail
+  1*	rune "aacc" -> 2
+  2	match
+ "" false 0 2
+#324 204 "[^ac]"
+S [^ac]
+Z [^ac] 0 ""
+P   0	fail
+  1*	rune "\x00`bbd\U0010ffff" -> 2
+  2	match
+ "" false 0 2
+#325 204 "[[:alnum:]]"
+S [0-9A-Za-z]
+Z [0-9A-Za-z] 0 ""
+P   0	fail
+  1*	rune "09AZaz" -> 2
+  2	match
+ "" false 0 2
+#326 204 "[[:alpha:]]"
+S [A-Za-z]
+Z [A-Za-z] 0 ""
+P   0	fail
+  1*	rune "AZaz" -> 2
+  2	match
+ "" false 0 2
+#327 204 "[[:blank:]]"
+S [\t ]
+Z [\t ] 0 ""
+P   0	fail
+  1*	rune "\t\t  " -> 2
+  2	match
+ "" false 0 2
+#328 204 "[[:cntrl:]]"
+S [\x00-\x1f\x7f]
+Z [\x00-\x1f\x7f] 0 ""
+P   0	fail
+  1*	rune "\x00\x1f\x7f\x7f" -> 2
+  2	match
+ "" false 0 2
+#329 204 "[[:digit:]]"
+S [0-9]
+Z [0-9] 0 ""
+P   0	fail
+  1*	rune "09" -> 2
+  2	match
+ "" false 0 2
+#330 204 "[[:graph:]]"
+S [!-~]
+Z [!-~] 0 ""
+P   0	fail
+  1*	rune "!~" -> 2
+  2	match
+ "" false 0 2
+#331 204 "[[:lower:]]"
+S [a-z]
+Z [a-z] 0 ""
+P   0	fail
+  1*	rune "az" -> 2
+  2	match
+ "" false 0 2
+#332 204 "[[:print:]]"
+S [ -~]
+Z [ -~] 0 ""
+P   0	fail
+  1*	rune " ~" -> 2
+  2	match
+ "" false 0 2
+#333 204 "[[:punct:]]"
+S [!-/:-@\[-`\{-~]
+Z [!-/:-@\[-`\{-~] 0 ""
+P   0	fail
+  1*	rune "!/:@[`{~" -> 2
+  2	match
+ "" false 0 2
+#334 204 "[[:space:]]"
+S [\t-\r ]
+Z [\t-\r ] 0 ""
+P   0	fail
+  1*	rune "\t\r  " -> 2
+  2	match
+ "" false 0 2
+#335 204 "[[:upper:]]"
+S [A-Z]
+Z [A-Z] 0 ""
+P   0	fail
+  1*	rune "AZ" -> 2
+  2	match
+ "" false 0 2
+#336 204 "[[:xdigit:]]"
+S [0-9A-Fa-f]
+Z [0-9A-Fa-f] 0 ""
+P   0	fail
+  1*	rune "09AFaf" -> 2
+  2	match
+ "" false 0 2
+#337 204 "\\d"
+S [0-9]
+Z [0-9] 0 ""
+P   0	fail
+  1*	rune "09" -> 2
+  2	match
+ "" false 0 2
+#338 204 "\\s"
+S [\t\n\f\r ]
+Z [\t\n\f\r ] 0 ""
+P   0	fail
+  1*	rune "\t\n\f\r  " -> 2
+  2	match
+ "" false 0 2
+#339 204 "\\w"
+S [0-9A-Z_a-z]
+Z [0-9A-Z_a-z] 0 ""
+P   0	fail
+  1*	rune "09AZ__az" -> 2
+  2	match
+ "" false 0 2
+#340 204 "\\D"
+S [^0-9]
+Z [^0-9] 0 ""
+P   0	fail
+  1*	rune "\x00/:\U0010ffff" -> 2
+  2	match
+ "" false 0 2
+#341 204 "\\S"
+S [^\t\n\f\r ]
+Z [^\t\n\f\r ] 0 ""
+P   0	fail
+  1*	rune "\x00\b\v\v\x0e\x1f!\U0010ffff" -> 2
+  2	match
+ "" false 0 2
+#342 204 "\\W"
+S [^0-9A-Z_a-z]
+Z [^0-9A-Z_a-z] 0 ""
+P   0	fail
+  1*	rune "\x00/:@[^``{\U0010ffff" -> 2
+  2	match
+ "" false 0 2
+#343 204 "[\\d]"
+S [0-9]
+Z [0-9] 0 ""
+P   0	fail
+  1*	rune "09" -> 2
+  2	match
+ "" false 0 2
+#344 204 "[\\s]"
+S [\t\n\f\r ]
+Z [\t\n\f\r ] 0 ""
+P   0	fail
+  1*	rune "\t\n\f\r  " -> 2
+  2	match
+ "" false 0 2
+#345 204 "[\\w]"
+S [0-9A-Z_a-z]
+Z [0-9A-Z_a-z] 0 ""
+P   0	fail
+  1*	rune "09AZ__az" -> 2
+  2	match
+ "" false 0 2
+#346 204 "[\\D]"
+S [^0-9]
+Z [^0-9] 0 ""
+P   0	fail
+  1*	rune "\x00/:\U0010ffff" -> 2
+  2	match
+ "" false 0 2
+#347 204 "[\\S]"
+S [^\t\n\f\r ]
+Z [^\t\n\f\r ] 0 ""
+P   0	fail
+  1*	rune "\x00\b\v\v\x0e\x1f!\U0010ffff" -> 2
+  2	match
+ "" false 0 2
+#348 204 "[\\W]"
+S [^0-9A-Z_a-z]
+Z [^0-9A-Z_a-z] 0 ""
+P   0	fail
+  1*	rune "\x00/:@[^``{\U0010ffff" -> 2
+  2	match
+ "" false 0 2
+#349 204 "a{1}"
+S a{1}
+Z a 0 ""
+P   0	fail
+  1*	rune1 "a" -> 2
+  2	match
+ "a" true 0 2
+#350 204 "a{2}"
+S a{2}
+Z aa 0 ""
+P   0	fail
+  1*	rune1 "a" -> 2
+  2	rune1 "a" -> 3
+  3	match
+ "aa" true 0 2
+#351 204 "a{5}"
+S a{5}
+Z aaaaa 0 ""
+P   0	fail
+  1*	rune1 "a" -> 2
+  2	rune1 "a" -> 3
+  3	rune1 "a" -> 4
+  4	rune1 "a" -> 5
+  5	rune1 "a" -> 6
+  6	match
+ "aaaaa" true 0 2
+#352 204 "a{0,1}"
+S a{0,1}
+Z a? 0 ""
+P   0	fail
+  1	rune1 "a" -> 3
+  2*	alt -> 1, 3
+  3	match
+ "" false 0 2
+#353 204 "(a){0,2}"
+S (a){0,2}
+Z (?:(a)(a)?)? 1 ","
+P   0	fail
+  1	cap 2 -> 2
+  2	rune1 "a" -> 3
+  3	cap 3 -> 7
+  4	cap 2 -> 5
+  5	rune1 "a" -> 6
+  6	cap 3 -> 9
+  7	alt -> 4, 9
+  8*	alt -> 1, 9
+  9	match
+ "" false 0 4
+#354 204 "(a){0,4}"
+S (a){0,4}
+Z (?:(a)(?:(a)(?:(a)(a)?)?)?)? 1 ","
+P   0	fail
+  1	cap 2 -> 2
+  2	rune1 "a" -> 3
+  3	cap 3 -> 15
+  4	cap 2 -> 5
+  5	rune1 "a" -> 6
+  6	cap 3 -> 14
+  7	cap 2 -> 8
+  8	rune1 "a" -> 9
+  9	cap 3 -> 13
+ 10	cap 2 -> 11
+ 11	rune1 "a" -> 12
+ 12	cap 3 -> 17
+ 13	alt -> 10, 17
+ 14	alt -> 7, 17
+ 15	alt -> 4, 17
+ 16*	alt -> 1, 17
+ 17	match
+ "" false 0 4
+#355 204 "(a){2,6}"
+S (a){2,6}
+Z (a)(a)(?:(a)(?:(a)(?:(a)(a)?)?)?)? 1 ","
+P <396 bytes e8cece5690941f93> "aa" false 0 4
+#356 204 "a{0,2}"
+S a{0,2}
+Z (?:aa?)? 0 ""
+P   0	fail
+  1	rune1 "a" -> 3
+  2	rune1 "a" -> 5
+  3	alt -> 2, 5
+  4*	alt -> 1, 5
+  5	match
+ "" false 0 2
+#357 204 "a{0,4}"
+S a{0,4}
+Z (?:a(?:a(?:aa?)?)?)? 0 ""
+P   0	fail
+  1	rune1 "a" -> 7
+  2	rune1 "a" -> 6
+  3	rune1 "a" -> 5
+  4	rune1 "a" -> 9
+  5	alt -> 4, 9
+  6	alt -> 3, 9
+  7	alt -> 2, 9
+  8*	alt -> 1, 9
+  9	match
+ "" false 0 2
+#358 204 "a{2,6}"
+S a{2,6}
+Z aa(?:a(?:a(?:aa?)?)?)? 0 ""
+P   0	fail
+  1*	rune1 "a" -> 2
+  2	rune1 "a" -> 10
+  3	rune1 "a" -> 9
+  4	rune1 "a" -> 8
+  5	rune1 "a" -> 7
+  6	rune1 "a" -> 11
+  7	alt -> 6, 11
+  8	alt -> 5, 11
+  9	alt -> 4, 11
+ 10	alt -> 3, 11
+ 11	match
+ "aa" false 0 2
+#359 204 "a{0,}"
+S a{0,}
+Z a* 0 ""
+P   0	fail
+  1	rune1 "a" -> 2
+  2*	alt -> 1, 3
+  3	match
+ "" false 0 2
+#360 204 "a{1,}"
+S a{1,}
+Z a+ 0 ""
+P   0	fail
+  1*	rune1 "a" -> 2
+  2	alt -> 1, 3
+  3	match
+ "a" false 0 2
+#361 204 "a{2,}"
+S a{2,}
+Z aa+ 0 ""
+P   0	fail
+  1*	rune1 "a" -> 2
+  2	rune1 "a" -> 3
+  3	alt -> 2, 4
+  4	match
+ "aa" false 0 2
+#362 204 "a{5,}"
+S a{5,}
+Z aaaaa+ 0 ""
+P   0	fail
+  1*	rune1 "a" -> 2
+  2	rune1 "a" -> 3
+  3	rune1 "a" -> 4
+  4	rune1 "a" -> 5
+  5	rune1 "a" -> 6
+  6	alt -> 5, 7
+  7	match
+ "aaaaa" false 0 2
+#363 204 "(?:a{1,}){1,}"
+S (?:a{1,}){1,}
+Z a+ 0 ""
+P   0	fail
+  1*	rune1 "a" -> 2
+  2	alt -> 1, 3
+  3	match
+ "a" false 0 2
+#364 204 "(a{1,}b{1,})"
+S (a{1,}b{1,})
+Z (a+b+) 1 ","
+P   0	fail
+  1*	cap 2 -> 2
+  2	rune1 "a" -> 3
+  3	alt -> 2, 4
+  4	rune1 "b" -> 5
+  5	alt -> 4, 6
+  6	cap 3 -> 7
+  7	match
+ "a" false 0 4
+#365 204 "a{1,}|b{1,}"
+S a{1,}|b{1,}
+Z a+|b+ 0 ""
+P   0	fail
+  1	rune1 "a" -> 2
+  2	alt -> 1, 6
+  3	rune1 "b" -> 4
+  4	alt -> 3, 6
+  5*	alt -> 1, 3
+  6	match
+ "" false 0 2
+#366 204 "(?:a{1,})*"
+S (?:a{1,})*
+Z (?:a+)* 0 ""
+P   0	fail
+  1	rune1 "a" -> 2
+  2	alt -> 1, 3
+  3*	alt -> 1, 4
+  4	match
+ "" false 0 2
+#367 204 "(?:a{1,})+"
+S (?:a{1,})+
+Z a+ 0 ""
+P   0	fail
+  1*	rune1 "a" -> 2
+  2	alt -> 1, 3
+  3	match
+ "a" false 0 2
+#368 204 "(?:a{1,})?"
+S (?:a{1,})?
+Z (?:a+)? 0 ""
+P   0	fail
+  1	rune1 "a" -> 2
+  2	alt -> 1, 4
+  3*	alt -> 1, 4
+  4	match
+ "" false 0 2
+#369 204 ""
+S (?:)
+Z (?:) 0 ""
+P   0	fail
+  1*	nop -> 2
+  2	match
+ "" true 0 2
+#370 204 "a{0}"
+S a{0}
+Z (?:) 0 ""
+P   0	fail
+  1*	nop -> 2
+  2	match
+ "" true 0 2
+#371 204 "[ab]"
+S [ab]
+Z [ab] 0 ""
+P   0	fail
+  1*	rune "ab" -> 2
+  2	match
+ "" false 0 2
+#372 204 "[abc]"
+S [a-c]
+Z [a-c] 0 ""
+P   0	fail
+  1*	rune "ac" -> 2
+  2	match
+ "" false 0 2
+#373 204 "[a-za-za-z]"
+S [a-z]
+Z [a-z] 0 ""
+P   0	fail
+  1*	rune "az" -> 2
+  2	match
+ "" false 0 2
+#374 204 "[A-Za-zA-Za-z]"
+S [A-Za-z]
+Z [A-Za-z] 0 ""
+P   0	fail
+  1*	rune "AZaz" -> 2
+  2	match
+ "" false 0 2
+#375 204 "[ABCDEFGH]"
+S [A-H]
+Z [A-H] 0 ""
+P   0	fail
+  1*	rune "AH" -> 2
+  2	match
+ "" false 0 2
+#376 204 "[AB-CD-EF-GH]"
+S [A-H]
+Z [A-H] 0 ""
+P   0	fail
+  1*	rune "AH" -> 2
+  2	match
+ "" false 0 2
+#377 204 "[W-ZP-XE-R]"
+S [E-Z]
+Z [E-Z] 0 ""
+P   0	fail
+  1*	rune "EZ" -> 2
+  2	match
+ "" false 0 2
+#378 204 "[a-ee-gg-m]"
+S [a-m]
+Z [a-m] 0 ""
+P   0	fail
+  1*	rune "am" -> 2
+  2	match
+ "" false 0 2
+#379 204 "[a-ea-ha-m]"
+S [a-m]
+Z [a-m] 0 ""
+P   0	fail
+  1*	rune "am" -> 2
+  2	match
+ "" false 0 2
+#380 204 "[a-ma-ha-e]"
+S [a-m]
+Z [a-m] 0 ""
+P   0	fail
+  1*	rune "am" -> 2
+  2	match
+ "" false 0 2
+#381 204 "[a-zA-Z0-9 -~]"
+S [ -~]
+Z [ -~] 0 ""
+P   0	fail
+  1*	rune " ~" -> 2
+  2	match
+ "" false 0 2
+#382 204 "[^[:cntrl:][:^cntrl:]]"
+S [^\x00-\x{10FFFF}]
+Z [^\x00-\x{10FFFF}] 0 ""
+P   0	fail
+  1*	rune "" -> 2
+  2	match
+ "" false 0 2
+#383 204 "[[:cntrl:][:^cntrl:]]"
+S (?s:.)
+Z (?s:.) 0 ""
+P   0	fail
+  1*	any -> 2
+  2	match
+ "" false 0 2
+#384 204 "(?i)A"
+S (?i:A)
+Z (?i:A) 0 ""
+P   0	fail
+  1*	rune "A"/i -> 2
+  2	match
+ "" false 0 2
+#385 204 "(?i)a"
+S (?i:A)
+Z (?i:A) 0 ""
+P   0	fail
+  1*	rune "A"/i -> 2
+  2	match
+ "" false 0 2
+#386 204 "(?i)[A]"
+S (?i:A)
+Z (?i:A) 0 ""
+P   0	fail
+  1*	rune "A"/i -> 2
+  2	match
+ "" false 0 2
+#387 204 "(?i)[a]"
+S (?i:A)
+Z (?i:A) 0 ""
+P   0	fail
+  1*	rune "A"/i -> 2
+  2	match
+ "" false 0 2
+#388 204 "(?i)K"
+S (?i:K)
+Z (?i:K) 0 ""
+P   0	fail
+  1*	rune "K"/i -> 2
+  2	match
+ "" false 0 2
+#389 204 "(?i)k"
+S (?i:K)
+Z (?i:K) 0 ""
+P   0	fail
+  1*	rune "K"/i -> 2
+  2	match
+ "" false 0 2
+#390 204 "(?i)\\x{212a}"
+S (?i:K)
+Z (?i:K) 0 ""
+P   0	fail
+  1*	rune "K"/i -> 2
+  2	match
+ "" false 0 2
+#391 204 "(?i)[K]"
+S [KkK]
+Z [KkK] 0 ""
+P   0	fail
+  1*	rune "KKkk\u212a\u212a" -> 2
+  2	match
+ "" false 0 2
+#392 204 "(?i)[k]"
+S [KkK]
+Z [KkK] 0 ""
+P   0	fail
+  1*	rune "KKkk\u212a\u212a" -> 2
+  2	match
+ "" false 0 2
+#393 204 "(?i)[\\x{212a}]"
+S [KkK]
+Z [KkK] 0 ""
+P   0	fail
+  1*	rune "KKkk\u212a\u212a" -> 2
+  2	match
+ "" false 0 2
+#394 204 "(?i)[a-z]"
+S [A-Za-zſK]
+Z [A-Za-zſK] 0 ""
+P   0	fail
+  1*	rune "AZaz\u017f\u017f\u212a\u212a" -> 2
+  2	match
+ "" false 0 2
+#395 204 "(?i)[\\x00-\\x{FFFD}]"
+S [\x00-�]
+Z [\x00-�] 0 ""
+P   0	fail
+  1*	rune "\x00\ufffd" -> 2
+  2	match
+ "" false 0 2
+#396 204 "(?i)[\\x00-\\x{10FFFF}]"
+S (?s:.)
+Z (?s:.) 0 ""
+P   0	fail
+  1*	any -> 2
+  2	match
+ "" false 0 2
+#397 204 "(a|b|c|)"
+S ([a-c]|(?:))
+Z ([a-c]|(?:)) 1 ","
+P   0	fail
+  1*	cap 2 -> 4
+  2	rune "ac" -> 5
+  3	nop -> 5
+  4	alt -> 2, 3
+  5	cap 3 -> 6
+  6	match
+ "" false 0 4
+#398 204 "(a|b|)"
+S ([ab]|(?:))
+Z ([ab]|(?:)) 1 ","
+P   0	fail
+  1*	cap 2 -> 4
+  2	rune "ab" -> 5
+  3	nop -> 5
+  4	alt -> 2, 3
+  5	cap 3 -> 6
+  6	match
+ "" false 0 4
+#399 204 "(|)"
+S ()
+Z () 1 ","
+P   0	fail
+  1*	cap 2 -> 2
+  2	nop -> 3
+  3	cap 3 -> 4
+  4	match
+ "" true 0 4
+#400 204 "a()"
+S a()
+Z a() 1 ","
+P   0	fail
+  1*	rune1 "a" -> 2
+  2	cap 2 -> 3
+  3	nop -> 4
+  4	cap 3 -> 5
+  5	match
+ "a" true 0 4
+#401 204 "(()|())"
+S (()|())
+Z (()|()) 3 ",,,"
+P   0	fail
+  1*	cap 2 -> 8
+  2	cap 4 -> 3
+  3	nop -> 4
+  4	cap 5 -> 9
+  5	cap 6 -> 6
+  6	nop -> 7
+  7	cap 7 -> 9
+  8	alt -> 2, 5
+  9	cap 3 -> 10
+ 10	match
+ "" false 0 8
+#402 204 "(a|)"
+S (a|(?:))
+Z (a|(?:)) 1 ","
+P   0	fail
+  1*	cap 2 -> 4
+  2	rune1 "a" -> 5
+  3	nop -> 5
+  4	alt -> 2, 3
+  5	cap 3 -> 6
+  6	match
+ "" false 0 4
+#403 204 "ab()cd()"
+S ab()cd()
+Z ab()cd() 2 ",,"
+P   0	fail
+  1*	rune1 "a" -> 2
+  2	rune1 "b" -> 3
+  3	cap 2 -> 4
+  4	nop -> 5
+  5	cap 3 -> 6
+  6	rune1 "c" -> 7
+  7	rune1 "d" -> 8
+  8	cap 4 -> 9
+  9	nop -> 10
+ 10	cap 5 -> 11
+ 11	match
+ "abcd" true 0 6
+#404 204 "()"
+S ()
+Z () 1 ","
+P   0	fail
+  1*	cap 2 -> 2
+  2	nop -> 3
+  3	cap 3 -> 4
+  4	match
+ "" true 0 4
+#405 204 "()*"
+S ()*
+Z ()* 1 ","
+P   0	fail
+  1	cap 2 -> 2
+  2	nop -> 3
+  3	cap 3 -> 4
+  4	alt -> 1, 6
+  5*	alt -> 1, 6
+  6	match
+ "" false 0 4
+#406 204 "()+"
+S ()+
+Z ()+ 1 ","
+P   0	fail
+  1*	cap 2 -> 2
+  2	nop -> 3
+  3	cap 3 -> 4
+  4	alt -> 1, 5
+  5	match
+ "" false 0 4
+#407 204 "()?"
+S ()?
+Z ()? 1 ","
+P   0	fail
+  1	cap 2 -> 2
+  2	nop -> 3
+  3	cap 3 -> 5
+  4*	alt -> 1, 5
+  5	match
+ "" false 0 4
+#408 204 "(){0}"
+S (){0}
+Z (?:) 1 ","
+P   0	fail
+  1*	nop -> 2
+  2	match
+ "" true 0 2
+#409 204 "(){1}"
+S (){1}
+Z () 1 ","
+P   0	fail
+  1*	cap 2 -> 2
+  2	nop -> 3
+  3	cap 3 -> 4
+  4	match
+ "" true 0 4
+#410 204 "(){1,}"
+S (){1,}
+Z ()+ 1 ","
+P   0	fail
+  1*	cap 2 -> 2
+  2	nop -> 3
+  3	cap 3 -> 4
+  4	alt -> 1, 5
+  5	match
+ "" false 0 4
+#411 204 "(){0,2}"
+S (){0,2}
+Z (?:()()?)? 1 ","
+P   0	fail
+  1	cap 2 -> 2
+  2	nop -> 3
+  3	cap 3 -> 7
+  4	cap 2 -> 5
+  5	nop -> 6
+  6	cap 3 -> 9
+  7	alt -> 4, 9
+  8*	alt -> 1, 9
+  9	match
+ "" false 0 4
+#412 212 "a"
+S a
+Z a 0 ""
+P   0	fail
+  1*	rune1 "a" -> 2
+  2	match
+ "a" true 0 2
+#413 212 "[A-M][n-z]"
+S [A-M][n-z]
+Z [A-M][n-z] 0 ""
+P   0	fail
+  1*	rune "AM" -> 2
+  2	rune "nz" -> 3
+  3	match
+ "" false 0 2
+#414 212 ""
+S (?:)
+Z (?:) 0 ""
+P   0	fail
+  1*	nop -> 2
+  2	match
+ "" true 0 2
+#415 212 "a?"
+S a?
+Z a? 0 ""
+P   0	fail
+  1	rune1 "a" -> 3
+  2*	alt -> 1, 3
+  3	match
+ "" false 0 2
+#416 212 "a??"
+S a??
+Z a?? 0 ""
+P   0	fail
+  1	rune1 "a" -> 3
+  2*	alt -> 3, 1
+  3	match
+ "" false 0 2
+#417 212 "a+"
+S a+
+Z a+ 0 ""
+P   0	fail
+  1*	rune1 "a" -> 2
+  2	alt -> 1, 3
+  3	match
+ "a" false 0 2
+#418 212 "a+?"
+S a+?
+Z a+? 0 ""
+P   0	fail
+  1*	rune1 "a" -> 2
+  2	alt -> 3, 1
+  3	match
+ "a" false 0 2
+#419 212 "a*"
+S a*
+Z a* 0 ""
+P   0	fail
+  1	rune1 "a" -> 2
+  2*	alt -> 1, 3
+  3	match
+ "" false 0 2
+#420 212 "a*?"
+S a*?
+Z a*? 0 ""
+P   0	fail
+  1	rune1 "a" -> 2
+  2*	alt -> 3, 1
+  3	match
+ "" false 0 2
+#421 212 "a+b+"
+S a+b+
+Z a+b+ 0 ""
+P   0	fail
+  1*	rune1 "a" -> 2
+  2	alt -> 1, 3
+  3	rune1 "b" -> 4
+  4	alt -> 3, 5
+  5	match
+ "a" false 0 2
+#422 212 "(a+)(b+)"
+S (a+)(b+)
+Z (a+)(b+) 2 ",,"
+P   0	fail
+  1*	cap 2 -> 2
+  2	rune1 "a" -> 3
+  3	alt -> 2, 4
+  4	cap 3 -> 5
+  5	cap 4 -> 6
+  6	rune1 "b" -> 7
+  7	alt -> 6, 8
+  8	cap 5 -> 9
+  9	match
+ "a" false 0 6
+#423 212 "a+|b+"
+S a+|b+
+Z a+|b+ 0 ""
+P   0	fail
+  1	rune1 "a" -> 2
+  2	alt -> 1, 6
+  3	rune1 "b" -> 4
+  4	alt -> 3, 6
+  5*	alt -> 1, 3
+  6	match
+ "" false 0 2
+#424 212 "A[Aa]"
+S A(?i:A)
+Z A(?i:A) 0 ""
+P   0	fail
+  1*	rune1 "A" -> 2
+  2	rune "A"/i -> 3
+  3	match
+ "A" false 0 2
+#425 212 "(?:(?:^).)"
+S (?-s:\A.)
+Z (?-s:\A.) 0 ""
+P   0	fail
+  1*	empty 4 -> 2
+  2	anynotnl -> 3
+  3	match
+ "" false 4 2
+#426 212 "(?:|a)+"
+S (?:(?:)|a)+
+Z (?:(?:)|a)+ 0 ""
+P   0	fail
+  1	nop -> 4
+  2	rune1 "a" -> 4
+  3*	alt -> 1, 2
+  4	alt -> 3, 5
+  5	match
+ "" false 0 2
+#427 212 "(?:|a)*"
+S (?:(?:)|a)*
+Z (?:(?:)|a)* 0 ""
+P   0	fail
+  1	nop -> 4
+  2	rune1 "a" -> 4
+  3	alt -> 1, 2
+  4	alt -> 3, 6
+  5*	alt -> 3, 6
+  6	match
+ "" false 0 2
