@@ -23,7 +23,7 @@ const SPACE_KW: List<Str> = ["async", "if", "match", "for", "while", "in", "retu
   "await", "defer", "as", "loop", "break", "continue"]
 
 // 类型, 原文, 前面是否有空白, 行尾注释前保留的原始空白（-1 表示没有记录）
-type T = { k: Str, s: Str, sp: Bool, gap: Int }
+pub type T = { k: Str, s: Str, sp: Bool, gap: Int }
 
 fn tk(k: Str, s: Str, sp: Bool) -> T { T { k: k, s: s, sp: sp, gap: -1 } }
 
@@ -89,7 +89,7 @@ fn out_raw(s: Str) {
 fn ops() -> List<Str> { lexer.OPS3 + lexer.OPS2 + lexer.OPS1 }
 
 // 返回逻辑行列表；每行是 T 的列表。多行注释/字符串作为一个整体 token
-fn tokenize(src: Str) -> Result<List<List<T>>, Str> {
+pub fn tokenize(src: Str) -> Result<List<List<T>>, Str> {
   let cs = chars(src)
   let n = len(cs)
   let opl = ops()
@@ -291,7 +291,7 @@ fn set_braces(toks: List<T>) -> (Set<Int>, Set<Int>) {
   (opens, closes)
 }
 
-fn format_line(toks: List<T>) -> Str {
+pub fn format_line(toks: List<T>) -> Str {
   let gen = generic_spans(toks)
   let (sopen, sclose) = set_braces(toks)
   var out: List<Str> = []

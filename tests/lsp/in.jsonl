@@ -1,0 +1,40 @@
+{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"capabilities": {}}}
+{"jsonrpc": "2.0", "method": "textDocument/didOpen", "params": {"textDocument": {"uri": "file:///t.kite", "languageId": "kite", "version": 1, "text": "// 求最大值\nfn largest<T>(xs: List<T>) -> T {\n  var best = xs[0]\n  for x in xs { if x > best { best = x } }\n  best\n}\ntype Dog = { name: Str }\nfn main() {\n  let n: Int = 1.5\n  print(largest([3, 1]))\n}\n"}}}
+{"jsonrpc": "2.0", "id": 2, "method": "textDocument/hover", "params": {"textDocument": {"uri": "file:///t.kite"}, "position": {"line": 9, "character": 9}}}
+{"jsonrpc": "2.0", "id": 21, "method": "textDocument/hover", "params": {"textDocument": {"uri": "file:///t.kite"}, "position": {"line": 2, "character": 7}}}
+{"jsonrpc": "2.0", "id": 22, "method": "textDocument/hover", "params": {"textDocument": {"uri": "file:///t.kite"}, "position": {"line": 3, "character": 13}}}
+{"jsonrpc": "2.0", "id": 23, "method": "textDocument/hover", "params": {"textDocument": {"uri": "file:///t.kite"}, "position": {"line": 9, "character": 3}}}
+{"jsonrpc": "2.0", "id": 24, "method": "textDocument/hover", "params": {"textDocument": {"uri": "file:///t.kite"}, "position": {"line": 0, "character": 0}}}
+{"jsonrpc": "2.0", "id": 3, "method": "textDocument/definition", "params": {"textDocument": {"uri": "file:///t.kite"}, "position": {"line": 9, "character": 9}}}
+{"jsonrpc": "2.0", "id": 31, "method": "textDocument/definition", "params": {"textDocument": {"uri": "file:///t.kite"}, "position": {"line": 3, "character": 30}}}
+{"jsonrpc": "2.0", "id": 32, "method": "textDocument/rename", "params": {"textDocument": {"uri": "file:///t.kite"}, "position": {"line": 2, "character": 7}, "newName": "top"}}
+{"jsonrpc": "2.0", "id": 33, "method": "textDocument/rename", "params": {"textDocument": {"uri": "file:///t.kite"}, "position": {"line": 1, "character": 4}, "newName": "biggest"}}
+{"jsonrpc": "2.0", "id": 34, "method": "textDocument/rename", "params": {"textDocument": {"uri": "file:///t.kite"}, "position": {"line": 1, "character": 4}, "newName": "fn"}}
+{"jsonrpc": "2.0", "id": 35, "method": "textDocument/prepareRename", "params": {"textDocument": {"uri": "file:///t.kite"}, "position": {"line": 1, "character": 4}}}
+{"jsonrpc": "2.0", "id": 4, "method": "textDocument/documentSymbol", "params": {"textDocument": {"uri": "file:///t.kite"}}}
+{"jsonrpc": "2.0", "id": 5, "method": "textDocument/formatting", "params": {"textDocument": {"uri": "file:///t.kite"}, "options": {"tabSize": 2, "insertSpaces": true}}}
+{"jsonrpc": "2.0", "id": 51, "method": "textDocument/completion", "params": {"textDocument": {"uri": "file:///t.kite"}, "position": {"line": 9, "character": 3}}}
+{"jsonrpc": "2.0", "method": "textDocument/didChange", "params": {"textDocument": {"uri": "file:///t.kite", "version": 2}, "contentChanges": [{"text": "use std.io\nfn main() { io. }\n"}]}}
+{"jsonrpc": "2.0", "id": 6, "method": "textDocument/completion", "params": {"textDocument": {"uri": "file:///t.kite"}, "position": {"line": 1, "character": 15}}}
+{"jsonrpc": "2.0", "method": "textDocument/didOpen", "params": {"textDocument": {"uri": "file://@T@/main.kite", "languageId": "kite", "version": 1, "text": "use geo\nuse geo.area\n\nfn main() {\n  let p = geo.Point { x: 2, y: 3 }\n  print(geo.area(p.x, p.y), area(1, 2), geo.twice(p))\n}\n"}}}
+{"jsonrpc": "2.0", "id": 40, "method": "textDocument/definition", "params": {"textDocument": {"uri": "file://@T@/main.kite"}, "position": {"line": 5, "character": 13}}}
+{"jsonrpc": "2.0", "id": 41, "method": "textDocument/rename", "params": {"textDocument": {"uri": "file://@T@/main.kite"}, "position": {"line": 5, "character": 13}, "newName": "surface"}}
+{"jsonrpc": "2.0", "id": 42, "method": "textDocument/rename", "params": {"textDocument": {"uri": "file://@T@/main.kite"}, "position": {"line": 4, "character": 15}, "newName": "Pt"}}
+{"jsonrpc": "2.0", "method": "textDocument/didOpen", "params": {"textDocument": {"uri": "file://@T@/geo.kite", "languageId": "kite", "version": 1, "text": "pub type Point = { x: Int, y: Int }\n\npub fn area(w: Int, h: Int) -> Int { w * h }\n\npub fn twice(p: Point) -> Int { area(p.x, p.y) * 2 }\n\nfn hidden() -> Int { 1 }\n"}}}
+{"jsonrpc": "2.0", "id": 43, "method": "textDocument/rename", "params": {"textDocument": {"uri": "file://@T@/geo.kite"}, "position": {"line": 0, "character": 20}, "newName": "px"}}
+{"jsonrpc": "2.0", "id": 44, "method": "textDocument/rename", "params": {"textDocument": {"uri": "file://@T@/geo.kite"}, "position": {"line": 6, "character": 4}, "newName": "h2"}}
+{"jsonrpc": "2.0", "id": 45, "method": "textDocument/references", "params": {"textDocument": {"uri": "file://@T@/main.kite"}, "position": {"line": 5, "character": 13}, "context": {"includeDeclaration": true}}}
+{"jsonrpc": "2.0", "id": 46, "method": "textDocument/references", "params": {"textDocument": {"uri": "file://@T@/main.kite"}, "position": {"line": 5, "character": 13}, "context": {"includeDeclaration": false}}}
+{"jsonrpc": "2.0", "id": 47, "method": "textDocument/references", "params": {"textDocument": {"uri": "file://@T@/geo.kite"}, "position": {"line": 0, "character": 20}, "context": {"includeDeclaration": true}}}
+{"jsonrpc": "2.0", "id": 49, "method": "textDocument/references", "params": {"textDocument": {"uri": "file://@T@/geo.kite"}, "position": {"line": 1, "character": 0}, "context": {"includeDeclaration": true}}}
+{"jsonrpc": "2.0", "id": 48, "method": "textDocument/documentHighlight", "params": {"textDocument": {"uri": "file://@T@/geo.kite"}, "position": {"line": 2, "character": 8}}}
+{"jsonrpc": "2.0", "method": "textDocument/didOpen", "params": {"textDocument": {"uri": "file://@T@/sig.kite", "languageId": "kite", "version": 1, "text": "use geo\nuse geo.area\n\nfn main() {\n  let n = area(2, 3)\n  print(geo.area(1, \n"}}}
+{"jsonrpc": "2.0", "id": 570, "method": "textDocument/signatureHelp", "params": {"textDocument": {"uri": "file://@T@/sig.kite"}, "position": {"line": 5, "character": 20}}}
+{"jsonrpc": "2.0", "id": 465, "method": "textDocument/signatureHelp", "params": {"textDocument": {"uri": "file://@T@/sig.kite"}, "position": {"line": 4, "character": 15}}}
+{"jsonrpc": "2.0", "id": 460, "method": "textDocument/signatureHelp", "params": {"textDocument": {"uri": "file://@T@/sig.kite"}, "position": {"line": 4, "character": 10}}}
+{"jsonrpc": "2.0", "method": "textDocument/didChange", "params": {"textDocument": {"uri": "file://@T@/sig.kite", "version": 2}, "contentChanges": [{"text": "use geo\nuse geo.area\n\nfn main() {\n  let n = area(2, 3)\n  print(geo.area(1, \n  push(xs, \n"}]}}
+{"jsonrpc": "2.0", "id": 661, "method": "textDocument/signatureHelp", "params": {"textDocument": {"uri": "file://@T@/sig.kite"}, "position": {"line": 6, "character": 11}}}
+{"jsonrpc": "2.0", "method": "textDocument/didClose", "params": {"textDocument": {"uri": "file://@T@/sig.kite"}}}
+{"jsonrpc": "2.0", "id": 70, "method": "workspace/symbol", "params": {"query": ""}}
+{"jsonrpc": "2.0", "id": 7, "method": "shutdown", "params": null}
+{"jsonrpc": "2.0", "method": "exit", "params": null}

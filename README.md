@@ -331,19 +331,21 @@ let squares = par_map(1..=1000, n => n * n)            // 数据并行，结果�
 
 ## 编辑器支持（0.6）
 
-语言服务器 `python3 kite.py lsp`（或 `python3 lsp.py`）走标准 LSP，任何支持 LSP 的编辑器都能用：
-- 实时诊断：每次编辑重新做语法 + 类型检查，一次显示所有错误
-- 悬停：签名 + 声明上方的 `//` 注释作为文档；内建函数、标准库模块
-- 跳转到定义、文档大纲、补全（`.` 后补全方法/字段/`std` 模块成员）、格式化
+语言服务器 `kitec lsp`（Kite 写的，kitec/src/lsp.kite，不需要 Python）走标准 LSP，任何支持 LSP 的编辑器都能用：
+- 实时诊断：每次编辑重新做语法 + 类型检查（引用了其他模块时连同模块和依赖包），一次显示所有错误和警告
+- 悬停：签名 + 声明上方的 `//` 注释作为文档；局部变量和参数的推断类型；内建函数、标准库模块
+- 跳转到定义（跨文件：`m.f`、`use m.f` 导入的名字）、重命名、查找引用、文档内高亮（pub 名字连同包内 use 它的文件）
+- 文档大纲、补全（`.` 后补全方法/字段/`std` 模块成员）、签名提示（正在输入时也能用）、格式化
+- 回放测试：`sh tests/lsp.sh bin/kitec`
 
-**VS Code**：安装 `kite-lang-0.6.0.vsix`（扩展 → ⋯ → 从 VSIX 安装）。服务器已打包在扩展里，只需本机有 python3；
+**VS Code**：安装 `kite-lang-0.6.0.vsix`（扩展 → ⋯ → 从 VSIX 安装）。build.sh 会把 bin/kitec 打包进扩展（也可在设置 kite.kitecPath 里指定）；
 自带语法高亮（含字符串插值）、括号/注释配置、保存时自动格式化。重新打包：`editors/vscode/build.sh`。
 
 **Neovim**（0.10+）：
 
     vim.filetype.add({ extension = { kite = "kite" } })
     vim.api.nvim_create_autocmd("FileType", { pattern = "kite", callback = function()
-      vim.lsp.start({ name = "kite", cmd = { "python3", "/path/to/kite/lsp.py" } })
+      vim.lsp.start({ name = "kite", cmd = { "/path/to/kite/bin/kitec", "lsp" } })
     end })
 
 **Helix**（languages.toml）：
@@ -354,8 +356,8 @@ let squares = par_map(1..=1000, n => n * n)            // 数据并行，结果�
     file-types = ["kite"]
     language-servers = ["kite-lsp"]
     [language-server.kite-lsp]
-    command = "python3"
-    args = ["/path/to/kite/lsp.py"]
+    command = "/path/to/kite/bin/kitec"
+    args = ["lsp"]
 
 ## 字节码虚拟机（0.5）
 - 47 条栈式指令；局部变量编译期解析为槽位，不再逐层按名字查环境

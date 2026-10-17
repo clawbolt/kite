@@ -24,8 +24,7 @@
     "configuration": {
       "title": "Kite",
       "properties": {
-        "kite.pythonPath": { "type": "string", "default": "python3", "description": "运行语言服务器的 Python 解释器" },
-        "kite.serverPath": { "type": "string", "default": "", "description": "kite/lsp.py 的绝对路径（留空则用扩展自带的服务器）" },
+        "kite.kitecPath": { "type": "string", "default": "", "description": "kitec 可执行文件的路径（留空则用扩展自带的，再找 PATH 里的 kitec）；语言服务器是 kitec lsp" },
         "kite.formatOnSave": { "type": "boolean", "default": true, "description": "保存时自动格式化" }
       }
     },

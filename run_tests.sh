@@ -183,14 +183,5 @@ for f in examples/*.kite; do
 done
 [ $idem = 0 ] && echo "PASS kitec fmt 对全部示例幂等" || { echo "FAIL kitec fmt 幂等"; fail=1; }
 sh tests/packages.sh "$K" || fail=1
-# 还没移植到 Kite 的工具（第三步）：语言服务器；以及只在 Python 版里保留的 fmt --migrate。有 Python 时照旧测试，没有时跳过
-if [ "$KITE_NO_PY" != 1 ] && command -v python3 >/dev/null 2>&1 && [ -f kite.py ]; then
-  if python3 kite.py fmt --migrate tests/migrate/old.kite 2>/dev/null | diff -q - tests/migrate/want.kite >/dev/null \
-    && python3 kite.py fmt --migrate tests/migrate/old_prec.kite 2>/dev/null | diff -q - tests/migrate/want_prec.kite >/dev/null; then
-    echo "PASS kite fmt --migrate（! → ~，按旧优先级加括号）"
-  else echo "FAIL kite fmt --migrate"; fail=1; fi
-  python3 tests/test_tooling.py || fail=1
-else
-  echo "SKIP lsp 测试（语言服务器还没移植到 Kite，需要 Python）"
-fi
+sh tests/lsp.sh "$K" || fail=1
 exit $fail

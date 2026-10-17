@@ -101,6 +101,7 @@ pub type C = {
   upd_n: Int,
   in_pre: Bool,
   warns: List<(Int, Str)>,
+  locs: List<(Int, Str, Ty, Str)>,
 }
 
 pub type F = { c: C, ln: Int, msg: Str }
@@ -201,6 +202,7 @@ pub fn new_c() -> C {
     upd_n: 0,
     in_pre: false,
     warns: [],
+    locs: [],
     sub: Map(),
     nv: 0,
     g: Map(),
@@ -1325,6 +1327,15 @@ fn depr_msg(it: Node, nm: Str) -> Str {
   ""
 }
 
+// 记录局部绑定（供 LSP 悬停显示类型）；预导入里的不记录
+fn rec(c: C, name: Str, t: Ty, ln: Int, kind: Str) -> C {
+  if c.in_pre || ln == 0 || name == "_" { return c }
+  C { locs: push(c.locs, (ln, name, t, kind)), ..c }
+}
+
+// 局部绑定 (行, 名字, 类型文本, 种类)，类型按求解结果显示
+pub fn local_types(c: C) -> List<(Int, Str, Str, Str)> { map(c.locs, (l) => (l.0, l.1, sh(c, l.2), l.3)) }
+
 fn warn(c: C, ln: Int, msg: Str) -> C { if contains(c.warns, (ln, msg)) { c } else { C { warns: push(c.warns, (ln, msg)), ..c } } }
 
 fn use_name(e: (Str, Str?)) -> (Str, Str) { (e.0, unwrap_or(e.1, e.0)) }
@@ -1708,7 +1719,7 @@ fn check_fn_body2(c0: C, fnode: Node, sc: Sc, sig0: Ty?, cga: List<Str>) -> Resu
   var i = 0
   for p in f.params {
     let (c1, s1) = define(c, sc2, p.0, ent(pts[i], false, false))
-    c = c1
+    c = rec(c1, p.0, pts[i], fnode.line, "param")
     sc2 = s1
     i += 1
   }
@@ -3135,7 +3146,7 @@ fn lam(c0: C, e: Node, sc: Sc, expected: Ty?) -> Result<(C, Ty, Node), F> {
       c = unify(c2, at, pts[i], ln, "lambda 参数 {pn}")?
     }
     let (c3, s3) = define(c, inner, pn, ent(pts[i], false, false))
-    c = c3
+    c = rec(c3, pn, pts[i], ln, "param")
     inner = s3
     i += 1
   }
@@ -4022,11 +4033,11 @@ fn pat(c0: C, p: Pat, t: Ty, sc0: Sc, mt: Bool, ln: Int) -> Result<(C, Sc, Pat),
     },
     PBind(n) => {
       let (c1, s1) = define(c, sc, pname(n), ent(t, mt, false))
-      return Ok((c1, s1, p))
+      return Ok((rec(c1, pname(n), t, ln, if mt { "var" } else { "let" }), s1, p))
     },
     PVar(n) => {
       let (c1, s1) = define(c, sc, pname(n), ent(t, true, false))
-      return Ok((c1, s1, p))
+      return Ok((rec(c1, pname(n), t, ln, "var"), s1, p))
     },
     PAt(a, b) => {
       let (c1, s1, sub) = pat(c, b, t, sc, mt, ln)?
@@ -4078,7 +4089,7 @@ fn pat(c0: C, p: Pat, t: Ty, sc0: Sc, mt: Bool, ln: Int) -> Result<(C, Sc, Pat),
       if let Some(r) = rest {
         if r != "_" && r != "" {
           let (c5, s5) = define(c, sc, r, ent(list_t(el), mt, false))
-          c = c5
+          c = rec(c5, r, list_t(el), ln, if mt { "var" } else { "let" })
           sc = s5
         }
       }

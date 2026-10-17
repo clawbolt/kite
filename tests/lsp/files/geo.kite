@@ -1,0 +1,7 @@
+pub type Point = { x: Int, y: Int }
+
+pub fn area(w: Int, h: Int) -> Int { w * h }
+
+pub fn twice(p: Point) -> Int { area(p.x, p.y) * 2 }
+
+fn hidden() -> Int { 1 }

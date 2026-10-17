@@ -46,6 +46,8 @@ pub type L = {
   lm: Int,
   dtab: Map<Str, Pkg>,
   dunsup: Str,
+  ov: Str,
+  ovsrc: Str,
 }
 
 fn me(ln: Int, msg: Str) -> ME { ME { ln: ln, msg: msg } }
@@ -320,6 +322,8 @@ pub fn new_l(cwd: Str, main: Str, kite_dir: Str) -> L {
     cwd: cwd,
     kdir: kite_dir,
     lm: 0,
+    ov: "",
+    ovsrc: "",
   }
 }
 
@@ -643,15 +647,53 @@ fn kstd_use(l: L, p: List<UseP>) -> Bool {
 fn parse_file(l: L, p: Str) -> Result<(L, List<Node>), ME> {
   let idx = l.nfiles
   let l1 = L { nfiles: l.nfiles + 1, files: push(l.files, p), ..l }
-  let src = match fs.read(p) {
-    Ok(s)  => s,
-    Err(e) => { return Err(me(0, "无法读取 {p}: {e}")) },
+  let src = if p == l.ov && l.ov != "" { l.ovsrc } else {
+    match fs.read(p) {
+      Ok(s)  => s,
+      Err(e) => { return Err(me(0, "无法读取 {p}: {e}")) },
+    }
   }
   match parser.parse_off(src, idx * LINE_BASE) {
     Ok(its) => Ok((l1, its)),
-    Err(_)  => Err(me(-2, "SKIP parse")),
+    Err(e)  => Err(me(-2, syntax_msg(relpath(l.cwd, p), e))),
   }
 }
+
+// 语法错误 "ERR 行:列 信息"（行号带文件偏移）→ "文件:行:列: 信息"
+pub fn syntax_msg(file: Str, e: Str) -> Str {
+  if !starts_with(e, "ERR ") { return file + ": " + e }
+  let rest = __str_slice(e, 4, len(e))
+  let sp = __str_find(rest, " ", 0)
+  if sp < 0 { return file + ": " + e }
+  let lc = split(__str_slice(rest, 0, sp), ":")
+  let ln = match parse_int(lc[0]) {
+    Ok(n)  => n % LINE_BASE,
+    Err(_) => 0,
+  }
+  let col = if len(lc) > 1 && lc[1] != "-" { ":" + lc[1] } else { "" }
+  file + ":{ln}{col}: " + __str_slice(rest, sp + 1, len(rest))
+}
+
+// 不加载、只看文件系统：use 路径 → (模块文件, 用掉的段数)；找不到时文件为 ""（语言服务器用）
+pub fn resolve_static(l: L, p: List<UseP>) -> (Str, Int) {
+  let pk = l.root
+  let segs = filter(p, (x) => match x {
+    UName(s)  => s != "*",
+    UGroup(_) => false,
+  })
+  let (f, n) = find_module_file(l, pk.src, segs)
+  if f != "" { return (abspath(l.cwd, f), n) }
+  if pk.name != "" && len(p) > 0 && up_s(p[0]) == pk.name {
+    let (f2, n2) = find_module_file(l, pk.src, skip(segs, 1))
+    if f2 != "" { return (abspath(l.cwd, f2), 1 + n2) }
+    let lib = path.join([pk.src, "lib.kite"])
+    if is_file(lib) { return (abspath(l.cwd, lib), 1) }
+  }
+  ("", 0)
+}
+
+// 主文件改用内存里的文本（语言服务器：编辑器里还没保存的内容）
+pub fn with_overlay(l: L, src: Str) -> L { L { ov: l.main, ovsrc: src, ..l } }
 
 fn find_module_file(l: L, base: Str, segs: List<UseP>) -> (Str, Int) {
   var n = len(segs)

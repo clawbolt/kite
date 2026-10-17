@@ -53,7 +53,7 @@ pub fn load(file: Str, pre_path: Str) -> Result<((List<ast.Node>, List<Str>), Li
   let kdir = path.dir(if path.is_abs(pre_path) { pre_path } else { path.join([cwd, pre_path]) })
   let r = match modules.load_main_src(modules.new_l(cwd, file, kdir), file) {
     Ok(x)  => x,
-    Err(e) => { return Err(loc(file, e.ln, modules.strip_lm(e.msg))) },
+    Err(e) => { return Err(if e.ln == -2 { e.msg } else { loc(file, e.ln, modules.strip_lm(e.msg)) }) },
   }
   let pre = match fs.read(pre_path) {
     Ok(x)  => x,

@@ -1,0 +1,1624 @@
+// Kite 语言服务器（LSP，stdio）：kitec lsp
+//
+// 支持：
+// - 实时诊断：语法错误 + 全部类型错误 + 警告（每次编辑重新检查）
+// - 悬停：函数签名、类型/枚举/trait 定义、变体、方法、局部绑定的类型、内建函数，附带声明上方的 // 注释
+// - 跳转到定义：函数、类型、枚举、变体、trait、方法、局部绑定；跨文件（m.f、use m.f 导入的名字）
+// - 重命名 / 查找引用 / 文档内高亮：局部绑定、顶层名字、字段/方法；pub 的名字连同包内 use 它的文件一起改
+// - 文档大纲、补全（关键字、内建函数、本文件声明；输入 . 后补全方法、字段和标准库模块成员）
+// - 签名提示（正在输入、文件暂时解析不了时也能用）、格式化（kitec fmt）
+use std.fs
+use std.path
+use std.encoding.json
+use ast
+use lexer
+use parser
+use check
+use modules
+use builtins
+use fmt
+
+// ───────── JSON 小工具 ─────────
+
+fn obj(kvs: List<(Str, json.Json)>) -> json.Json {
+  var m: Map<Str, json.Json> = Map()
+  for (k, v) in kvs { m = set(m, k, v) }
+  JObj(m)
+}
+
+fn jf(v: json.Json, k: Str) -> json.Json { unwrap_or(json.field(v, k), JNull) }
+
+fn js(v: json.Json, k: Str) -> Str { unwrap_or(json.as_str(jf(v, k)), "") }
+
+fn ji(v: json.Json, k: Str) -> Int { unwrap_or(json.as_int(jf(v, k)), 0) }
+
+fn jarr(v: json.Json) -> List<json.Json> {
+  match v {
+    JArr(xs) => xs,
+    _        => [],
+  }
+}
+
+fn pint(s: Str, d: Int) -> Int {
+  match parse_int(s) {
+    Ok(n)  => n,
+    Err(_) => d,
+  }
+}
+
+fn is_null(v: json.Json) -> Bool {
+  match v {
+    JNull => true,
+    _     => false,
+  }
+}
+
+fn jstr(s: Str) -> json.Json { JStr(s) }
+
+fn jint(i: Int) -> json.Json { JInt(i) }
+
+fn pos(line: Int, ch: Int) -> json.Json { obj([("line", jint(line)), ("character", jint(ch))]) }
+
+// 行号 1 起、列 0 起
+fn rng(ln: Int, c: Int, word: Str) -> json.Json { obj([("start", pos(ln - 1, c)), ("end", pos(ln - 1, c + len(word)))]) }
+
+fn rstart(r: json.Json) -> (Int, Int) {
+  let s = jf(r, "start")
+  (ji(s, "line"), ji(s, "character"))
+}
+
+// ───────── 字符串小工具 ─────────
+
+fn lb() -> Str { "\{" }
+
+fn rb() -> Str { "\}" }
+
+fn sl(s: Str, a: Int, b: Int) -> Str {
+  let n = len(s)
+  let x = if a < 0 { 0 } else if a > n { n } else { a }
+  let y = if b > n { n } else if b < x { x } else { b }
+  __str_slice(s, x, y)
+}
+
+fn is_ws(c: Str) -> Bool { c == " " || c == "\t" || c == "\r" || c == "\n" }
+
+fn lstrip(s: Str) -> Str {
+  var i = 0
+  let cs = chars(s)
+  while i < len(cs) && is_ws(cs[i]) { i += 1 }
+  sl(s, i, len(s))
+}
+
+fn lead_ws(s: Str) -> Int {
+  var i = 0
+  let cs = chars(s)
+  while i < len(cs) && (cs[i] == " " || cs[i] == "\t") { i += 1 }
+  i
+}
+
+fn is_digit(c: Str) -> Bool { c >= "0" && c <= "9" }
+
+fn is_ascii_alpha(c: Str) -> Bool { c >= "a" && c <= "z" || c >= "A" && c <= "Z" || c == "_" }
+
+// 名字字符（同 Python 版的 WORD：ASCII 字母数字下划线和所有非 ASCII 字符）
+fn is_wc(c: Str) -> Bool { is_ascii_alpha(c) || is_digit(c) || __ord(c) >= 128 }
+
+fn is_wstart(c: Str) -> Bool { is_ascii_alpha(c) || __ord(c) >= 128 }
+
+// 文本里所有名字：(起, 止, 名字)
+fn words(s: Str) -> List<(Int, Int, Str)> {
+  let cs = chars(s)
+  var out: List<(Int, Int, Str)> = []
+  var i = 0
+  while i < len(cs) {
+    if is_wstart(cs[i]) {
+      var j = i + 1
+      while j < len(cs) && is_wc(cs[j]) { j += 1 }
+      out = push(out, (i, j, join(sl_list(cs, i, j), "")))
+      i = j
+    } else { i += 1 }
+  }
+  out
+}
+
+fn sl_list(cs: List<Str>, a: Int, b: Int) -> List<Str> { take(skip(cs, a), b - a) }
+
+fn is_word(s: Str) -> Bool {
+  let ws = words(s)
+  len(ws) == 1 && ws[0].0 == 0 && ws[0].1 == len(s)
+}
+
+// \bword\b 第一次出现的位置，没有时 -1（单词边界按 Unicode 字母数字算）
+fn word_pos(text: Str, word: Str) -> Int {
+  let cs = chars(text)
+  var from = 0
+  while true {
+    let i = __str_find(text, word, from)
+    if i < 0 { return -1 }
+    let e = i + len(word)
+    let okl = i == 0 || !is_wc(cs[i - 1])
+    let okr = e >= len(cs) || !is_wc(cs[e])
+    if okl && okr { return i }
+    from = i + 1
+  }
+  -1
+}
+
+fn count_nl(s: Str, upto: Int) -> Int {
+  var n = 0
+  let cs = chars(s)
+  var i = 0
+  while i < upto && i < len(cs) {
+    if cs[i] == "\n" { n += 1 }
+    i += 1
+  }
+  n
+}
+
+// ───────── 符号 ─────────
+
+// 扁平的符号表（先序）：par 是父符号在表里的下标，顶层为 -1
+pub type Sym = { name: Str, kind: Str, line: Int, detail: Str, doc: Str, end: Int, par: Int, is_pub: Bool }
+
+type Loc = (Int, Str, Str, Str)
+
+fn block_end(lines: List<Str>, start: Int) -> Int {
+  let toks = match fmt.tokenize(join(skip(lines, start - 1), "\n")) {
+    Ok(t)  => t,
+    Err(_) => { return start },
+  }
+  var depth = 0
+  var opened = false
+  var i = 0
+  for ln in toks {
+    for t in ln {
+      if t.k == "op" && (t.s == lb() || t.s == "(") {
+        depth += 1
+        opened = true
+      } else if t.k == "op" && (t.s == rb() || t.s == ")") { depth -= 1 }
+    }
+    if opened && depth <= 0 { return start + i }
+    if !opened && i > 0 { return start }
+    i += 1
+  }
+  start
+}
+
+fn doc_above(lines: List<Str>, line: Int) -> Str {
+  var out: List<Str> = []
+  var i = line - 2
+  while i >= 0 && i < len(lines) && starts_with(trim(lines[i]), "//") {
+    let t = trim(lines[i])
+    out = push(out, trim(sl(t, 2, len(t))))
+    i -= 1
+  }
+  join(reverse(out), "\n")
+}
+
+// 声明的签名：去掉函数体
+fn header(lines: List<Str>, line: Int) -> Str {
+  if line < 1 || line > len(lines) { return "" }
+  let text = trim(lines[line - 1])
+  let tl = match fmt.tokenize(text) {
+    Ok(t)  => if len(t) > 0 { t[0] } else { [] },
+    Err(_) => { return text },
+  }
+  let first = if len(words(text)) > 0 { split(text, " ")[0] } else { "" }
+  var depth = 0
+  var out: List<fmt.T> = []
+  for t in tl {
+    if t.k == "comment" { break }
+    if t.s == lb() && depth == 0 && contains(["fn", "pub", "impl", "trait"], first) { break }
+    if t.s == "(" || t.s == "[" || t.s == "<" { depth += 1 }
+    if t.s == ")" || t.s == "]" || t.s == ">" { depth -= 1 }
+    out = push(out, t)
+  }
+  if len(out) > 0 { fmt.format_line(out) } else { text }
+}
+
+fn find_line(lines: List<Str>, word: Str, start: Int, end: Int) -> Int {
+  var ln = start
+  let e = if end < len(lines) { end } else { len(lines) }
+  while ln <= e {
+    if ln >= 1 && word_pos(lines[ln - 1], word) >= 0 { return ln }
+    ln += 1
+  }
+  start
+}
+
+fn strip_num_prefix(msg: Str) -> Str {
+  // ^\d+(:\d+)?: 
+  let cs = chars(msg)
+  var i = 0
+  while i < len(cs) && is_digit(cs[i]) { i += 1 }
+  if i == 0 { return msg }
+  if i < len(cs) && cs[i] == ":" && i + 1 < len(cs) && is_digit(cs[i + 1]) {
+    var j = i + 1
+    while j < len(cs) && is_digit(cs[j]) { j += 1 }
+    if j + 1 < len(cs) && cs[j] == ":" && cs[j + 1] == " " { return sl(msg, j + 2, len(msg)) }
+  }
+  if i + 1 < len(cs) && cs[i] == ":" && cs[i + 1] == " " { return sl(msg, i + 2, len(msg)) }
+  msg
+}
+
+fn diag(lines: List<Str>, line0: Int, col: Int, msg0: Str, sev: Int) -> json.Json {
+  var line = if line0 <= 0 { 1 } else { line0 }
+  if line > len(lines) { line = len(lines) }
+  if line < 1 { line = 1 }
+  let text = if line - 1 < len(lines) { lines[line - 1] } else { "" }
+  let sc = if col > 0 { col - 1 } else { lead_ws(text) }
+  let msg = strip_num_prefix(msg0)
+  let ec = if len(text) > sc + 1 { len(text) } else { sc + 1 }
+  obj([
+    ("range", obj([("start", pos(line - 1, sc)), ("end", pos(line - 1, ec))])),
+    ("severity", jint(sev)),
+    ("source", jstr("kite")),
+    ("message", jstr(msg)),
+  ])
+}
+
+// 语法错误 "ERR 行:列 信息"
+fn parse_err(lines: List<Str>, e: Str) -> json.Json {
+  if !starts_with(e, "ERR ") { return diag(lines, 1, 0, e, 1) }
+  let rest = sl(e, 4, len(e))
+  let sp = __str_find(rest, " ", 0)
+  if sp < 0 { return diag(lines, 1, 0, e, 1) }
+  let lc = split(sl(rest, 0, sp), ":")
+  let ln = pint(lc[0], 1) % modules.LINE_BASE
+  let col = if len(lc) > 1 { pint(lc[1], 0) } else { 0 }
+  diag(lines, ln, col, sl(rest, sp + 1, len(rest)), 1)
+}
+
+fn has_nonstd_use(src: Str) -> Bool {
+  for raw in split(src, "\n") {
+    var t = lstrip(raw)
+    if starts_with(t, "pub") && len(t) > 3 && is_ws(sl(t, 3, 4)) { t = lstrip(sl(t, 3, len(t))) }
+    if starts_with(t, "use") && len(t) > 3 && is_ws(sl(t, 3, 4)) {
+      let r = lstrip(sl(t, 3, len(t)))
+      if !(starts_with(r, "std") && (len(r) == 3 || !is_wc(sl(r, 3, 4)))) { return true }
+    }
+  }
+  false
+}
+
+fn vis_pub(n: ast.Node) -> Bool {
+  match n.vis {
+    Some(v) => v.is_pub,
+    None    => false,
+  }
+}
+
+type An = { diags: List<json.Json>, syms: List<Sym>, locs: List<Loc> }
+
+// 返回诊断、符号、局部绑定。给出文件路径且引用了其他模块时，带上模块和依赖包一起检查
+pub fn analyze(src: Str, file: Str, pits: List<ast.Node>, kdir: Str) -> An {
+  let lines = split(src, "\n")
+  let items = match parser.parse(src) {
+    Ok(its) => its,
+    Err(e)  => { return An { diags: [parse_err(lines, e)], syms: [], locs: [] } },
+  }
+  var diags: List<json.Json> = []
+  var check_items = items
+  if file != "" && has_nonstd_use(src) {
+    let l = modules.with_overlay(modules.new_l(__getcwd(), file, kdir), src)
+    match modules.load_main_src(l, file) {
+      Ok((its, _)) => { check_items = its },
+      Err(e)       => {
+        let msg = if e.ln == -2 || e.ln == -1 { e.msg } else { modules.strip_lm(e.msg) }
+        let ln = if e.ln > 0 && e.ln < modules.LINE_BASE { e.ln } else { 1 }
+        return An { diags: [diag(lines, ln, 0, msg, 1)], syms: [], locs: [] }
+      },
+    }
+  }
+  let (errs, _, _, c) = check.check_c(pits, check_items)
+  for (ln, w) in sort(c.warns) { if ln < modules.LINE_BASE { diags = push(diags, diag(lines, ln, 0, w, 2)) } }
+  var seen: Set<(Int, Str)> = Set()
+  var locs: List<Loc> = []
+  for l in check.local_types(c) {
+    if l.0 >= modules.LINE_BASE || contains(seen, (l.0, l.1)) { continue }
+    seen = insert(seen, (l.0, l.1))
+    locs = push(locs, l)
+  }
+  for (ln, m) in errs {
+    let msg = modules.strip_lm(m)
+    if ln >= modules.LINE_BASE {
+      diags = push(diags, diag(lines, 1, 0, msg, 1))
+    } else { diags = push(diags, diag(lines, ln, 0, msg, 1)) }
+  }
+  An { diags: diags, syms: symbols_of(items, lines), locs: locs }
+}
+
+fn symbols_of(items: List<ast.Node>, lines: List<Str>) -> List<Sym> {
+  var syms: List<Sym> = []
+  let mk = (name: Str, kind: Str, line: Int, par: Int, p: Bool) => mk_sym(lines, name, kind, line, par, p)
+  for it in items {
+    let p = vis_pub(it)
+    match it.k {
+      NFn(f)          => { syms = push(syms, mk(f.name, "fn", it.line, -1, p)) },
+      NStruct(n, fs, _) => {
+        let s = mk(n, "struct", it.line, -1, p)
+        let pi = len(syms)
+        syms = push(syms, s)
+        for (f, _) in fs {
+          let ln = find_line(lines, f, it.line, s.end)
+          syms = push(syms, Sym { name: f, kind: "field", line: ln, detail: "{n}.{f}", doc: "", end: ln, par: pi, is_pub: false })
+        }
+      },
+      NAlias(n, _, _) => { syms = push(syms, mk(n, "struct", it.line, -1, p)) },
+      NEnum(n, vs, _) => {
+        let s = mk(n, "enum", it.line, -1, p)
+        let pi = len(syms)
+        syms = push(syms, s)
+        for (vn, _) in vs {
+          let ln = find_line(lines, vn, it.line, s.end)
+          syms = push(syms, Sym { name: vn, kind: "member", line: ln, detail: trim(lines[ln - 1]), doc: "{n} 的变体", end: ln, par: pi, is_pub: false })
+        }
+      },
+      NTrait(t)       => {
+        let pi = len(syms)
+        syms = push(syms, mk(t.name, "trait", it.line, -1, p))
+        for m in t.methods { syms = push(syms, mk(fn_name(m), "method", m.line, pi, false)) }
+      },
+      NImpl(d)        => {
+        let label = match d.tr {
+          Some(tr) => "impl {ast.bound_name(tr)} for {d.target}",
+          None     => "impl {d.target}",
+        }
+        let pi = len(syms)
+        syms = push(syms, mk(label, "impl", it.line, -1, p))
+        for m in d.methods { syms = push(syms, mk(fn_name(m), "method", m.line, pi, false)) }
+      },
+      NLet(pt, _, _, _, _) => {
+        if let PBind(n) = pt { syms = push(syms, mk(ast.nm_str(n), "var", it.line, -1, p)) }
+      },
+      NExtern(fs)     => {
+        for f in fs { syms = push(syms, mk(fn_name(f), "fn", f.line, -1, vis_pub(f))) }
+      },
+      _               => (),
+    }
+  }
+  syms
+}
+
+fn mk_sym(lines: List<Str>, name: Str, kind: Str, line: Int, par: Int, p: Bool) -> Sym {
+  Sym { name: name, kind: kind, line: line, detail: header(lines, line), doc: doc_above(lines, line), end: block_end(lines, line), par: par, is_pub: p }
+}
+
+fn fn_name(n: ast.Node) -> Str {
+  match n.k {
+    NFn(f) => f.name,
+    _      => "",
+  }
+}
+
+// 光标（1 起的行号）处名字 word 对应的局部绑定：同一个顶层定义内、在光标之前最近的那个
+fn local_at(syms: List<Sym>, locs: List<Loc>, word: Str, line: Int) -> Loc? {
+  var lo = 0
+  var hi = line
+  for s in syms {
+    if s.par == -1 && (s.kind == "fn" || s.kind == "impl") && s.line <= line && line <= s.end {
+      lo = s.line
+      hi = s.end
+    }
+  }
+  let top = if hi < line { hi } else { line }
+  var best: Loc? = None
+  for l in locs {
+    if l.1 == word && lo <= l.0 && l.0 <= top {
+      match best {
+        Some(b) => { if l.0 >= b.0 { best = Some(l) } },
+        None    => { best = Some(l) },
+      }
+    }
+  }
+  best
+}
+
+fn name_range(lines: List<Str>, s: Sym) -> json.Json {
+  let text = if s.line - 1 < len(lines) && s.line >= 1 { lines[s.line - 1] } else { "" }
+  let ps = split(trim(s.name), " ")
+  let name = ps[len(ps) - 1]
+  let m = word_pos(text, name)
+  let c = if m >= 0 { m } else { 0 }
+  obj([("start", pos(s.line - 1, c)), ("end", pos(s.line - 1, c + len(name)))])
+}
+
+// 源码里名字 word 的每次出现：(行号 1 起, 列 0 起, 前面是否是 ., 后面第一个非空白字符)。
+// 用词法分析器跳过注释与字符串，字符串插值 {…} 里的名字也算
+type Occ = (Int, Int, Bool, Str)
+
+fn occurrences(src: Str, word: Str) -> List<Occ> {
+  let lines = split(src, "\n")
+  let toks = match lexer.lex(src) {
+    Ok(t)  => t,
+    Err(_) => { return [] },
+  }
+  let after = (ln: Int, e: Int) => {
+    let rest = if ln - 1 < len(lines) { lstrip(sl(lines[ln - 1], e, len(lines[ln - 1]))) } else { "" }
+    sl(rest, 0, 1)
+  }
+  var out: List<Occ> = []
+  var prev = ""
+  for t in toks {
+    if t.kind == "IDENT" && lexer.sv(t.val) == word {
+      out = push(out, (t.line, t.col - 1, prev == ".", after(t.line, t.col - 1 + len(word))))
+    } else if t.kind == "STR" {
+      let line = if t.line - 1 < len(lines) { lines[t.line - 1] } else { "" }
+      var off = t.col - 1
+      for part in lexer.parts(t.val) {
+        if let SExpr(txt, _) = part {
+          let base = __str_find(line, txt, off)
+          if base < 0 { continue }
+          off = base + len(txt)
+          var p2 = ""
+          match lexer.lex(txt) {
+            Ok(sub) => {
+              for u in sub {
+                if u.kind == "IDENT" && lexer.sv(u.val) == word { out = push(out, (t.line, base + u.col - 1, p2 == ".", after(t.line, base + u.col - 1 + len(word)))) }
+                p2 = if u.kind == "OP" { lexer.sv(u.val) } else { "" }
+              }
+            },
+            Err(_)  => (),
+          }
+        }
+      }
+    }
+    prev = if t.kind == "OP" { lexer.sv(t.val) } else { "" }
+  }
+  out
+}
+
+// ───────── 跨文件 ─────────
+
+fn hexv(c: Str) -> Int {
+  let o = __ord(c)
+  if o >= 48 && o <= 57 { return o - 48 }
+  if o >= 97 && o <= 102 { return o - 87 }
+  if o >= 65 && o <= 70 { return o - 55 }
+  -1
+}
+
+// file:// URI → 路径（%XX 解码）；不是 file:// 时为 ""
+fn uri_path(uri: Str) -> Str {
+  if !starts_with(uri, "file://") { return "" }
+  let cs = chars(sl(uri, 7, len(uri)))
+  var bs: List<Int> = []
+  var i = 0
+  while i < len(cs) {
+    if cs[i] == "%" && i + 2 < len(cs) && hexv(cs[i + 1]) >= 0 && hexv(cs[i + 2]) >= 0 {
+      bs = push(bs, hexv(cs[i + 1]) * 16 + hexv(cs[i + 2]))
+      i += 3
+    } else {
+      bs = bs + __bytes(cs[i])
+      i += 1
+    }
+  }
+  path.clean(unwrap_or(__from_bytes(bs), ""))
+}
+
+fn path_uri(p: Str) -> Str {
+  let hx = "0123456789ABCDEF"
+  var out = "file://"
+  for b in __bytes(p) {
+    let c = __chr(b)
+    if b < 128 && (is_ascii_alpha(c) || is_digit(c) || c == "/" || c == "." || c == "-" || c == "~") {
+      out = out + c
+    } else { out = out + "%" + sl(hx, b / 16, b / 16 + 1) + sl(hx, b % 16, b % 16 + 1) }
+  }
+  out
+}
+
+// use 语句：路径、别名、语句里的名字词法单元（按顺序，带 as 标记和花括号深度）、覆盖的行
+type U = { path: List<ast.UseP>, alias: Str?, ids: List<(lexer.Tok, Bool, Int)>, lines: List<Int> }
+
+fn use_stmts(src: Str) -> List<U> {
+  var toks: List<lexer.Tok> = []
+  var items: List<ast.Node> = []
+  var ok = false
+  match lexer.lex(src) {
+    Ok(t) => {
+      match parser.parse(src) {
+        Ok(its) => {
+          toks = t
+          items = its
+          ok = true
+        },
+        Err(_)  => (),
+      }
+    },
+    Err(_) => (),
+  }
+  if !ok {
+    // 正在输入、整个文件暂时解析不了：只留下 use 行（其余行换成空行，行号不变）再试一次
+    let only = join(map(split(src, "\n"), (l) => {
+      var t = lstrip(l)
+      if starts_with(t, "pub") && len(t) > 3 && is_ws(sl(t, 3, 4)) { t = lstrip(sl(t, 3, len(t))) }
+      if starts_with(t, "use") && (len(t) == 3 || !is_wc(sl(t, 3, 4))) { l } else { "" }
+    }), "\n")
+    match lexer.lex(only) {
+      Ok(t)  => {
+        match parser.parse(only) {
+          Ok(its) => {
+            toks = t
+            items = its
+          },
+          Err(_)  => { return [] },
+        }
+      },
+      Err(_) => { return [] },
+    }
+  }
+  var out: List<U> = []
+  var i = 0
+  for u in items {
+    let (up, al) = match u.k {
+      NUse(p, a) => (p, a),
+      _          => { continue },
+    }
+    while i < len(toks) && !(toks[i].kind == "KW" && lexer.sv(toks[i].val) == "use" && toks[i].line >= u.line) { i += 1 }
+    var j = i + 1
+    var ids: List<(lexer.Tok, Bool, Int)> = []
+    var depth = 0
+    var after_as = false
+    while j < len(toks) {
+      let t = toks[j]
+      let v = lexer.sv(t.val)
+      if t.kind == "OP" && v == lb() { depth += 1 } else if t.kind == "OP" && v == rb() { depth -= 1 } else if (t.kind == "NEWLINE" || t.kind == "EOF") && depth <= 0 { break } else if t.kind == "OP" && v == ";" && depth <= 0 { break }
+      if t.kind == "KW" && v == "as" {
+        after_as = true
+      } else if t.kind == "IDENT" {
+        ids = push(ids, (t, after_as, depth))
+        after_as = false
+      }
+      j += 1
+    }
+    let last = if j > i + 1 && j - 1 < len(toks) { toks[j - 1].line } else { u.line }
+    var ls: List<Int> = []
+    var k = u.line
+    while k <= last {
+      ls = push(ls, k)
+      k += 1
+    }
+    out = push(out, U { path: up, alias: al, ids: ids, lines: ls })
+    i = j
+  }
+  out
+}
+
+fn up_name(u: ast.UseP) -> Str {
+  match u {
+    UName(s)  => s,
+    UGroup(_) => "",
+  }
+}
+
+fn is_group(u: ast.UseP) -> Bool {
+  match u {
+    UGroup(_) => true,
+    UName(_)  => false,
+  }
+}
+
+fn group_of(u: ast.UseP) -> List<(Str, Str?)> {
+  match u {
+    UGroup(xs) => xs,
+    UName(_)   => [],
+  }
+}
+
+// 包含 p 的包根（有 kite.toml）或 p 所在目录
+fn scan_root(p: Str, kdir: Str) -> Str {
+  let l = modules.new_l(__getcwd(), p, kdir)
+  if fs.exists(path.join([l.root.root, "kite.toml"])) { l.root.root } else { path.dir(p) }
+}
+
+fn kite_files(root: Str) -> List<Str> {
+  var out: List<Str> = []
+  var stack = [root]
+  while len(stack) > 0 && len(out) < 2000 {
+    let d = stack[len(stack) - 1]
+    stack = take(stack, len(stack) - 1)
+    let es = match fs.list(d) {
+      Ok(x)  => sort(x),
+      Err(_) => [],
+    }
+    var subs: List<Str> = []
+    for e in es {
+      let f = path.join([d, e])
+      if fs.is_dir(f) {
+        if !starts_with(e, ".") && e != "node_modules" && e != "__pycache__" && e != "server" { subs = push(subs, f) }
+      } else if ends_with(e, ".kite") {
+        out = push(out, path.clean(f))
+        if len(out) >= 2000 { return out }
+      }
+    }
+    stack = stack + reverse(subs)
+  }
+  out
+}
+
+// chain.word 形式的出现（chain 是名字列表，如 ["geo"]）：[(行, 列)]；chain 前面不能再接 .
+fn qualified_occ(src: Str, chain: List<Str>, word: Str) -> List<(Int, Int)> {
+  let toks = match lexer.lex(src) {
+    Ok(t)  => filter(t, (x) => x.kind != "NEWLINE"),
+    Err(_) => { return [] },
+  }
+  var out: List<(Int, Int)> = []
+  let k = len(chain)
+  var i = 0
+  for t in toks {
+    if t.kind == "IDENT" && lexer.sv(t.val) == word && i >= 2 * k {
+      var ok = true
+      for m in 0..k {
+        let a = toks[i - 2 * (k - m)]
+        let b = toks[i - 2 * (k - m) + 1]
+        if !(a.kind == "IDENT" && lexer.sv(a.val) == chain[m] && b.kind == "OP" && lexer.sv(b.val) == ".") { ok = false }
+      }
+      let bi = i - 2 * k - 1
+      let dotb = bi >= 0 && toks[bi].kind == "OP" && lexer.sv(toks[bi].val) == "."
+      if ok && !dotb { out = push(out, (t.line, t.col - 1)) }
+    }
+    i += 1
+  }
+  out
+}
+
+// 光标所在的调用：(名字所在行, 名字所在列, 名字, 前面是不是 ., 点前面的名字, 第几个实参)。
+// 跳过字符串和 // 注释；遇到外层的 [ 或 { 就停（在列表、代码块或结构体字面量里）
+fn call_at(text: Str, line: Int, ch: Int) -> (Int, Int, Str, Bool, Str, Int)? {
+  let lines = split(text, "\n")
+  if line >= len(lines) { return None }
+  let src = join(take(lines, line) + [sl(lines[line], 0, ch)], "\n")
+  let cs = chars(src)
+  let n = len(cs)
+  var sig: List<Int> = []
+  var i = 0
+  while i < n {
+    let c = cs[i]
+    if c == "\"" {
+      i += 1
+      while i < n && cs[i] != "\"" { i += if cs[i] == "\\" { 2 } else { 1 } }
+      i += 1
+      continue
+    }
+    if c == "/" && i + 1 < n && cs[i + 1] == "/" {
+      while i < n && cs[i] != "\n" { i += 1 }
+      continue
+    }
+    sig = push(sig, i)
+    i += 1
+  }
+  var depth = 0
+  var commas = 0
+  var k = len(sig) - 1
+  while k >= 0 {
+    let c = cs[sig[k]]
+    if c == ")" || c == "]" || c == rb() {
+      depth += 1
+    } else if c == "(" || c == "[" || c == lb() {
+      if depth > 0 {
+        depth -= 1
+        k -= 1
+        continue
+      }
+      if c != "(" { return None }
+      var j = sig[k]
+      while j > 0 && (cs[j - 1] == " " || cs[j - 1] == "\t") { j -= 1 }
+      let e = j
+      while j > 0 && (is_ascii_alpha(cs[j - 1]) || is_digit(cs[j - 1]) || __ord(cs[j - 1]) >= 128) { j -= 1 }
+      let name = join(sl_list(cs, j, e), "")
+      if name == "" || is_digit(sl(name, 0, 1)) || contains(lexer.KEYWORDS, name) { return None }
+      let dot = j > 0 && cs[j - 1] == "."
+      var recv = ""
+      if dot {
+        var r = j - 1
+        while r > 0 && (is_ascii_alpha(cs[r - 1]) || is_digit(cs[r - 1]) || __ord(cs[r - 1]) >= 128) { r -= 1 }
+        recv = join(sl_list(cs, r, j - 1), "")
+      }
+      let ln = count_nl(src, j)
+      var q = j
+      while q > 0 && cs[q - 1] != "\n" { q -= 1 }
+      return Some((ln, j - q, name, dot, recv, commas))
+    } else if c == "," && depth == 0 { commas += 1 }
+    k -= 1
+  }
+  None
+}
+
+// 参数列表文本 → [(起, 止)]，按顶层逗号切开
+fn split_params(text: Str) -> List<(Int, Int)> {
+  let cs = chars(text + ",")
+  var out: List<(Int, Int)> = []
+  var depth = 0
+  var st = 0
+  var i = 0
+  for c in cs {
+    if c == "(" || c == "[" || c == "<" || c == lb() {
+      depth += 1
+    } else if c == ")" || c == "]" || c == ">" || c == rb() {
+      depth -= 1
+    } else if c == "," && depth == 0 {
+      var a = st
+      var b = i
+      while a < b && cs[a] == " " { a += 1 }
+      while b > a && cs[b - 1] == " " { b -= 1 }
+      if b > a { out = push(out, (a, b)) }
+      st = i + 1
+    }
+    i += 1
+  }
+  out
+}
+
+fn word_at(text: Str, line: Int, ch: Int) -> (Str, Str) {
+  let lines = split(text, "\n")
+  if line >= len(lines) || line < 0 { return ("", "") }
+  let l = lines[line]
+  for (a, b, w) in words(l) { if a <= ch && ch <= b { return (w, sl(l, 0, a)) } }
+  ("", sl(l, 0, ch))
+}
+
+fn ends_dot(prefix: Str) -> Bool { ends_with(trim(prefix), ".") }
+
+// ───────── 内建函数与标准库 ─────────
+
+fn builtin_names() -> List<Str> {
+  var xs: List<Str> = ["Ok", "Err", "Some", "None"]
+  for (n, _, _) in builtins.builtin_sigs() {
+    if !starts_with(n, "__") && !lexer.first_upper(n) && !contains(xs, n) { xs = push(xs, n) }
+  }
+  sort(xs)
+}
+
+fn std_mods() -> List<(Str, List<Str>)> { map(builtins.std_sigs(), (m) => (m.0, sort(map(m.1, (e) => e.0)))) }
+
+fn std_members(m: Str) -> List<Str>? {
+  for (n, xs) in std_mods() { if n == m { return Some(xs) } }
+  None
+}
+
+// ───────── 服务器 ─────────
+
+pub type S = {
+  docs: Map<Str, Str>,
+  ro: Map<Str, Str>,
+  cache: Map<Str, (List<json.Json>, List<Sym>)>,
+  locs: Map<Str, List<Loc>>,
+  pits: List<ast.Node>,
+  kdir: Str,
+  running: Bool,
+  out: List<json.Json>,
+  bnames: List<Str>,
+  stdm: List<(Str, List<Str>)>,
+}
+
+fn send(s: S, m: json.Json) -> S { S { out: push(s.out, m), ..s } }
+
+fn reply(s: S, id: json.Json, r: json.Json) -> S { send(s, obj([("jsonrpc", jstr("2.0")), ("id", id), ("result", r)])) }
+
+fn reply_err(s: S, id: json.Json, code: Int, msg: Str) -> S {
+  send(s, obj([("jsonrpc", jstr("2.0")), ("id", id), ("error", obj([("code", jint(code)), ("message", jstr(msg))]))]))
+}
+
+fn publish(s: S, uri: Str, ds: List<json.Json>) -> S {
+  send(s, obj([("jsonrpc", jstr("2.0")), ("method", jstr("textDocument/publishDiagnostics")),
+    ("params", obj([("uri", jstr(uri)), ("diagnostics", JArr(ds))]))]))
+}
+
+fn doc(s: S, uri: Str) -> Str { unwrap_or(get(s.docs, uri), "") }
+
+fn analyze_uri(s0: S, uri: Str) -> S {
+  let text = doc(s0, uri)
+  let a = analyze(text, uri_path(uri), s0.pits, s0.kdir)
+  var s = s0
+  let old = get(s.cache, uri)
+  var keep = false
+  if len(a.syms) == 0 && len(a.diags) > 0 {
+    if let Some(o) = old { keep = len(o.1) > 0 }
+  }
+  if keep {
+    // 正在输入、暂时解析不了：沿用上一次成功分析的符号和局部绑定（悬停、补全、签名提示还能用）
+    s = S { cache: set(s.cache, uri, (a.diags, unwrap(old).1)), ..s }
+  } else {
+    s = S { cache: set(s.cache, uri, (a.diags, a.syms)), locs: set(s.locs, uri, a.locs), ..s }
+  }
+  publish(s, uri, a.diags)
+}
+
+fn syms(s: S, uri: Str) -> (S, List<Sym>) {
+  match get(s.cache, uri) {
+    Some(c) => (s, c.1),
+    None    => {
+      let s2 = analyze_uri(s, uri)
+      (s2, unwrap(get(s2.cache, uri)).1)
+    },
+  }
+}
+
+fn locs_of(s: S, uri: Str) -> List<Loc> { unwrap_or(get(s.locs, uri), []) }
+
+pub fn new_s(pits: List<ast.Node>, kdir: Str) -> S {
+  S { docs: Map(), ro: Map(), cache: Map(), locs: Map(), pits: pits, kdir: kdir, running: true, out: [], bnames: builtin_names(), stdm: std_mods() }
+}
+
+// 处理一条消息；要发出的消息累积在 s.out
+pub fn handle(s0: S, msg: json.Json) -> S {
+  let m = js(msg, "method")
+  let p = jf(msg, "params")
+  let id = jf(msg, "id")
+  let has_id = is_some(json.field(msg, "id"))
+  var s = s0
+  if m == "initialize" {
+    let caps = obj([
+      ("textDocumentSync", jint(1)), ("hoverProvider", JBool(true)), ("definitionProvider", JBool(true)),
+      ("documentSymbolProvider", JBool(true)), ("documentFormattingProvider", JBool(true)),
+      ("completionProvider", obj([("triggerCharacters", JArr([jstr(".")]))])),
+      ("signatureHelpProvider", obj([("triggerCharacters", JArr([jstr("("), jstr(",")])), ("retriggerCharacters", JArr([jstr(")")]))])),
+      ("renameProvider", obj([("prepareProvider", JBool(true))])), ("referencesProvider", JBool(true)),
+      ("documentHighlightProvider", JBool(true)),
+    ])
+    return reply(s, id, obj([("capabilities", caps), ("serverInfo", obj([("name", jstr("kite-lsp")), ("version", jstr("1.00"))]))]))
+  }
+  if m == "shutdown" { return reply(s, id, JNull) }
+  if m == "exit" { return S { running: false, ..s } }
+  let td = jf(p, "textDocument")
+  let uri = js(td, "uri")
+  if m == "textDocument/didOpen" {
+    s = S { docs: set(s.docs, uri, js(td, "text")), ..s }
+    return analyze_uri(s, uri)
+  }
+  if m == "textDocument/didChange" {
+    let ch = jarr(jf(p, "contentChanges"))
+    if len(ch) > 0 { s = S { docs: set(s.docs, uri, js(ch[len(ch) - 1], "text")), ..s } }
+    return analyze_uri(s, uri)
+  }
+  if m == "textDocument/didClose" {
+    s = S { docs: remove(s.docs, uri), cache: remove(s.cache, uri), ..s }
+    return publish(s, uri, [])
+  }
+  let ps = jf(p, "position")
+  let pl = ji(ps, "line")
+  let pc = ji(ps, "character")
+  if m == "textDocument/hover" {
+    let (s1, r) = hover(s, uri, pl, pc)
+    return reply(s1, id, r)
+  }
+  if m == "textDocument/definition" {
+    let (s1, r) = definition(s, uri, pl, pc)
+    return reply(s1, id, r)
+  }
+  if m == "textDocument/documentSymbol" {
+    let (s1, r) = doc_symbols(s, uri)
+    return reply(s1, id, r)
+  }
+  if m == "textDocument/completion" {
+    let (s1, r) = complete(s, uri, pl, pc)
+    return reply(s1, id, r)
+  }
+  if m == "textDocument/prepareRename" {
+    let (s1, r) = prepare_rename(s, uri, pl, pc)
+    return reply(s1, id, r)
+  }
+  if m == "textDocument/rename" {
+    let new = js(p, "newName")
+    if !is_word(new) || contains(lexer.KEYWORDS, new) { return reply_err(s, id, -32602, "'{new}' 不是合法的名字") }
+    return match collect(s, uri, pl, pc, new, false) {
+      Ok((s1, ch)) => reply(s1, id, obj([("changes", ch)])),
+      Err(e)       => reply_err(s, id, -32602, e),
+    }
+  }
+  if m == "textDocument/signatureHelp" {
+    let (s1, r) = signature(s, uri, pl, pc)
+    return reply(s1, id, r)
+  }
+  if m == "textDocument/references" {
+    let inc = match json.field(jf(p, "context"), "includeDeclaration") {
+      Some(JBool(b)) => b,
+      _              => true,
+    }
+    let (s1, r) = references(s, uri, pl, pc, inc)
+    return reply(s1, id, JArr(r))
+  }
+  if m == "textDocument/documentHighlight" {
+    let (s1, r) = references(s, uri, pl, pc, true)
+    return reply(s1, id, JArr(map(filter(r, (o) => js(o, "uri") == uri), (o) => obj([("range", jf(o, "range"))]))))
+  }
+  if m == "textDocument/formatting" { return reply(s, id, format(s, uri)) }
+  if has_id { return reply_err(s, id, -32601, "不支持的方法 {m}") }
+  s
+}
+
+// ───────── 功能 ─────────
+
+fn kind_rank(k: Str) -> Int {
+  let order = ["fn", "struct", "enum", "trait", "member", "var", "method", "field"]
+  var i = 0
+  for o in order {
+    if o == k { return i }
+    i += 1
+  }
+  99
+}
+
+fn lookup(ss: List<Sym>, word: Str, prefix: Str) -> Sym? {
+  let cands = filter(ss, (x) => x.name == word)
+  if len(cands) == 0 { return None }
+  if ends_dot(prefix) {
+    for x in cands { if x.kind == "method" || x.kind == "field" { return Some(x) } }
+  }
+  Some(sort_by(cands, (x) => kind_rank(x.kind))[0])
+}
+
+fn md(v: Str) -> json.Json { obj([("contents", obj([("kind", jstr("markdown")), ("value", jstr(v))]))]) }
+
+fn hover(s0: S, uri: Str, line: Int, ch: Int) -> (S, json.Json) {
+  let (word, prefix) = word_at(doc(s0, uri), line, ch)
+  if word == "" { return (s0, JNull) }
+  let (s, ss) = syms(s0, uri)
+  let loc = if ends_dot(prefix) { None } else { local_at(ss, locs_of(s, uri), word, line + 1) }
+  if let Some(l) = loc {
+    let head = if l.3 == "param" { "(参数) " } else { l.3 + " " }
+    return (s, md("```kite\n" + head + word + ": " + l.2 + "\n```"))
+  }
+  if let Some(x) = lookup(ss, word, prefix) {
+    var detail = x.detail
+    if x.kind == "method" && x.par >= 0 { detail = "// " + ss[x.par].name + "\n" + detail }
+    return (s, md("```kite\n" + detail + "\n```" + (if x.doc != "" { "\n\n" + x.doc } else { "" })))
+  }
+  if contains(s.bnames, word) { return (s, md("```kite\n" + word + "\n```\n\nKite 内建函数")) }
+  if let Some(ms) = std_members(word) { return (s, md("```kite\nuse std.{word}\n```\n\n标准库模块：" + join(ms, ", "))) }
+  if contains(lexer.KEYWORDS, word) { return (s, md("关键字 `{word}`")) }
+  (s, JNull)
+}
+
+// 光标处名字指向的东西：TLocal(绑定) / TSym(符号)
+enum Tg {
+  TLocal(Loc),
+  TSym(Sym),
+}
+
+fn target(s0: S, uri: Str, line: Int, ch: Int) -> (S, Str, Tg?) {
+  let (word, prefix) = word_at(doc(s0, uri), line, ch)
+  if word == "" || contains(lexer.KEYWORDS, word) { return (s0, word, None) }
+  let (s, ss) = syms(s0, uri)
+  if !ends_dot(prefix) {
+    if let Some(l) = local_at(ss, locs_of(s, uri), word, line + 1) { return (s, word, Some(TLocal(l))) }
+  }
+  match lookup(ss, word, prefix) {
+    Some(x) => (s, word, Some(TSym(x))),
+    None    => (s, word, None),
+  }
+}
+
+// 路径对应的 (uri, 文本)：打开的文件用编辑器里的内容
+fn text_of(s: S, p: Str) -> (Str, Str?) {
+  for u in keys(s.docs) { if uri_path(u) == p { return (u, get(s.docs, u)) } }
+  match fs.read(p) {
+    Ok(t)  => (path_uri(p), Some(t)),
+    Err(_) => (path_uri(p), None),
+  }
+}
+
+// (符号, 局部绑定)：打开的文件用缓存，没打开的现场分析
+fn file_info(s0: S, uri: Str, src: Str, p: Str) -> (S, List<Sym>, List<Loc>) {
+  if contains(s0.docs, uri) {
+    let (s, ss) = syms(s0, uri)
+    return (s, ss, locs_of(s, uri))
+  }
+  let a = analyze(src, p, s0.pits, s0.kdir)
+  (s0, a.syms, a.locs)
+}
+
+type Imp = (Str, Str, U, Int)
+
+// 包内 use 了模块文件 fpath 的其他文件：[(路径, 源码, use 语句, 模块段数)]
+fn importers(s: S, fpath: Str) -> List<Imp> {
+  var out: List<Imp> = []
+  for g in kite_files(scan_root(fpath, s.kdir)) {
+    if g == fpath { continue }
+    let (_, so) = text_of(s, g)
+    let src = unwrap_or(so, "")
+    if src == "" || !contains(src, "use") { continue }
+    let l = modules.new_l(__getcwd(), g, s.kdir)
+    for u in use_stmts(src) {
+      let (f, n) = modules.resolve_static(l, u.path)
+      if f != "" && f == fpath { out = push(out, (g, src, u, n)) }
+    }
+  }
+  out
+}
+
+fn trailing_chain(prefix: Str) -> List<Str> {
+  // ((WORD)\s*\.\s*)+$
+  let cs = chars(prefix)
+  var i = len(cs)
+  var chain: List<Str> = []
+  while true {
+    var j = i
+    while j > 0 && is_ws(cs[j - 1]) { j -= 1 }
+    if j == 0 || cs[j - 1] != "." { return chain }
+    j -= 1
+    while j > 0 && is_ws(cs[j - 1]) { j -= 1 }
+    let e = j
+    while j > 0 && is_wc(cs[j - 1]) { j -= 1 }
+    while j < e && !is_wstart(cs[j]) { j += 1 }
+    if j == e { return chain }
+    chain = [join(sl_list(cs, j, e), "")] + chain
+    i = j
+  }
+  chain
+}
+
+fn pub_line_has(src: Str, word: Str) -> Bool {
+  for l in split(src, "\n") {
+    let t = lstrip(l)
+    if starts_with(t, "pub") && (len(t) == 3 || !is_wc(sl(t, 3, 4))) && word_pos(sl(t, 3, len(t)), word) >= 0 { return true }
+  }
+  false
+}
+
+// 光标处是别的模块里的名字（m.f 或 use 导入的 f）时：(定义文件路径, 真实名字)
+fn xref(s: S, uri: Str, line: Int, ch: Int) -> (Str, Str)? {
+  let gpath = uri_path(uri)
+  if gpath == "" { return None }
+  let text = doc(s, uri)
+  let (word, prefix) = word_at(text, line, ch)
+  if word == "" { return None }
+  let l = modules.with_overlay(modules.new_l(__getcwd(), gpath, s.kdir), text)
+  let chain = trailing_chain(prefix)
+  let line_no = line + 1
+  for u in use_stmts(text) {
+    let (f, n) = modules.resolve_static(l, u.path)
+    if f == "" { continue }
+    let rest = skip(u.path, n)
+    if contains(u.lines, line_no) {
+      for (t, after_as, _) in skip(u.ids, n) {
+        let v = lexer.sv(t.val)
+        if t.line == line_no && t.col - 1 <= ch && ch <= t.col - 1 + len(v) && v == word && !after_as { return Some((f, word)) }
+      }
+      continue
+    }
+    if len(chain) > 0 {
+      if len(rest) == 0 && n >= 1 && chain == [unwrap_or(u.alias, up_name(u.path[n - 1]))] { return Some((f, word)) }
+      continue
+    }
+    if len(rest) == 0 { continue }
+    let item = rest[0]
+    if !is_group(item) && up_name(item) == word && is_none(u.alias) && len(rest) == 1 { return Some((f, word)) }
+    if u.alias == Some(word) && len(rest) == 1 && !is_group(item) { return Some((f, up_name(item))) }
+    for (nm, al) in group_of(item) {
+      if is_none(al) && nm == word { return Some((f, word)) }
+      if al == Some(word) { return Some((f, nm)) }
+    }
+    if !is_group(item) && up_name(item) == "*" {
+      let (_, so) = text_of(s, f)
+      if let Some(src) = so { if pub_line_has(src, word) { return Some((f, word)) } }
+    }
+  }
+  None
+}
+
+// (定义所在 uri, 名字, 目标)；跨文件时目标是定义文件里的顶层符号
+fn xtarget(s0: S, uri: Str, line: Int, ch: Int) -> (S, Str, Str, Tg?) {
+  let (word0, prefix) = word_at(doc(s0, uri), line, ch)
+  var s = s0
+  var xr: (Str, Str)? = if ends_dot(prefix) { xref(s, uri, line, ch) } else { None }   // m.f 优先按模块解析
+  var word = word0
+  if is_none(xr) {
+    let (s1, w, t) = target(s, uri, line, ch)
+    s = s1
+    word = w
+    if is_some(t) { return (s, uri, word, t) }
+    xr = xref(s, uri, line, ch)
+  }
+  let (f, name) = match xr {
+    Some(x) => x,
+    None    => { return (s, uri, word, None) },
+  }
+  let (furi, so) = text_of(s, f)
+  let src = match so {
+    Some(x) => x,
+    None    => { return (s, uri, word, None) },
+  }
+  let (s2, fs_, _) = file_info(s, furi, src, f)
+  s = s2
+  let hit = filter(fs_, (x) => x.name == name && x.kind != "impl")
+  if len(hit) == 0 { return (s, uri, word, None) }
+  if !contains(s.docs, furi) { s = S { ro: set(s.ro, furi, src), ..s } }
+  (s, furi, name, Some(TSym(hit[0])))
+}
+
+fn src_of(s: S, uri: Str) -> Str { if contains(s.docs, uri) { doc(s, uri) } else { unwrap_or(get(s.ro, uri), "") } }
+
+fn loc_json(uri: Str, r: json.Json) -> json.Json { obj([("uri", jstr(uri)), ("range", r)]) }
+
+fn definition(s0: S, uri: Str, line: Int, ch: Int) -> (S, json.Json) {
+  let (s, duri, word, t) = xtarget(s0, uri, line, ch)
+  match t {
+    None            => (s, JNull),
+    Some(TLocal(l)) => {
+      for (ln, c, dot, _) in occurrences(doc(s, uri), word) {
+        if ln == l.0 && !dot { return (s, loc_json(uri, rng(ln, c, word))) }
+      }
+      (s, JNull)
+    },
+    Some(TSym(x))   => (s, loc_json(duri, name_range(split(src_of(s, duri), "\n"), x))),
+  }
+}
+
+fn prepare_rename(s0: S, uri: Str, line: Int, ch: Int) -> (S, json.Json) {
+  let (s, _, _, t) = xtarget(s0, uri, line, ch)
+  if is_none(t) { return (s, JNull) }
+  let ls = split(doc(s, uri), "\n")
+  if line >= len(ls) { return (s, JNull) }
+  for (a, b, w) in words(ls[line]) {
+    if a <= ch && ch <= b { return (s, obj([("range", rng(line + 1, a, w)), ("placeholder", jstr(w))])) }
+  }
+  (s, JNull)
+}
+
+fn edit(ln: Int, c: Int, word: Str, new: Str) -> json.Json { obj([("range", rng(ln, c, word)), ("newText", jstr(new))]) }
+
+// 一个文件里的重命名编辑：局部绑定只改同一作用域里解析到它的引用；顶层名字改所有未被局部遮蔽的引用；
+// 字段 / 方法改 .name、定义处和结构体字面量里的 name:。t 为 None：别的文件里导入进来的顶层名字
+fn file_edits(src: Str, ss: List<Sym>, ls: List<Loc>, word: Str, t: Tg?, new: Str, skip_lines: List<Int>) -> List<json.Json> {
+  var edits: List<json.Json> = []
+  for (ln, c, dot, nxt) in occurrences(src, word) {
+    if contains(skip_lines, ln) { continue }
+    let loc = if dot { None } else { local_at(ss, ls, word, ln) }
+    let hit = match t {
+      None            => !dot && is_none(loc),
+      Some(TLocal(l)) => match loc {
+        Some(x) => x.0 == l.0,
+        None    => false,
+      },
+      Some(TSym(x))   => if x.kind == "method" || x.kind == "field" {
+        let inside = x.par >= 0 && ss_par_contains(ss, x, ln) && !dot && is_none(loc)
+        dot || inside || x.kind == "field" && nxt == ":" && is_none(loc)
+      } else { !dot && is_none(loc) },
+    }
+    if hit { edits = push(edits, edit(ln, c, word, new)) }
+  }
+  edits
+}
+
+// x 的父符号（按名字和行在 ss 里找）是否包含第 ln 行
+fn ss_par_contains(ss: List<Sym>, x: Sym, ln: Int) -> Bool {
+  if x.par < 0 || x.par >= len(ss) { return false }
+  let p = ss[x.par]
+  p.line <= ln && ln <= p.end
+}
+
+fn uri_for(s: S, p: Str) -> Str {
+  for u in keys(s.docs) { if uri_path(u) == p { return u } }
+  path_uri(p)
+}
+
+type Ch = Map<Str, List<json.Json>>
+
+fn put(ch: Ch, uri: Str, ln: Int, c: Int, w: Str, new: Str) -> Ch {
+  let ed = unwrap_or(get(ch, uri), [])
+  for e in ed { if rstart(jf(e, "range")) == (ln - 1, c) { return ch } }
+  set(ch, uri, push(ed, edit(ln, c, w, new)))
+}
+
+fn collect(s0: S, uri: Str, line: Int, ch: Int, new: Str, refs: Bool) -> Result<(S, json.Json), Str> {
+  let (s1, duri, word, t) = xtarget(s0, uri, line, ch)
+  var s = s1
+  let tg = match t {
+    Some(x) => x,
+    None    => { return Err("这里没有可以重命名的名字") },
+  }
+  let dsrc = src_of(s, duri)
+  let dpath = uri_path(duri)
+  let (s2, dss, dls) = file_info(s, duri, dsrc, dpath)
+  s = s2
+  var changes: Ch = Map()
+  changes = set(changes, duri, file_edits(dsrc, dss, dls, word, t, new, []))
+  let sym = match tg {
+    TSym(x)   => x,
+    TLocal(_) => { return Ok((s, ch_json(changes))) },
+  }
+  if dpath == "" { return Ok((s, ch_json(changes))) }
+  let top = sym.par == -1 && contains(["fn", "struct", "enum", "trait", "var"], sym.kind)
+  let member = (sym.kind == "method" || sym.kind == "field") && sym.par >= 0 && sym.par < len(dss) && dss[sym.par].is_pub
+  if !(top && sym.is_pub || member) { return Ok((s, ch_json(changes))) }
+  for (g, gsrc, u, n) in importers(s, dpath) {
+    let guri = uri_for(s, g)
+    if !contains(changes, guri) { changes = set(changes, guri, []) }
+    if member {
+      let (s3, gs, gl) = if sym.kind == "field" { file_info(s, guri, gsrc, g) } else { (s, [], []) }
+      s = s3
+      for (ln, c, dot, nxt) in occurrences(gsrc, word) {
+        if contains(u.lines, ln) { continue }
+        if dot || sym.kind == "field" && nxt == ":" && is_none(local_at(gs, gl, word, ln)) { changes = put(changes, guri, ln, c, word, new) }
+      }
+      continue
+    }
+    let rest = skip(u.path, n)
+    if len(rest) == 0 {
+      let head = unwrap_or(u.alias, if n >= 1 { up_name(u.path[n - 1]) } else { "" })
+      for (ln, c) in qualified_occ(gsrc, [head], word) { changes = put(changes, guri, ln, c, word, new) }
+      continue
+    }
+    let item = rest[0]
+    let grp = is_group(item)
+    var aname = if refs && !grp && up_name(item) == word && len(rest) == 1 { unwrap_or(u.alias, "") } else { "" }
+    let cand = if !grp { take(skip(u.ids, n), 1) } else { skip(u.ids, n) }
+    var k = 0
+    for (tok, after_as, depth) in cand {
+      if lexer.sv(tok.val) == word && !after_as && grp == (depth >= 1) {
+        changes = put(changes, guri, tok.line, tok.col - 1, word, new)
+        if refs && grp && k + 1 < len(cand) && cand[k + 1].1 {
+          let nt = cand[k + 1].0
+          aname = lexer.sv(nt.val)
+          changes = put(changes, guri, nt.line, nt.col - 1, aname, new)
+        }
+      }
+      k += 1
+    }
+    if aname != "" && !grp {
+      for (tok, after_as, _) in u.ids { if after_as && lexer.sv(tok.val) == aname { changes = put(changes, guri, tok.line, tok.col - 1, aname, new) } }
+    }
+    if aname != "" {   // 查找引用：use … as 别名的引用也算
+      let (s3, gs, gl) = file_info(s, guri, gsrc, g)
+      s = s3
+      if !any(gs, (x) => x.name == aname && x.par == -1) {
+        for e in file_edits(gsrc, gs, gl, aname, None, new, u.lines) {
+          let (l0, c0) = rstart(jf(e, "range"))
+          changes = put(changes, guri, l0 + 1, c0, aname, new)
+        }
+      }
+    }
+    let plain = !grp && up_name(item) == word && is_none(u.alias) && len(rest) == 1 || !grp && up_name(item) == "*" || grp && any(group_of(item), (e) => e.0 == word && is_none(e.1))
+    if plain {
+      let (s3, gs, gl) = file_info(s, guri, gsrc, g)
+      s = s3
+      if any(gs, (x) => x.name == word && x.par == -1) { continue }   // 本文件另有同名定义
+      for e in file_edits(gsrc, gs, gl, word, None, new, u.lines) {
+        let (l0, c0) = rstart(jf(e, "range"))
+        changes = put(changes, guri, l0 + 1, c0, word, new)
+      }
+    }
+  }
+  Ok((s, ch_json(changes)))
+}
+
+fn ch_json(ch: Ch) -> json.Json {
+  var m: Map<Str, json.Json> = Map()
+  for u in keys(ch) {
+    let es = unwrap_or(get(ch, u), [])
+    if len(es) > 0 { m = set(m, u, JArr(es)) }
+  }
+  JObj(m)
+}
+
+fn references(s0: S, uri: Str, line: Int, ch: Int, inc: Bool) -> (S, List<json.Json>) {
+  let (s, chs) = match collect(s0, uri, line, ch, "", true) {
+    Ok(r)  => r,
+    Err(_) => { return (s0, []) },
+  }
+  var out: List<(Str, Int, Int, json.Json)> = []
+  match chs {
+    JObj(m) => {
+      for u in keys(m) {
+        for e in jarr(unwrap_or(get(m, u), JNull)) {
+          let r = jf(e, "range")
+          let (l, c) = rstart(r)
+          out = push(out, (u, l, c, loc_json(u, r)))
+        }
+      }
+    },
+    _       => (),
+  }
+  var s2 = s
+  if !inc {
+    let (s3, d) = definition(s, uri, line, ch)
+    s2 = s3
+    if !is_null(d) {
+      let du = js(d, "uri")
+      let dst = rstart(jf(d, "range"))
+      out = filter(out, (o) => !(o.0 == du && (o.1, o.2) == dst))
+    }
+  }
+  (s2, map(sort_by(out, (o) => (o.0, o.1, o.2)), (o) => o.3))
+}
+
+fn sig_info(label: Str, ps: List<(Int, Int)>, d: Str) -> json.Json {
+  var kv = [("label", jstr(label)), ("parameters", JArr(map(ps, (x) => obj([("label", JArr([jint(x.0), jint(x.1)]))]))))]
+  if d != "" { kv = push(kv, ("documentation", jstr(d))) }
+  obj(kv)
+}
+
+// 从 o 开始（o 是 ( 之后）找配对的 )，返回 ) 之后的位置
+fn close_paren(cs: List<Str>, o: Int) -> Int {
+  var depth = 1
+  var e = o
+  while e < len(cs) && depth > 0 {
+    if cs[e] == "(" { depth += 1 } else if cs[e] == ")" { depth -= 1 }
+    e += 1
+  }
+  e
+}
+
+// label 里 name 后面（可带 <…>）的 ( 之后的位置，没有时 -1
+fn after_name_paren(label: Str, name: Str) -> Int {
+  let cs = chars(label)
+  var from = 0
+  while true {
+    let i = word_pos(sl(label, from, len(label)), name)
+    if i < 0 { return -1 }
+    var j = from + i + len(name)
+    while j < len(cs) && is_ws(cs[j]) { j += 1 }
+    if j < len(cs) && cs[j] == "<" {
+      while j < len(cs) && cs[j] != "(" { j += 1 }
+    }
+    while j < len(cs) && is_ws(cs[j]) { j += 1 }
+    if j < len(cs) && cs[j] == "(" { return j + 1 }
+    from = from + i + len(name)
+  }
+  -1
+}
+
+fn is_self_param(p: Str) -> Bool {
+  var t = p
+  if starts_with(t, "mut") && len(t) > 3 && is_ws(sl(t, 3, 4)) { t = lstrip(sl(t, 3, len(t))) }
+  starts_with(t, "self") && (len(t) == 4 || !is_wc(sl(t, 4, 5)))
+}
+
+fn builtin_cands(name: Str, recv: Str, dot: Bool) -> List<(Str, Str, Bool)> {
+  if dot {
+    for (m, es) in builtins.std_sigs() {
+      if m == recv {
+        for (n, k, sg) in es { if n == name && k == "s" && len(sg) == 1 { return [(recv + "." + name, sg[0].1, false)] } }
+      }
+    }
+    if is_some(std_members(recv)) { return [] }
+  }
+  for (n, k, sg) in builtins.builtin_sigs() {
+    if n == name { return map(sg, (x) => (name, x.1, dot)) }
+  }
+  []
+}
+
+fn signature(s0: S, uri: Str, line: Int, ch: Int) -> (S, json.Json) {
+  let (ln, col, name, dot, recv, act) = match call_at(doc(s0, uri), line, ch) {
+    Some(c) => c,
+    None    => { return (s0, JNull) },
+  }
+  let (s, _, _, t) = xtarget(s0, uri, ln, col)
+  var sigs: List<json.Json> = []
+  var nps: List<Int> = []
+  match t {
+    Some(TSym(x)) => {
+      if x.kind == "fn" || x.kind == "method" {
+        let dl = split(x.detail, "\n")
+        let label = trim(dl[len(dl) - 1])
+        let o = after_name_paren(label, name)
+        if o >= 0 {
+          let e = close_paren(chars(label), o)
+          var ps = map(split_params(sl(label, o, e - 1)), (q) => (o + q.0, o + q.1))
+          if dot && len(ps) > 0 && is_self_param(sl(label, ps[0].0, ps[0].1)) && !lexer.first_upper(recv) { ps = skip(ps, 1) }
+          sigs = push(sigs, sig_info(label, ps, x.doc))
+          nps = push(nps, len(ps))
+        }
+      }
+    },
+    Some(_)       => (),
+    None          => {
+      for (nm, sg, method) in builtin_cands(name, recv, dot) {
+        if !starts_with(sg, "fn(") { continue }
+        let e = close_paren(chars(sg), 3)
+        let label = nm + sl(sg, 2, len(sg))
+        let o = len(nm) + 1
+        var ps = map(split_params(sl(sg, 3, e - 1)), (q) => (o + q.0, o + q.1))
+        if method { ps = skip(ps, 1) }
+        sigs = push(sigs, sig_info(label, ps, ""))
+        nps = push(nps, len(ps))
+      }
+    },
+  }
+  if len(sigs) == 0 && is_none(t) && !dot {
+    // 从没成功解析过的文件：按文本找 fn name(…) 声明
+    let src = doc(s, uri)
+    let lines = split(src, "\n")
+    var i = 1
+    for l in lines {
+      let ws = words(l)
+      var k = 0
+      if len(ws) > 0 && ws[0].2 == "pub" { k = 1 }
+      if len(ws) > k + 1 && ws[k].2 == "fn" && ws[k + 1].2 == name && trim(sl(l, 0, ws[0].0)) == "" {
+        let label = header(lines, i)
+        let nm_at = __str_find(label, name, 0)
+        let kk = if nm_at >= 0 { __str_find(label, "(", nm_at) } else { -1 }
+        if kk >= 0 {
+          let e = close_paren(chars(label), kk + 1)
+          let ps = map(split_params(sl(label, kk + 1, e - 1)), (q) => (kk + 1 + q.0, kk + 1 + q.1))
+          sigs = push(sigs, sig_info(label, ps, ""))
+          nps = push(nps, len(ps))
+        }
+        break
+      }
+      i += 1
+    }
+  }
+  if len(sigs) == 0 { return (s, JNull) }
+  var best = 0
+  var i = 0
+  var found = false
+  for n in nps {
+    if !found && n > act {
+      best = i
+      found = true
+    }
+    i += 1
+  }
+  (s, obj([("signatures", JArr(sigs)), ("activeSignature", jint(best)), ("activeParameter", jint(act))]))
+}
+
+fn sk(k: Str) -> Int {
+  match k {
+    "fn"     => 12,
+    "struct" => 23,
+    "enum"   => 10,
+    "member" => 22,
+    "trait"  => 11,
+    "method" => 6,
+    "impl"   => 5,
+    "var"    => 13,
+    _        => 8,
+  }
+}
+
+fn ck(k: Str) -> Int {
+  match k {
+    "fn"     => 3,
+    "struct" => 22,
+    "enum"   => 13,
+    "member" => 20,
+    "trait"  => 8,
+    "method" => 2,
+    "kw"     => 14,
+    "var"    => 6,
+    "module" => 9,
+    _        => 5,
+  }
+}
+
+fn sym_json(lines: List<Str>, ss: List<Sym>, i: Int) -> json.Json {
+  let x = ss[i]
+  let el = (if x.end > x.line { x.end } else { x.line }) - 1
+  let ec = if el < len(lines) { len(lines[el]) } else { 0 }
+  var kids: List<json.Json> = []
+  var j = 0
+  for y in ss {
+    if y.par == i { kids = push(kids, sym_json(lines, ss, j)) }
+    j += 1
+  }
+  obj([
+    ("name", jstr(x.name)), ("kind", jint(sk(x.kind))), ("detail", jstr(x.detail)),
+    ("range", obj([("start", pos(x.line - 1, 0)), ("end", pos(el, ec))])),
+    ("selectionRange", name_range(lines, x)), ("children", JArr(kids)),
+  ])
+}
+
+fn doc_symbols(s0: S, uri: Str) -> (S, json.Json) {
+  let lines = split(doc(s0, uri), "\n")
+  let (s, ss) = syms(s0, uri)
+  var out: List<json.Json> = []
+  var i = 0
+  for x in ss {
+    if x.par == -1 { out = push(out, sym_json(lines, ss, i)) }
+    i += 1
+  }
+  (s, JArr(out))
+}
+
+fn citem(label: Str, kind: Int, detail: Str) -> json.Json {
+  if detail == "" { obj([("label", jstr(label)), ("kind", jint(kind))]) } else { obj([("label", jstr(label)), ("kind", jint(kind)), ("detail", jstr(detail))]) }
+}
+
+// before 以 名字.前缀 结尾时返回那个名字（ASCII 名字，同 Python 版的正则）
+fn dot_obj(before: Str) -> Str? {
+  let cs = chars(before)
+  var j = len(cs)
+  let ascii_w = (c: Str) => is_ascii_alpha(c) || is_digit(c)
+  while j > 0 && ascii_w(cs[j - 1]) { j -= 1 }
+  if j == 0 || cs[j - 1] != "." { return None }
+  let e = j - 1
+  var a = e
+  while a > 0 && ascii_w(cs[a - 1]) { a -= 1 }
+  while a < e && is_digit(cs[a]) { a += 1 }
+  if a == e { return None }
+  Some(join(sl_list(cs, a, e), ""))
+}
+
+fn complete(s0: S, uri: Str, line: Int, ch: Int) -> (S, json.Json) {
+  let ls = split(doc(s0, uri), "\n")
+  let l = if line < len(ls) { ls[line] } else { "" }
+  let before = sl(l, 0, ch)
+  let (s, ss) = syms(s0, uri)
+  var items: List<json.Json> = []
+  if let Some(o) = dot_obj(before) {
+    if let Some(ms) = std_members(o) { return (s, JArr(map(ms, (n) => citem(n, ck("fn"), "std.{o}")))) }
+    var seen: List<Str> = []
+    for x in ss {
+      if (x.kind == "method" || x.kind == "field") && !contains(seen, x.name) {
+        seen = push(seen, x.name)
+        items = push(items, citem(x.name, ck(x.kind), x.detail))
+      }
+    }
+    return (s, JArr(items))
+  }
+  for x in ss { if contains(["fn", "struct", "enum", "trait", "member", "var"], x.kind) { items = push(items, citem(x.name, ck(x.kind), x.detail)) } }
+  for b in s.bnames { items = push(items, citem(b, ck("fn"), "内建函数")) }
+  for k in sort(lexer.KEYWORDS) { items = push(items, citem(k, ck("kw"), "")) }
+  for (n, _) in s.stdm { items = push(items, citem(n, ck("module"), "std.{n}")) }
+  (s, JArr(items))
+}
+
+fn format(s: S, uri: Str) -> json.Json {
+  let text = doc(s, uri)
+  let new = match fmt.fmt(text) {
+    Ok(x)  => x,
+    Err(_) => { return JArr([]) },   // 有语法错误时不格式化
+  }
+  if new == text { return JArr([]) }
+  let n = count_nl(text, len(text))
+  JArr([obj([("range", obj([("start", pos(0, 0)), ("end", pos(n + 1, 0))])), ("newText", jstr(new))])])
+}
+
+// ───────── stdio 主循环 ─────────
+// rd(n)：从标准输入读最多 n 个字节（读到结尾时为空）；wr(s)：原样写到标准输出
+
+fn find_crlf2(bs: List<Int>) -> Int {
+  var i = 0
+  while i + 1 < len(bs) {
+    if bs[i] == 10 && (bs[i + 1] == 10 || i + 2 < len(bs) && bs[i + 1] == 13 && bs[i + 2] == 10) { return i }
+    i += 1
+  }
+  -1
+}
+
+pub fn serve(pits: List<ast.Node>, kdir: Str, rd: fn(Int) -> List<Int>, wr: fn(Str) -> Unit) -> Int {
+  var s = new_s(pits, kdir)
+  var buf: List<Int> = []
+  var eof = false
+  while s.running {
+    // 读头部：到空行为止
+    var hdr_end = find_crlf2(buf)
+    while hdr_end < 0 && !eof {
+      let more = rd(65536)
+      if len(more) == 0 { eof = true } else { buf = buf + more }
+      hdr_end = find_crlf2(buf)
+    }
+    if hdr_end < 0 { break }
+    let head = unwrap_or(__from_bytes(take(buf, hdr_end)), "")
+    var skipn = hdr_end + 2
+    if buf[hdr_end + 1] == 13 { skipn = hdr_end + 3 }
+    buf = skip(buf, skipn)
+    var length = -1
+    for hl in split(head, "\n") {
+      let t = trim(hl)
+      if starts_with(lower(t), "content-length:") { length = pint(trim(sl(t, 15, len(t))), -1) }
+    }
+    if length < 0 { continue }
+    while len(buf) < length && !eof {
+      let more = rd(65536)
+      if len(more) == 0 { eof = true } else { buf = buf + more }
+    }
+    if len(buf) < length { break }
+    let body = unwrap_or(__from_bytes(take(buf, length)), "")
+    buf = skip(buf, length)
+    let msg = match json.parse(body) {
+      Ok(v)  => v,
+      Err(_) => { continue },
+    }
+    s = handle(S { out: [], ..s }, msg)
+    for m in s.out {
+      let b = json.stringify(m)
+      wr("Content-Length: {__byte_len(b)}\r\n\r\n" + b)
+    }
+  }
+  0
+}

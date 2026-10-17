@@ -62,7 +62,8 @@ if got != want: print(got)
 ok(fmt(got) == got, "fmt 幂等")
 
 # ── 语言服务器 ──
-p = subprocess.Popen([sys.executable, os.path.join(ROOT, "lsp.py")], stdin=subprocess.PIPE, stdout=subprocess.PIPE)
+LSP_CMD = os.environ.get("KITE_LSP", "").split() or [sys.executable, os.path.join(ROOT, "lsp.py")]   # KITE_LSP="bin/kitec lsp" 测 Kite 版
+p = subprocess.Popen(LSP_CMD, stdin=subprocess.PIPE, stdout=subprocess.PIPE)
 def send(m):
     b = json.dumps(m).encode(); p.stdin.write(b"Content-Length: %d\r\n\r\n" % len(b) + b); p.stdin.flush()
 def recv():

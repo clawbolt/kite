@@ -15,9 +15,63 @@ use driver
 use pkg
 use fmt
 use testing
+use lsp
+use std.ptr
 
 extern "C" {
   fn system(cmd: Str) -> Int
+  fn read(fd: Int, buf: Ptr, n: Int) -> Int
+  fn write(fd: Int, s: Str, n: Int) -> Int
+}
+
+// 语言服务器的标准输入输出：按字节读写（Content-Length 是字节数）
+fn rd_stdin(n: Int) -> List<Int> {
+  unsafe {
+    let buf = ptr.alloc(n)
+    let k = read(0, buf, n)
+    var out: List<Int> = []
+    var i = 0
+    while i < k {
+      out = push(out, ptr.read_byte(buf, i))
+      i += 1
+    }
+    ptr.free(buf)
+    out
+  }
+}
+
+fn wr_stdout(s: Str) {
+  var off = 0
+  let total = __byte_len(s)
+  // write 可能只写一部分：剩下的部分按字节切出来再写
+  var rest = s
+  while off < total {
+    let k = unsafe { write(1, rest, __byte_len(rest)) }
+    if k <= 0 { return }
+    off += k
+    if off < total { rest = unwrap_or(__from_bytes(skip(__bytes(s), off)), "") }
+  }
+}
+
+fn lsp_cmd() -> Int {
+  let pre = match driver.prelude_path() {
+    Some(p) => p,
+    None    => { return 1 },
+  }
+  let pits = match fs.read(pre) {
+    Ok(src) => match parser.parse(src) {
+      Ok(its) => its,
+      Err(e)  => {
+        driver.eprint("prelude: " + e)
+        return 1
+      },
+    },
+    Err(e)  => {
+      driver.eprint("读取失败: {e}")
+      return 1
+    },
+  }
+  lsp.serve(pits, path.dir(pre), rd_stdin, wr_stdout)
 }
 
 fn usage() -> Str {
@@ -30,6 +84,7 @@ fn usage() -> Str {
     "  kitec kir FILE                  查看 KIR（不装箱的中间表示）",
     "  kitec fmt [-w] [--check] [文件…]  格式化（不给文件时读标准输入）",
     "  kitec test [过滤词] [文件/目录…] [-v]  运行 test_ 开头 / 标了 @test 的测试函数",
+    "  kitec lsp                       语言服务器（LSP，标准输入输出）",
     "  kitec new <名字> [--lib] | add <包>[@约束] | add <包> --path <目录> | get | update | publish | tree  包管理",
     "  （在包目录里，run / build / check 不写文件名时使用 src/main.kite）",
     "  kitec dump MODE FILE [PRELUDE]  对拍输出（MODE = lex / parse / check / lower / bc / c / kir / ck）",
@@ -50,6 +105,7 @@ fn main() {
   if cmd == "run" { process.exit(run_cmd(skip(args, 1))) }
   if cmd == "fmt" { process.exit(fmt.main(skip(args, 1))) }
   if cmd == "test" { process.exit(testing.main(skip(args, 1))) }
+  if cmd == "lsp" { process.exit(lsp_cmd()) }
   if pkg.is_cmd(cmd) { process.exit(pkg.main(cmd, skip(args, 1))) }
   if cmd == "check" && len(args) == 1 { process.exit(check_cmd("")) }
   if cmd == "dump" {

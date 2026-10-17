@@ -1,4 +1,5 @@
-// Kite VS Code 扩展：启动 kite/lsp.py 作为语言服务器
+// Kite VS Code 扩展：启动 kitec lsp 作为语言服务器
+const fs = require("fs");
 const path = require("path");
 const vscode = require("vscode");
 const { LanguageClient, TransportKind } = require("vscode-languageclient/node");
@@ -7,13 +8,14 @@ let client;
 
 function activate(context) {
   const cfg = vscode.workspace.getConfiguration("kite");
-  const python = cfg.get("pythonPath") || "python3";
-  const server = cfg.get("serverPath") || path.join(context.extensionPath, "server", "lsp.py");
+  // 优先用设置里的 kitec；否则用扩展自带的（server/bin/kitec，由 build.sh 打包），最后找 PATH 里的 kitec
+  const bundled = path.join(context.extensionPath, "server", "bin", "kitec");
+  const kitec = cfg.get("kitecPath") || (fs.existsSync(bundled) ? bundled : "kitec");
 
   client = new LanguageClient(
     "kite",
     "Kite Language Server",
-    { command: python, args: [server], transport: TransportKind.stdio },
+    { command: kitec, args: ["lsp"], transport: TransportKind.stdio },
     { documentSelector: [{ scheme: "file", language: "kite" }] }
   );
   client.start();

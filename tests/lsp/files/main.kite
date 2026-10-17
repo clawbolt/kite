@@ -1,0 +1,7 @@
+use geo
+use geo.area
+
+fn main() {
+  let p = geo.Point { x: 2, y: 3 }
+  print(geo.area(p.x, p.y), area(1, 2), geo.twice(p))
+}
