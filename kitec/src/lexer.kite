@@ -46,14 +46,14 @@ pub fn parts(v: TV) -> List<SPart> {
 
 pub type Tok = { kind: Str, val: TV, line: Int, col: Int, nl: Bool, pos: Int }
 
-const KEYWORDS: List<Str> = ["let", "var", "fn", "type", "enum", "trait", "impl", "match", "if", "else", "for", "while",
+pub const KEYWORDS: List<Str> = ["let", "var", "fn", "type", "enum", "trait", "impl", "match", "if", "else", "for", "while",
   "loop", "break", "continue", "return", "use", "mod", "pub", "spawn", "await", "defer", "unsafe", "extern", "as", "in",
   "is", "self", "Self", "true", "false", "const", "where", "dyn", "async"]
 
-const OPS3: List<Str> = ["<<=", ">>=", "..="]
-const OPS2: List<Str> = ["|>", "=>", "->", "==", "!=", "<<", ">>", "<=", ">=", "&&", "||", "..", "+=", "-=", "*=", "/=", "%=",
+pub const OPS3: List<Str> = ["<<=", ">>=", "..="]
+pub const OPS2: List<Str> = ["|>", "=>", "->", "==", "!=", "<<", ">>", "<=", ">=", "&&", "||", "..", "+=", "-=", "*=", "/=", "%=",
   "|=", "&=", "^=", "::"]
-const OPS1: List<Str> = ["|", "&", "^", "+", "-", "*", "/", "%", "<", ">", "=", "!", "~", "(", ")", "\{", "}", "[", "]", ",",
+pub const OPS1: List<Str> = ["|", "&", "^", "+", "-", "*", "/", "%", "<", ">", "=", "!", "~", "(", ")", "\{", "}", "[", "]", ",",
   ":", ".", "?", ";", "@"]
 
 const CONT_END: List<Str> = ["+", "-", "*", "/", "%", "<", ">", "==", "!=", "<=", ">=", "&&", "||", "|", "&", "^", "<<",

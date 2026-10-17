@@ -11,6 +11,10 @@ use cgen
 use kir
 use kirdump
 use std.process
+use driver
+use pkg
+use fmt
+use testing
 
 extern "C" {
   fn system(cmd: Str) -> Int
@@ -20,10 +24,14 @@ fn usage() -> Str {
   join([
     "用法:",
     "  kitec run FILE [参数…]          编译成临时可执行文件并运行（也可以写 kitec FILE.kite [参数…]）",
-    "  kitec build FILE [-o 输出] [--emit-c C 文件] [--no-kir]",
+    "  kitec build [FILE] [-o 输出] [--emit-c C 文件] [--no-kir]",
     "  kitec check FILE                只做类型检查",
     "  kitec dis FILE                  查看字节码",
     "  kitec kir FILE                  查看 KIR（不装箱的中间表示）",
+    "  kitec fmt [-w] [--check] [文件…]  格式化（不给文件时读标准输入）",
+    "  kitec test [过滤词] [文件/目录…] [-v]  运行 test_ 开头 / 标了 @test 的测试函数",
+    "  kitec new <名字> [--lib] | add <包>[@约束] | add <包> --path <目录> | get | update | publish | tree  包管理",
+    "  （在包目录里，run / build / check 不写文件名时使用 src/main.kite）",
     "  kitec dump MODE FILE [PRELUDE]  对拍输出（MODE = lex / parse / check / lower / bc / c / kir / ck）",
     "环境变量: KITE_HOME（prelude.kite 和 runtime/ 所在目录）、CC（C 编译器）、KITE_NO_KIR=1",
   ], "\n")
@@ -40,9 +48,13 @@ fn main() {
   let cmd = args[0]
   if cmd == "build" { process.exit(build(args)) }
   if cmd == "run" { process.exit(run_cmd(skip(args, 1))) }
+  if cmd == "fmt" { process.exit(fmt.main(skip(args, 1))) }
+  if cmd == "test" { process.exit(testing.main(skip(args, 1))) }
+  if pkg.is_cmd(cmd) { process.exit(pkg.main(cmd, skip(args, 1))) }
+  if cmd == "check" && len(args) == 1 { process.exit(check_cmd("")) }
   if cmd == "dump" {
     if len(args) < 3 {
-      eprint(usage())
+      driver.eprint(usage())
       process.exit(2)
     }
     process.exit(dump_cmd(skip(args, 1)))
@@ -56,45 +68,9 @@ fn main() {
     process.exit(if cmd == "check" { check_cmd(args[1]) } else { dump_cmd([if cmd == "dis" { "bc" } else { "kir" }, args[1]]) })
   }
   if ends_with(cmd, ".kite") { process.exit(run_cmd(args)) }
-  eprint("未知命令 " + cmd)
-  eprint(usage())
+  driver.eprint("未知命令 " + cmd)
+  driver.eprint(usage())
   process.exit(2)
-}
-
-// ───────── 找 prelude.kite 和 runtime/：$KITE_HOME，然后可执行文件所在目录往上，最后当前目录往上 ─────────
-
-fn is_home(d: Str) -> Bool { fs.exists(path.join([d, "prelude.kite"])) && fs.exists(path.join([d, "runtime", "kite_rt.c"])) }
-
-fn up_find(d0: Str) -> Str? {
-  var d = d0
-  var n = 0
-  while d != "" && n < 8 {
-    if is_home(d) { return Some(d) }
-    let p = path.dir(d)
-    if p == d { return None }
-    d = p
-    n += 1
-  }
-  None
-}
-
-fn kite_home() -> Str? {
-  if let Some(h) = env.get("KITE_HOME") { if trim(h) != "" && is_home(h) { return Some(h) } }
-  let (code, out) = process.run("readlink -f /proc/$PPID/exe 2>/dev/null")
-  if code == 0 && trim(out) != "" {
-    if let Some(h) = up_find(path.dir(trim(out))) { return Some(h) }
-  }
-  up_find(__getcwd())
-}
-
-fn prelude_path() -> Str? {
-  match kite_home() {
-    Some(h) => Some(path.join([h, "prelude.kite"])),
-    None    => {
-      eprint("找不到 Kite 安装目录（prelude.kite 和 runtime/）：请设置环境变量 KITE_HOME")
-      None
-    },
-  }
 }
 
 // kitec dump MODE FILE [PRELUDE]；dis / kir 也走这里
@@ -107,7 +83,7 @@ fn dump_cmd(xs: List<Str>) -> Int {
     dump([xs[0], xs[1], ""])
     return 0
   }
-  match prelude_path() {
+  match driver.prelude_path() {
     Some(p) => {
       dump([xs[0], xs[1], p])
       0
@@ -117,71 +93,76 @@ fn dump_cmd(xs: List<Str>) -> Int {
 }
 
 // kitec check FILE：报错格式和 kite check 相同（最多 20 条，FILE:行: 信息）
-fn check_cmd(file: Str) -> Int {
-  let pre = match prelude_path() {
+fn check_cmd(file0: Str) -> Int {
+  let file = match entry_or(file0) {
+    Some(f) => f.0,
+    None    => { return 1 },
+  }
+  let pre = match driver.prelude_path() {
     Some(p) => p,
     None    => { return 1 },
   }
-  let (items, pits) = match load(file, pre) {
+  if let Err(e) = pkg.prepare(file) {
+    driver.eprint(file + ": " + e)
+    return 1
+  }
+  let (items, pits) = match driver.load(file, pre) {
     Ok(r)  => r,
     Err(m) => {
-      eprint(m)
+      driver.eprint(m)
       return 1
     },
   }
-  let (errs, _, _, _) = check.check_c(pits, items.0)
+  let (errs, _, _, cst) = check.check_c(pits, items.0)
+  driver.print_warns(cst, items.1, file)
   if len(errs) > 0 {
-    for (ln, msg) in take(errs, 20) { eprint(loc(file, ln, modules.strip_lm(msg))) }
-    if len(errs) > 20 { eprint("…共 {len(errs)} 个错误") }
+    for (ln, msg) in take(errs, 20) { driver.eprint(driver.locs(items.1, file, ln, modules.strip_lm(msg))) }
+    if len(errs) > 20 { driver.eprint("…共 {len(errs)} 个错误") }
     return 1
   }
   print(file + ": 类型检查通过")
   0
 }
 
-// 读入程序和 prelude
-fn load(file: Str, pre_path: Str) -> Result<((List<ast.Node>, List<Str>), List<ast.Node>), Str> {
-  let cwd = __getcwd()
-  let kdir = path.dir(if path.is_abs(pre_path) { pre_path } else { path.join([cwd, pre_path]) })
-  let r = match modules.load_main_src(modules.new_l(cwd, file, kdir), file) {
-    Ok(x)  => x,
-    Err(e) => { return Err(loc(file, e.ln, modules.strip_lm(e.msg))) },
+// 给了文件就用它；没给时在 Kite 包里用 src/main.kite（返回 (文件, 包名)）
+fn entry_or(file: Str) -> (Str, Str)? {
+  if file != "" { return Some((file, "")) }
+  match pkg.entry() {
+    Ok(r)  => Some(r),
+    Err(e) => {
+      driver.eprint(e)
+      None
+    },
   }
-  let pre = match fs.read(pre_path) {
-    Ok(x)  => x,
-    Err(e) => { return Err("读取失败: {e}") },
-  }
-  let pits = match parser.parse(pre) {
-    Ok(its) => its,
-    Err(e)  => { return Err("prelude: " + e) },
-  }
-  Ok((r, pits))
 }
 
 // kitec run FILE [参数…]：编译到临时目录再运行，退出码就是程序的退出码
 fn run_cmd(xs: List<Str>) -> Int {
-  if len(xs) == 0 {
-    eprint(usage())
-    return 2
+  let file = match entry_or(if len(xs) > 0 { xs[0] } else { "" }) {
+    Some(f) => f.0,
+    None    => { return 1 },
   }
-  let file = xs[0]
-  let pre = match prelude_path() {
+  let pre = match driver.prelude_path() {
     Some(p) => p,
     None    => { return 1 },
+  }
+  if let Err(e) = pkg.prepare(file) {
+    driver.eprint(file + ": " + e)
+    return 1
   }
   let tmp = env.get_or("TMPDIR", "/tmp")
   let dir = path.join([if tmp == "" { "/tmp" } else { tmp }, "kitec-run-{__getpid()}"])
   let _ = fs.mkdir(dir)
   let out = path.join([dir, path.stem(file)])
-  let code = compile(file, pre, out, "", env.get_or("KITE_NO_KIR", "") != "1", true)
+  let code = driver.compile(file, pre, out, "", env.get_or("KITE_NO_KIR", "") != "1", true)
   if code != 0 {
-    let _ = process.run("rm -rf " + sq(dir))
+    let _ = process.run("rm -rf " + driver.sq(dir))
     return code
   }
-  var cmd = sq(out)
-  for a in skip(xs, 1) { cmd = cmd + " " + sq(a) }
+  var cmd = driver.sq(out)
+  for a in skip(xs, 1) { cmd = cmd + " " + driver.sq(a) }
   let st = unsafe { system(cmd) }
-  let _ = process.run("rm -rf " + sq(dir))
+  let _ = process.run("rm -rf " + driver.sq(dir))
   if st == -1 { return 127 }
   let sig = st & 127
   if sig != 0 { return 128 + sig }
@@ -295,37 +276,12 @@ fn dump(args: List<Str>) {
 // ───────── kitec build FILE [PRELUDE] [-o 输出] [--emit-c C 文件] [--no-kir] ─────────
 // 和 kite build 相同的流程：类型检查 → 字节码 → KIR → C（cgen.generate_k）→ C 编译器；成功时输出“已生成 …”
 
-fn sq(s: Str) -> Str { "'" + replace(s, "'", "'\\''") + "'" }
-
-fn eprint(s: Str) { __eprint(s) }
-
-fn has_cmd(c: Str) -> Bool { process.run("command -v " + c + " >/dev/null 2>&1").0 == 0 }
-
-// $CC，然后 cc / clang / gcc，最后 zig cc
-fn find_cc() -> Str? {
-  if let Some(cc) = env.get("CC") { if trim(cc) != "" { return Some(cc) } }
-  for c in ["cc", "clang", "gcc"] { if has_cmd(c) { return Some(c) } }
-  if has_cmd("zig") { return Some("zig cc -mcpu=baseline") }
-  None
-}
-
-fn loc(file: Str, ln: Int, msg: Str) -> Str { if ln > 0 && ln < 1000000 { file + ":{ln}: " + msg } else { file + ": " + msg } }
-
 fn build(args: List<Str>) -> Int {
-  if len(args) < 2 {
-    eprint("用法: kitec build FILE [PRELUDE] [-o 输出] [--emit-c C 文件] [--no-kir]")
-    return 2
-  }
-  let file = args[1]
-  var pre = ""
-  var i = 2
-  if len(args) > 2 && ends_with(args[2], ".kite") {
-    pre = args[2]
-    i = 3
-  }
+  var pos: List<Str> = []
   var out = ""
   var emit = ""
   var use_kir = env.get_or("KITE_NO_KIR", "") != "1"
+  var i = 1
   while i < len(args) {
     let a = args[i]
     if a == "-o" && i + 1 < len(args) {
@@ -336,86 +292,34 @@ fn build(args: List<Str>) -> Int {
       i += 1
     } else if a == "--no-kir" {
       use_kir = false
-    } else {
-      eprint("未知参数 " + a)
+    } else if a == "--no-check" {
+      ()
+    } else if starts_with(a, "-") || len(pos) >= 2 {
+      driver.eprint("未知参数 " + a)
       return 2
+    } else {
+      pos = push(pos, a)
     }
     i += 1
   }
+  let (file, pkgname) = match entry_or(if len(pos) > 0 { pos[0] } else { "" }) {
+    Some(f) => f,
+    None    => { return 1 },
+  }
   if out == "" {
     let b = path.base(file)
-    out = if ends_with(b, ".kite") { __str_slice(b, 0, len(b) - 5) } else { b }
+    out = if pkgname != "" { pkgname } else if ends_with(b, ".kite") { __str_slice(b, 0, len(b) - 5) } else { b }
   }
-  if pre == "" {
-    pre = match prelude_path() {
+  let pre = if len(pos) > 1 { pos[1] } else {
+    match driver.prelude_path() {
       Some(p) => p,
       None    => { return 1 },
     }
   }
-  compile(file, pre, out, emit, use_kir, false)
+  if let Err(e) = pkg.prepare(file) {
+    driver.eprint(file + ": " + e)
+    return 1
+  }
+  driver.compile(file, pre, out, emit, use_kir, false)
 }
 
-// 类型检查 → 字节码 → KIR → C（cgen.generate_k）→ C 编译器
-fn compile(file: Str, pre_path: Str, out: Str, emit: Str, use_kir: Bool, quiet: Bool) -> Int {
-  let kdir = path.dir(if path.is_abs(pre_path) { pre_path } else { path.join([__getcwd(), pre_path]) })
-  let ((items, srcs), pits) = match load(file, pre_path) {
-    Ok(r)  => r,
-    Err(m) => {
-      eprint(m)
-      return 1
-    },
-  }
-  let (errs, _, low, cst) = check.check_c(pits, items)
-  if len(errs) > 0 {
-    for (ln, msg) in take(errs, 20) { eprint(loc(file, ln, modules.strip_lm(msg))) }
-    return 1
-  }
-  let (st, chunk) = bc.compile_chunk(low)
-  if st.err != "" {
-    eprint(file + ": " + st.err)
-    return 1
-  }
-  let rt = match fs.read(path.join([kdir, "runtime", "kite_rt.c"])) {
-    Ok(x)  => x,
-    Err(e) => {
-      eprint("找不到运行时 runtime/kite_rt.c: {e}")
-      return 1
-    },
-  }
-  let case_h = match fs.read(path.join([kdir, "runtime", "kite_case.h"])) {
-    Ok(x)  => x,
-    Err(_) => "",
-  }
-  let rt2 = cgen.first_replace(rt, "#include \"kite_case.h\"\n", case_h)
-  let kf = if use_kir { kir.collect(low, cst).0 } else { Map() }
-  let csrc = cgen.generate_k(st, chunk, path.base(file), srcs, rt2, kf)
-  if starts_with(csrc, "N ") {
-    eprint(file + ": " + __str_slice(csrc, 2, len(csrc)))
-    return 1
-  }
-  let cpath = if emit != "" { emit } else { out + ".c" }
-  match fs.write(cpath, csrc) {
-    Ok(_)  => (),
-    Err(e) => {
-      eprint("写入失败: {e}")
-      return 1
-    },
-  }
-  let cc = match find_cc() {
-    Some(x) => x,
-    None    => {
-      eprint("找不到 C 编译器：请安装 clang / gcc / zig；也可设置环境变量 CC")
-      return 1
-    },
-  }
-  var libs = ""
-  for l in cgen.ext_libs(st) { libs = libs + " -l" + sq(l) }
-  let (code, _) = process.run(cc + " -O2 -w -o " + sq(out) + " " + sq(cpath) + " -lm -lpthread" + libs)
-  if emit == "" { let _ = fs.remove(cpath) }
-  if code != 0 {
-    eprint("C 编译失败（原生后端内部错误），退出码 {code}")
-    return 1
-  }
-  if !quiet { print("已生成 " + out) }
-  0
-}

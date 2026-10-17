@@ -16,7 +16,7 @@ pub enum FT {
 }
 
 // ext："extern 函数|名字" / "unsafe 函数|名字"（使用处必须在 unsafe 里）；va：可变参数 extern
-pub type Ent = { t: FT, mt: Bool, sch: Bool, bi: Bool, gens: List<Str>, ext: Str, va: Bool, cga: List<Str> }
+pub type Ent = { t: FT, mt: Bool, sch: Bool, bi: Bool, gens: List<Str>, ext: Str, va: Bool, cga: List<Str>, dep: Str }
 
 pub enum Sc {
   STop,
@@ -99,6 +99,8 @@ pub type C = {
   dflt: Map<Str, Node>,
   idn: Int,
   upd_n: Int,
+  in_pre: Bool,
+  warns: List<(Int, Str)>,
 }
 
 pub type F = { c: C, ln: Int, msg: Str }
@@ -197,6 +199,8 @@ pub fn new_c() -> C {
     dflt: Map(),
     idn: 0,
     upd_n: 0,
+    in_pre: false,
+    warns: [],
     sub: Map(),
     nv: 0,
     g: Map(),
@@ -362,7 +366,7 @@ fn head(c: C, t: Ty) -> Str {
   tname(p)
 }
 
-fn ent(t: Ty, mt: Bool, sch: Bool) -> Ent { Ent { t: FTy(t), mt: mt, sch: sch, bi: false, gens: [], ext: "", va: false, cga: [] } }
+fn ent(t: Ty, mt: Bool, sch: Bool) -> Ent { Ent { t: FTy(t), mt: mt, sch: sch, bi: false, gens: [], ext: "", va: false, cga: [], dep: "" } }
 
 fn sc_find(c: C, sc: Sc, n: Str) -> Ent? {
   match sc {
@@ -1087,7 +1091,7 @@ fn install(c0: C) -> Result<C, F> {
   }
   for (n, k, s) in builtins.builtin_sigs() {
     let (c1, ft) = builtin_ft(c, k, s)?
-    c = C { g: set(c1.g, n, Ent { t: ft, mt: false, sch: true, bi: true, gens: [], ext: "", va: false, cga: [] }), ..c1 }
+    c = C { g: set(c1.g, n, Ent { t: ft, mt: false, sch: true, bi: true, gens: [], ext: "", va: false, cga: [], dep: "" }), ..c1 }
   }
   Ok(c)
 }
@@ -1284,7 +1288,8 @@ fn decl_item(c0: C, sc0: Sc, it: Node) -> Result<(C, Sc), F> {
       let c2 = C { fsigs: set(c1.fsigs, fkey(it), sig), fcga: set(c1.fcga, fkey(it), cga), ..c1 }
       var ext = ""
       var va = false
-      let (c3, s3) = define(c2, sc, nm, Ent { t: FTy(sig), mt: false, sch: true, bi: false, gens: f.gen.names, ext: "", va: false, cga: cga })
+      let dep = depr_msg(it, nm)
+      let (c3, s3) = define(c2, sc, nm, Ent { t: FTy(sig), mt: false, sch: true, bi: false, gens: f.gen.names, ext: "", va: false, cga: cga, dep: dep })
       if is_some(f.ext) {
         let c4 = match check_extern(c3, it, sig) {
           Ok(cx) => cx,
@@ -1295,17 +1300,32 @@ fn decl_item(c0: C, sc0: Sc, it: Node) -> Result<(C, Sc), F> {
         }
         ext = "extern 函数|" + nm
         va = f.varargs
-        return Ok(define(c4, s3, nm, Ent { t: FTy(sig), mt: false, sch: true, bi: false, gens: f.gen.names, ext: ext, va: va, cga: cga }))
+        return Ok(define(c4, s3, nm, Ent { t: FTy(sig), mt: false, sch: true, bi: false, gens: f.gen.names, ext: ext, va: va, cga: cga, dep: dep }))
       }
       if f.is_unsafe { ext = "unsafe 函数|" + nm }
-      if ext == "" { return Ok((c3, s3)) }
-      return Ok(define(c3, s3, nm, Ent { t: FTy(sig), mt: false, sch: true, bi: false, gens: f.gen.names, ext: ext, va: va, cga: cga }))
+      if ext == "" && dep == "" { return Ok((c3, s3)) }
+      return Ok(define(c3, s3, nm, Ent { t: FTy(sig), mt: false, sch: true, bi: false, gens: f.gen.names, ext: ext, va: va, cga: cga, dep: dep }))
     },
     NUse(..) => { return use_item(c, sc, it) },
     _        => (),
   }
   Ok((c, sc))
 }
+
+// @deprecated("说明") 的警告文本；没有标记时为 ""
+fn depr_msg(it: Node, nm: Str) -> Str {
+  for a in unwrap_or(it.attrs, []) {
+    if a.name == "deprecated" {
+      for (_, v) in a.args {
+        if let Some(LStr(m)) = v { return "警告: {nm} 已弃用：{m}" }
+      }
+      return "警告: {nm} 已弃用"
+    }
+  }
+  ""
+}
+
+fn warn(c: C, ln: Int, msg: Str) -> C { if contains(c.warns, (ln, msg)) { c } else { C { warns: push(c.warns, (ln, msg)), ..c } } }
 
 fn use_name(e: (Str, Str?)) -> (Str, Str) { (e.0, unwrap_or(e.1, e.0)) }
 
@@ -1360,7 +1380,7 @@ fn use_item(c0: C, sc0: Sc, it: Node) -> Result<(C, Sc), F> {
       for (n, kk, s) in tbl {
         let (c1, ft) = builtin_ft(c, kk, s)?
         let ex = if m == "ptr" && unsafe_ptr(n) { "unsafe 函数|{m}.{n}" } else { "" }
-        let (c2, s2) = define(c1, sc, n, Ent { t: ft, mt: false, sch: true, bi: false, gens: [], ext: ex, va: false, cga: [] })
+        let (c2, s2) = define(c1, sc, n, Ent { t: ft, mt: false, sch: true, bi: false, gens: [], ext: ex, va: false, cga: [], dep: "" })
         c = c2
         sc = s2
       }
@@ -1369,7 +1389,7 @@ fn use_item(c0: C, sc0: Sc, it: Node) -> Result<(C, Sc), F> {
         Some((kk, s)) => {
           let (c1, ft) = builtin_ft(c, kk, s)?
           let ex = if m == "ptr" && unsafe_ptr(a) { "unsafe 函数|{m}.{a}" } else { "" }
-          let (c2, s2) = define(c1, sc, b, Ent { t: ft, mt: false, sch: true, bi: false, gens: [], ext: ex, va: false, cga: [] })
+          let (c2, s2) = define(c1, sc, b, Ent { t: ft, mt: false, sch: true, bi: false, gens: [], ext: ex, va: false, cga: [], dep: "" })
           c = c2
           sc = s2
         },
@@ -1574,13 +1594,13 @@ fn check_impl_sig(c0: C, it: Node, m: Node, tm: Node, isig: Ty, tsig: Ty) -> Res
 
 // ───────── 函数体 ─────────
 
-type Saved = { ret: List<Ty>, rigid: List<Map<Str, Ty>>, loop_depth: Int, labels: List<(Str?, Ty?, Bool)>, unsafe_d: Int, cg_ctx: List<List<Str>> }
-fn save(c: C) -> Saved { Saved { ret: c.ret, rigid: c.rigid, loop_depth: c.loop_depth, labels: c.labels, unsafe_d: c.unsafe_d, cg_ctx: c.cg_ctx } }
+type Saved = { ret: List<Ty>, rigid: List<Map<Str, Ty>>, loop_depth: Int, labels: List<(Str?, Ty?, Bool)>, unsafe_d: Int, cg_ctx: List<List<Str>>, in_pre: Bool }
+fn save(c: C) -> Saved { Saved { ret: c.ret, rigid: c.rigid, loop_depth: c.loop_depth, labels: c.labels, unsafe_d: c.unsafe_d, cg_ctx: c.cg_ctx, in_pre: c.in_pre } }
 
 // 循环帧在 Python 版里是可变列表：内层设置的 break 标记要保留，所以只截断，不整体换回
 fn restore(c: C, s: Saved) -> C {
   let lb = if len(c.labels) >= len(s.labels) && s.loop_depth > 0 { take(c.labels, len(s.labels)) } else { s.labels }
-  C { ret: s.ret, rigid: s.rigid, loop_depth: s.loop_depth, labels: lb, unsafe_d: s.unsafe_d, cg_ctx: s.cg_ctx, ..c }
+  C { ret: s.ret, rigid: s.rigid, loop_depth: s.loop_depth, labels: lb, unsafe_d: s.unsafe_d, cg_ctx: s.cg_ctx, in_pre: s.in_pre, ..c }
 }
 
 fn rest_r<T>(r: Result<(C, T), F>, s: Saved) -> Result<(C, T), F> {
@@ -1684,7 +1704,7 @@ fn check_fn_body2(c0: C, fnode: Node, sc: Sc, sig0: Ty?, cga: List<Str>) -> Resu
     c = cy
     sc2 = sy
   }
-  c = C { rigid: push(c.rigid, rigid), ret: push(c.ret, rt), cg_ctx: push(c.cg_ctx, cga), ..c }
+  c = C { rigid: push(c.rigid, rigid), ret: push(c.ret, rt), cg_ctx: push(c.cg_ctx, cga), in_pre: fnode.pre, ..c }
   var i = 0
   for p in f.params {
     let (c1, s1) = define(c, sc2, p.0, ent(pts[i], false, false))
@@ -1949,6 +1969,7 @@ fn block(c0: C, b: Node, scope: Sc, expected: Ty?) -> Result<(C, Ty, Node), F> {
         sc = s1
         t = t1
         out = push(out, x)
+        if is_k(s, "ExprStmt") && i < len(ss) - 1 && !c.in_pre && head(c, t1) == "Future" { c = warn(c, s.line, "警告: Future 没有被 .await，不会执行") }
       },
       Err(f)              => {
         if is_unsup(f) { return Err(f) }
@@ -2250,7 +2271,8 @@ fn find_id(n: Node, i: Int) -> Node? {
   None
 }
 
-fn lookup(c: C, name: Str, sc: Sc, ln: Int) -> Result<(C, FT), F> {
+fn lookup(c0: C, name: Str, sc: Sc, ln: Int) -> Result<(C, FT), F> {
+  let c = c0
   let e = match sc_find(c, sc, name) {
     Some(x) => x,
     None    => {
@@ -2264,6 +2286,7 @@ fn lookup(c: C, name: Str, sc: Sc, ln: Int) -> Result<(C, FT), F> {
     let ps = split(e.ext, "|")
     return Err(te(c, ln, "使用 {ps[0]} {ps[1]} 需要放在 unsafe \{ … } 里"))
   }
+  let c = if e.sch && e.dep != "" && !c0.in_pre { warn(c0, ln, e.dep) } else { c0 }
   match e.t {
     FTy(t) => if e.sch {
       let (c1, t1) = inst_cg(c, t, ln, e.cga)
