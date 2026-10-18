@@ -1,18 +1,16 @@
 # 对齐 Go 标准库：移植须知（给做移植的人看）
 
-工作目录 `/workspace/work/kite`。环境变量：`CC=/workspace/work/zigcc PYTHONPATH=/workspace/work/pydeps`。
+工作目录 `/workspace/work/kite`。环境变量：`CC=/workspace/work/zigcc`（任意 C 编译器都行）。
 Go 1.27.1 工具链在 `/tmp/go/bin/go`（不持久，丢了就按机器架构重新下载 go1.27.1.linux-arm64/amd64.tar.gz；Go 源码在 `/tmp/go/src`，移植时直接照着读）。注意 1.27 的 encoding/json v1 默认由 v2（jsontext）实现，错误信息以 jsontext 为准。
 
-## 每个包要交付的文件（只动这些，别改 README / run_tests.sh / kite.py / 其他人的模块）
+## 每个包要交付的文件（只动这些，别改 README / run_tests.sh / kitec / 其他人的模块）
 - `std/NAME.kite`：模块本身，用 Kite 写。开头注释说明对应哪个 Go 包、和 Go 的差别。
 - `tests/go/NAME.go`：Go 测试程序（package main），尽量覆盖所有导出函数和边界情况、错误信息。
 - `examples/go_NAME.kite`：同样内容的 Kite 程序。
 - `tests/go/NAME.expected`：`cd tests/go && /tmp/go/bin/go run NAME.go > NAME.expected`。
-- 验收：`python3 kite.py examples/go_NAME.kite` 的输出和 `.expected` 逐字节相同；
-  `python3 kite.py --tree examples/go_NAME.kite` 输出相同；
-  `python3 kite.py build examples/go_NAME.kite -o /tmp/x && /tmp/x` 输出相同；
-  `python3 kite.py fmt examples/go_NAME.kite` 输出要等于文件本身（不等就用它覆盖）；std 文件也要过类型检查。
-- 示例在树解释器里最好 20 秒内跑完（数据量别太大）。
+- 验收：`bin/kitec run examples/go_NAME.kite` 的输出和 `.expected` 逐字节相同；
+  `bin/kitec fmt --check examples/go_NAME.kite` 通过（不通过就 `bin/kitec fmt -w` 覆盖）；std 文件也要过 `bin/kitec check`。
+- 示例最好几秒内跑完（数据量别太大）。
 
 ## Kite 语言要点和坑
 - 值全部不可变。有状态的 Go 对象：方法返回新值，例如 `fn write(self, b: List<Int>) -> Writer`。

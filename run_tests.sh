@@ -5,7 +5,7 @@
 # 3) tests/bad*.kite 必须被类型检查拒绝
 # 4) kitec 各层输出与基准一致（tools/kitec_gold.sh），三阶段自举达到不动点（tools/kitec_bootstrap.sh）
 # 环境变量：KITE_STRESS_ALL=1（go_* 示例也跑 GC 压力模式，很慢）、KITEC（默认 bin/kitec，不存在时先 sh bootstrap.sh）、KITE_EXAMPLES（只跑这些示例；设为空跳过逐个示例）、
-#           KITE_GOLD_MODES（默认 "parse check lower bc kir ck"，设为空跳过）、KITE_NO_BOOT=1（跳过三阶段自举）
+#           KITE_GOLD_MODES（默认 "parse check lower bc kir ck"，设为空跳过）、KITE_NO_BOOT=1（跳过三阶段自举）、KITE_GO（只对拍这些 Go 包，设为空跳过）
 cd "$(dirname "$0")"; fail=0
 . tools/find_cc.sh
 [ -n "$CC" ] || { echo "SKIP 全部测试（未找到 C 编译器）"; exit 1; }
@@ -150,7 +150,9 @@ if [ "$("$K" run tests/local_kstd.kite)" = "abab!" ] && ! "$K" kir tests/local_k
   echo "PASS 函数体内 use Kite 标准库模块"
 else echo "FAIL 函数体内 use Kite 标准库模块"; fail=1; fi
 # 对齐 Go 标准库：examples/go_*.kite 的输出必须和真正的 Go 跑 tests/go/*.go 的结果（tests/go/*.expected）逐字节相同
-if KITEC=$K sh tools/go_check.sh > "$T/go.out" 2>&1; then
+# KITE_GO：只对拍这些包（设为空跳过）
+if [ "${KITE_GO-all}" = "" ]; then echo "SKIP Go 标准库对拍（KITE_GO 为空）"
+elif KITEC=$K sh tools/go_check.sh $( [ "${KITE_GO-all}" = all ] || echo "$KITE_GO" ) > "$T/go.out" 2>&1; then
   echo "PASS Go 标准库对拍（$(tail -1 "$T/go.out")）"
 else
   echo "FAIL Go 标准库对拍"; cat "$T/go.out"; fail=1

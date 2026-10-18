@@ -3,13 +3,9 @@
 - `grammar.ebnf`   语言文法
 - `kitec/`         自举编译器（Kite 写成）：词法 → 语法 → 类型检查（类型化 IR）→ 字节码 / KIR → C
 - `bootstrap/kitec.c` kitec 编译自己产出的 C 种子，`sh bootstrap.sh` 用它构建 bin/kitec
-- `kite.py`        Python 参考实现（逐步淘汰）
-- `typecheck.py`   静态类型检查器
-- `vm.py`          字节码编译器 + 虚拟机（默认引擎）
-- `native.py`      原生后端：字节码 → C → 可执行文件（0.7 新增）
-- `runtime/kite_rt.c` 原生运行时：值、字符串、集合、内建函数、标准库（0.7 新增）
-- `fmt.py`         格式化器 `kite fmt`
-- `lsp.py`         语言服务器（0.6 新增）
+- `runtime/kite_rt.c` 原生运行时：值、字符串、集合、内建函数、标准库
+- `std/`           标准库（Kite 写成）
+- 格式化器、测试运行器、包管理、语言服务器都在 kitec 里：`kitec fmt` / `kitec test` / `kitec new|add|get|…` / `kitec lsp`
 - `editors/vscode` VS Code 扩展（0.6 新增）
 - `examples/`      fizzbuzz / shapes / results / generics / traits / closures / bench_fib
 - `tests/`         必须被类型检查拒绝的反例
@@ -31,13 +27,14 @@
 - kitec 在 `$KITE_HOME`、可执行文件所在目录往上、当前目录往上依次寻找 `prelude.kite` 和 `runtime/`
 - 改了 `kitec/src` 之后运行 `sh tools/kitec_bootstrap.sh --update-seed` 刷新种子；`run_tests.sh` 会检查种子 = stage1 = stage2
 - `tests/expected/`：每个示例的标准输出；`tests/gold/*.md5`：kitec 各层输出（AST、检查结果、字节码、KIR、C）的基准，`sh tools/kitec_gold.sh --update` 重新生成
-- REPL 和树遍历解释器（`--tree`）已废弃；Python 参考实现（`kite.py` 等）只剩 `kite test` / `kite fmt` / `kite lsp` / `kite pkg` 还在用，之后会移植到 Kite 并删除
+- 整个工具链不需要 Python：Python 参考实现（kite.py / typecheck.py / vm.py / lsp.py 等）已删除，最后一版在 git 标签 `python-ref`；REPL、树遍历解释器（`--tree`）和 `fmt --migrate` 随之废弃
+- 下文各版本说明里的 `python3 kite.py …` 命令是历史记录，现在对应 `bin/kitec …`
 
 ## 原生编译（0.7）
 
-    python3 kite.py build app.kite             # 生成可执行文件 ./app
-    python3 kite.py build app.kite -o bin/app  # 指定输出
-    python3 kite.py build app.kite --emit-c app.c  # 同时保留生成的 C 代码
+    bin/kitec build app.kite             # 生成可执行文件 ./app
+    bin/kitec build app.kite -o out/app  # 指定输出
+    bin/kitec build app.kite --emit-c app.c  # 同时保留生成的 C 代码
 
 - 流程：类型检查 → 字节码 → 每个函数生成一个 C 函数 → `cc -O2` → 独立可执行文件（约 80 KB，只依赖 libc）
 - 栈深度在编译期已知，操作数栈变成固定下标的局部数组，跳转变成 goto，交给 C 编译器做寄存器分配
@@ -319,9 +316,9 @@ let squares = par_map(1..=1000, n => n * n)            // 数据并行，结果�
 
 ## 格式化器（0.6）
 
-    python3 kite.py fmt file.kite          # 输出格式化结果
-    python3 kite.py fmt -w src/*.kite      # 写回文件
-    python3 kite.py fmt --check src/*.kite # CI 用：有未格式化文件就返回 1
+    bin/kitec fmt file.kite          # 输出格式化结果
+    bin/kitec fmt -w src/*.kite      # 写回文件
+    bin/kitec fmt --check src/*.kite # CI 用：有未格式化文件就返回 1
 
 - 2 空格缩进；同一行开多个括号只缩进一级；|> . && || 开头的续行多缩进一级
 - 运算符两侧空格；范围 1..=3 紧贴；泛型 List<T> 与比较 a < b 自动区分

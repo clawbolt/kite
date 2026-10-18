@@ -1,4 +1,4 @@
-// 由 tools/gen_builtins.py 从 typecheck.py 生成，不要手改
+// 内建函数和标准库模块的类型签名表（最初由 Python 版 typecheck.py 生成；Python 版已删除，现在直接手改这里）
 
 pub fn builtin_sigs() -> List<(Str, Str, List<(Str, Str)>)> {
   [

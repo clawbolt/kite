@@ -39,14 +39,15 @@
 ## 用法
 
 ```sh
-python3 kite.py build kitec/src/main.kite -o kitec_bin
-./kitec_bin parse FILE         # 输出语法树（格式见 tools/ast_dump.py）
-./kitec_bin lex FILE           # 输出 token
-sh tools/kitec_check.sh ./kitec_bin            # 全部源文件对拍
-python3 tools/kitec_fuzz.py ./kitec_bin 300 1  # 随机变异对拍（含报错路径）
+sh bootstrap.sh                          # 种子 bootstrap/kitec.c → bin/kitec → 用它从源码重编
+bin/kitec build kitec/src/main.kite -o kitec_bin
+./kitec_bin parse FILE                   # 输出语法树
+./kitec_bin lex FILE                     # 输出 token
+sh tools/kitec_gold.sh ./kitec_bin       # 各层输出与 tests/gold 基准对比
+sh tools/kitec_bootstrap.sh              # 三阶段自举：种子 = stage1 = stage2
 ```
 
-三个引擎都能跑 kitec（解析自己的 parser.kite：native 约 0.1 秒，VM 约 8 秒，tree 约 18 秒，输出一致）。
+Python 参考实现已删除（最后一版在 git 标签 `python-ref`）；各层输出的基准由它生成，保存在 tests/gold。
 
 ## 与 Python 版的差别
 
