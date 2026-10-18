@@ -1,0 +1,125 @@
+// 对齐 Go 1.27 的 crypto/mldsa：tests/go/mldsa.go
+use std.crypto.mldsa
+use std.crypto.mldsa.{ Options, Parameters }
+use std.crypto.sha3
+use std.crypto.sha256
+use std.encoding.hex
+use std.strings
+
+fn h(b: List<Int>) -> Str { hex.encode_bytes(sha256.digest(b)[..12]) }
+
+fn es<T>(r: Result<T, Str>) -> Str { match r { Ok(_) => "<nil>", Err(e) => e } }
+
+fn x8(b: List<Int>) -> Str { hex.encode_bytes(b[..8]) }
+
+fn flip(b: List<Int>, i: Int, v: Int) -> List<Int> { set(b, i, b[i] ^ v) }
+
+fn main() {
+  print(
+    "SIZES {mldsa.PRIVATE_KEY_SIZE} {mldsa.MLDSA44_PUBLIC_KEY_SIZE} {mldsa.MLDSA65_PUBLIC_KEY_SIZE} {mldsa.MLDSA87_PUBLIC_KEY_SIZE} {mldsa.MLDSA44_SIGNATURE_SIZE} {mldsa.MLDSA65_SIGNATURE_SIZE} {mldsa.MLDSA87_SIGNATURE_SIZE}",
+  )
+  let o_empty = Options { context: "" }
+  print("HASHFUNC {o_empty.hash_func()}")
+  let params = [mldsa.mldsa44(), mldsa.mldsa65(), mldsa.mldsa87()]
+  for pi in 0..3 {
+    let p = params[pi]
+    print("{p.string()} {p.public_key_size()} {p.signature_size()}")
+    let seed = map(0..32, (j) => (j * 11 + pi * 29 + 1) & 255)
+    let skr = mldsa.new_private_key(p, seed)
+    let sk = unwrap(skr)
+    let pk = sk.public_key()
+    let pb = pk.bytes()
+    print(
+      " KEY {es(skr)} {h(pb)} {len(pb)} {x8(pb)} {x8(sk.bytes())} {pk.parameters().string()} {pk.parameters() == p}",
+    )
+    let msg = __bytes("hello, ML-DSA " + p.string())
+    let sigr = sk.sign_deterministic(msg, None)
+    let sig = unwrap(sigr)
+    print(" SIG {es(sigr)} {h(sig)} {len(sig)} {x8(sig)}")
+    let o0 = Some(Options { context: "" })
+    print(" V {es(mldsa.verify(pk, msg, sig, None))} {es(mldsa.verify(pk, msg, sig, o0))}")
+    print(" VMSG {es(mldsa.verify(pk, msg[1..], sig, None))}")
+    let ox = Some(Options { context: "x" })
+    print(" VCTX {es(mldsa.verify(pk, msg, sig, ox))}")
+    let opts = Some(Options { context: "kite context" })
+    let sig2r = sk.sign_deterministic(msg, opts)
+    let sig2 = unwrap(sig2r)
+    print(" SIGCTX {es(sig2r)} {h(sig2)} {len(sig2)}")
+    print(" VCTX2 {es(mldsa.verify(pk, msg, sig2, opts))} {es(mldsa.verify(pk, msg, sig2, None))}")
+    let sig3r = sk.sign_deterministic([], None)
+    let sig3 = unwrap(sig3r)
+    print(" SIGEMPTY {es(sig3r)} {h(sig3)} {es(mldsa.verify(pk, [], sig3, None))}")
+    for idx in [0, 40, len(sig) - p.signature_size() / 3, len(sig) - 1] {
+      for v in [1, 0x80] {
+        print(" TAMPER {idx} {v} {es(mldsa.verify(pk, msg, flip(sig, idx, v), None))}")
+      }
+    }
+    let n = len(sig)
+    print(" HINT1 {es(mldsa.verify(pk, msg, set(sig, n - 1, 0xff), None))}")
+    print(" HINT2 {es(mldsa.verify(pk, msg, set(sig, n - 2, 0), None))}")
+    print(" HINT3 {es(mldsa.verify(pk, msg, flip(sig, n - 12, 0x5a), None))}")
+    print(
+      " SHORT {es(mldsa.verify(pk, msg, sig[1..], None))} {es(mldsa.verify(pk, msg, push(sig, 0), None))}",
+    )
+    let long = strings.repeat("a", 256)
+    let lo = Some(Options { context: long })
+    print(
+      " CTXLONG {es(sk.sign_deterministic(msg, lo))} {es(mldsa.verify(pk, msg, sig, lo))}",
+    )
+    let c255 = Some(Options { context: strings.repeat("a", 255) })
+    print(" CTX255 {es(sk.sign_deterministic(msg, c255))}")
+    let pk2r = mldsa.new_public_key(p, pb)
+    let pk2 = unwrap(pk2r)
+    print(
+      " PK {es(pk2r)} {pk2.equal(pk)} {h(pk2.bytes())} {es(mldsa.verify(pk2, msg, sig, None))}",
+    )
+    print(" PKLEN {es(mldsa.new_public_key(p, pb[1..]))}")
+    let other = params[(pi + 1) % 3]
+    print(" PKOTHER {es(mldsa.new_public_key(other, pb))}")
+    let pk3 = unwrap(mldsa.new_public_key(p, flip(pb, 100, 4)))
+    print(" PKBAD {pk3.equal(pk)} {es(mldsa.verify(pk3, msg, sig, None))}")
+    let sk2r = mldsa.new_private_key(p, sk.bytes())
+    let sk2 = unwrap(sk2r)
+    print(" SK {es(sk2r)} {sk2.equal(sk)} {sk2.public_key().equal(pk)}")
+    let sk3 = unwrap(mldsa.new_private_key(p, flip(seed, 0, 1)))
+    let pk3b = sk3.public_key()
+    print(
+      " SK2 {sk3.equal(sk)} {pk3b.equal(pk)} {h(pk3b.bytes())} {es(mldsa.verify(pk3b, msg, sig, None))}",
+    )
+    let sko = unwrap(mldsa.new_private_key(other, seed))
+    print(" SKOTHER {sko.equal(sk)} {h(sko.public().bytes())}")
+    print(" SEEDLEN {es(mldsa.new_private_key(p, seed[..31]))}")
+    let tr = sha3.sum_shake256(pb, 64)
+    let mu = sha3.sum_shake256(tr + [0, 0] + msg, 64)
+    let sigmur = sk.sign_deterministic_hash(mu, mldsa.MLDSA_MU)
+    print(" MU {es(sigmur)} {unwrap(sigmur) == sig}")
+    print(" MULEN {es(sk.sign_deterministic_hash(mu[..63], mldsa.MLDSA_MU))}")
+    print(" MULEN2 {es(sk.sign_hash(mu[..63], mldsa.MLDSA_MU))}")
+    print(" BADOPTS {es(sk.sign_deterministic_hash(msg, 5))}")
+    print(" BADOPTS2 {es(sk.sign_hash(msg, 5))}")
+    let s0r = sk.sign_deterministic_hash(msg, 0)
+    print(" HASH0 {es(s0r)} {unwrap(s0r) == sig}")
+    let rsr = sk.sign(msg, opts)
+    let rs = unwrap(rsr)
+    print(" HEDGED {es(rsr)} {len(rs)} {es(mldsa.verify(pk, msg, rs, opts))} {rs == sig2}")
+    let rmur = sk.sign_hash(mu, mldsa.MLDSA_MU)
+    print(" HEDGEDMU {es(rmur)} {es(mldsa.verify(pk, msg, unwrap(rmur), None))}")
+    let gkr = mldsa.generate_key(p)
+    let gk = unwrap(gkr)
+    let gs = unwrap(gk.sign_deterministic(msg, None))
+    print(
+      " GEN {es(gkr)} {len(gk.bytes())} {gk.equal(sk)} {es(mldsa.verify(gk.public_key(), msg, gs, None))} {es(mldsa.verify(pk, msg, gs, None))}",
+    )
+    for i in 0..4 {
+      let m = map(0..i * 37, (j) => (j * i + pi) & 255)
+      let c = Some(Options { context: strings.repeat("c", i * 3) })
+      let sr = sk.sign_deterministic(m, c)
+      print(" ACC {i} {es(sr)} {h(unwrap(sr))} {es(mldsa.verify(pk, m, unwrap(sr), c))}")
+    }
+    print(" CROSS {es(mldsa.verify(sko.public_key(), msg, sig, None))}")
+  }
+  let bad = Parameters { name: "", pk_size: 0, sig_size: 0 }
+  print("BADPARAMS {es(mldsa.generate_key(bad))}")
+  print("BADPARAMS2 {es(mldsa.new_private_key(bad, map(0..32, (_) => 0)))}")
+  print("BADPARAMS3 {es(mldsa.new_public_key(bad, []))}")
+}

@@ -1,7 +1,7 @@
 # 对齐 Go 标准库：移植须知（给做移植的人看）
 
-工作目录 `/workspace/work/kite`。环境变量：`CC=/workspace/work/zigcc`（任意 C 编译器都行）。
-Go 1.27.1 工具链在 `/tmp/go/bin/go`（不持久，丢了就按机器架构重新下载 go1.27.1.linux-arm64/amd64.tar.gz；Go 源码在 `/tmp/go/src`，移植时直接照着读）。注意 1.27 的 encoding/json v1 默认由 v2（jsontext）实现，错误信息以 jsontext 为准。
+工作目录 `/workspace/work/kite/kite`。环境变量：`PATH=/workspace/work/bin:$PATH CC="zig cc -mcpu=baseline" KITE_HOME=$PWD`。编译器 `bin/kitec`（没有就 `sh bootstrap.sh`）；`bin/kitec run 文件` 编译并运行（每次约 30 秒，机器只有 2 核，别同时跑太多）。
+Go 1.27.1 工具链在 `/tmp/go/bin/go`（/tmp 会被清空，丢了就重新下载：`cd /tmp && curl -sSfL https://go.dev/dl/go1.27.1.linux-arm64.tar.gz | tar xz`；Go 源码在 `/tmp/go/src`，移植时直接照着读）。注意 1.27 的 encoding/json v1 默认由 v2（jsontext）实现，错误信息以 jsontext 为准。
 
 ## 每个包要交付的文件（只动这些，别改 README / run_tests.sh / kitec / 其他人的模块）
 - `std/NAME.kite`：模块本身，用 Kite 写。开头注释说明对应哪个 Go 包、和 Go 的差别。
@@ -39,5 +39,6 @@ Go 1.27.1 工具链在 `/tmp/go/bin/go`（不持久，丢了就按机器架构�
 - 上一轮好几个人时间用完时还没交付任何东西。顺序一定是：先写出能用的核心 API → 写一份规模适中的 Go 测试 → 三个引擎都通过 → 再扩大覆盖面。随时保持“已交付的部分是通过的”状态。
 - 时间快不够时，先把测试缩小到能通过的部分，再交付；不要留下编译不过的文件。
 - match 分支里不能直接写 `=> return x`，必须写成 `=> { return x }`。
-- 树解释器大约每秒 15～30 万次简单循环，测试数据控制在几 KB。
+- 原生代码很快，但每次编译约 30 秒；测试数据控制在几十 KB 以内。
+- 格式化规则见 docs/fmt.md（100 列自动折行），交付前 `bin/kitec fmt -w` 自己的文件即可。
 - 已完成可复用：std/math/big/rat.kite 导出 float64_bits / float64_frombits / frexp / ldexp / pow2；std/strconv.kite 新增 format_float_go(f, "e|E|f|g|G|b|x|X", prec, bitsize)、parse_float_go、quote_go 等（正在由另一个人对拍验证）。

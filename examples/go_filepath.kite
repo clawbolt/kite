@@ -1,0 +1,462 @@
+// 对拍 tests/go/filepath.go：path/filepath（Unix 语义）
+use std.path.filepath
+use std.path.filepath.{ FileInfo }
+use std.fs
+use std.os
+use std.process
+
+fn paths() -> List<Str> {
+  [
+    "abc",
+    "abc/def",
+    "a/b/c",
+    ".",
+    "..",
+    "../..",
+    "../../abc",
+    "/abc",
+    "/",
+    "",
+    "abc/",
+    "abc/def/",
+    "a/b/c/",
+    "./",
+    "../",
+    "../../",
+    "/abc/",
+    "abc//def//ghi",
+    "abc//",
+    "abc/./def",
+    "/./abc/def",
+    "abc/.",
+    "abc/def/ghi/../jkl",
+    "abc/def/../ghi/../jkl",
+    "abc/def/..",
+    "abc/def/../..",
+    "/abc/def/../..",
+    "abc/def/../../..",
+    "/abc/def/../../..",
+    "abc/def/../../../ghi/jkl/../../../mno",
+    "/../abc",
+    "a/../b:/../../c",
+    "abc/./../def",
+    "abc//./../def",
+    "abc/../../././../def",
+    "../a",
+    "/a/../..",
+    "a",
+    "a/../a",
+    "a/",
+    "a/./b/./c",
+    "path.go",
+    "path.pb.go",
+    "a.dir/b",
+    "a.dir/b.go",
+    "a.dir/",
+    "/.",
+    "////",
+    "x/",
+    "a/b/.x",
+    "a/b/c.",
+    "a/b/c.x",
+    "/foo",
+    "/usr/bin/gcc",
+    "/a/../bb",
+    "lala",
+    "é/ü.txt",
+    "dir/文件.tar.gz",
+    "a//b",
+    "x/../../y",
+    ".hidden",
+    "a/.b",
+    ".../x",
+    "a\\b",
+    "C:\\x",
+    "~/x",
+    "a b/c d.txt",
+    "//a//b//",
+  ]
+}
+fn joins() -> List<List<Str>> {
+  [
+    [],
+    [""],
+    ["/"],
+    ["a"],
+    ["a", "b"],
+    ["a", ""],
+    ["", "b"],
+    ["/", "a"],
+    ["/", "a/b"],
+    ["/", ""],
+    ["/a", "b"],
+    ["a", "/b"],
+    ["/a", "/b"],
+    ["a/", "b"],
+    ["a/", ""],
+    ["", ""],
+    ["/", "a", "b"],
+    ["//", "a"],
+    ["", "", "x", "", "y"],
+    ["a", "..", "..", "b"],
+    ["a/b", "../../../c"],
+    ["..", "x"],
+  ]
+}
+fn rels() -> List<(Str, Str)> {
+  [
+    ("a/b", "a/b"),
+    ("a/b/.", "a/b"),
+    ("a/b", "a/b/."),
+    ("./a/b", "a/b"),
+    ("a/b", "./a/b"),
+    ("ab/cd", "ab/cde"),
+    ("ab/cd", "ab/c"),
+    ("a/b", "a/b/c/d"),
+    ("a/b", "a/b/../c"),
+    ("a/b/../c", "a/b"),
+    ("a/b/c", "a/c/d"),
+    ("a/b", "c/d"),
+    ("a/b/c/d", "a/b"),
+    ("a/b/c/d", "a/b/"),
+    ("a/b/c/d/", "a/b"),
+    ("a/b/c/d/", "a/b/"),
+    ("../../a/b", "../../a/b/c/d"),
+    ("/a/b", "/a/b"),
+    ("/a/b/.", "/a/b"),
+    ("/a/b", "/a/b/."),
+    ("/ab/cd", "/ab/cde"),
+    ("/ab/cd", "/ab/c"),
+    ("/a/b", "/a/b/c/d"),
+    ("/a/b", "/a/b/../c"),
+    ("/a/b/../c", "/a/b"),
+    ("/a/b/c", "/a/c/d"),
+    ("/a/b", "/c/d"),
+    ("/a/b/c/d", "/a/b"),
+    ("/a/b/c/d", "/a/b/"),
+    ("/a/b/c/d/", "/a/b"),
+    ("/a/b/c/d/", "/a/b/"),
+    ("/../../a/b", "/../../a/b/c/d"),
+    (".", "a/b"),
+    (".", ".."),
+    ("", "../../."),
+    ("..", "."),
+    ("..", "a"),
+    ("../..", ".."),
+    ("a", "/a"),
+    ("/a", "a"),
+    ("/", "/x/y"),
+    ("/x/y", "/"),
+    ("x", "x/../y"),
+    ("a/..b", "a/c"),
+  ]
+}
+fn ms() -> List<(Str, Str)> {
+  [
+    ("abc", "abc"),
+    ("*", "abc"),
+    ("*c", "abc"),
+    ("a*", "a"),
+    ("a*", "abc"),
+    ("a*", "ab/c"),
+    ("a*/b", "abc/b"),
+    ("a*/b", "a/c/b"),
+    ("a*b*c*d*e*/f", "axbxcxdxe/f"),
+    ("a*b*c*d*e*/f", "axbxcxdxexxx/f"),
+    ("a*b*c*d*e*/f", "axbxcxdxe/xxx/f"),
+    ("a*b*c*d*e*/f", "axbxcxdxexxx/fff"),
+    ("a*b?c*x", "abxbbxdbxebxczzx"),
+    ("a*b?c*x", "abxbbxdbxebxczzy"),
+    ("ab[c]", "abc"),
+    ("ab[b-d]", "abc"),
+    ("ab[e-g]", "abc"),
+    ("ab[^c]", "abc"),
+    ("ab[^b-d]", "abc"),
+    ("ab[^e-g]", "abc"),
+    ("a\\*b", "a*b"),
+    ("a\\*b", "ab"),
+    ("a?b", "a☺b"),
+    ("a[^a]b", "a☺b"),
+    ("a???b", "a☺b"),
+    ("a[^a][^a][^a]b", "a☺b"),
+    ("[a-ζ]*", "α"),
+    ("*[a-ζ]", "A"),
+    ("a?b", "a/b"),
+    ("a*b", "a/b"),
+    ("[\\]a]", "]"),
+    ("[\\-]", "-"),
+    ("[x\\-]", "x"),
+    ("[x\\-]", "-"),
+    ("[x\\-]", "z"),
+    ("[\\-x]", "x"),
+    ("[\\-x]", "-"),
+    ("[\\-x]", "a"),
+    ("[]a]", "]"),
+    ("[-]", "-"),
+    ("[x-]", "x"),
+    ("[x-]", "-"),
+    ("[x-]", "z"),
+    ("[-x]", "x"),
+    ("[-x]", "-"),
+    ("[-x]", "a"),
+    ("\\", "a"),
+    ("[a-b-c]", "a"),
+    ("[", "a"),
+    ("[^", "a"),
+    ("[^bc", "a"),
+    ("a[", "a"),
+    ("a[", "ab"),
+    ("a[", "x"),
+    ("a/b[", "x"),
+    ("*x", "xxx"),
+    ("*.go", "main.go"),
+    ("*.go", "dir/main.go"),
+    ("*/*.go", "dir/main.go"),
+    ("a*", "ab["),
+    ("[a-c]*[0-9]", "b12"),
+    ("**", "a/b"),
+    ("*/", "a/"),
+    ("", ""),
+    ("", "a"),
+    ("?", "é"),
+    ("[é-ü]", "ö"),
+    ("x*y*", "x/y"),
+  ]
+}
+fn lists() -> List<Str> { ["", "a:b", ":a:b", "a::b:", "/usr/bin:/bin", ":"] }
+
+fn q(s: Str) -> Str { "\"" + s + "\"" }
+
+fn sl(xs: List<Str>) -> Str { "[" + join(map(xs, (x) => q(x)), ", ") + "]" }
+
+fn rs(r: Result<Str, Str>) -> Str {
+  match r {
+    Ok(s) => "ok:" + q(s),
+    Err(e) => "err:" + e,
+  }
+}
+
+fn es(r: Result<Unit, Str>) -> Str {
+  match r {
+    Ok(_) => "nil",
+    Err(e) => e,
+  }
+}
+
+fn eo(e: Option<Str>) -> Str {
+  match e {
+    Some(x) => x,
+    None => "nil",
+  }
+}
+
+const ROOT: Str = "/tmp/kite_filepath_test"
+
+fn sh_quote(s: Str) -> Str { "'" + s + "'" }
+
+fn setup() {
+  let _ = os.remove_all(ROOT)
+  for d in ["dir1/sub", "dir2", "skip", "empty"] { let _ = fs.mkdir(ROOT + "/" + d) }
+  let files = [
+    ("a.txt", "hello"),
+    ("b.go", "package b"),
+    (".hidden", "h"),
+    ("dir1/c.txt", "c"),
+    ("dir1/d.md", "dd"),
+    ("dir1/sub/e.txt", "eee"),
+    ("dir2/f.txt", "ffff"),
+    ("skip/g.txt", "g"),
+    ("空 格.txt", "u"),
+  ]
+  for (n, c) in files { let _ = fs.write(ROOT + "/" + n, c) }
+  let links = [
+    ("dir1", "link_dir"),
+    ("dir1/sub/e.txt", "link_rel"),
+    (ROOT + "/dir2", "link_abs"),
+    ("nonexist", "broken"),
+    ("loop2", "loop1"),
+    ("loop1", "loop2"),
+    ("../dir1", "dir2/up"),
+    ("link_dir", "chain"),
+  ]
+  for (t, l) in links {
+    let _ = process.run("ln -s " + sh_quote(t) + " " + sh_quote(ROOT + "/" + l))
+  }
+}
+
+fn entry(d: Option<FileInfo>) -> Str {
+  match d {
+    None => "nil",
+    Some(x) => "{x.name} dir={x.is_dir} link={x.is_symlink}",
+  }
+}
+
+fn octal(n: Int) -> Str {
+  if n < 8 { return str(n) }
+  octal(n / 8) + str(n % 8)
+}
+
+fn finfo(d: Option<FileInfo>) -> Str {
+  match d {
+    None => "nil",
+    Some(x) => {
+      var s = "{x.name} dir={x.is_dir} link={x.is_symlink}"
+      if x.is_file { s = s + " size={x.size} perm={octal(x.mode & 511)}" }
+      s
+    },
+  }
+}
+
+fn main() {
+  print("sep {filepath.SEPARATOR} {filepath.LIST_SEPARATOR}")
+  print("{filepath.ERR_BAD_PATTERN} | {filepath.SKIP_DIR} | {filepath.SKIP_ALL}")
+  for p in paths() {
+    let (d, f) = filepath.split(p)
+    let a = "{q(p)} clean={q(filepath.clean(p))} split={q(d)},{q(f)} ext={q(filepath.ext(p))}"
+    let b = " base={q(filepath.base(p))} dir={q(filepath.dir(p))} abs={filepath.is_abs(p)}"
+    let c = " local={filepath.is_local(p)} vol={q(filepath.volume_name(p))}"
+    let e = " slash={q(filepath.to_slash(p))},{q(filepath.from_slash(p))}"
+    print(a + b + c + e + " localize=" + rs(filepath.localize(p)))
+  }
+  print("localize nul " + rs(filepath.localize("a\u{0}b")))
+  for j in joins() { print("join {sl(j)} {q(filepath.join(j))}") }
+  for (x, y) in rels() { print("rel {q(x)} {q(y)} " + rs(filepath.rel(x, y))) }
+  for (x, y) in ms() {
+    let r = match filepath.matches(x, y) {
+      Ok(b) => "{b} nil",
+      Err(e) => "false " + e,
+    }
+    print("match {q(x)} {q(y)} {r}")
+  }
+  for l in lists() { print("splitlist {q(l)} {sl(filepath.split_list(l))}") }
+  print("hasprefix {filepath.has_prefix("/a/b", "/a")} {filepath.has_prefix("ab", "b")}")
+
+  setup()
+  let _ = os.chdir(ROOT)
+  for p in ["x", "dir1/../y", "/a/./b", "", ".", "../z"] {
+    print("abs {q(p)} " + rs(filepath.abs_path(p)))
+  }
+  let globs = [
+    "*",
+    "*.txt",
+    "dir*/*.txt",
+    "*/*",
+    "*/sub/*",
+    ROOT + "/d*",
+    "dir1/[cd].*",
+    "nomatch*",
+    "a.txt",
+    "missing",
+    "[",
+    "dir1/\\c.txt",
+    "dir[/x",
+    ".*",
+    "link_dir/*",
+    "*/[",
+    "[*/x",
+    "*/*/*.txt",
+    "空*",
+    "b.go/*",
+    "dir?",
+  ]
+  for g in globs {
+    let r = match filepath.glob(g) {
+      Ok(m) => sl(m) + " nil",
+      Err(e) => "[] " + e,
+    }
+    print("glob {q(g)} {r}")
+  }
+  let evals = [
+    "link_dir",
+    "link_dir/sub/e.txt",
+    "link_rel",
+    "link_abs/f.txt",
+    "broken",
+    "loop1",
+    "a.txt/x",
+    "dir2/up/c.txt",
+    "chain/../a.txt",
+    ROOT + "/link_dir",
+    "./dir1//sub/",
+    ".",
+    "..",
+    "../kite_filepath_test/chain",
+    "missing/x",
+    "",
+    "dir2/up/..",
+    ROOT + "/dir2/up/sub/../d.md",
+  ]
+  for e in evals { print("eval {q(e)} " + rs(filepath.eval_symlinks(e))) }
+
+  let r1 = filepath.walk_dir(".", (p, d, err) => {
+    print(" wd {q(p)} {entry(d)} {eo(err)}")
+    Ok(())
+  })
+  print("walkdir all " + es(r1))
+  let r2 = filepath.walk_dir(".", (p, d, err) => {
+    print(" wd {q(p)}")
+    if p == "skip" || p == "dir1/c.txt" { return Err(filepath.SKIP_DIR) }
+    if p == "link_abs" { return Err(filepath.SKIP_ALL) }
+    Ok(())
+  })
+  print("walkdir skip " + es(r2))
+  let r3 = filepath.walk_dir("dir1", (p, d, err) => {
+    print(" wd {q(p)}")
+    if p == "dir1/d.md" { return Err("boom at " + p) }
+    Ok(())
+  })
+  print("walkdir err " + es(r3))
+  let r4 = filepath.walk_dir("missing", (p, d, err) => {
+    print(" wd {q(p)} {entry(d)} {eo(err)}")
+    match err {
+      Some(x) => Err(x),
+      None => Ok(()),
+    }
+  })
+  print("walkdir missing " + es(r4))
+  print("walkdir missing2 " + es(filepath.walk_dir("missing", (p, d, err) => Ok(()))))
+  let r5 = filepath.walk_dir(ROOT, (p, d, err) => {
+    print(" wd {q(p)}")
+    Err(filepath.SKIP_DIR)
+  })
+  print("walkdir rootskip " + es(r5))
+  let r6 = filepath.walk_dir("link_dir", (p, d, err) => {
+    print(" wd {q(p)} {entry(d)} {eo(err)}")
+    Ok(())
+  })
+  print("walkdir file " + es(r6))
+
+  let w1 = filepath.walk(".", (p, fi, err) => {
+    print(" w {q(p)} {finfo(fi)} {eo(err)}")
+    Ok(())
+  })
+  print("walk all " + es(w1))
+  let w2 = filepath.walk(".", (p, fi, err) => {
+    print(" w {q(p)}")
+    if p == "dir1" || p == "dir2/f.txt" { return Err(filepath.SKIP_DIR) }
+    if p == "skip/g.txt" { return Err(filepath.SKIP_ALL) }
+    Ok(())
+  })
+  print("walk skip " + es(w2))
+  let w3 = filepath.walk("a.txt", (p, fi, err) => {
+    print(" w {q(p)} {finfo(fi)} {eo(err)}")
+    Ok(())
+  })
+  print("walk file " + es(w3))
+  let w4 = filepath.walk(ROOT + "/missing", (p, fi, err) => {
+    print(" w {q(p)} {finfo(fi)} {eo(err)}")
+    match err {
+      Some(x) => Err(x),
+      None => Ok(()),
+    }
+  })
+  print("walk missing " + es(w4))
+  let w5 = filepath.walk(ROOT + "/dir1", (p, fi, err) => {
+    print(" w {q(p)}")
+    if ends_with(p, "sub") { return Err("stop " + filepath.base(p)) }
+    Ok(())
+  })
+  print("walk err " + es(w5))
+  let _ = os.chdir("/")
+  let _ = os.remove_all(ROOT)
+}

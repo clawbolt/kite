@@ -1,0 +1,357 @@
+sep / :
+syntax error in pattern | skip this directory | skip everything and stop the walk
+"abc" clean="abc" split="","abc" ext="" base="abc" dir="." abs=false local=true vol="" slash="abc","abc" localize=ok:"abc"
+"abc/def" clean="abc/def" split="abc/","def" ext="" base="def" dir="abc" abs=false local=true vol="" slash="abc/def","abc/def" localize=ok:"abc/def"
+"a/b/c" clean="a/b/c" split="a/b/","c" ext="" base="c" dir="a/b" abs=false local=true vol="" slash="a/b/c","a/b/c" localize=ok:"a/b/c"
+"." clean="." split="","." ext="." base="." dir="." abs=false local=true vol="" slash=".","." localize=ok:"."
+".." clean=".." split="",".." ext="." base=".." dir="." abs=false local=false vol="" slash="..",".." localize=err:invalid path
+"../.." clean="../.." split="../",".." ext="." base=".." dir=".." abs=false local=false vol="" slash="../..","../.." localize=err:invalid path
+"../../abc" clean="../../abc" split="../../","abc" ext="" base="abc" dir="../.." abs=false local=false vol="" slash="../../abc","../../abc" localize=err:invalid path
+"/abc" clean="/abc" split="/","abc" ext="" base="abc" dir="/" abs=true local=false vol="" slash="/abc","/abc" localize=err:invalid path
+"/" clean="/" split="/","" ext="" base="/" dir="/" abs=true local=false vol="" slash="/","/" localize=err:invalid path
+"" clean="." split="","" ext="" base="." dir="." abs=false local=false vol="" slash="","" localize=err:invalid path
+"abc/" clean="abc" split="abc/","" ext="" base="abc" dir="abc" abs=false local=true vol="" slash="abc/","abc/" localize=err:invalid path
+"abc/def/" clean="abc/def" split="abc/def/","" ext="" base="def" dir="abc/def" abs=false local=true vol="" slash="abc/def/","abc/def/" localize=err:invalid path
+"a/b/c/" clean="a/b/c" split="a/b/c/","" ext="" base="c" dir="a/b/c" abs=false local=true vol="" slash="a/b/c/","a/b/c/" localize=err:invalid path
+"./" clean="." split="./","" ext="" base="." dir="." abs=false local=true vol="" slash="./","./" localize=err:invalid path
+"../" clean=".." split="../","" ext="" base=".." dir=".." abs=false local=false vol="" slash="../","../" localize=err:invalid path
+"../../" clean="../.." split="../../","" ext="" base=".." dir="../.." abs=false local=false vol="" slash="../../","../../" localize=err:invalid path
+"/abc/" clean="/abc" split="/abc/","" ext="" base="abc" dir="/abc" abs=true local=false vol="" slash="/abc/","/abc/" localize=err:invalid path
+"abc//def//ghi" clean="abc/def/ghi" split="abc//def//","ghi" ext="" base="ghi" dir="abc/def" abs=false local=true vol="" slash="abc//def//ghi","abc//def//ghi" localize=err:invalid path
+"abc//" clean="abc" split="abc//","" ext="" base="abc" dir="abc" abs=false local=true vol="" slash="abc//","abc//" localize=err:invalid path
+"abc/./def" clean="abc/def" split="abc/./","def" ext="" base="def" dir="abc" abs=false local=true vol="" slash="abc/./def","abc/./def" localize=err:invalid path
+"/./abc/def" clean="/abc/def" split="/./abc/","def" ext="" base="def" dir="/abc" abs=true local=false vol="" slash="/./abc/def","/./abc/def" localize=err:invalid path
+"abc/." clean="abc" split="abc/","." ext="." base="." dir="abc" abs=false local=true vol="" slash="abc/.","abc/." localize=err:invalid path
+"abc/def/ghi/../jkl" clean="abc/def/jkl" split="abc/def/ghi/../","jkl" ext="" base="jkl" dir="abc/def" abs=false local=true vol="" slash="abc/def/ghi/../jkl","abc/def/ghi/../jkl" localize=err:invalid path
+"abc/def/../ghi/../jkl" clean="abc/jkl" split="abc/def/../ghi/../","jkl" ext="" base="jkl" dir="abc" abs=false local=true vol="" slash="abc/def/../ghi/../jkl","abc/def/../ghi/../jkl" localize=err:invalid path
+"abc/def/.." clean="abc" split="abc/def/",".." ext="." base=".." dir="abc/def" abs=false local=true vol="" slash="abc/def/..","abc/def/.." localize=err:invalid path
+"abc/def/../.." clean="." split="abc/def/../",".." ext="." base=".." dir="abc" abs=false local=true vol="" slash="abc/def/../..","abc/def/../.." localize=err:invalid path
+"/abc/def/../.." clean="/" split="/abc/def/../",".." ext="." base=".." dir="/abc" abs=true local=false vol="" slash="/abc/def/../..","/abc/def/../.." localize=err:invalid path
+"abc/def/../../.." clean=".." split="abc/def/../../",".." ext="." base=".." dir="." abs=false local=false vol="" slash="abc/def/../../..","abc/def/../../.." localize=err:invalid path
+"/abc/def/../../.." clean="/" split="/abc/def/../../",".." ext="." base=".." dir="/" abs=true local=false vol="" slash="/abc/def/../../..","/abc/def/../../.." localize=err:invalid path
+"abc/def/../../../ghi/jkl/../../../mno" clean="../../mno" split="abc/def/../../../ghi/jkl/../../../","mno" ext="" base="mno" dir="../.." abs=false local=false vol="" slash="abc/def/../../../ghi/jkl/../../../mno","abc/def/../../../ghi/jkl/../../../mno" localize=err:invalid path
+"/../abc" clean="/abc" split="/../","abc" ext="" base="abc" dir="/" abs=true local=false vol="" slash="/../abc","/../abc" localize=err:invalid path
+"a/../b:/../../c" clean="../c" split="a/../b:/../../","c" ext="" base="c" dir=".." abs=false local=false vol="" slash="a/../b:/../../c","a/../b:/../../c" localize=err:invalid path
+"abc/./../def" clean="def" split="abc/./../","def" ext="" base="def" dir="." abs=false local=true vol="" slash="abc/./../def","abc/./../def" localize=err:invalid path
+"abc//./../def" clean="def" split="abc//./../","def" ext="" base="def" dir="." abs=false local=true vol="" slash="abc//./../def","abc//./../def" localize=err:invalid path
+"abc/../../././../def" clean="../../def" split="abc/../../././../","def" ext="" base="def" dir="../.." abs=false local=false vol="" slash="abc/../../././../def","abc/../../././../def" localize=err:invalid path
+"../a" clean="../a" split="../","a" ext="" base="a" dir=".." abs=false local=false vol="" slash="../a","../a" localize=err:invalid path
+"/a/../.." clean="/" split="/a/../",".." ext="." base=".." dir="/" abs=true local=false vol="" slash="/a/../..","/a/../.." localize=err:invalid path
+"a" clean="a" split="","a" ext="" base="a" dir="." abs=false local=true vol="" slash="a","a" localize=ok:"a"
+"a/../a" clean="a" split="a/../","a" ext="" base="a" dir="." abs=false local=true vol="" slash="a/../a","a/../a" localize=err:invalid path
+"a/" clean="a" split="a/","" ext="" base="a" dir="a" abs=false local=true vol="" slash="a/","a/" localize=err:invalid path
+"a/./b/./c" clean="a/b/c" split="a/./b/./","c" ext="" base="c" dir="a/b" abs=false local=true vol="" slash="a/./b/./c","a/./b/./c" localize=err:invalid path
+"path.go" clean="path.go" split="","path.go" ext=".go" base="path.go" dir="." abs=false local=true vol="" slash="path.go","path.go" localize=ok:"path.go"
+"path.pb.go" clean="path.pb.go" split="","path.pb.go" ext=".go" base="path.pb.go" dir="." abs=false local=true vol="" slash="path.pb.go","path.pb.go" localize=ok:"path.pb.go"
+"a.dir/b" clean="a.dir/b" split="a.dir/","b" ext="" base="b" dir="a.dir" abs=false local=true vol="" slash="a.dir/b","a.dir/b" localize=ok:"a.dir/b"
+"a.dir/b.go" clean="a.dir/b.go" split="a.dir/","b.go" ext=".go" base="b.go" dir="a.dir" abs=false local=true vol="" slash="a.dir/b.go","a.dir/b.go" localize=ok:"a.dir/b.go"
+"a.dir/" clean="a.dir" split="a.dir/","" ext="" base="a.dir" dir="a.dir" abs=false local=true vol="" slash="a.dir/","a.dir/" localize=err:invalid path
+"/." clean="/" split="/","." ext="." base="." dir="/" abs=true local=false vol="" slash="/.","/." localize=err:invalid path
+"////" clean="/" split="////","" ext="" base="/" dir="/" abs=true local=false vol="" slash="////","////" localize=err:invalid path
+"x/" clean="x" split="x/","" ext="" base="x" dir="x" abs=false local=true vol="" slash="x/","x/" localize=err:invalid path
+"a/b/.x" clean="a/b/.x" split="a/b/",".x" ext=".x" base=".x" dir="a/b" abs=false local=true vol="" slash="a/b/.x","a/b/.x" localize=ok:"a/b/.x"
+"a/b/c." clean="a/b/c." split="a/b/","c." ext="." base="c." dir="a/b" abs=false local=true vol="" slash="a/b/c.","a/b/c." localize=ok:"a/b/c."
+"a/b/c.x" clean="a/b/c.x" split="a/b/","c.x" ext=".x" base="c.x" dir="a/b" abs=false local=true vol="" slash="a/b/c.x","a/b/c.x" localize=ok:"a/b/c.x"
+"/foo" clean="/foo" split="/","foo" ext="" base="foo" dir="/" abs=true local=false vol="" slash="/foo","/foo" localize=err:invalid path
+"/usr/bin/gcc" clean="/usr/bin/gcc" split="/usr/bin/","gcc" ext="" base="gcc" dir="/usr/bin" abs=true local=false vol="" slash="/usr/bin/gcc","/usr/bin/gcc" localize=err:invalid path
+"/a/../bb" clean="/bb" split="/a/../","bb" ext="" base="bb" dir="/" abs=true local=false vol="" slash="/a/../bb","/a/../bb" localize=err:invalid path
+"lala" clean="lala" split="","lala" ext="" base="lala" dir="." abs=false local=true vol="" slash="lala","lala" localize=ok:"lala"
+"é/ü.txt" clean="é/ü.txt" split="é/","ü.txt" ext=".txt" base="ü.txt" dir="é" abs=false local=true vol="" slash="é/ü.txt","é/ü.txt" localize=ok:"é/ü.txt"
+"dir/文件.tar.gz" clean="dir/文件.tar.gz" split="dir/","文件.tar.gz" ext=".gz" base="文件.tar.gz" dir="dir" abs=false local=true vol="" slash="dir/文件.tar.gz","dir/文件.tar.gz" localize=ok:"dir/文件.tar.gz"
+"a//b" clean="a/b" split="a//","b" ext="" base="b" dir="a" abs=false local=true vol="" slash="a//b","a//b" localize=err:invalid path
+"x/../../y" clean="../y" split="x/../../","y" ext="" base="y" dir=".." abs=false local=false vol="" slash="x/../../y","x/../../y" localize=err:invalid path
+".hidden" clean=".hidden" split="",".hidden" ext=".hidden" base=".hidden" dir="." abs=false local=true vol="" slash=".hidden",".hidden" localize=ok:".hidden"
+"a/.b" clean="a/.b" split="a/",".b" ext=".b" base=".b" dir="a" abs=false local=true vol="" slash="a/.b","a/.b" localize=ok:"a/.b"
+".../x" clean=".../x" split=".../","x" ext="" base="x" dir="..." abs=false local=true vol="" slash=".../x",".../x" localize=ok:".../x"
+"a\b" clean="a\b" split="","a\b" ext="" base="a\b" dir="." abs=false local=true vol="" slash="a\b","a\b" localize=ok:"a\b"
+"C:\x" clean="C:\x" split="","C:\x" ext="" base="C:\x" dir="." abs=false local=true vol="" slash="C:\x","C:\x" localize=ok:"C:\x"
+"~/x" clean="~/x" split="~/","x" ext="" base="x" dir="~" abs=false local=true vol="" slash="~/x","~/x" localize=ok:"~/x"
+"a b/c d.txt" clean="a b/c d.txt" split="a b/","c d.txt" ext=".txt" base="c d.txt" dir="a b" abs=false local=true vol="" slash="a b/c d.txt","a b/c d.txt" localize=ok:"a b/c d.txt"
+"//a//b//" clean="/a/b" split="//a//b//","" ext="" base="b" dir="/a/b" abs=true local=false vol="" slash="//a//b//","//a//b//" localize=err:invalid path
+localize nul err:invalid path
+join [] ""
+join [""] ""
+join ["/"] "/"
+join ["a"] "a"
+join ["a", "b"] "a/b"
+join ["a", ""] "a"
+join ["", "b"] "b"
+join ["/", "a"] "/a"
+join ["/", "a/b"] "/a/b"
+join ["/", ""] "/"
+join ["/a", "b"] "/a/b"
+join ["a", "/b"] "a/b"
+join ["/a", "/b"] "/a/b"
+join ["a/", "b"] "a/b"
+join ["a/", ""] "a"
+join ["", ""] ""
+join ["/", "a", "b"] "/a/b"
+join ["//", "a"] "/a"
+join ["", "", "x", "", "y"] "x/y"
+join ["a", "..", "..", "b"] "../b"
+join ["a/b", "../../../c"] "../c"
+join ["..", "x"] "../x"
+rel "a/b" "a/b" ok:"."
+rel "a/b/." "a/b" ok:"."
+rel "a/b" "a/b/." ok:"."
+rel "./a/b" "a/b" ok:"."
+rel "a/b" "./a/b" ok:"."
+rel "ab/cd" "ab/cde" ok:"../cde"
+rel "ab/cd" "ab/c" ok:"../c"
+rel "a/b" "a/b/c/d" ok:"c/d"
+rel "a/b" "a/b/../c" ok:"../c"
+rel "a/b/../c" "a/b" ok:"../b"
+rel "a/b/c" "a/c/d" ok:"../../c/d"
+rel "a/b" "c/d" ok:"../../c/d"
+rel "a/b/c/d" "a/b" ok:"../.."
+rel "a/b/c/d" "a/b/" ok:"../.."
+rel "a/b/c/d/" "a/b" ok:"../.."
+rel "a/b/c/d/" "a/b/" ok:"../.."
+rel "../../a/b" "../../a/b/c/d" ok:"c/d"
+rel "/a/b" "/a/b" ok:"."
+rel "/a/b/." "/a/b" ok:"."
+rel "/a/b" "/a/b/." ok:"."
+rel "/ab/cd" "/ab/cde" ok:"../cde"
+rel "/ab/cd" "/ab/c" ok:"../c"
+rel "/a/b" "/a/b/c/d" ok:"c/d"
+rel "/a/b" "/a/b/../c" ok:"../c"
+rel "/a/b/../c" "/a/b" ok:"../b"
+rel "/a/b/c" "/a/c/d" ok:"../../c/d"
+rel "/a/b" "/c/d" ok:"../../c/d"
+rel "/a/b/c/d" "/a/b" ok:"../.."
+rel "/a/b/c/d" "/a/b/" ok:"../.."
+rel "/a/b/c/d/" "/a/b" ok:"../.."
+rel "/a/b/c/d/" "/a/b/" ok:"../.."
+rel "/../../a/b" "/../../a/b/c/d" ok:"c/d"
+rel "." "a/b" ok:"a/b"
+rel "." ".." ok:".."
+rel "" "../../." ok:"../.."
+rel ".." "." err:Rel: can't make . relative to ..
+rel ".." "a" err:Rel: can't make a relative to ..
+rel "../.." ".." err:Rel: can't make .. relative to ../..
+rel "a" "/a" err:Rel: can't make /a relative to a
+rel "/a" "a" err:Rel: can't make a relative to /a
+rel "/" "/x/y" ok:"x/y"
+rel "/x/y" "/" ok:"../.."
+rel "x" "x/../y" ok:"../y"
+rel "a/..b" "a/c" ok:"../c"
+match "abc" "abc" true nil
+match "*" "abc" true nil
+match "*c" "abc" true nil
+match "a*" "a" true nil
+match "a*" "abc" true nil
+match "a*" "ab/c" false nil
+match "a*/b" "abc/b" true nil
+match "a*/b" "a/c/b" false nil
+match "a*b*c*d*e*/f" "axbxcxdxe/f" true nil
+match "a*b*c*d*e*/f" "axbxcxdxexxx/f" true nil
+match "a*b*c*d*e*/f" "axbxcxdxe/xxx/f" false nil
+match "a*b*c*d*e*/f" "axbxcxdxexxx/fff" false nil
+match "a*b?c*x" "abxbbxdbxebxczzx" true nil
+match "a*b?c*x" "abxbbxdbxebxczzy" false nil
+match "ab[c]" "abc" true nil
+match "ab[b-d]" "abc" true nil
+match "ab[e-g]" "abc" false nil
+match "ab[^c]" "abc" false nil
+match "ab[^b-d]" "abc" false nil
+match "ab[^e-g]" "abc" true nil
+match "a\*b" "a*b" true nil
+match "a\*b" "ab" false nil
+match "a?b" "a☺b" true nil
+match "a[^a]b" "a☺b" true nil
+match "a???b" "a☺b" false nil
+match "a[^a][^a][^a]b" "a☺b" false nil
+match "[a-ζ]*" "α" true nil
+match "*[a-ζ]" "A" false nil
+match "a?b" "a/b" false nil
+match "a*b" "a/b" false nil
+match "[\]a]" "]" true nil
+match "[\-]" "-" true nil
+match "[x\-]" "x" true nil
+match "[x\-]" "-" true nil
+match "[x\-]" "z" false nil
+match "[\-x]" "x" true nil
+match "[\-x]" "-" true nil
+match "[\-x]" "a" false nil
+match "[]a]" "]" false syntax error in pattern
+match "[-]" "-" false syntax error in pattern
+match "[x-]" "x" false syntax error in pattern
+match "[x-]" "-" false syntax error in pattern
+match "[x-]" "z" false syntax error in pattern
+match "[-x]" "x" false syntax error in pattern
+match "[-x]" "-" false syntax error in pattern
+match "[-x]" "a" false syntax error in pattern
+match "\" "a" false syntax error in pattern
+match "[a-b-c]" "a" false syntax error in pattern
+match "[" "a" false syntax error in pattern
+match "[^" "a" false syntax error in pattern
+match "[^bc" "a" false syntax error in pattern
+match "a[" "a" false syntax error in pattern
+match "a[" "ab" false syntax error in pattern
+match "a[" "x" false syntax error in pattern
+match "a/b[" "x" false syntax error in pattern
+match "*x" "xxx" true nil
+match "*.go" "main.go" true nil
+match "*.go" "dir/main.go" false nil
+match "*/*.go" "dir/main.go" true nil
+match "a*" "ab[" true nil
+match "[a-c]*[0-9]" "b12" true nil
+match "**" "a/b" false nil
+match "*/" "a/" true nil
+match "" "" true nil
+match "" "a" false nil
+match "?" "é" true nil
+match "[é-ü]" "ö" true nil
+match "x*y*" "x/y" false nil
+splitlist "" []
+splitlist "a:b" ["a", "b"]
+splitlist ":a:b" ["", "a", "b"]
+splitlist "a::b:" ["a", "", "b", ""]
+splitlist "/usr/bin:/bin" ["/usr/bin", "/bin"]
+splitlist ":" ["", ""]
+hasprefix true false
+abs "x" ok:"/tmp/kite_filepath_test/x"
+abs "dir1/../y" ok:"/tmp/kite_filepath_test/y"
+abs "/a/./b" ok:"/a/b"
+abs "" ok:"/tmp/kite_filepath_test"
+abs "." ok:"/tmp/kite_filepath_test"
+abs "../z" ok:"/tmp/z"
+glob "*" [".hidden", "a.txt", "b.go", "broken", "chain", "dir1", "dir2", "empty", "link_abs", "link_dir", "link_rel", "loop1", "loop2", "skip", "空 格.txt"] nil
+glob "*.txt" ["a.txt", "空 格.txt"] nil
+glob "dir*/*.txt" ["dir1/c.txt", "dir2/f.txt"] nil
+glob "*/*" ["chain/c.txt", "chain/d.md", "chain/sub", "dir1/c.txt", "dir1/d.md", "dir1/sub", "dir2/f.txt", "dir2/up", "link_abs/f.txt", "link_abs/up", "link_dir/c.txt", "link_dir/d.md", "link_dir/sub", "skip/g.txt"] nil
+glob "*/sub/*" ["chain/sub/e.txt", "dir1/sub/e.txt", "link_dir/sub/e.txt"] nil
+glob "/tmp/kite_filepath_test/d*" ["/tmp/kite_filepath_test/dir1", "/tmp/kite_filepath_test/dir2"] nil
+glob "dir1/[cd].*" ["dir1/c.txt", "dir1/d.md"] nil
+glob "nomatch*" [] nil
+glob "a.txt" ["a.txt"] nil
+glob "missing" [] nil
+glob "[" [] syntax error in pattern
+glob "dir1/\c.txt" ["dir1/c.txt"] nil
+glob "dir[/x" [] syntax error in pattern
+glob ".*" [".hidden"] nil
+glob "link_dir/*" ["link_dir/c.txt", "link_dir/d.md", "link_dir/sub"] nil
+glob "*/[" [] syntax error in pattern
+glob "[*/x" [] syntax error in pattern
+glob "*/*/*.txt" ["chain/sub/e.txt", "dir1/sub/e.txt", "dir2/up/c.txt", "link_abs/up/c.txt", "link_dir/sub/e.txt"] nil
+glob "空*" ["空 格.txt"] nil
+glob "b.go/*" [] nil
+glob "dir?" ["dir1", "dir2"] nil
+eval "link_dir" ok:"dir1"
+eval "link_dir/sub/e.txt" ok:"dir1/sub/e.txt"
+eval "link_rel" ok:"dir1/sub/e.txt"
+eval "link_abs/f.txt" ok:"/tmp/kite_filepath_test/dir2/f.txt"
+eval "broken" err:lstat nonexist: no such file or directory
+eval "loop1" err:EvalSymlinks: too many links
+eval "a.txt/x" err:not a directory
+eval "dir2/up/c.txt" ok:"dir1/c.txt"
+eval "chain/../a.txt" ok:"a.txt"
+eval "/tmp/kite_filepath_test/link_dir" ok:"/tmp/kite_filepath_test/dir1"
+eval "./dir1//sub/" ok:"dir1/sub"
+eval "." ok:"."
+eval ".." ok:".."
+eval "../kite_filepath_test/chain" ok:"../kite_filepath_test/dir1"
+eval "missing/x" err:lstat missing: no such file or directory
+eval "" ok:"."
+eval "dir2/up/.." ok:"."
+eval "/tmp/kite_filepath_test/dir2/up/sub/../d.md" ok:"/tmp/kite_filepath_test/dir1/d.md"
+ wd "." . dir=true link=false nil
+ wd ".hidden" .hidden dir=false link=false nil
+ wd "a.txt" a.txt dir=false link=false nil
+ wd "b.go" b.go dir=false link=false nil
+ wd "broken" broken dir=false link=true nil
+ wd "chain" chain dir=false link=true nil
+ wd "dir1" dir1 dir=true link=false nil
+ wd "dir1/c.txt" c.txt dir=false link=false nil
+ wd "dir1/d.md" d.md dir=false link=false nil
+ wd "dir1/sub" sub dir=true link=false nil
+ wd "dir1/sub/e.txt" e.txt dir=false link=false nil
+ wd "dir2" dir2 dir=true link=false nil
+ wd "dir2/f.txt" f.txt dir=false link=false nil
+ wd "dir2/up" up dir=false link=true nil
+ wd "empty" empty dir=true link=false nil
+ wd "link_abs" link_abs dir=false link=true nil
+ wd "link_dir" link_dir dir=false link=true nil
+ wd "link_rel" link_rel dir=false link=true nil
+ wd "loop1" loop1 dir=false link=true nil
+ wd "loop2" loop2 dir=false link=true nil
+ wd "skip" skip dir=true link=false nil
+ wd "skip/g.txt" g.txt dir=false link=false nil
+ wd "空 格.txt" 空 格.txt dir=false link=false nil
+walkdir all nil
+ wd "."
+ wd ".hidden"
+ wd "a.txt"
+ wd "b.go"
+ wd "broken"
+ wd "chain"
+ wd "dir1"
+ wd "dir1/c.txt"
+ wd "dir2"
+ wd "dir2/f.txt"
+ wd "dir2/up"
+ wd "empty"
+ wd "link_abs"
+walkdir skip nil
+ wd "dir1"
+ wd "dir1/c.txt"
+ wd "dir1/d.md"
+walkdir err boom at dir1/d.md
+ wd "missing" nil lstat missing: no such file or directory
+walkdir missing lstat missing: no such file or directory
+walkdir missing2 nil
+ wd "/tmp/kite_filepath_test"
+walkdir rootskip nil
+ wd "link_dir" link_dir dir=false link=true nil
+walkdir file nil
+ w "." . dir=true link=false nil
+ w ".hidden" .hidden dir=false link=false size=1 perm=644 nil
+ w "a.txt" a.txt dir=false link=false size=5 perm=644 nil
+ w "b.go" b.go dir=false link=false size=9 perm=644 nil
+ w "broken" broken dir=false link=true nil
+ w "chain" chain dir=false link=true nil
+ w "dir1" dir1 dir=true link=false nil
+ w "dir1/c.txt" c.txt dir=false link=false size=1 perm=644 nil
+ w "dir1/d.md" d.md dir=false link=false size=2 perm=644 nil
+ w "dir1/sub" sub dir=true link=false nil
+ w "dir1/sub/e.txt" e.txt dir=false link=false size=3 perm=644 nil
+ w "dir2" dir2 dir=true link=false nil
+ w "dir2/f.txt" f.txt dir=false link=false size=4 perm=644 nil
+ w "dir2/up" up dir=false link=true nil
+ w "empty" empty dir=true link=false nil
+ w "link_abs" link_abs dir=false link=true nil
+ w "link_dir" link_dir dir=false link=true nil
+ w "link_rel" link_rel dir=false link=true nil
+ w "loop1" loop1 dir=false link=true nil
+ w "loop2" loop2 dir=false link=true nil
+ w "skip" skip dir=true link=false nil
+ w "skip/g.txt" g.txt dir=false link=false size=1 perm=644 nil
+ w "空 格.txt" 空 格.txt dir=false link=false size=1 perm=644 nil
+walk all nil
+ w "."
+ w ".hidden"
+ w "a.txt"
+ w "b.go"
+ w "broken"
+ w "chain"
+ w "dir1"
+ w "dir2"
+ w "dir2/f.txt"
+ w "empty"
+ w "link_abs"
+ w "link_dir"
+ w "link_rel"
+ w "loop1"
+ w "loop2"
+ w "skip"
+ w "skip/g.txt"
+walk skip nil
+ w "a.txt" a.txt dir=false link=false size=5 perm=644 nil
+walk file nil
+ w "/tmp/kite_filepath_test/missing" nil lstat /tmp/kite_filepath_test/missing: no such file or directory
+walk missing lstat /tmp/kite_filepath_test/missing: no such file or directory
+ w "/tmp/kite_filepath_test/dir1"
+ w "/tmp/kite_filepath_test/dir1/c.txt"
+ w "/tmp/kite_filepath_test/dir1/d.md"
+ w "/tmp/kite_filepath_test/dir1/sub"
+walk err stop sub

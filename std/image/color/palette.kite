@@ -1,0 +1,18 @@
+// std.image.color.palette：对齐 Go 1.27 的 image/color/palette
+//   Go 的 palette.Plan9 / palette.WebSafe 是包级变量 []color.Color，这里是函数 plan9() / web_safe()，
+//   返回 List<Color>（Color 来自 std.image.color，元素都是 Color.RGBA）。
+//   数据和 std.image.color 里的 plan9() / web_safe() 是同一份（直接复用），配合 color.palette_index /
+//   color.palette_convert 使用，对应 Go 的 color.Palette.Index / Convert。
+//   常量 PLAN9_LEN = 256、WEB_SAFE_LEN = 216 是两个调色板的长度。
+
+use std.image.color
+use std.image.color.{ Color }
+
+pub const PLAN9_LEN: Int = 256
+pub const WEB_SAFE_LEN: Int = 216
+
+// Plan 9 的 256 色调色板（Go 的 palette.Plan9）
+pub fn plan9() -> List<Color> { color.plan9() }
+
+// 216 色网页安全调色板（Go 的 palette.WebSafe）：r、g、b 各取 0x00 0x33 0x66 0x99 0xcc 0xff
+pub fn web_safe() -> List<Color> { color.web_safe() }

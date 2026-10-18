@@ -1040,6 +1040,11 @@ Go 1.27 的 encoding/json（v1）改由 v2 实现，语法错误、Compact/Inden
 | `std.crypto.dsa` | crypto/dsa | generate_key、sign、verify（随机字节由调用方给出；不含 GenerateParameters） |
 | `std.crypto.elliptic` | crypto/elliptic | P-224/256/384/521 与自定义曲线：add、double、scalar_mult、marshal(_compressed)、unmarshal(_compressed)、generate_key；std.crypto.internal.nistec 增加 P-224 和压缩点解码 |
 | `std.crypto.mlkem` | crypto/mlkem | ML-KEM-768/1024：密钥、封装（含 mlkemtest 的确定性封装）、解封装、隐式拒绝 |
+| `std.crypto.mldsa` | crypto/mldsa | ML-DSA-44/65/87：从种子生成密钥、编解码、确定性与 hedged 签名、context、外部 μ、验签；错误文字与 Go 相同 |
+| `std.go.constant` | go/constant | 精确常量：Int（含大整数）、Float（分数 / 512 位浮点）、Complex；make_from_literal、binary_op、shift、compare、to_int/to_float、String/ExactString 与 Go 逐字节相同 |
+| `std.net.http.cookiejar` | net/http/cookiejar | RFC 6265 Jar（可注入时间）、PublicSuffixList、Cookie 解析与 String、punycode/IDNA |
+| `std.path.filepath` | path/filepath | Unix 语义的全部导出函数：clean join rel match glob eval_symlinks walk walk_dir is_local localize 等 |
+| `std.image.color.palette` | image/color/palette | plan9（256 色）、web_safe（216 色） |
 | `std.index.suffixarray` | index/suffixarray | 后缀数组、lookup、与 Go 逐字节相同的 write/read 序列化（暂无 FindAllIndex） |
 | `std.text.scanner` | text/scanner | 完整的 Go 记号扫描器：模式、空白集合、自定义标识符字符、错误与位置 |
 | `std.go.version` | go/version | lang、compare、is_valid |

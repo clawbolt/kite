@@ -1,0 +1,719 @@
+# hasDotSuffix
+[] [] false
+[] [.] false
+[] [x] false
+[.] [] true
+[.] [.] false
+[.] [..] false
+[.] [x] false
+[.] [x.] false
+[.] [.x] false
+[.] [.x.] false
+[x] [] false
+[x] [.] false
+[x] [..] false
+[x] [x] false
+[x] [x.] false
+[x] [.x] false
+[x] [.x.] false
+[.x] [] false
+[.x] [.] false
+[.x] [..] false
+[.x] [x] true
+[.x] [x.] false
+[.x] [.x] false
+[.x] [.x.] false
+[x.] [] true
+[x.] [.] false
+[x.] [..] false
+[x.] [x] false
+[x.] [x.] false
+[x.] [.x] false
+[x.] [.x.] false
+[com] [] false
+[com] [m] false
+[com] [om] false
+[com] [com] false
+[com] [.com] false
+[com] [x.com] false
+[com] [xcom] false
+[com] [xorg] false
+[com] [org] false
+[com] [rg] false
+[foo.com] [] false
+[foo.com] [m] false
+[foo.com] [om] false
+[foo.com] [com] true
+[foo.com] [.com] false
+[foo.com] [o.com] false
+[foo.com] [oo.com] false
+[foo.com] [foo.com] false
+[foo.com] [.foo.com] false
+[foo.com] [x.foo.com] false
+[foo.com] [xfoo.com] false
+[foo.com] [xfoo.org] false
+[foo.com] [foo.org] false
+[foo.com] [oo.org] false
+[foo.com] [o.org] false
+[foo.com] [.org] false
+[foo.com] [org] false
+[foo.com] [rg] false
+# canonicalHost
+[www.example.com] -> [www.example.com] err=nil
+[WWW.EXAMPLE.COM] -> [www.example.com] err=nil
+[wWw.eXAmple.CoM] -> [www.example.com] err=nil
+[www.example.com:80] -> [www.example.com] err=nil
+[192.168.0.10] -> [192.168.0.10] err=nil
+[192.168.0.5:8080] -> [192.168.0.5] err=nil
+[2001:4860:0:2001::68] -> [2001:4860:0:2001::68] err=nil
+[[2001:4860:0:::68]:8080] -> [2001:4860:0:::68] err=nil
+[www.bücher.de] -> [www.xn--bcher-kva.de] err=nil
+[www.example.com.] -> [www.example.com] err=nil
+[.] -> [] err=nil
+[..] -> [.] err=nil
+[...] -> [..] err=nil
+[.net] -> [.net] err=nil
+[.net.] -> [.net] err=nil
+[a..] -> [a.] err=nil
+[b.a..] -> [b.a.] err=nil
+[weird.stuff...] -> [weird.stuff..] err=nil
+[[bad.unmatched.bracket:] -> [] err=address [bad.unmatched.bracket:: missing ']' in address
+[[::1]] -> [[::1]] err=nil
+[[::1]x:80] -> [[::1]x:80] err=nil
+[a:b:c] -> [a:b:c] err=nil
+[[a]:b]:1] -> [] err=address [a]:b]:1: too many colons in address
+[Bücher.DE] -> [xn--bcher-kva.de] err=nil
+[日本語.jp:8080] -> [xn--wgv71a119e.jp] err=nil
+# SplitHostPort
+[a:1] -> [a] [1] err=nil
+[a] -> [] [] err=address a: missing port in address
+[[::1]:80] -> [::1] [80] err=nil
+[[::1]] -> [] [] err=address [::1]: missing port in address
+[[::1]x] -> [] [] err=address [::1]x: missing port in address
+[[::1]:80:] -> [] [] err=address [::1]:80:: too many colons in address
+[a:b:c] -> [] [] err=address a:b:c: too many colons in address
+[a[:1] -> [] [] err=address a[:1: unexpected '[' in address
+[a]:1] -> [] [] err=address a]:1: unexpected ']' in address
+[[a]]:1] -> [] [] err=address [a]]:1: missing port in address
+[[a:1] -> [] [] err=address [a:1: missing ']' in address
+[:80] -> [] [80] err=nil
+[[]:] -> [] [] err=nil
+# hasPort
+[www.example.com] false
+[www.example.com:80] true
+[127.0.0.1] false
+[127.0.0.1:8080] true
+[2001:4860:0:2001::68] false
+[[2001::0:::68]:80] true
+[[::1]] false
+[a:b] true
+# jarKey
+[foo.www.example.com] psl=[example.com] nil=[example.com]
+[www.example.com] psl=[example.com] nil=[example.com]
+[example.com] psl=[example.com] nil=[example.com]
+[com] psl=[com] nil=[com]
+[foo.www.bbc.co.uk] psl=[bbc.co.uk] nil=[co.uk]
+[www.bbc.co.uk] psl=[bbc.co.uk] nil=[co.uk]
+[bbc.co.uk] psl=[bbc.co.uk] nil=[co.uk]
+[co.uk] psl=[co.uk] nil=[co.uk]
+[uk] psl=[uk] nil=[uk]
+[192.168.0.5] psl=[192.168.0.5] nil=[192.168.0.5]
+[www.buggy.psl] psl=[www.buggy.psl] nil=[buggy.psl]
+[www2.buggy.psl] psl=[buggy.psl] nil=[buggy.psl]
+[] psl=[] nil=[]
+[.] psl=[.] nil=[.]
+[..] psl=[.] nil=[..]
+[.net] psl=[.net] nil=[.net]
+[a.] psl=[a.] nil=[a.]
+[b.a.] psl=[a.] nil=[a.]
+[weird.stuff..] psl=[.] nil=[stuff..]
+[::1] psl=[::1] nil=[::1]
+# isIP
+[127.0.0.1] true
+[1.2.3.4] true
+[2001:4860:0:2001::68] true
+[::1%zone] true
+[example.com] false
+[1.1.1.300] false
+[www.foo.bar.net] false
+[123.foo.bar.net] false
+[01.2.3.4] false
+[::ffff:1.2.3.4] true
+[] false
+[1.2.3] false
+# defaultPath
+[/] -> [/]
+[/abc] -> [/]
+[/abc/] -> [/abc]
+[/abc/xyz] -> [/abc]
+[/abc/xyz/] -> [/abc/xyz]
+[/a/b/c.html] -> [/a/b]
+[] -> [/]
+[strange] -> [/]
+[//] -> [/]
+[/a//b] -> [/a/]
+[/a/./b] -> [/a/.]
+[/a/../b] -> [/a/..]
+# domainAndType
+[www.example.com] [] -> [www.example.com] true err=nil
+[127.0.0.1] [] -> [127.0.0.1] true err=nil
+[2001:4860:0:2001::68] [] -> [2001:4860:0:2001::68] true err=nil
+[www.example.com] [example.com] -> [example.com] false err=nil
+[www.example.com] [.example.com] -> [example.com] false err=nil
+[www.example.com] [www.example.com] -> [www.example.com] false err=nil
+[www.example.com] [.www.example.com] -> [www.example.com] false err=nil
+[foo.sso.example.com] [sso.example.com] -> [sso.example.com] false err=nil
+[bar.co.uk] [bar.co.uk] -> [bar.co.uk] false err=nil
+[foo.bar.co.uk] [.bar.co.uk] -> [bar.co.uk] false err=nil
+[127.0.0.1] [127.0.0.1] -> [127.0.0.1] true err=nil
+[2001:4860:0:2001::68] [2001:4860:0:2001::68] -> [2001:4860:0:2001::68] true err=nil
+[www.example.com] [.] -> [] false err=cookiejar: malformed cookie domain attribute
+[www.example.com] [..] -> [] false err=cookiejar: malformed cookie domain attribute
+[www.example.com] [other.com] -> [] false err=cookiejar: illegal cookie domain attribute
+[www.example.com] [com] -> [] false err=cookiejar: illegal cookie domain attribute
+[www.example.com] [.com] -> [] false err=cookiejar: illegal cookie domain attribute
+[foo.bar.co.uk] [.co.uk] -> [] false err=cookiejar: illegal cookie domain attribute
+[127.www.0.0.1] [127.0.0.1] -> [] false err=cookiejar: illegal cookie domain attribute
+[com] [] -> [com] true err=nil
+[com] [com] -> [com] true err=nil
+[com] [.com] -> [com] true err=nil
+[co.uk] [] -> [co.uk] true err=nil
+[co.uk] [co.uk] -> [co.uk] true err=nil
+[co.uk] [.co.uk] -> [co.uk] true err=nil
+nil [foo.bar.co.uk] [.co.uk] -> [co.uk] false err=nil
+nil [www.example.com] [com] -> [com] false err=nil
+nil [x.com] [perché.com] -> [] false err=cookiejar: malformed cookie domain attribute
+nil [x.com] [x.com.] -> [] false err=cookiejar: malformed cookie domain attribute
+nil [x.com] [X.COM] -> [x.com] false err=nil
+# punycode
+[] ok=true err=nil
+[--] ok=true err=nil
+[-a-] ok=true err=nil
+[-a--] ok=true err=nil
+[a-] ok=true err=nil
+[a--] ok=true err=nil
+[a-b-] ok=true err=nil
+[books-] ok=true err=nil
+[bcher-kva] ok=true err=nil
+[Hello-ck1hg65u] ok=true err=nil
+[tda] ok=true err=nil
+[tdac] ok=true err=nil
+[egbpdaj6bu4bxfgehfvwxn] ok=true err=nil
+[ihqwcrb4cv8a8dqg056pqjye] ok=true err=nil
+[ihqwctvzc91f659drss3x8bo0yb] ok=true err=nil
+[Proprostnemluvesky-uyb24dma41a] ok=true err=nil
+[4dbcagdahymbxekheh6e0a7fei0b] ok=true err=nil
+[i1baa7eci9glrd9b2ae1bj0hfcgg6iyaf8o0a1dig0cd] ok=true err=nil
+[n8jok5ay5dzabd5bym9f0cm5685rrjetr6pdxa] ok=true err=nil
+[989aomsvi5e83db1d2a355cv1e0vak1dwrv93d5xbh15a0dt30a5jpsd879ccm6fea98c] ok=true err=nil
+[b1abfaaepdrnnbgefbadotcwatmq2g4l] ok=true err=nil
+[PorqunopuedensimplementehablarenEspaol-fmd56a] ok=true err=nil
+[TisaohkhngthchnitingVit-kjcr8268qyxafd2f1b9g] ok=true err=nil
+[3B-ww4c5e180e575a65lsy2b] ok=true err=nil
+[-with-SUPER-MONKEYS-pc58ag80a8qai00g7n9n] ok=true err=nil
+[Hello-Another-Way--fc4qua05auwb3674vfr0b] ok=true err=nil
+[2-u9tlzr9756bt3uc0v] ok=true err=nil
+[MajiKoi5-783gue6qz075azm5e] ok=true err=nil
+[de-jg4avhby1noc0d] ok=true err=nil
+[d9juau41awczczp] ok=true err=nil
+[-> $1.00 <--] ok=true err=nil
+toASCII [golang] -> [golang] err=nil
+toASCII [bücher.example.com] -> [xn--bcher-kva.example.com] err=nil
+toASCII [www.bücher.de] -> [www.xn--bcher-kva.de] err=nil
+toASCII [日本語.jp] -> [xn--wgv71a119e.jp] err=nil
+toASCII [a.ü.b] -> [a.xn--tda.b] err=nil
+toASCII [] -> [] err=nil
+toASCII [Hello世界.com] -> [xn--Hello-ck1hg65u.com] err=nil
+toASCII [ÜBER.de] -> [xn--BER-ska.de] err=nil
+# basics
+== Retrieval of a plain host cookie.
+  content: A=a ok=true
+  http://www.host.test -> A=a ok=true
+  http://www.host.test/ -> A=a ok=true
+  http://www.host.test/some/path -> A=a ok=true
+  https://www.host.test -> A=a ok=true
+  https://www.host.test/ -> A=a ok=true
+  https://www.host.test/some/path -> A=a ok=true
+  ftp://www.host.test ->  ok=true
+  ftp://www.host.test/ ->  ok=true
+  ftp://www.host.test/some/path ->  ok=true
+  http://www.other.org ->  ok=true
+  http://sibling.host.test ->  ok=true
+  http://deep.www.host.test ->  ok=true
+== Secure cookies are not returned to http.
+  content: A=a ok=true
+  http://www.host.test ->  ok=true
+  http://www.host.test/ ->  ok=true
+  http://www.host.test/some/path ->  ok=true
+  https://www.host.test -> A=a ok=true
+  https://www.host.test/ -> A=a ok=true
+  https://www.host.test/some/path -> A=a ok=true
+== Secure cookies are sent for localhost
+  content: A=a ok=true
+  http://localhost:8910 -> A=a ok=true
+  http://localhost:8910/ -> A=a ok=true
+  http://localhost:8910/some/path -> A=a ok=true
+  https://localhost:8910 -> A=a ok=true
+  https://localhost:8910/ -> A=a ok=true
+  https://localhost:8910/some/path -> A=a ok=true
+== Secure cookies are sent for localhost (tld)
+  content: A=a ok=true
+  http://example.LOCALHOST:8910 -> A=a ok=true
+  http://example.LOCALHOST:8910/ -> A=a ok=true
+  http://example.LOCALHOST:8910/some/path -> A=a ok=true
+  https://example.LOCALHOST:8910 -> A=a ok=true
+  https://example.LOCALHOST:8910/ -> A=a ok=true
+  https://example.LOCALHOST:8910/some/path -> A=a ok=true
+== Secure cookies are sent for localhost (ipv6)
+  content: A=a ok=true
+  http://[::1]:8910 -> A=a ok=true
+  http://[::1]:8910/ -> A=a ok=true
+  http://[::1]:8910/some/path -> A=a ok=true
+  https://[::1]:8910 -> A=a ok=true
+  https://[::1]:8910/ -> A=a ok=true
+  https://[::1]:8910/some/path -> A=a ok=true
+== Localhost only if it's a segment
+  content: A=a ok=true
+  http://notlocalhost ->  ok=true
+  http://notlocalhost/ ->  ok=true
+  http://notlocalhost/some/path ->  ok=true
+  https://notlocalhost -> A=a ok=true
+  https://notlocalhost/ -> A=a ok=true
+  https://notlocalhost/some/path -> A=a ok=true
+== Explicit path.
+  content: A=a ok=true
+  http://www.host.test ->  ok=true
+  http://www.host.test/ ->  ok=true
+  http://www.host.test/some ->  ok=true
+  http://www.host.test/some/ ->  ok=true
+  http://www.host.test/some/path -> A=a ok=true
+  http://www.host.test/some/paths ->  ok=true
+  http://www.host.test/some/path/foo -> A=a ok=true
+  http://www.host.test/some/path/foo/ -> A=a ok=true
+== Implicit path #1: path is a directory.
+  content: A=a ok=true
+  http://www.host.test ->  ok=true
+  http://www.host.test/ ->  ok=true
+  http://www.host.test/some ->  ok=true
+  http://www.host.test/some/ ->  ok=true
+  http://www.host.test/some/path -> A=a ok=true
+  http://www.host.test/some/paths ->  ok=true
+  http://www.host.test/some/path/foo -> A=a ok=true
+  http://www.host.test/some/path/foo/ -> A=a ok=true
+== Implicit path #2: path is not a directory.
+  content: A=a ok=true
+  http://www.host.test ->  ok=true
+  http://www.host.test/ ->  ok=true
+  http://www.host.test/some ->  ok=true
+  http://www.host.test/some/ ->  ok=true
+  http://www.host.test/some/path -> A=a ok=true
+  http://www.host.test/some/paths ->  ok=true
+  http://www.host.test/some/path/foo -> A=a ok=true
+  http://www.host.test/some/path/foo/ -> A=a ok=true
+== Implicit path #3: no path in URL at all.
+  content: A=a ok=true
+  http://www.host.test -> A=a ok=true
+  http://www.host.test/ -> A=a ok=true
+  http://www.host.test/some/path -> A=a ok=true
+== Cookies are sorted by path length.
+  content: A=a B=b C=c D=d ok=true
+  http://www.host.test/foo/bar/baz/qux -> B=b C=c A=a D=d ok=true
+  http://www.host.test/foo/bar/baz/ -> C=c A=a D=d ok=true
+  http://www.host.test/foo/bar -> A=a D=d ok=true
+== Creation time determines sorting on same length paths.
+  content: A=a B=b C=c D=d W=w X=x Y=y Z=z ok=true
+  http://www.host.test/foo/bar/baz/qux -> Y=y B=b C=c W=w A=a X=x Z=z D=d ok=true
+  http://www.host.test/foo/bar/baz/ -> C=c W=w A=a X=x Z=z D=d ok=true
+  http://www.host.test/foo/bar -> A=a X=x Z=z D=d ok=true
+== Sorting of same-name cookies.
+  content: A=1 A=2 A=3 A=4 A=5 A=6 A=7 ok=true
+  http://www.host.test/path -> A=2 A=5 A=1 ok=true
+  http://www.host.test/path/foo -> A=4 A=7 A=2 A=5 A=1 ok=true
+== Disallow domain cookie on public suffix.
+  content: a=1 ok=true
+  http://www.bbc.co.uk -> a=1 ok=true
+== Host cookie on IP.
+  content: a=1 ok=true
+  http://192.168.0.10 -> a=1 ok=true
+== Domain cookies on IP.
+  content: a=1 ok=true
+  http://192.168.0.10 -> a=1 ok=true
+  http://172.31.9.9 ->  ok=true
+  http://www.fancy.192.168.0.10 ->  ok=true
+== Port is ignored #1.
+  content: a=1 ok=true
+  http://www.host.test -> a=1 ok=true
+  http://www.host.test:8080/ -> a=1 ok=true
+== Port is ignored #2.
+  content: a=1 ok=true
+  http://www.host.test -> a=1 ok=true
+  http://www.host.test:8080/ -> a=1 ok=true
+  http://www.host.test:1234/ -> a=1 ok=true
+== IPv6 zone is not treated as a host.
+  content: a=1 ok=true
+  https://[::1%25.example.com]:80/ ->  ok=true
+== Retrieval of cookies with quoted values
+  content: cookie-1="quoted" cookie-2="quoted with spaces" cookie-3="quoted,with,commas" cookie-4=" ," ok=true
+  http://www.host.test -> cookie-1="quoted" cookie-2="quoted with spaces" cookie-3="quoted,with,commas" cookie-4=" ," ok=true
+# updateAndDelete
+== Set initial cookies.
+  content: a=1 b=2 c=3 d=4 ok=true
+  http://www.host.test -> a=1 c=3 ok=true
+  https://www.host.test -> a=1 b=2 c=3 d=4 ok=true
+== Update value via http.
+  content: a=w b=x c=y d=z ok=true
+  http://www.host.test -> a=w c=y ok=true
+  https://www.host.test -> a=w b=x c=y d=z ok=true
+== Clear Secure flag from an http.
+  content: a=w b=xx c=y d=zz ok=true
+  http://www.host.test -> a=w b=xx c=y d=zz ok=true
+== Delete all.
+  content:  ok=true
+  http://www.host.test ->  ok=true
+== Refill #1.
+  content: A=1 A=2 A=3 A=4 ok=true
+  http://www.host.test/foo -> A=2 A=4 A=1 A=3 ok=true
+== Refill #2.
+  content: A=1 A=2 A=3 A=4 A=6 A=7 A=8 A=9 ok=true
+  http://www.host.test/foo -> A=2 A=4 A=1 A=3 ok=true
+  http://www.google.com/foo -> A=7 A=9 A=6 A=8 ok=true
+== Delete A7.
+  content: A=1 A=2 A=3 A=4 A=6 A=8 A=9 ok=true
+  http://www.host.test/foo -> A=2 A=4 A=1 A=3 ok=true
+  http://www.google.com/foo -> A=9 A=6 A=8 ok=true
+== Delete A4.
+  content: A=1 A=2 A=3 A=6 A=8 A=9 ok=true
+  http://www.host.test/foo -> A=2 A=1 A=3 ok=true
+  http://www.google.com/foo -> A=9 A=6 A=8 ok=true
+== Delete A6.
+  content: A=1 A=2 A=3 A=8 A=9 ok=true
+  http://www.host.test/foo -> A=2 A=1 A=3 ok=true
+  http://www.google.com/foo -> A=9 A=8 ok=true
+== Delete A3.
+  content: A=1 A=2 A=8 A=9 ok=true
+  http://www.host.test/foo -> A=2 A=1 ok=true
+  http://www.google.com/foo -> A=9 A=8 ok=true
+== No cross-domain delete.
+  content: A=1 A=2 A=8 A=9 ok=true
+  http://www.host.test/foo -> A=2 A=1 ok=true
+  http://www.google.com/foo -> A=9 A=8 ok=true
+== Delete A8 and A9.
+  content: A=1 A=2 ok=true
+  http://www.host.test/foo -> A=2 A=1 ok=true
+  http://www.google.com/foo ->  ok=true
+# expiration
+== Expiration.
+  content: a=1 b=2 c=3 d=4 e=5 f=6 ok=true
+  http://www.host.test -> a=1 b=2 c=3 d=4 e=5 f=6 ok=true
+  http://www.host.test -> a=1 d=4 e=5 f=6 ok=true
+  http://www.host.test -> a=1 d=4 e=5 f=6 ok=true
+  http://www.host.test -> a=1 f=6 ok=true
+  http://www.host.test -> a=1 f=6 ok=true
+# chromiumBasics
+== DomainWithTrailingDotTest.
+  content:  ok=true
+  http://www.google.com ->  ok=true
+== ValidSubdomainTest #1.
+  content: a=1 b=2 c=3 d=4 ok=true
+  http://a.b.c.d.com -> a=1 b=2 c=3 d=4 ok=true
+  http://b.c.d.com -> b=2 c=3 d=4 ok=true
+  http://c.d.com -> c=3 d=4 ok=true
+  http://d.com -> d=4 ok=true
+== ValidSubdomainTest #2.
+  content: X=bcd X=cd a=1 b=2 c=3 d=4 ok=true
+  http://b.c.d.com -> b=2 c=3 d=4 X=bcd X=cd ok=true
+  http://c.d.com -> c=3 d=4 X=cd ok=true
+== InvalidDomainTest #1.
+  content:  ok=true
+  http://foo.bar.com ->  ok=true
+== InvalidDomainTest #2.
+  content:  ok=true
+  http://foo.bar.com ->  ok=true
+== DomainWithoutLeadingDotTest #1.
+  content: a=1 ok=true
+  http://www.filefront.com -> a=1 ok=true
+== DomainWithoutLeadingDotTest #2.
+  content: a=1 ok=true
+  http://www.google.com -> a=1 ok=true
+  http://sub.www.google.com -> a=1 ok=true
+  http://something-else.com ->  ok=true
+== CaseInsensitiveDomainTest.
+  content: a=1 b=2 ok=true
+  http://www.google.com -> a=1 b=2 ok=true
+== TestIpAddress #1.
+  content: a=1 ok=true
+  http://1.2.3.4/foo -> a=1 ok=true
+== TestIpAddress #2.
+  content:  ok=true
+  http://1.2.3.4/foo ->  ok=true
+== TestIpAddress #3.
+  content:  ok=true
+  http://1.2.3.4/foo ->  ok=true
+== TestIpAddress #4.
+  content: a=1 ok=true
+  http://1.2.3.4/foo -> a=1 ok=true
+== TestNonDottedAndTLD #2.
+  content: a=1 ok=true
+  http://com./index.html -> a=1 ok=true
+  http://no-cookies.com./index.html ->  ok=true
+== TestNonDottedAndTLD #3.
+  content:  ok=true
+  http://bar.foo ->  ok=true
+== TestNonDottedAndTLD #4.
+  content:  ok=true
+  http://google.com ->  ok=true
+== TestNonDottedAndTLD #5.
+  content:  ok=true
+  http://google.co.uk ->  ok=true
+  http://else.co.com ->  ok=true
+  http://else.uk ->  ok=true
+== TestHostEndsWithDot.
+  content: a=1 ok=true
+  http://www.google.com -> a=1 ok=true
+== PathTest
+  content: a=1 ok=true
+  http://www.google.izzle/wee -> a=1 ok=true
+  http://www.google.izzle/wee/ -> a=1 ok=true
+  http://www.google.izzle/wee/war -> a=1 ok=true
+  http://www.google.izzle/wee/war/more/more -> a=1 ok=true
+  http://www.google.izzle/weehee ->  ok=true
+  http://www.google.izzle/ ->  ok=true
+# chromiumDomain
+== Fill #1.
+  content: A=B ok=true
+  http://www.google.izzle -> A=B ok=true
+== Fill #2.
+  content: A=B C=D ok=true
+  http://www.google.izzle -> A=B C=D ok=true
+== Verify A is a host cookie and not accessible from subdomain.
+  content: A=B C=D ok=true
+  http://foo.www.google.izzle -> C=D ok=true
+== Verify domain cookies are found on proper domain.
+  content: A=B C=D E=F ok=true
+  http://www.google.izzle -> A=B C=D E=F ok=true
+== Leading dots in domain attributes are optional.
+  content: A=B C=D E=F G=H ok=true
+  http://www.google.izzle -> A=B C=D E=F G=H ok=true
+== Verify domain enforcement works #1.
+  content: A=B C=D E=F G=H ok=true
+  http://bar.www.google.izzle -> C=D E=F G=H ok=true
+== Verify domain enforcement works #2.
+  content: A=B C=D E=F G=H ok=true
+  http://www.google.izzle -> A=B C=D E=F G=H ok=true
+# chromiumDeletion
+== Create session cookie a1.
+  content: a=1 ok=true
+  http://www.google.com -> a=1 ok=true
+== Delete sc a1 via MaxAge.
+  content:  ok=true
+  http://www.google.com ->  ok=true
+== Create session cookie b2.
+  content: b=2 ok=true
+  http://www.google.com -> b=2 ok=true
+== Delete sc b2 via Expires.
+  content:  ok=true
+  http://www.google.com ->  ok=true
+== Create persistent cookie c3.
+  content: c=3 ok=true
+  http://www.google.com -> c=3 ok=true
+== Delete pc c3 via MaxAge.
+  content:  ok=true
+  http://www.google.com ->  ok=true
+== Create persistent cookie d4.
+  content: d=4 ok=true
+  http://www.google.com -> d=4 ok=true
+== Delete pc d4 via Expires.
+  content:  ok=true
+  http://www.google.com ->  ok=true
+# domainHandling
+== Host cookie
+  content: a=1 ok=true
+  http://www.host.test -> a=1 ok=true
+  http://host.test ->  ok=true
+  http://bar.host.test ->  ok=true
+  http://foo.www.host.test ->  ok=true
+  http://other.test ->  ok=true
+  http://test ->  ok=true
+== Domain cookie #1
+  content: a=1 ok=true
+  http://www.host.test -> a=1 ok=true
+  http://host.test -> a=1 ok=true
+  http://bar.host.test -> a=1 ok=true
+  http://foo.www.host.test -> a=1 ok=true
+  http://other.test ->  ok=true
+  http://test ->  ok=true
+== Domain cookie #2
+  content: a=1 ok=true
+  http://www.host.test -> a=1 ok=true
+  http://host.test -> a=1 ok=true
+  http://bar.host.test -> a=1 ok=true
+  http://foo.www.host.test -> a=1 ok=true
+  http://other.test ->  ok=true
+  http://test ->  ok=true
+== Host cookie on IDNA domain #1
+  content: a=1 ok=true
+  http://www.bücher.test -> a=1 ok=true
+  http://www.xn--bcher-kva.test -> a=1 ok=true
+  http://bücher.test ->  ok=true
+  http://xn--bcher-kva.test ->  ok=true
+  http://bar.bücher.test ->  ok=true
+  http://bar.xn--bcher-kva.test ->  ok=true
+  http://foo.www.bücher.test ->  ok=true
+  http://foo.www.xn--bcher-kva.test ->  ok=true
+  http://other.test ->  ok=true
+  http://test ->  ok=true
+== Host cookie on IDNA domain #2
+  content: a=1 ok=true
+  http://www.bücher.test -> a=1 ok=true
+  http://www.xn--bcher-kva.test -> a=1 ok=true
+  http://bücher.test ->  ok=true
+  http://xn--bcher-kva.test ->  ok=true
+  http://bar.bücher.test ->  ok=true
+  http://bar.xn--bcher-kva.test ->  ok=true
+  http://foo.www.bücher.test ->  ok=true
+  http://foo.www.xn--bcher-kva.test ->  ok=true
+  http://other.test ->  ok=true
+  http://test ->  ok=true
+== Domain cookie on IDNA domain #1
+  content: a=1 ok=true
+  http://www.bücher.test -> a=1 ok=true
+  http://www.xn--bcher-kva.test -> a=1 ok=true
+  http://bücher.test -> a=1 ok=true
+  http://xn--bcher-kva.test -> a=1 ok=true
+  http://bar.bücher.test -> a=1 ok=true
+  http://bar.xn--bcher-kva.test -> a=1 ok=true
+  http://foo.www.bücher.test -> a=1 ok=true
+  http://foo.www.xn--bcher-kva.test -> a=1 ok=true
+  http://other.test ->  ok=true
+  http://test ->  ok=true
+== Domain cookie on IDNA domain #2
+  content: a=1 ok=true
+  http://www.bücher.test -> a=1 ok=true
+  http://www.xn--bcher-kva.test -> a=1 ok=true
+  http://bücher.test -> a=1 ok=true
+  http://xn--bcher-kva.test -> a=1 ok=true
+  http://bar.bücher.test -> a=1 ok=true
+  http://bar.xn--bcher-kva.test -> a=1 ok=true
+  http://foo.www.bücher.test -> a=1 ok=true
+  http://foo.www.xn--bcher-kva.test -> a=1 ok=true
+  http://other.test ->  ok=true
+  http://test ->  ok=true
+== Host cookie on TLD.
+  content: a=1 ok=true
+  http://com -> a=1 ok=true
+  http://any.com ->  ok=true
+  http://any.test ->  ok=true
+== Domain cookie on TLD becomes a host cookie.
+  content: a=1 ok=true
+  http://com -> a=1 ok=true
+  http://any.com ->  ok=true
+  http://any.test ->  ok=true
+== Host cookie on public suffix.
+  content: a=1 ok=true
+  http://co.uk -> a=1 ok=true
+  http://uk ->  ok=true
+  http://some.co.uk ->  ok=true
+  http://foo.some.co.uk ->  ok=true
+  http://any.uk ->  ok=true
+== Domain cookie on public suffix is ignored.
+  content:  ok=true
+  http://co.uk ->  ok=true
+  http://uk ->  ok=true
+  http://some.co.uk ->  ok=true
+  http://foo.some.co.uk ->  ok=true
+  http://any.uk ->  ok=true
+# issue19384
+[] before=[] after=[name=value]
+[.] before=[] after=[name=value]
+[..] before=[] after=[name=value]
+[...] before=[] after=[name=value]
+# nil PSL
+  http://other.co.uk/ -> [a=1]
+  http://www.bbc.co.uk/x -> [a=1 b=2]
+  http://co.uk/ -> [a=1]
+  http://uk/ -> []
+# entries
+  host.test;/p;e value=q v quoted=true samesite= secure=false httponly=false persistent=true hostonly=false expires=1357045200000 creation=1357041600000 lastaccess=1357041600000 seq=4
+  www.host.test;/dir;a value=1 quoted=false samesite=SameSite=Lax secure=true httponly=false persistent=false hostonly=true expires=253402300799000 creation=1357041600000 lastaccess=1357041600000 seq=0
+  www.host.test;/dir;b value=2 quoted=false samesite=SameSite=Strict secure=false httponly=true persistent=true hostonly=true expires=1357041660000 creation=1357041600000 lastaccess=1357041600000 seq=1
+  www.host.test;/dir;c value=3 quoted=false samesite=SameSite secure=false httponly=false persistent=false hostonly=true expires=253402300799000 creation=1357041600000 lastaccess=1357041600000 seq=2
+  www.host.test;/dir;d value=4 quoted=false samesite= secure=false httponly=false persistent=false hostonly=true expires=253402300799000 creation=1357041600000 lastaccess=1357041600000 seq=3
+  www.host.test;/dir;f value=6 quoted=false samesite=SameSite secure=false httponly=false persistent=false hostonly=true expires=253402300799000 creation=1357041600000 lastaccess=1357041600000 seq=5
+  www.host.test;/dir;x value=1 quoted=false samesite= secure=false httponly=false persistent=true hostonly=true expires=1357041602000 creation=1357041600000 lastaccess=1357041600000 seq=6
+  query [a=1 b=2 c=3 d=4 f=6]
+  host.test;/p;e value=q v quoted=true samesite= secure=false httponly=false persistent=true hostonly=false expires=1357045200000 creation=1357041600000 lastaccess=1357041600000 seq=4
+  www.host.test;/dir;a value=1 quoted=false samesite=SameSite=Lax secure=true httponly=false persistent=false hostonly=true expires=253402300799000 creation=1357041600000 lastaccess=1357041605000 seq=0
+  www.host.test;/dir;b value=2 quoted=false samesite=SameSite=Strict secure=false httponly=true persistent=true hostonly=true expires=1357041660000 creation=1357041600000 lastaccess=1357041605000 seq=1
+  www.host.test;/dir;c value=3 quoted=false samesite=SameSite secure=false httponly=false persistent=false hostonly=true expires=253402300799000 creation=1357041600000 lastaccess=1357041605000 seq=2
+  www.host.test;/dir;d value=4 quoted=false samesite= secure=false httponly=false persistent=false hostonly=true expires=253402300799000 creation=1357041600000 lastaccess=1357041605000 seq=3
+  www.host.test;/dir;f value=6 quoted=false samesite=SameSite secure=false httponly=false persistent=false hostonly=true expires=253402300799000 creation=1357041600000 lastaccess=1357041605000 seq=5
+  host.test;/p;e value=q v quoted=true samesite= secure=false httponly=false persistent=true hostonly=false expires=1357045200000 creation=1357041600000 lastaccess=1357041600000 seq=4
+  www.host.test;/dir;a value=changed quoted=false samesite= secure=false httponly=false persistent=false hostonly=true expires=253402300799000 creation=1357041600000 lastaccess=1357041610000 seq=0
+  www.host.test;/dir;b value=2 quoted=false samesite=SameSite=Strict secure=false httponly=true persistent=true hostonly=true expires=1357041660000 creation=1357041600000 lastaccess=1357041605000 seq=1
+  www.host.test;/dir;c value=3 quoted=false samesite=SameSite secure=false httponly=false persistent=false hostonly=true expires=253402300799000 creation=1357041600000 lastaccess=1357041605000 seq=2
+  www.host.test;/dir;d value=4 quoted=false samesite= secure=false httponly=false persistent=false hostonly=true expires=253402300799000 creation=1357041600000 lastaccess=1357041605000 seq=3
+  www.host.test;/dir;f value=6 quoted=false samesite=SameSite secure=false httponly=false persistent=false hostonly=true expires=253402300799000 creation=1357041600000 lastaccess=1357041605000 seq=5
+  www.host.test;/dir;x value=again quoted=false samesite= secure=false httponly=false persistent=false hostonly=true expires=253402300799000 creation=1357041610000 lastaccess=1357041610000 seq=7
+  query [a=changed c=3 d=4 f=6 x=again]
+  host.test;/p;e value=q v quoted=true samesite= secure=false httponly=false persistent=true hostonly=false expires=1357045200000 creation=1357041600000 lastaccess=1357041600000 seq=4
+  www.host.test;/dir;a value=changed quoted=false samesite= secure=false httponly=false persistent=false hostonly=true expires=253402300799000 creation=1357041600000 lastaccess=1357041661000 seq=0
+  www.host.test;/dir;c value=3 quoted=false samesite=SameSite secure=false httponly=false persistent=false hostonly=true expires=253402300799000 creation=1357041600000 lastaccess=1357041661000 seq=2
+  www.host.test;/dir;d value=4 quoted=false samesite= secure=false httponly=false persistent=false hostonly=true expires=253402300799000 creation=1357041600000 lastaccess=1357041661000 seq=3
+  www.host.test;/dir;f value=6 quoted=false samesite=SameSite secure=false httponly=false persistent=false hostonly=true expires=253402300799000 creation=1357041600000 lastaccess=1357041661000 seq=5
+  www.host.test;/dir;x value=again quoted=false samesite= secure=false httponly=false persistent=false hostonly=true expires=253402300799000 creation=1357041610000 lastaccess=1357041661000 seq=7
+  [bad;/;z value=1 quoted=false samesite= secure=false httponly=false persistent=false hostonly=true expires=253402300799000 creation=1357041600000 lastaccess=1357041600000 seq=8
+  host.test;/p;e value=q v quoted=true samesite= secure=false httponly=false persistent=true hostonly=false expires=1357045200000 creation=1357041600000 lastaccess=1357041600000 seq=4
+  www.host.test;/dir;a value=changed quoted=false samesite= secure=false httponly=false persistent=false hostonly=true expires=253402300799000 creation=1357041600000 lastaccess=1357041661000 seq=0
+  www.host.test;/dir;c value=3 quoted=false samesite=SameSite secure=false httponly=false persistent=false hostonly=true expires=253402300799000 creation=1357041600000 lastaccess=1357041661000 seq=2
+  www.host.test;/dir;d value=4 quoted=false samesite= secure=false httponly=false persistent=false hostonly=true expires=253402300799000 creation=1357041600000 lastaccess=1357041661000 seq=3
+  www.host.test;/dir;f value=6 quoted=false samesite=SameSite secure=false httponly=false persistent=false hostonly=true expires=253402300799000 creation=1357041600000 lastaccess=1357041661000 seq=5
+  www.host.test;/dir;x value=again quoted=false samesite= secure=false httponly=false persistent=false hostonly=true expires=253402300799000 creation=1357041610000 lastaccess=1357041661000 seq=7
+# ParseSetCookie
+[] err=http: blank cookie
+[   ] err=http: blank cookie
+[noequal] err=http: '=' not found in cookie
+[a b=1] err=http: invalid cookie name
+[=v] err=http: invalid cookie name
+[n=bad\val] err=http: invalid cookie value
+[n="x"] name=[n] value=[x] quoted=true path=[] domain=[] expires=zero raw=[] maxage=0 secure=false httponly=false samesite=0 partitioned=false unparsed=[]
+[n="] err=http: invalid cookie value
+[n="a b"] name=[n] value=[a b] quoted=true path=[] domain=[] expires=zero raw=[] maxage=0 secure=false httponly=false samesite=0 partitioned=false unparsed=[]
+[ü=1] err=http: invalid cookie name
+[n=v; Max-Age=0] name=[n] value=[v] quoted=false path=[] domain=[] expires=zero raw=[] maxage=-1 secure=false httponly=false samesite=0 partitioned=false unparsed=[]
+[n=v; max-age=05] name=[n] value=[v] quoted=false path=[] domain=[] expires=zero raw=[] maxage=0 secure=false httponly=false samesite=0 partitioned=false unparsed=[max-age=05]
+[n=v; max-age=-3] name=[n] value=[v] quoted=false path=[] domain=[] expires=zero raw=[] maxage=-1 secure=false httponly=false samesite=0 partitioned=false unparsed=[]
+[n=v; max-age=abc] name=[n] value=[v] quoted=false path=[] domain=[] expires=zero raw=[] maxage=0 secure=false httponly=false samesite=0 partitioned=false unparsed=[max-age=abc]
+[n=v; max-age=+7] name=[n] value=[v] quoted=false path=[] domain=[] expires=zero raw=[] maxage=7 secure=false httponly=false samesite=0 partitioned=false unparsed=[]
+[n=v; max-age=3600] name=[n] value=[v] quoted=false path=[] domain=[] expires=zero raw=[] maxage=3600 secure=false httponly=false samesite=0 partitioned=false unparsed=[]
+[n=v; Expires=Wed, 09 Jun 2021 10:18:14 GMT] name=[n] value=[v] quoted=false path=[] domain=[] expires=1623233894000 raw=[Wed, 09 Jun 2021 10:18:14 GMT] maxage=0 secure=false httponly=false samesite=0 partitioned=false unparsed=[]
+[n=v; expires=Wed, 09-Jun-2021 10:18:14 GMT] name=[n] value=[v] quoted=false path=[] domain=[] expires=1623233894000 raw=[Wed, 09-Jun-2021 10:18:14 GMT] maxage=0 secure=false httponly=false samesite=0 partitioned=false unparsed=[]
+[n=v; expires=Mon, 09 Jun 2021 10:18:14 UTC] name=[n] value=[v] quoted=false path=[] domain=[] expires=1623233894000 raw=[Mon, 09 Jun 2021 10:18:14 UTC] maxage=0 secure=false httponly=false samesite=0 partitioned=false unparsed=[]
+[n=v; expires=bogus] name=[n] value=[v] quoted=false path=[] domain=[] expires=zero raw=[bogus] maxage=0 secure=false httponly=false samesite=0 partitioned=false unparsed=[expires=bogus]
+[n=v; expires=Wed, 31 Feb 2021 10:18:14 GMT] name=[n] value=[v] quoted=false path=[] domain=[] expires=zero raw=[Wed, 31 Feb 2021 10:18:14 GMT] maxage=0 secure=false httponly=false samesite=0 partitioned=false unparsed=[expires=Wed, 31 Feb 2021 10:18:14 GMT]
+[n=v; expires=Wed, 09 Jun 2021 24:18:14 GMT] name=[n] value=[v] quoted=false path=[] domain=[] expires=zero raw=[Wed, 09 Jun 2021 24:18:14 GMT] maxage=0 secure=false httponly=false samesite=0 partitioned=false unparsed=[expires=Wed, 09 Jun 2021 24:18:14 GMT]
+[n=v; Partitioned; foo=bar; wéird=1] name=[n] value=[v] quoted=false path=[] domain=[] expires=zero raw=[] maxage=0 secure=false httponly=false samesite=0 partitioned=true unparsed=[foo=bar]
+[n=v; path=/x; path=/y] name=[n] value=[v] quoted=false path=[/y] domain=[] expires=zero raw=[] maxage=0 secure=false httponly=false samesite=0 partitioned=false unparsed=[]
+[n=v; domain=a"b] name=[n] value=[v] quoted=false path=[] domain=[] expires=zero raw=[] maxage=0 secure=false httponly=false samesite=0 partitioned=false unparsed=[domain=a"b]
+[ n = v ; secure] name=[n] value=[ v] quoted=false path=[] domain=[] expires=zero raw=[] maxage=0 secure=true httponly=false samesite=0 partitioned=false unparsed=[]
+[n=v;;  ; HTTPONLY] name=[n] value=[v] quoted=false path=[] domain=[] expires=zero raw=[] maxage=0 secure=false httponly=true samesite=0 partitioned=false unparsed=[]
+[n=v; SameSite=Lax] name=[n] value=[v] quoted=false path=[] domain=[] expires=zero raw=[] maxage=0 secure=false httponly=false samesite=2 partitioned=false unparsed=[]
+[n=v; samesite=STRICT] name=[n] value=[v] quoted=false path=[] domain=[] expires=zero raw=[] maxage=0 secure=false httponly=false samesite=3 partitioned=false unparsed=[]
+[n=v; samesite=None] name=[n] value=[v] quoted=false path=[] domain=[] expires=zero raw=[] maxage=0 secure=false httponly=false samesite=4 partitioned=false unparsed=[]
+[n=v; samesite] name=[n] value=[v] quoted=false path=[] domain=[] expires=zero raw=[] maxage=0 secure=false httponly=false samesite=1 partitioned=false unparsed=[]
+[n=v; samesite=bogus] name=[n] value=[v] quoted=false path=[] domain=[] expires=zero raw=[] maxage=0 secure=false httponly=false samesite=1 partitioned=false unparsed=[]
+[n=v; samesite=lâx] name=[n] value=[v] quoted=false path=[] domain=[] expires=zero raw=[] maxage=0 secure=false httponly=false samesite=0 partitioned=false unparsed=[samesite=lâx]
+[n=v; Domain=.Example.COM; Path=/a/b] name=[n] value=[v] quoted=false path=[/a/b] domain=[.Example.COM] expires=zero raw=[] maxage=0 secure=false httponly=false samesite=0 partitioned=false unparsed=[]
+# Cookie.String
+[a=b]
+[a="b c"]
+[a="b,c"]
+[a="x"]
+[a=]
+[]
+[]
+[full=v; Path=/p; Domain=example.com; Expires=Wed, 02 Jan 2013 03:04:05 GMT; Max-Age=10; HttpOnly; Secure; SameSite=Lax; Partitioned]
+[neg=v; Max-Age=0; SameSite=None]
+[s=v; Domain=1.2.3.4; SameSite=Strict]
+[d=v; Domain=example.com]
+[old=v]
+[y1601=v; Expires=Mon, 01 Jan 1601 00:00:00 GMT]

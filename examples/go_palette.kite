@@ -1,0 +1,51 @@
+// 对拍 tests/go/palette.go：image/color/palette
+use std.image.color
+use std.image.color.{ Color }
+use std.image.color.palette
+
+fn show(name: Str, p: List<Color>) {
+  print("{name} {len(p)}")
+  for i in 0..len(p) {
+    let (r, g, b, a) = color.rgba(p[i])
+    print("{i} {color.string(p[i])} {r} {g} {b} {a}")
+  }
+}
+
+fn main() {
+  show("plan9", palette.plan9())
+  show("websafe", palette.web_safe())
+  let probes = [
+    Color.RGBA(0, 0, 0, 255),
+    Color.RGBA(255, 255, 255, 255),
+    Color.RGBA(10, 200, 30, 255),
+    Color.RGBA(128, 128, 128, 255),
+    Color.RGBA(10, 200, 30, 128),
+    Color.NRGBA(200, 10, 50, 77),
+    Color.Gray(99),
+    Color.Gray16(0x1234),
+    Color.YCbCr(80, 200, 30),
+    Color.CMYK(10, 20, 30, 40),
+    Color.Alpha(0),
+    Color.RGBA(1, 2, 3, 4),
+    Color.RGBA(250, 100, 7, 255),
+  ]
+  let p9 = palette.plan9()
+  let ws = palette.web_safe()
+  for pr in probes {
+    let c9 = color.string(unwrap(color.palette_convert(p9, pr)))
+    let cw = color.string(unwrap(color.palette_convert(ws, pr)))
+    print(
+      "{color.string(pr)} {color.palette_index(p9, pr)} {c9} {color.palette_index(ws, pr)} {cw}",
+    )
+  }
+  var ok = true
+  for i in 0..len(ws) {
+    if color.palette_index(ws, ws[i]) != i { ok = false }
+  }
+  print("websafe self {ok}")
+  var n = 0
+  for i in 0..len(p9) {
+    if color.palette_index(p9, p9[i]) == i { n += 1 }
+  }
+  print("plan9 self {n}")
+}

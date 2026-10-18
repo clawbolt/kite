@@ -1,0 +1,615 @@
+// std.path.filepath：对齐 Go 1.27 的 path/filepath（只实现 Unix 语义：分隔符 /，列表分隔符 :，没有卷名）
+//   纯字符串：clean join split ext base dir is_abs rel split_list volume_name to_slash from_slash
+//             is_local localize has_prefix matches（Go 的 Match，match 是关键字）
+//   访问文件系统：abs_path（Go 的 Abs，abs 会撞内建）、glob、eval_symlinks、walk_dir、walk
+//   常量：SEPARATOR "/"、LIST_SEPARATOR ":"、ERR_BAD_PATTERN、SKIP_DIR、SKIP_ALL（错误都用 Err(Str) 表示，
+//         Str 是 Go 里 err.Error() 的文本；回调返回 Err(SKIP_DIR) / Err(SKIP_ALL) 等同 Go 返回 fs.SkipDir / fs.SkipAll）
+// 和 Go 的差别：
+//   - 下标按字符算（Kite 的 Str 总是合法 UTF-8）；对合法 UTF-8 输入结果和 Go 按字节处理相同。
+//   - walk_dir 的回调参数是 (路径, Option<FileInfo>, Option<错误>)，FileInfo 字段同 std.os.FileInfo（lstat 得到，不跟随符号链接），
+//     同时充当 Go 的 fs.DirEntry；walk 的回调同样形状，对应 Go 的 WalkFunc（info 为 nil 时是 None）。
+//   - 系统错误文本按 Go 的格式拼成 "lstat 路径: no such file or directory"、"open 路径: ..."（取 C 的 strerror，首字母小写）。
+//   - eval_symlinks：Kite 没有 readlink 内建，读取链接目标时调用外部命令 `readlink -n`（std.process），其余逻辑照搬 Go。
+//   - abs_path 用 __getcwd()，不会失败（Go 的 Getwd 理论上可能出错）。
+//   - glob 用 fs.list 列目录（排序后匹配），I/O 错误同 Go 一样被忽略；没有匹配时返回空列表（Go 返回 nil）。
+
+use std.fs
+use std.process
+
+// 和 std.os.FileInfo 字段相同。这里不 use std.os：std.os 内部调用全局 split(s, sep)，
+// 而本模块导出了同名的 split，单独 check 本文件时会串名报错，所以自己用内建 __fs_stat 实现 lstat / stat / read_dir。
+pub type FileInfo = {
+  name: Str,
+  path: Str,
+  size: Int,
+  mtime_ms: Int,
+  is_dir: Bool,
+  is_file: Bool,
+  is_symlink: Bool,
+  mode: Int,
+}
+
+fn info(p: Str, follow: Bool) -> Result<FileInfo, Str> {
+  let (size, mt, kind, mode) = __fs_stat(p, follow)?
+  Ok(FileInfo {
+    name: base(p),
+    path: p,
+    size: size,
+    mtime_ms: mt,
+    is_dir: kind == 1,
+    is_file: kind == 0,
+    is_symlink: kind == 2,
+    mode: mode,
+  })
+}
+
+fn lstat(p: Str) -> Result<FileInfo, Str> { info(p, false) }
+
+fn stat(p: Str) -> Result<FileInfo, Str> { info(p, true) }
+
+// 目录里每一项的 lstat 信息，按名字排序
+fn read_dir(d: Str) -> Result<List<FileInfo>, Str> {
+  var out: List<FileInfo> = []
+  for n in sort(fs.list(d)?) { out = push(out, lstat(join([d, n]))?) }
+  Ok(out)
+}
+
+pub const SEPARATOR: Str = "/"
+pub const LIST_SEPARATOR: Str = ":"
+pub const ERR_BAD_PATTERN: Str = "syntax error in pattern"
+pub const SKIP_DIR: Str = "skip this directory"
+pub const SKIP_ALL: Str = "skip everything and stop the walk"
+
+const ERR_INVALID_PATH: Str = "invalid path"
+
+// ---------- 小工具 ----------
+
+fn cat(xs: List<Str>) -> Str { fold(xs, "", (a, b) => a + b) }
+
+fn sub(s: Str, a: Int, b: Int) -> Str { __str_slice(s, a, b) }
+
+// 用 sep 连接（模块里定义了 join，不能用全局的）
+fn glue(xs: List<Str>, sep: Str) -> Str {
+  var out = ""
+  for i in 0..len(xs) { out = if i == 0 { xs[i] } else { out + sep + xs[i] } }
+  out
+}
+
+// 按单字符分隔符切开（同 strings.Split）
+fn cut_all(s: Str, sep: Str) -> List<Str> {
+  var out: List<Str> = []
+  var start = 0
+  loop {
+    let i = __str_find(s, sep, start)
+    if i < 0 {
+      out = push(out, sub(s, start, len(s)))
+      break
+    }
+    out = push(out, sub(s, start, i))
+    start = i + 1
+  }
+  out
+}
+
+// Kite 的系统错误是 "路径: Strerror"，转成 Go 的 "op 路径: strerror"
+fn go_err(op: Str, p: Str, e: Str) -> Str {
+  var msg = e
+  if starts_with(e, p + ": ") { msg = sub(e, len(p) + 2, len(e)) }
+  if len(msg) > 0 { msg = lower(sub(msg, 0, 1)) + sub(msg, 1, len(msg)) }
+  "{op} {p}: {msg}"
+}
+
+// ---------- 纯字符串运算 ----------
+
+// 规整路径（Go 的 Clean）：合并多个 /，去掉 .，消解 ..；根上的 .. 去掉；空路径得到 "."
+pub fn clean(p: Str) -> Str {
+  if p == "" { return "." }
+  let cs = chars(p)
+  let n = len(cs)
+  let rooted = cs[0] == "/"
+  var out: List<Str> = []
+  var r = 0
+  while r < n {
+    if cs[r] == "/" {
+      r += 1
+      continue
+    }
+    var e = r
+    while e < n && cs[e] != "/" { e += 1 }
+    let seg = cat(cs[r..e])
+    r = e
+    if seg == "." { continue }
+    if seg == ".." {
+      if len(out) > 0 && out[len(out) - 1] != ".." {
+        out = take(out, len(out) - 1)
+      } else if !rooted {
+        out = push(out, "..")
+      }
+      continue
+    }
+    out = push(out, seg)
+  }
+  let body = glue(out, "/")
+  if rooted { "/" + body } else if body == "" { "." } else { body }
+}
+
+// 从第一个非空元素开始用 / 连接后规整；全空得到 ""
+pub fn join(elem: List<Str>) -> Str {
+  for i in 0..len(elem) {
+    if elem[i] != "" { return clean(glue(elem[i..len(elem)], "/")) }
+  }
+  ""
+}
+
+// 在最后一个 / 之后切开：(目录部分含 /, 文件名)
+pub fn split(p: Str) -> (Str, Str) {
+  let cs = chars(p)
+  var i = len(cs) - 1
+  while i >= 0 && cs[i] != "/" { i -= 1 }
+  (sub(p, 0, i + 1), sub(p, i + 1, len(cs)))
+}
+
+// 最后一段里从最后一个 . 开始的扩展名
+pub fn ext(p: Str) -> Str {
+  let cs = chars(p)
+  var i = len(cs) - 1
+  while i >= 0 && cs[i] != "/" {
+    if cs[i] == "." { return sub(p, i, len(cs)) }
+    i -= 1
+  }
+  ""
+}
+
+// 最后一段（去掉末尾的 /）；空路径得到 "."，全是 / 得到 "/"
+pub fn base(p: Str) -> Str {
+  if p == "" { return "." }
+  var cs = chars(p)
+  while len(cs) > 0 && cs[len(cs) - 1] == "/" { cs = take(cs, len(cs) - 1) }
+  var i = len(cs) - 1
+  while i >= 0 && cs[i] != "/" { i -= 1 }
+  let last = cat(cs[i + 1..len(cs)])
+  if last == "" { "/" } else { last }
+}
+
+// 去掉最后一段后规整
+pub fn dir(p: Str) -> Str {
+  let (d, _) = split(p)
+  clean(d)
+}
+
+pub fn is_abs(p: Str) -> Bool { starts_with(p, "/") }
+
+// Unix 上没有卷名，总是 ""
+pub fn volume_name(p: Str) -> Str { "" }
+
+// Unix 上分隔符就是 /，原样返回
+pub fn to_slash(p: Str) -> Str { p }
+
+pub fn from_slash(p: Str) -> Str { p }
+
+// 按 : 切开；空串得到空列表
+pub fn split_list(p: Str) -> List<Str> { if p == "" { [] } else { cut_all(p, ":") } }
+
+// 已废弃的 HasPrefix：只是字符串前缀判断
+pub fn has_prefix(p: Str, prefix: Str) -> Bool { starts_with(p, prefix) }
+
+// targ 相对 base_path 的路径；做不到时返回 Go 同样的错误文本
+pub fn rel(base_path: Str, targ_path: Str) -> Result<Str, Str> {
+  let b = clean(base_path)
+  let t = clean(targ_path)
+  if t == b { return Ok(".") }
+  let bs = if b == "." { "" } else { b }
+  let bc = chars(bs)
+  let tc = chars(t)
+  let fail = "Rel: can't make {targ_path} relative to {base_path}"
+  let base_slashed = len(bc) > 0 && bc[0] == "/"
+  let targ_slashed = len(tc) > 0 && tc[0] == "/"
+  if base_slashed != targ_slashed { return Err(fail) }
+  let bl = len(bc)
+  let tl = len(tc)
+  var b0 = 0
+  var bi = 0
+  var t0 = 0
+  var ti = 0
+  loop {
+    while bi < bl && bc[bi] != "/" { bi += 1 }
+    while ti < tl && tc[ti] != "/" { ti += 1 }
+    if sub(t, t0, ti) != sub(bs, b0, bi) { break }
+    if bi < bl { bi += 1 }
+    if ti < tl { ti += 1 }
+    b0 = bi
+    t0 = ti
+  }
+  if sub(bs, b0, bi) == ".." { return Err(fail) }
+  if b0 != bl {
+    var seps = 0
+    for i in b0..bl {
+      if bc[i] == "/" { seps += 1 }
+    }
+    var buf = ".."
+    for _ in 0..seps { buf = buf + "/.." }
+    if t0 != tl { buf = buf + "/" + sub(t, t0, tl) }
+    return Ok(clean(buf))
+  }
+  Ok(sub(t, t0, tl))
+}
+
+// 只看字符串：不是绝对路径、不为空、规整后不跑出当前目录
+pub fn is_local(p: Str) -> Bool {
+  if is_abs(p) || p == "" { return false }
+  let parts = cut_all(p, "/")
+  let has_dots = contains(parts, ".") || contains(parts, "..")
+  let q = if has_dots { clean(p) } else { p }
+  !(q == ".." || starts_with(q, "../"))
+}
+
+// Go 的 io/fs.ValidPath
+fn valid_path(name: Str) -> Bool {
+  if name == "." { return true }
+  for e in cut_all(name, "/") {
+    if e == "" || e == "." || e == ".." { return false }
+  }
+  true
+}
+
+// 把 / 分隔的合法 fs 路径转成本地路径；不合法或含 NUL 时 Err("invalid path")
+pub fn localize(p: Str) -> Result<Str, Str> {
+  if !valid_path(p) { return Err(ERR_INVALID_PATH) }
+  if __str_find(p, "\u{0}", 0) >= 0 { return Err(ERR_INVALID_PATH) }
+  Ok(p)
+}
+
+// ---------- 通配符匹配（Go 的 Match） ----------
+
+// 名字整体匹配 shell 模式：* ? [a-z] [^a] \ 转义；模式写错时 Err(ERR_BAD_PATTERN)
+pub fn matches(pattern: Str, name: Str) -> Result<Bool, Str> {
+  var pat = chars(pattern)
+  var nm = chars(name)
+  while len(pat) > 0 {
+    let (star, chunk, rest) = scan_chunk(pat)
+    pat = rest
+    if star && len(chunk) == 0 { return Ok(!contains(nm, "/")) }
+    match match_chunk(chunk, nm)? {
+      Some(t) => {
+        if len(t) == 0 || len(pat) > 0 {
+          nm = t
+          continue
+        }
+      },
+      None => {},
+    }
+    var found = false
+    if star {
+      var i = 0
+      while i < len(nm) && nm[i] != "/" {
+        match match_chunk(chunk, nm[i + 1..len(nm)])? {
+          Some(t) => {
+            if !(len(pat) == 0 && len(t) > 0) {
+              nm = t
+              found = true
+              break
+            }
+          },
+          None => {},
+        }
+        i += 1
+      }
+    }
+    if !found { return Ok(false) }
+  }
+  Ok(len(nm) == 0)
+}
+
+// (前面是否有 *, 到下一个 * 之前的一段, 剩下的)
+fn scan_chunk(p: List<Str>) -> (Bool, List<Str>, List<Str>) {
+  var i0 = 0
+  while i0 < len(p) && p[i0] == "*" { i0 += 1 }
+  let star = i0 > 0
+  let q = p[i0..len(p)]
+  var inrange = false
+  var i = 0
+  while i < len(q) {
+    let c = q[i]
+    if c == "\\" {
+      if i + 1 < len(q) { i += 1 }
+    } else if c == "[" {
+      inrange = true
+    } else if c == "]" {
+      inrange = false
+    } else if c == "*" && !inrange {
+      return (star, q[0..i], q[i..len(q)])
+    }
+    i += 1
+  }
+  (star, q, [])
+}
+
+// 匹配上时 Some(剩下的名字)，没匹配上 None
+fn match_chunk(chunk0: List<Str>, s0: List<Str>) -> Result<Option<List<Str>>, Str> {
+  var chunk = chunk0
+  var s = s0
+  var failed = false
+  while len(chunk) > 0 {
+    failed = failed || len(s) == 0
+    let c = chunk[0]
+    if c == "[" {
+      var r = 0
+      if !failed {
+        r = __ord(s[0])
+        s = s[1..len(s)]
+      }
+      chunk = chunk[1..len(chunk)]
+      var negated = false
+      if len(chunk) > 0 && chunk[0] == "^" {
+        negated = true
+        chunk = chunk[1..len(chunk)]
+      }
+      var hit = false
+      var nrange = 0
+      loop {
+        if len(chunk) > 0 && chunk[0] == "]" && nrange > 0 {
+          chunk = chunk[1..len(chunk)]
+          break
+        }
+        let (lo, c1) = get_esc(chunk)?
+        chunk = c1
+        var hi = lo
+        if chunk[0] == "-" {
+          let (h, c2) = get_esc(chunk[1..len(chunk)])?
+          hi = h
+          chunk = c2
+        }
+        hit = hit || lo <= r && r <= hi
+        nrange += 1
+      }
+      failed = failed || hit == negated
+    } else if c == "?" {
+      if !failed {
+        failed = s[0] == "/"
+        s = s[1..len(s)]
+      }
+      chunk = chunk[1..len(chunk)]
+    } else {
+      if c == "\\" {
+        chunk = chunk[1..len(chunk)]
+        if len(chunk) == 0 { return Err(ERR_BAD_PATTERN) }
+      }
+      if !failed {
+        failed = chunk[0] != s[0]
+        s = s[1..len(s)]
+      }
+      chunk = chunk[1..len(chunk)]
+    }
+  }
+  if failed { Ok(None) } else { Ok(Some(s)) }
+}
+
+// 字符类里的一个字符（可以用 \ 转义）
+fn get_esc(chunk0: List<Str>) -> Result<(Int, List<Str>), Str> {
+  var chunk = chunk0
+  if len(chunk) == 0 || chunk[0] == "-" || chunk[0] == "]" { return Err(ERR_BAD_PATTERN) }
+  if chunk[0] == "\\" {
+    chunk = chunk[1..len(chunk)]
+    if len(chunk) == 0 { return Err(ERR_BAD_PATTERN) }
+  }
+  let r = __ord(chunk[0])
+  let rest = chunk[1..len(chunk)]
+  if len(rest) == 0 { return Err(ERR_BAD_PATTERN) }
+  Ok((r, rest))
+}
+
+// ---------- 访问文件系统 ----------
+
+// 绝对路径：已经是绝对路径就规整，否则拼到当前目录后面
+pub fn abs_path(p: Str) -> Result<Str, Str> {
+  if is_abs(p) { Ok(clean(p)) } else { Ok(join([__getcwd(), p])) }
+}
+
+fn has_meta(p: Str) -> Bool {
+  contains(p, "*") || contains(p, "?") || contains(p, "[") || contains(p, "\\")
+}
+
+// 所有匹配模式的路径（排序，同 Go 的 Glob）；只有模式写错时才是 Err
+pub fn glob(pattern: Str) -> Result<List<Str>, Str> { glob_limit(pattern, 0) }
+
+fn glob_limit(pattern: Str, depth: Int) -> Result<List<Str>, Str> {
+  if depth == 10000 { return Err(ERR_BAD_PATTERN) }
+  matches(pattern, "")?
+  if !has_meta(pattern) {
+    return if is_ok(lstat(pattern)) { Ok([pattern]) } else { Ok([]) }
+  }
+  let (d0, file) = split(pattern)
+  let d = if d0 == "" { "." } else if d0 == "/" { d0 } else { sub(d0, 0, len(d0) - 1) }
+  if !has_meta(d) { return glob_dir(d, file, []) }
+  if d == pattern { return Err(ERR_BAD_PATTERN) }
+  var out: List<Str> = []
+  for dd in glob_limit(d, depth + 1)? { out = glob_dir(dd, file, out)? }
+  Ok(out)
+}
+
+fn glob_dir(d: Str, pattern: Str, acc: List<Str>) -> Result<List<Str>, Str> {
+  let Ok(fi) = stat(d) else { return Ok(acc) }
+  if !fi.is_dir { return Ok(acc) }
+  let Ok(names) = fs.list(d) else { return Ok(acc) }
+  var out = acc
+  for n in sort(names) {
+    if matches(pattern, n)? { out = push(out, join([d, n])) }
+  }
+  Ok(out)
+}
+
+fn shell_quote(s: Str) -> Str { "'" + replace(s, "'", "'\\''") + "'" }
+
+fn readlink(p: Str) -> Result<Str, Str> {
+  let (code, out) = process.run("readlink -n -- " + shell_quote(p))
+  if code == 0 { Ok(out) } else { Err("readlink {p}: invalid argument") }
+}
+
+// 解析所有符号链接后的路径（规整过）；相对路径相对当前目录解析，结果仍是相对路径
+pub fn eval_symlinks(path0: Str) -> Result<Str, Str> {
+  var p = path0
+  var vol_len = if starts_with(p, "/") { 1 } else { 0 }
+  var vol = sub(p, 0, vol_len)
+  var dest = vol
+  var links = 0
+  var start = vol_len
+  var end = vol_len
+  while start < len(p) {
+    let cs = chars(p)
+    while start < len(cs) && cs[start] == "/" { start += 1 }
+    end = start
+    while end < len(cs) && cs[end] != "/" { end += 1 }
+    if end == start { break }
+    let part = sub(p, start, end)
+    if part == "." {
+      start = end
+      continue
+    }
+    if part == ".." {
+      let dc = chars(dest)
+      var r = len(dc) - 1
+      while r >= vol_len && dc[r] != "/" { r -= 1 }
+      if r < vol_len || sub(dest, r + 1, len(dc)) == ".." {
+        if len(dest) > vol_len { dest = dest + "/" }
+        dest = dest + ".."
+      } else {
+        dest = sub(dest, 0, r)
+      }
+      start = end
+      continue
+    }
+    if len(dest) > 0 && !ends_with(dest, "/") { dest = dest + "/" }
+    dest = dest + part
+    let fi = match lstat(dest) {
+      Ok(x) => x,
+      Err(e) => { return Err(go_err("lstat", dest, e)) },
+    }
+    if !fi.is_symlink {
+      if !fi.is_dir && end < len(p) { return Err("not a directory") }
+      start = end
+      continue
+    }
+    links += 1
+    if links > 255 { return Err("EvalSymlinks: too many links") }
+    let link = readlink(dest)?
+    p = link + sub(p, end, len(p))
+    if starts_with(link, "/") {
+      dest = "/"
+      end = 1
+      vol = "/"
+      vol_len = 1
+    } else {
+      let dc = chars(dest)
+      var r = len(dc) - 1
+      while r >= vol_len && dc[r] != "/" { r -= 1 }
+      dest = if r < vol_len { vol } else { sub(dest, 0, r) }
+      end = 0
+    }
+    start = end
+  }
+  Ok(clean(dest))
+}
+
+fn skip_dir_ok(r: Result<Unit, Str>, is_dir: Bool) -> Result<Unit, Str> {
+  match r {
+    Err(e) => { if e == SKIP_DIR && is_dir { Ok(()) } else { Err(e) } },
+    Ok(_) => Ok(()),
+  }
+}
+
+fn top_level(r: Result<Unit, Str>) -> Result<Unit, Str> {
+  match r {
+    Err(e) => { if e == SKIP_DIR || e == SKIP_ALL { Ok(()) } else { Err(e) } },
+    Ok(_) => Ok(()),
+  }
+}
+
+// 深度优先遍历 root（目录内按名字排序），每一项调用 f(路径, 项, 错误)，对应 Go 的 WalkDir：
+//   先对目录本身调用；返回 Err(SKIP_DIR) 跳过这个目录（对文件则跳过所在目录剩下的项），Err(SKIP_ALL) 结束遍历；
+//   读目录失败时会再调用一次 f(路径, 项, Some(错误))。不进入符号链接指向的目录。
+pub fn walk_dir(
+  root: Str,
+  f: fn(Str, Option<FileInfo>, Option<Str>) -> Result<Unit, Str>,
+) -> Result<Unit, Str> {
+  let r = match lstat(root) {
+    Err(e) => f(root, None, Some(go_err("lstat", root, e))),
+    Ok(fi) => walk_dir_rec(root, fi, f),
+  }
+  top_level(r)
+}
+
+fn walk_dir_rec(
+  p: Str,
+  d: FileInfo,
+  f: fn(Str, Option<FileInfo>, Option<Str>) -> Result<Unit, Str>,
+) -> Result<Unit, Str> {
+  let r = f(p, Some(d), None)
+  if is_err(r) || !d.is_dir { return skip_dir_ok(r, d.is_dir) }
+  var entries: List<FileInfo> = []
+  match read_dir(p) {
+    Ok(es) => { entries = es },
+    Err(e) => {
+      let r2 = f(p, Some(d), Some(go_err("open", p, e)))
+      if is_err(r2) { return skip_dir_ok(r2, d.is_dir) }
+    },
+  }
+  for e in entries {
+    match walk_dir_rec(join([p, e.name]), e, f) {
+      Err(x) => {
+        if x == SKIP_DIR { break }
+        return Err(x)
+      },
+      Ok(_) => {},
+    }
+  }
+  Ok(())
+}
+
+// 和 walk_dir 一样遍历，但回调拿到的是 lstat 的 FileInfo（Go 的 Walk / WalkFunc）：
+//   先读目录再调用 f；读目录出错时 f 收到 Some(错误) 且不再进入；某一项 lstat 失败时 f 收到 None 和错误。
+pub fn walk(
+  root: Str,
+  f: fn(Str, Option<FileInfo>, Option<Str>) -> Result<Unit, Str>,
+) -> Result<Unit, Str> {
+  let r = match lstat(root) {
+    Err(e) => f(root, None, Some(go_err("lstat", root, e))),
+    Ok(fi) => walk_rec(root, fi, f),
+  }
+  top_level(r)
+}
+
+fn walk_rec(
+  p: Str,
+  info: FileInfo,
+  f: fn(Str, Option<FileInfo>, Option<Str>) -> Result<Unit, Str>,
+) -> Result<Unit, Str> {
+  if !info.is_dir { return f(p, Some(info), None) }
+  let (names, err) = match fs.list(p) {
+    Ok(ns) => (sort(ns), None),
+    Err(e) => ([], Some(go_err("open", p, e))),
+  }
+  let err1 = f(p, Some(info), err)
+  if is_some(err) || is_err(err1) { return err1 }
+  for name in names {
+    let filename = join([p, name])
+    match lstat(filename) {
+      Err(e) => {
+        match f(filename, None, Some(go_err("lstat", filename, e))) {
+          Err(x) => {
+            if x != SKIP_DIR { return Err(x) }
+          },
+          Ok(_) => {},
+        }
+      },
+      Ok(fi) => {
+        match walk_rec(filename, fi, f) {
+          Err(x) => {
+            if !fi.is_dir || x != SKIP_DIR { return Err(x) }
+          },
+          Ok(_) => {},
+        }
+      },
+    }
+  }
+  Ok(())
+}

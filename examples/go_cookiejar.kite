@@ -1,0 +1,1605 @@
+// 对拍 Go 的 net/http/cookiejar：输出必须和 tests/go/cookiejar.expected 逐字节相同
+use std.net.http.cookiejar
+use std.net.url
+use std.time
+
+type JarTest = {
+  description: Str,
+  from_url: Str,
+  set_cookies: List<Str>,
+  content: Str,
+  queries: List<(Str, Str)>,
+}
+
+// 测试用的固定时间：2013-01-01 12:00:00 UTC
+fn t_now() -> Int { time.date(2013, 1, 1, 12, 0, 0, 0) }
+
+// 和 jar_test.go 的 testPSL 相同：只有 "co.uk" 和默认规则 "*"，外加两个故意的错误
+fn test_psl(d: Str) -> Str {
+  if d == "co.uk" || ends_with(d, ".co.uk") { return "co.uk" }
+  if d == "www.buggy.psl" { return "xy" }
+  if d == "www2.buggy.psl" { return "com" }
+  let parts = split(d, ".")
+  parts[len(parts) - 1]
+}
+
+fn psl() -> cookiejar.PublicSuffixList { cookiejar.public_suffix_list(test_psl, "testPSL") }
+
+fn new_test_jar() -> cookiejar.Jar {
+  cookiejar.new(cookiejar.Options { public_suffix_list: Some(psl()) })
+}
+
+fn expires_in(delta: Int) -> Str { "expires=" + time.format(t_now() + delta * 1000, time.RFC1123) }
+
+fn must_parse_url(s: Str) -> url.URL {
+  match url.parse(s) {
+    Ok(u) => u,
+    Err(e) => panic("Unable to parse URL {s}. {e}"),
+  }
+}
+
+fn b(x: Bool) -> Str { if x { "true" } else { "false" } }
+
+fn err_str<T>(r: Result<T, Str>) -> Str {
+  match r {
+    Ok(_) => "nil",
+    Err(e) => e,
+  }
+}
+
+fn show_cookies(cs: List<cookiejar.Cookie>) -> Str {
+  "[" + join(map(cs, (c) => c.string()), " ") + "]"
+}
+
+fn run_test(test: JarTest, jar0: cookiejar.Jar) -> cookiejar.Jar {
+  var now = t_now()
+  print("== " + test.description)
+  var set_cookies = []
+  for cs in test.set_cookies {
+    match cookiejar.parse_set_cookie(cs) {
+      Ok(c) => { set_cookies = push(set_cookies, c) },
+      Err(_) => { print("  bad cookie line: " + cs) },
+    }
+  }
+  var jar = jar0.set_cookies_at(must_parse_url(test.from_url), set_cookies, now)
+  now += 1001
+  var cs = []
+  for e in jar.entries() {
+    if !(e.expires > now) { continue }
+    var v = e.value
+    if contains(v, " ") || contains(v, ",") || e.quoted { v = "\"" + v + "\"" }
+    cs = push(cs, e.name + "=" + v)
+  }
+  let got = join(sort(cs), " ")
+  print("  content: " + got + " ok=" + b(got == test.content))
+  for (to_url, want) in test.queries {
+    now += 1001
+    let (res, j2) = jar.cookies_at(must_parse_url(to_url), now)
+    jar = j2
+    let g = join(map(res, (c) => c.string()), " ")
+    print("  " + to_url + " -> " + g + " ok=" + b(g == want))
+  }
+  jar
+}
+
+fn run_fresh(tests: List<JarTest>) {
+  for t in tests { run_test(t, new_test_jar()) }
+}
+
+fn run_shared(tests: List<JarTest>) {
+  var jar = new_test_jar()
+  for t in tests { jar = run_test(t, jar) }
+}
+
+fn dump_entries(jar: cookiejar.Jar) {
+  for e in jar.entries() {
+    print(
+      "  {e.id()} value={e.value} quoted={b(e.quoted)} samesite={e.same_site} secure={b(e.secure)} httponly={b(e.http_only)} persistent={b(e.persistent)} hostonly={b(e.host_only)} expires={e.expires} creation={e.creation} lastaccess={e.last_access} seq={e.seq_num}",
+    )
+  }
+}
+
+fn opt_ms(t: Option<Int>) -> Str {
+  match t {
+    Some(x) => "{x}",
+    None => "zero",
+  }
+}
+
+fn show_parsed(c: cookiejar.Cookie) -> Str {
+  "name=[{c.name}] value=[{c.value}] quoted={b(c.quoted)} path=[{c.path}] domain=[{c.domain}] expires={opt_ms(c.expires)} raw=[{c.raw_expires}] maxage={c.max_age} secure={b(c.secure)} httponly={b(c.http_only)} samesite={c.same_site} partitioned={b(c.partitioned)} unparsed=[" + join(
+    c.unparsed,
+    "|",
+  ) + "]"
+}
+
+fn parse_lines(lines: List<Str>) -> List<cookiejar.Cookie> { cookiejar.read_set_cookies(lines) }
+
+fn mk(name: Str, value: Str) -> cookiejar.Cookie { cookiejar.new_cookie(name, value) }
+
+fn main() {
+  print("# hasDotSuffix")
+  for (s, suf) in has_dot_suffix_tests() {
+    print("[{s}] [{suf}] {b(cookiejar.has_dot_suffix(s, suf))}")
+  }
+  print("# canonicalHost")
+  for h in canonical_host_list() {
+    let r = cookiejar.canonical_host(h)
+    let got = match r {
+      Ok(x) => x,
+      Err(_) => "",
+    }
+    print("[{h}] -> [{got}] err={err_str(r)}")
+  }
+  print("# SplitHostPort")
+  for h in [
+    "a:1",
+    "a",
+    "[::1]:80",
+    "[::1]",
+    "[::1]x",
+    "[::1]:80:",
+    "a:b:c",
+    "a[:1",
+    "a]:1",
+    "[a]]:1",
+    "[a:1",
+    ":80",
+    "[]:",
+  ] {
+    let r = cookiejar.split_host_port(h)
+    let (host, port) = match r {
+      Ok(p) => p,
+      Err(_) => ("", ""),
+    }
+    print("[{h}] -> [{host}] [{port}] err={err_str(r)}")
+  }
+  print("# hasPort")
+  for h in has_port_list() { print("[{h}] {b(cookiejar.has_port(h))}") }
+  print("# jarKey")
+  for h in jar_key_list() {
+    print("[{h}] psl=[{cookiejar.jar_key(h, Some(psl()))}] nil=[{cookiejar.jar_key(h, None)}]")
+  }
+  print("# isIP")
+  for h in is_ip_list() { print("[{h}] {b(cookiejar.is_ip(h))}") }
+  print("# defaultPath")
+  for p in default_path_list() { print("[{p}] -> [{cookiejar.default_path(p)}]") }
+  print("# domainAndType")
+  let tj = new_test_jar()
+  for (host, domain) in domain_and_type_tests() {
+    let r = cookiejar.domain_and_type(tj, host, domain)
+    let (d, ho) = match r {
+      Ok(p) => p,
+      Err(_) => ("", false),
+    }
+    print("[{host}] [{domain}] -> [{d}] {b(ho)} err={err_str(r)}")
+  }
+  let nj = cookiejar.new(cookiejar.options())
+  for (host, domain) in [
+    ("foo.bar.co.uk", ".co.uk"),
+    ("www.example.com", "com"),
+    ("x.com", "perché.com"),
+    ("x.com", "x.com."),
+    ("x.com", "X.COM"),
+  ] {
+    let r = cookiejar.domain_and_type(nj, host, domain)
+    let (d, ho) = match r {
+      Ok(p) => p,
+      Err(_) => ("", false),
+    }
+    print("nil [{host}] [{domain}] -> [{d}] {b(ho)} err={err_str(r)}")
+  }
+  print("# punycode")
+  for (s, want) in punycode_tests() {
+    let r = cookiejar.encode("", s)
+    let got = match r {
+      Ok(x) => x,
+      Err(_) => "",
+    }
+    print("[{got}] ok={b(got == want)} err={err_str(r)}")
+  }
+  for s in [
+    "golang",
+    "bücher.example.com",
+    "www.bücher.de",
+    "日本語.jp",
+    "a.ü.b",
+    "",
+    "Hello世界.com",
+    "ÜBER.de",
+  ] {
+    let r = cookiejar.to_ascii(s)
+    let got = match r {
+      Ok(x) => x,
+      Err(_) => "",
+    }
+    print("toASCII [{s}] -> [{got}] err={err_str(r)}")
+  }
+
+  print("# basics")
+  run_fresh(basics_tests())
+  print("# updateAndDelete")
+  run_shared(update_and_delete_tests())
+  print("# expiration")
+  run_test(
+    JarTest {
+      description: "Expiration.",
+      from_url: "http://www.host.test",
+      set_cookies: [
+        "a=1",
+        "b=2; max-age=3",
+        "c=3; " + expires_in(3),
+        "d=4; max-age=5",
+        "e=5; " + expires_in(5),
+        "f=6; max-age=100",
+      ],
+      content: "a=1 b=2 c=3 d=4 e=5 f=6",
+      queries: [
+        ("http://www.host.test", "a=1 b=2 c=3 d=4 e=5 f=6"),
+        ("http://www.host.test", "a=1 d=4 e=5 f=6"),
+        ("http://www.host.test", "a=1 d=4 e=5 f=6"),
+        ("http://www.host.test", "a=1 f=6"),
+        ("http://www.host.test", "a=1 f=6"),
+      ],
+    },
+    new_test_jar(),
+  )
+  print("# chromiumBasics")
+  run_fresh(chromium_basics_tests())
+  print("# chromiumDomain")
+  run_shared(chromium_domain_tests())
+  print("# chromiumDeletion")
+  run_shared(chromium_deletion_tests())
+  print("# domainHandling")
+  run_fresh(domain_handling_tests())
+
+  print("# issue19384")
+  let cookies = [mk("name", "value")]
+  for host in ["", ".", "..", "..."] {
+    let jar = cookiejar.new(cookiejar.options())
+    let u = url.URL {
+      scheme: "http",
+      opaque: "",
+      user: None,
+      password: None,
+      host: host,
+      path: "/",
+      raw_query: "",
+      fragment: "",
+    }
+    let before = show_cookies(jar.cookies(u))
+    let jar2 = jar.set_cookies(u, cookies)
+    print("[{host}] before={before} after={show_cookies(jar2.cookies(u))}")
+  }
+
+  print("# nil PSL")
+  let pj = cookiejar
+    .new(cookiejar.options())
+    .set_cookies_at(
+      must_parse_url("http://www.bbc.co.uk/"),
+      parse_lines(["a=1; domain=co.uk", "b=2"]),
+      t_now(),
+    )
+  for q in ["http://other.co.uk/", "http://www.bbc.co.uk/x", "http://co.uk/", "http://uk/"] {
+    let (cs, _) = pj.cookies_at(must_parse_url(q), t_now())
+    print("  " + q + " -> " + show_cookies(cs))
+  }
+
+  print("# entries")
+  let u = must_parse_url("http://www.host.test/dir/page")
+  var jar = new_test_jar().set_cookies_at(
+    u,
+    parse_lines([
+      "a=1; SameSite=Lax; Secure",
+      "b=2; samesite=strict; HttpOnly; max-age=60",
+      "c=3; SameSite",
+      "d=4; samesite=none",
+      "e=\"q v\"; Path=/p; Domain=.host.test; Expires=Tue, 01 Jan 2013 13:00:00 GMT",
+      "f=6; samesite=bogus",
+      "x=1; max-age=2",
+    ]),
+    t_now(),
+  )
+  dump_entries(jar)
+  let (q1, j1) = jar.cookies_at(must_parse_url("https://www.host.test/dir/x"), t_now() + 5000)
+  jar = j1
+  print("  query " + show_cookies(q1))
+  dump_entries(jar)
+  jar = jar.set_cookies_at(
+    u,
+    parse_lines(["a=changed", "x=again", "g=7; expires=Tue, 01 Jan 2013 11:00:00 GMT"]),
+    t_now() + 10000,
+  )
+  dump_entries(jar)
+  let (q2, j2) = jar.cookies_at(must_parse_url("https://www.host.test/dir/x"), t_now() + 61000)
+  jar = j2
+  print("  query " + show_cookies(q2))
+  dump_entries(jar)
+  jar = jar.set_cookies_at(must_parse_url("ftp://www.host.test/"), parse_lines(["z=1"]), t_now())
+  let bad = url.URL {
+    scheme: "http",
+    opaque: "",
+    user: None,
+    password: None,
+    host: "[bad",
+    path: "/",
+    raw_query: "",
+    fragment: "",
+  }
+  jar = jar.set_cookies_at(bad, parse_lines(["z=1"]), t_now())
+  jar = jar.set_cookies_at(u, [], t_now())
+  dump_entries(jar)
+
+  print("# ParseSetCookie")
+  for l in parse_set_cookie_lines() {
+    match cookiejar.parse_set_cookie(l) {
+      Ok(c) => { print("[{l}] " + show_parsed(c)) },
+      Err(e) => { print("[{l}] err={e}") },
+    }
+  }
+  print("# Cookie.String")
+  let exp = time.date(2013, 1, 2, 3, 4, 5, 0)
+  for c in [
+    mk("a", "b"),
+    mk("a", "b c"),
+    mk("a", "b,c"),
+    cookiejar.Cookie { quoted: true, ..mk("a", "x") },
+    mk("a", ""),
+    mk("a b", "x"),
+    mk("", "x"),
+    cookiejar.Cookie {
+      path: "/p",
+      domain: ".example.com",
+      expires: Some(exp),
+      max_age: 10,
+      http_only: true,
+      secure: true,
+      same_site: cookiejar.SAME_SITE_LAX_MODE,
+      partitioned: true,
+      ..mk("full", "v")
+    },
+    cookiejar.Cookie { max_age: -1, same_site: cookiejar.SAME_SITE_NONE_MODE, ..mk("neg", "v") },
+    cookiejar.Cookie {
+      same_site: cookiejar.SAME_SITE_STRICT_MODE,
+      domain: "1.2.3.4",
+      ..mk("s", "v")
+    },
+    cookiejar.Cookie {
+      same_site: cookiejar.SAME_SITE_DEFAULT_MODE,
+      domain: "example.com",
+      ..mk("d", "v")
+    },
+    cookiejar.Cookie { expires: Some(time.date(1600, 12, 31, 0, 0, 0, 0)), ..mk("old", "v") },
+    cookiejar.Cookie { expires: Some(time.date(1601, 1, 1, 0, 0, 0, 0)), ..mk("y1601", "v") },
+  ] {
+    print("[{c.string()}]")
+  }
+}
+
+// ── 以下测试表由 Go 的测试表机械转换而来（与 tests/go/cookiejar.go 相同） ──
+
+fn has_dot_suffix_tests() -> List<(Str, Str)> {
+  [
+    ("", ""),
+    ("", "."),
+    ("", "x"),
+    (".", ""),
+    (".", "."),
+    (".", ".."),
+    (".", "x"),
+    (".", "x."),
+    (".", ".x"),
+    (".", ".x."),
+    ("x", ""),
+    ("x", "."),
+    ("x", ".."),
+    ("x", "x"),
+    ("x", "x."),
+    ("x", ".x"),
+    ("x", ".x."),
+    (".x", ""),
+    (".x", "."),
+    (".x", ".."),
+    (".x", "x"),
+    (".x", "x."),
+    (".x", ".x"),
+    (".x", ".x."),
+    ("x.", ""),
+    ("x.", "."),
+    ("x.", ".."),
+    ("x.", "x"),
+    ("x.", "x."),
+    ("x.", ".x"),
+    ("x.", ".x."),
+    ("com", ""),
+    ("com", "m"),
+    ("com", "om"),
+    ("com", "com"),
+    ("com", ".com"),
+    ("com", "x.com"),
+    ("com", "xcom"),
+    ("com", "xorg"),
+    ("com", "org"),
+    ("com", "rg"),
+    ("foo.com", ""),
+    ("foo.com", "m"),
+    ("foo.com", "om"),
+    ("foo.com", "com"),
+    ("foo.com", ".com"),
+    ("foo.com", "o.com"),
+    ("foo.com", "oo.com"),
+    ("foo.com", "foo.com"),
+    ("foo.com", ".foo.com"),
+    ("foo.com", "x.foo.com"),
+    ("foo.com", "xfoo.com"),
+    ("foo.com", "xfoo.org"),
+    ("foo.com", "foo.org"),
+    ("foo.com", "oo.org"),
+    ("foo.com", "o.org"),
+    ("foo.com", ".org"),
+    ("foo.com", "org"),
+    ("foo.com", "rg"),
+  ]
+}
+
+fn domain_and_type_tests() -> List<(Str, Str)> {
+  [
+    ("www.example.com", ""),
+    ("127.0.0.1", ""),
+    ("2001:4860:0:2001::68", ""),
+    ("www.example.com", "example.com"),
+    ("www.example.com", ".example.com"),
+    ("www.example.com", "www.example.com"),
+    ("www.example.com", ".www.example.com"),
+    ("foo.sso.example.com", "sso.example.com"),
+    ("bar.co.uk", "bar.co.uk"),
+    ("foo.bar.co.uk", ".bar.co.uk"),
+    ("127.0.0.1", "127.0.0.1"),
+    ("2001:4860:0:2001::68", "2001:4860:0:2001::68"),
+    ("www.example.com", "."),
+    ("www.example.com", ".."),
+    ("www.example.com", "other.com"),
+    ("www.example.com", "com"),
+    ("www.example.com", ".com"),
+    ("foo.bar.co.uk", ".co.uk"),
+    ("127.www.0.0.1", "127.0.0.1"),
+    ("com", ""),
+    ("com", "com"),
+    ("com", ".com"),
+    ("co.uk", ""),
+    ("co.uk", "co.uk"),
+    ("co.uk", ".co.uk"),
+  ]
+}
+
+fn punycode_tests() -> List<(Str, Str)> {
+  [
+    ("", ""),
+    ("-", "--"),
+    ("-a", "-a-"),
+    ("-a-", "-a--"),
+    ("a", "a-"),
+    ("a-", "a--"),
+    ("a-b", "a-b-"),
+    ("books", "books-"),
+    ("bücher", "bcher-kva"),
+    ("Hello世界", "Hello-ck1hg65u"),
+    ("ü", "tda"),
+    ("üý", "tdac"),
+    ("ليهمابتكلموشعربي؟", "egbpdaj6bu4bxfgehfvwxn"),
+    ("他们为什么不说中文", "ihqwcrb4cv8a8dqg056pqjye"),
+    ("他們爲什麽不說中文", "ihqwctvzc91f659drss3x8bo0yb"),
+    ("Pročprostěnemluvíčesky", "Proprostnemluvesky-uyb24dma41a"),
+    ("למההםפשוטלאמדבריםעברית", "4dbcagdahymbxekheh6e0a7fei0b"),
+    ("यहलोगहिन्दीक्योंनहींबोलसकतेहैं", "i1baa7eci9glrd9b2ae1bj0hfcgg6iyaf8o0a1dig0cd"),
+    ("なぜみんな日本語を話してくれないのか", "n8jok5ay5dzabd5bym9f0cm5685rrjetr6pdxa"),
+    (
+      "세계의모든사람들이한국어를이해한다면얼마나좋을까",
+      "989aomsvi5e83db1d2a355cv1e0vak1dwrv93d5xbh15a0dt30a5jpsd879ccm6fea98c",
+    ),
+    ("почемужеонинеговорятпорусски", "b1abfaaepdrnnbgefbadotcwatmq2g4l"),
+    ("PorquénopuedensimplementehablarenEspañol", "PorqunopuedensimplementehablarenEspaol-fmd56a"),
+    ("TạisaohọkhôngthểchỉnóitiếngViệt", "TisaohkhngthchnitingVit-kjcr8268qyxafd2f1b9g"),
+    ("3年B組金八先生", "3B-ww4c5e180e575a65lsy2b"),
+    ("安室奈美恵-with-SUPER-MONKEYS", "-with-SUPER-MONKEYS-pc58ag80a8qai00g7n9n"),
+    ("Hello-Another-Way-それぞれの場所", "Hello-Another-Way--fc4qua05auwb3674vfr0b"),
+    ("ひとつ屋根の下2", "2-u9tlzr9756bt3uc0v"),
+    ("MajiでKoiする5秒前", "MajiKoi5-783gue6qz075azm5e"),
+    ("パフィーdeルンバ", "de-jg4avhby1noc0d"),
+    ("そのスピードで", "d9juau41awczczp"),
+    ("-> $1.00 <-", "-> $1.00 <--"),
+  ]
+}
+
+fn canonical_host_list() -> List<Str> {
+  [
+    "www.example.com",
+    "WWW.EXAMPLE.COM",
+    "wWw.eXAmple.CoM",
+    "www.example.com:80",
+    "192.168.0.10",
+    "192.168.0.5:8080",
+    "2001:4860:0:2001::68",
+    "[2001:4860:0:::68]:8080",
+    "www.bücher.de",
+    "www.example.com.",
+    ".",
+    "..",
+    "...",
+    ".net",
+    ".net.",
+    "a..",
+    "b.a..",
+    "weird.stuff...",
+    "[bad.unmatched.bracket:",
+    "[::1]",
+    "[::1]x:80",
+    "a:b:c",
+    "[a]:b]:1",
+    "Bücher.DE",
+    "日本語.jp:8080",
+  ]
+}
+
+fn has_port_list() -> List<Str> {
+  [
+    "www.example.com",
+    "www.example.com:80",
+    "127.0.0.1",
+    "127.0.0.1:8080",
+    "2001:4860:0:2001::68",
+    "[2001::0:::68]:80",
+    "[::1]",
+    "a:b",
+  ]
+}
+
+fn jar_key_list() -> List<Str> {
+  [
+    "foo.www.example.com",
+    "www.example.com",
+    "example.com",
+    "com",
+    "foo.www.bbc.co.uk",
+    "www.bbc.co.uk",
+    "bbc.co.uk",
+    "co.uk",
+    "uk",
+    "192.168.0.5",
+    "www.buggy.psl",
+    "www2.buggy.psl",
+    "",
+    ".",
+    "..",
+    ".net",
+    "a.",
+    "b.a.",
+    "weird.stuff..",
+    "::1",
+  ]
+}
+
+fn is_ip_list() -> List<Str> {
+  [
+    "127.0.0.1",
+    "1.2.3.4",
+    "2001:4860:0:2001::68",
+    "::1%zone",
+    "example.com",
+    "1.1.1.300",
+    "www.foo.bar.net",
+    "123.foo.bar.net",
+    "01.2.3.4",
+    "::ffff:1.2.3.4",
+    "",
+    "1.2.3",
+  ]
+}
+
+fn default_path_list() -> List<Str> {
+  [
+    "/",
+    "/abc",
+    "/abc/",
+    "/abc/xyz",
+    "/abc/xyz/",
+    "/a/b/c.html",
+    "",
+    "strange",
+    "//",
+    "/a//b",
+    "/a/./b",
+    "/a/../b",
+  ]
+}
+
+fn parse_set_cookie_lines() -> List<Str> {
+  [
+    "",
+    "   ",
+    "noequal",
+    "a b=1",
+    "=v",
+    "n=bad\\val",
+    "n=\"x\"",
+    "n=\"",
+    "n=\"a b\"",
+    "ü=1",
+    "n=v; Max-Age=0",
+    "n=v; max-age=05",
+    "n=v; max-age=-3",
+    "n=v; max-age=abc",
+    "n=v; max-age=+7",
+    "n=v; max-age=3600",
+    "n=v; Expires=Wed, 09 Jun 2021 10:18:14 GMT",
+    "n=v; expires=Wed, 09-Jun-2021 10:18:14 GMT",
+    "n=v; expires=Mon, 09 Jun 2021 10:18:14 UTC",
+    "n=v; expires=bogus",
+    "n=v; expires=Wed, 31 Feb 2021 10:18:14 GMT",
+    "n=v; expires=Wed, 09 Jun 2021 24:18:14 GMT",
+    "n=v; Partitioned; foo=bar; wéird=1",
+    "n=v; path=/x; path=/y",
+    "n=v; domain=a\"b",
+    " n = v ; secure",
+    "n=v;;  ; HTTPONLY",
+    "n=v; SameSite=Lax",
+    "n=v; samesite=STRICT",
+    "n=v; samesite=None",
+    "n=v; samesite",
+    "n=v; samesite=bogus",
+    "n=v; samesite=lâx",
+    "n=v; Domain=.Example.COM; Path=/a/b",
+  ]
+}
+
+fn basics_tests() -> List<JarTest> {
+  [
+    JarTest {
+      description: "Retrieval of a plain host cookie.",
+      from_url: "http://www.host.test/",
+      set_cookies: ["A=a"],
+      content: "A=a",
+      queries: [
+        ("http://www.host.test", "A=a"),
+        ("http://www.host.test/", "A=a"),
+        ("http://www.host.test/some/path", "A=a"),
+        ("https://www.host.test", "A=a"),
+        ("https://www.host.test/", "A=a"),
+        ("https://www.host.test/some/path", "A=a"),
+        ("ftp://www.host.test", ""),
+        ("ftp://www.host.test/", ""),
+        ("ftp://www.host.test/some/path", ""),
+        ("http://www.other.org", ""),
+        ("http://sibling.host.test", ""),
+        ("http://deep.www.host.test", ""),
+      ],
+    },
+    JarTest {
+      description: "Secure cookies are not returned to http.",
+      from_url: "http://www.host.test/",
+      set_cookies: ["A=a; secure"],
+      content: "A=a",
+      queries: [
+        ("http://www.host.test", ""),
+        ("http://www.host.test/", ""),
+        ("http://www.host.test/some/path", ""),
+        ("https://www.host.test", "A=a"),
+        ("https://www.host.test/", "A=a"),
+        ("https://www.host.test/some/path", "A=a"),
+      ],
+    },
+    JarTest {
+      description: "Secure cookies are sent for localhost",
+      from_url: "http://localhost:8910/",
+      set_cookies: ["A=a; secure"],
+      content: "A=a",
+      queries: [
+        ("http://localhost:8910", "A=a"),
+        ("http://localhost:8910/", "A=a"),
+        ("http://localhost:8910/some/path", "A=a"),
+        ("https://localhost:8910", "A=a"),
+        ("https://localhost:8910/", "A=a"),
+        ("https://localhost:8910/some/path", "A=a"),
+      ],
+    },
+    JarTest {
+      description: "Secure cookies are sent for localhost (tld)",
+      from_url: "http://example.LOCALHOST:8910/",
+      set_cookies: ["A=a; secure"],
+      content: "A=a",
+      queries: [
+        ("http://example.LOCALHOST:8910", "A=a"),
+        ("http://example.LOCALHOST:8910/", "A=a"),
+        ("http://example.LOCALHOST:8910/some/path", "A=a"),
+        ("https://example.LOCALHOST:8910", "A=a"),
+        ("https://example.LOCALHOST:8910/", "A=a"),
+        ("https://example.LOCALHOST:8910/some/path", "A=a"),
+      ],
+    },
+    JarTest {
+      description: "Secure cookies are sent for localhost (ipv6)",
+      from_url: "http://[::1]:8910/",
+      set_cookies: ["A=a; secure"],
+      content: "A=a",
+      queries: [
+        ("http://[::1]:8910", "A=a"),
+        ("http://[::1]:8910/", "A=a"),
+        ("http://[::1]:8910/some/path", "A=a"),
+        ("https://[::1]:8910", "A=a"),
+        ("https://[::1]:8910/", "A=a"),
+        ("https://[::1]:8910/some/path", "A=a"),
+      ],
+    },
+    JarTest {
+      description: "Localhost only if it's a segment",
+      from_url: "http://notlocalhost/",
+      set_cookies: ["A=a; secure"],
+      content: "A=a",
+      queries: [
+        ("http://notlocalhost", ""),
+        ("http://notlocalhost/", ""),
+        ("http://notlocalhost/some/path", ""),
+        ("https://notlocalhost", "A=a"),
+        ("https://notlocalhost/", "A=a"),
+        ("https://notlocalhost/some/path", "A=a"),
+      ],
+    },
+    JarTest {
+      description: "Explicit path.",
+      from_url: "http://www.host.test/",
+      set_cookies: ["A=a; path=/some/path"],
+      content: "A=a",
+      queries: [
+        ("http://www.host.test", ""),
+        ("http://www.host.test/", ""),
+        ("http://www.host.test/some", ""),
+        ("http://www.host.test/some/", ""),
+        ("http://www.host.test/some/path", "A=a"),
+        ("http://www.host.test/some/paths", ""),
+        ("http://www.host.test/some/path/foo", "A=a"),
+        ("http://www.host.test/some/path/foo/", "A=a"),
+      ],
+    },
+    JarTest {
+      description: "Implicit path #1: path is a directory.",
+      from_url: "http://www.host.test/some/path/",
+      set_cookies: ["A=a"],
+      content: "A=a",
+      queries: [
+        ("http://www.host.test", ""),
+        ("http://www.host.test/", ""),
+        ("http://www.host.test/some", ""),
+        ("http://www.host.test/some/", ""),
+        ("http://www.host.test/some/path", "A=a"),
+        ("http://www.host.test/some/paths", ""),
+        ("http://www.host.test/some/path/foo", "A=a"),
+        ("http://www.host.test/some/path/foo/", "A=a"),
+      ],
+    },
+    JarTest {
+      description: "Implicit path #2: path is not a directory.",
+      from_url: "http://www.host.test/some/path/index.html",
+      set_cookies: ["A=a"],
+      content: "A=a",
+      queries: [
+        ("http://www.host.test", ""),
+        ("http://www.host.test/", ""),
+        ("http://www.host.test/some", ""),
+        ("http://www.host.test/some/", ""),
+        ("http://www.host.test/some/path", "A=a"),
+        ("http://www.host.test/some/paths", ""),
+        ("http://www.host.test/some/path/foo", "A=a"),
+        ("http://www.host.test/some/path/foo/", "A=a"),
+      ],
+    },
+    JarTest {
+      description: "Implicit path #3: no path in URL at all.",
+      from_url: "http://www.host.test",
+      set_cookies: ["A=a"],
+      content: "A=a",
+      queries: [
+        ("http://www.host.test", "A=a"),
+        ("http://www.host.test/", "A=a"),
+        ("http://www.host.test/some/path", "A=a"),
+      ],
+    },
+    JarTest {
+      description: "Cookies are sorted by path length.",
+      from_url: "http://www.host.test/",
+      set_cookies: [
+        "A=a; path=/foo/bar",
+        "B=b; path=/foo/bar/baz/qux",
+        "C=c; path=/foo/bar/baz",
+        "D=d; path=/foo",
+      ],
+      content: "A=a B=b C=c D=d",
+      queries: [
+        ("http://www.host.test/foo/bar/baz/qux", "B=b C=c A=a D=d"),
+        ("http://www.host.test/foo/bar/baz/", "C=c A=a D=d"),
+        ("http://www.host.test/foo/bar", "A=a D=d"),
+      ],
+    },
+    JarTest {
+      description: "Creation time determines sorting on same length paths.",
+      from_url: "http://www.host.test/",
+      set_cookies: [
+        "A=a; path=/foo/bar",
+        "X=x; path=/foo/bar",
+        "Y=y; path=/foo/bar/baz/qux",
+        "B=b; path=/foo/bar/baz/qux",
+        "C=c; path=/foo/bar/baz",
+        "W=w; path=/foo/bar/baz",
+        "Z=z; path=/foo",
+        "D=d; path=/foo",
+      ],
+      content: "A=a B=b C=c D=d W=w X=x Y=y Z=z",
+      queries: [
+        ("http://www.host.test/foo/bar/baz/qux", "Y=y B=b C=c W=w A=a X=x Z=z D=d"),
+        ("http://www.host.test/foo/bar/baz/", "C=c W=w A=a X=x Z=z D=d"),
+        ("http://www.host.test/foo/bar", "A=a X=x Z=z D=d"),
+      ],
+    },
+    JarTest {
+      description: "Sorting of same-name cookies.",
+      from_url: "http://www.host.test/",
+      set_cookies: [
+        "A=1; path=/",
+        "A=2; path=/path",
+        "A=3; path=/quux",
+        "A=4; path=/path/foo",
+        "A=5; domain=.host.test; path=/path",
+        "A=6; domain=.host.test; path=/quux",
+        "A=7; domain=.host.test; path=/path/foo",
+      ],
+      content: "A=1 A=2 A=3 A=4 A=5 A=6 A=7",
+      queries: [
+        ("http://www.host.test/path", "A=2 A=5 A=1"),
+        ("http://www.host.test/path/foo", "A=4 A=7 A=2 A=5 A=1"),
+      ],
+    },
+    JarTest {
+      description: "Disallow domain cookie on public suffix.",
+      from_url: "http://www.bbc.co.uk",
+      set_cookies: ["a=1", "b=2; domain=co.uk"],
+      content: "a=1",
+      queries: [
+        ("http://www.bbc.co.uk", "a=1"),
+      ],
+    },
+    JarTest {
+      description: "Host cookie on IP.",
+      from_url: "http://192.168.0.10",
+      set_cookies: ["a=1"],
+      content: "a=1",
+      queries: [
+        ("http://192.168.0.10", "a=1"),
+      ],
+    },
+    JarTest {
+      description: "Domain cookies on IP.",
+      from_url: "http://192.168.0.10",
+      set_cookies: [
+        "a=1; domain=192.168.0.10",
+        "b=2; domain=172.31.9.9",
+        "c=3; domain=.192.168.0.10",
+      ],
+      content: "a=1",
+      queries: [
+        ("http://192.168.0.10", "a=1"),
+        ("http://172.31.9.9", ""),
+        ("http://www.fancy.192.168.0.10", ""),
+      ],
+    },
+    JarTest {
+      description: "Port is ignored #1.",
+      from_url: "http://www.host.test/",
+      set_cookies: ["a=1"],
+      content: "a=1",
+      queries: [
+        ("http://www.host.test", "a=1"),
+        ("http://www.host.test:8080/", "a=1"),
+      ],
+    },
+    JarTest {
+      description: "Port is ignored #2.",
+      from_url: "http://www.host.test:8080/",
+      set_cookies: ["a=1"],
+      content: "a=1",
+      queries: [
+        ("http://www.host.test", "a=1"),
+        ("http://www.host.test:8080/", "a=1"),
+        ("http://www.host.test:1234/", "a=1"),
+      ],
+    },
+    JarTest {
+      description: "IPv6 zone is not treated as a host.",
+      from_url: "https://example.com/",
+      set_cookies: ["a=1"],
+      content: "a=1",
+      queries: [
+        ("https://[::1%25.example.com]:80/", ""),
+      ],
+    },
+    JarTest {
+      description: "Retrieval of cookies with quoted values",
+      from_url: "http://www.host.test/",
+      set_cookies: [
+        "cookie-1=\"quoted\"",
+        "cookie-2=\"quoted with spaces\"",
+        "cookie-3=\"quoted,with,commas\"",
+        "cookie-4= ,",
+      ],
+      content: "cookie-1=\"quoted\" cookie-2=\"quoted with spaces\" cookie-3=\"quoted,with,commas\" cookie-4=\" ,\"",
+      queries: [
+        (
+          "http://www.host.test",
+          "cookie-1=\"quoted\" cookie-2=\"quoted with spaces\" cookie-3=\"quoted,with,commas\" cookie-4=\" ,\"",
+        ),
+      ],
+    },
+  ]
+}
+
+fn update_and_delete_tests() -> List<JarTest> {
+  [
+    JarTest {
+      description: "Set initial cookies.",
+      from_url: "http://www.host.test",
+      set_cookies: ["a=1", "b=2; secure", "c=3; httponly", "d=4; secure; httponly"],
+      content: "a=1 b=2 c=3 d=4",
+      queries: [
+        ("http://www.host.test", "a=1 c=3"),
+        ("https://www.host.test", "a=1 b=2 c=3 d=4"),
+      ],
+    },
+    JarTest {
+      description: "Update value via http.",
+      from_url: "http://www.host.test",
+      set_cookies: ["a=w", "b=x; secure", "c=y; httponly", "d=z; secure; httponly"],
+      content: "a=w b=x c=y d=z",
+      queries: [
+        ("http://www.host.test", "a=w c=y"),
+        ("https://www.host.test", "a=w b=x c=y d=z"),
+      ],
+    },
+    JarTest {
+      description: "Clear Secure flag from an http.",
+      from_url: "http://www.host.test/",
+      set_cookies: ["b=xx", "d=zz; httponly"],
+      content: "a=w b=xx c=y d=zz",
+      queries: [
+        ("http://www.host.test", "a=w b=xx c=y d=zz"),
+      ],
+    },
+    JarTest {
+      description: "Delete all.",
+      from_url: "http://www.host.test/",
+      set_cookies: [
+        "a=1; max-Age=-1",
+        "b=2; expires=Tue, 01 Jan 2013 11:59:50 UTC",
+        "c=2; max-age=-1; expires=Tue, 01 Jan 2013 11:59:50 UTC",
+        "d=4; max-age=-1; expires=Tue, 01 Jan 2013 12:00:10 UTC",
+      ],
+      content: "",
+      queries: [
+        ("http://www.host.test", ""),
+      ],
+    },
+    JarTest {
+      description: "Refill #1.",
+      from_url: "http://www.host.test",
+      set_cookies: [
+        "A=1",
+        "A=2; path=/foo",
+        "A=3; domain=.host.test",
+        "A=4; path=/foo; domain=.host.test",
+      ],
+      content: "A=1 A=2 A=3 A=4",
+      queries: [
+        ("http://www.host.test/foo", "A=2 A=4 A=1 A=3"),
+      ],
+    },
+    JarTest {
+      description: "Refill #2.",
+      from_url: "http://www.google.com",
+      set_cookies: [
+        "A=6",
+        "A=7; path=/foo",
+        "A=8; domain=.google.com",
+        "A=9; path=/foo; domain=.google.com",
+      ],
+      content: "A=1 A=2 A=3 A=4 A=6 A=7 A=8 A=9",
+      queries: [
+        ("http://www.host.test/foo", "A=2 A=4 A=1 A=3"),
+        ("http://www.google.com/foo", "A=7 A=9 A=6 A=8"),
+      ],
+    },
+    JarTest {
+      description: "Delete A7.",
+      from_url: "http://www.google.com",
+      set_cookies: ["A=; path=/foo; max-age=-1"],
+      content: "A=1 A=2 A=3 A=4 A=6 A=8 A=9",
+      queries: [
+        ("http://www.host.test/foo", "A=2 A=4 A=1 A=3"),
+        ("http://www.google.com/foo", "A=9 A=6 A=8"),
+      ],
+    },
+    JarTest {
+      description: "Delete A4.",
+      from_url: "http://www.host.test",
+      set_cookies: ["A=; path=/foo; domain=host.test; max-age=-1"],
+      content: "A=1 A=2 A=3 A=6 A=8 A=9",
+      queries: [
+        ("http://www.host.test/foo", "A=2 A=1 A=3"),
+        ("http://www.google.com/foo", "A=9 A=6 A=8"),
+      ],
+    },
+    JarTest {
+      description: "Delete A6.",
+      from_url: "http://www.google.com",
+      set_cookies: ["A=; max-age=-1"],
+      content: "A=1 A=2 A=3 A=8 A=9",
+      queries: [
+        ("http://www.host.test/foo", "A=2 A=1 A=3"),
+        ("http://www.google.com/foo", "A=9 A=8"),
+      ],
+    },
+    JarTest {
+      description: "Delete A3.",
+      from_url: "http://www.host.test",
+      set_cookies: ["A=; domain=host.test; max-age=-1"],
+      content: "A=1 A=2 A=8 A=9",
+      queries: [
+        ("http://www.host.test/foo", "A=2 A=1"),
+        ("http://www.google.com/foo", "A=9 A=8"),
+      ],
+    },
+    JarTest {
+      description: "No cross-domain delete.",
+      from_url: "http://www.host.test",
+      set_cookies: [
+        "A=; domain=google.com; max-age=-1",
+        "A=; path=/foo; domain=google.com; max-age=-1",
+      ],
+      content: "A=1 A=2 A=8 A=9",
+      queries: [
+        ("http://www.host.test/foo", "A=2 A=1"),
+        ("http://www.google.com/foo", "A=9 A=8"),
+      ],
+    },
+    JarTest {
+      description: "Delete A8 and A9.",
+      from_url: "http://www.google.com",
+      set_cookies: [
+        "A=; domain=google.com; max-age=-1",
+        "A=; path=/foo; domain=google.com; max-age=-1",
+      ],
+      content: "A=1 A=2",
+      queries: [
+        ("http://www.host.test/foo", "A=2 A=1"),
+        ("http://www.google.com/foo", ""),
+      ],
+    },
+  ]
+}
+
+fn chromium_basics_tests() -> List<JarTest> {
+  [
+    JarTest {
+      description: "DomainWithTrailingDotTest.",
+      from_url: "http://www.google.com/",
+      set_cookies: ["a=1; domain=.www.google.com.", "b=2; domain=.www.google.com.."],
+      content: "",
+      queries: [
+        ("http://www.google.com", ""),
+      ],
+    },
+    JarTest {
+      description: "ValidSubdomainTest #1.",
+      from_url: "http://a.b.c.d.com",
+      set_cookies: [
+        "a=1; domain=.a.b.c.d.com",
+        "b=2; domain=.b.c.d.com",
+        "c=3; domain=.c.d.com",
+        "d=4; domain=.d.com",
+      ],
+      content: "a=1 b=2 c=3 d=4",
+      queries: [
+        ("http://a.b.c.d.com", "a=1 b=2 c=3 d=4"),
+        ("http://b.c.d.com", "b=2 c=3 d=4"),
+        ("http://c.d.com", "c=3 d=4"),
+        ("http://d.com", "d=4"),
+      ],
+    },
+    JarTest {
+      description: "ValidSubdomainTest #2.",
+      from_url: "http://a.b.c.d.com",
+      set_cookies: [
+        "a=1; domain=.a.b.c.d.com",
+        "b=2; domain=.b.c.d.com",
+        "c=3; domain=.c.d.com",
+        "d=4; domain=.d.com",
+        "X=bcd; domain=.b.c.d.com",
+        "X=cd; domain=.c.d.com",
+      ],
+      content: "X=bcd X=cd a=1 b=2 c=3 d=4",
+      queries: [
+        ("http://b.c.d.com", "b=2 c=3 d=4 X=bcd X=cd"),
+        ("http://c.d.com", "c=3 d=4 X=cd"),
+      ],
+    },
+    JarTest {
+      description: "InvalidDomainTest #1.",
+      from_url: "http://foo.bar.com",
+      set_cookies: [
+        "a=1; domain=.yo.foo.bar.com",
+        "b=2; domain=.foo.com",
+        "c=3; domain=.bar.foo.com",
+        "d=4; domain=.foo.bar.com.net",
+        "e=5; domain=ar.com",
+        "f=6; domain=.",
+        "g=7; domain=/",
+        "h=8; domain=http://foo.bar.com",
+        "i=9; domain=..foo.bar.com",
+        "j=10; domain=..bar.com",
+        "k=11; domain=.foo.bar.com?blah",
+        "l=12; domain=.foo.bar.com/blah",
+        "m=12; domain=.foo.bar.com:80",
+        "n=14; domain=.foo.bar.com:",
+        "o=15; domain=.foo.bar.com#sup",
+      ],
+      content: "",
+      queries: [
+        ("http://foo.bar.com", ""),
+      ],
+    },
+    JarTest {
+      description: "InvalidDomainTest #2.",
+      from_url: "http://foo.com.com",
+      set_cookies: ["a=1; domain=.foo.com.com.com"],
+      content: "",
+      queries: [
+        ("http://foo.bar.com", ""),
+      ],
+    },
+    JarTest {
+      description: "DomainWithoutLeadingDotTest #1.",
+      from_url: "http://manage.hosted.filefront.com",
+      set_cookies: ["a=1; domain=filefront.com"],
+      content: "a=1",
+      queries: [
+        ("http://www.filefront.com", "a=1"),
+      ],
+    },
+    JarTest {
+      description: "DomainWithoutLeadingDotTest #2.",
+      from_url: "http://www.google.com",
+      set_cookies: ["a=1; domain=www.google.com"],
+      content: "a=1",
+      queries: [
+        ("http://www.google.com", "a=1"),
+        ("http://sub.www.google.com", "a=1"),
+        ("http://something-else.com", ""),
+      ],
+    },
+    JarTest {
+      description: "CaseInsensitiveDomainTest.",
+      from_url: "http://www.google.com",
+      set_cookies: ["a=1; domain=.GOOGLE.COM", "b=2; domain=.www.gOOgLE.coM"],
+      content: "a=1 b=2",
+      queries: [
+        ("http://www.google.com", "a=1 b=2"),
+      ],
+    },
+    JarTest {
+      description: "TestIpAddress #1.",
+      from_url: "http://1.2.3.4/foo",
+      set_cookies: ["a=1; path=/"],
+      content: "a=1",
+      queries: [
+        ("http://1.2.3.4/foo", "a=1"),
+      ],
+    },
+    JarTest {
+      description: "TestIpAddress #2.",
+      from_url: "http://1.2.3.4/foo",
+      set_cookies: ["a=1; domain=.1.2.3.4", "b=2; domain=.3.4"],
+      content: "",
+      queries: [
+        ("http://1.2.3.4/foo", ""),
+      ],
+    },
+    JarTest {
+      description: "TestIpAddress #3.",
+      from_url: "http://1.2.3.4/foo",
+      set_cookies: ["a=1; domain=1.2.3.3"],
+      content: "",
+      queries: [
+        ("http://1.2.3.4/foo", ""),
+      ],
+    },
+    JarTest {
+      description: "TestIpAddress #4.",
+      from_url: "http://1.2.3.4/foo",
+      set_cookies: ["a=1; domain=1.2.3.4"],
+      content: "a=1",
+      queries: [
+        ("http://1.2.3.4/foo", "a=1"),
+      ],
+    },
+    JarTest {
+      description: "TestNonDottedAndTLD #2.",
+      from_url: "http://com./index.html",
+      set_cookies: ["a=1"],
+      content: "a=1",
+      queries: [
+        ("http://com./index.html", "a=1"),
+        ("http://no-cookies.com./index.html", ""),
+      ],
+    },
+    JarTest {
+      description: "TestNonDottedAndTLD #3.",
+      from_url: "http://a.b",
+      set_cookies: ["a=1; domain=.b", "b=2; domain=b"],
+      content: "",
+      queries: [
+        ("http://bar.foo", ""),
+      ],
+    },
+    JarTest {
+      description: "TestNonDottedAndTLD #4.",
+      from_url: "http://google.com",
+      set_cookies: ["a=1; domain=.com", "b=2; domain=com"],
+      content: "",
+      queries: [
+        ("http://google.com", ""),
+      ],
+    },
+    JarTest {
+      description: "TestNonDottedAndTLD #5.",
+      from_url: "http://google.co.uk",
+      set_cookies: ["a=1; domain=.co.uk", "b=2; domain=.uk"],
+      content: "",
+      queries: [
+        ("http://google.co.uk", ""),
+        ("http://else.co.com", ""),
+        ("http://else.uk", ""),
+      ],
+    },
+    JarTest {
+      description: "TestHostEndsWithDot.",
+      from_url: "http://www.google.com",
+      set_cookies: ["a=1", "b=2; domain=.www.google.com."],
+      content: "a=1",
+      queries: [
+        ("http://www.google.com", "a=1"),
+      ],
+    },
+    JarTest {
+      description: "PathTest",
+      from_url: "http://www.google.izzle",
+      set_cookies: ["a=1; path=/wee"],
+      content: "a=1",
+      queries: [
+        ("http://www.google.izzle/wee", "a=1"),
+        ("http://www.google.izzle/wee/", "a=1"),
+        ("http://www.google.izzle/wee/war", "a=1"),
+        ("http://www.google.izzle/wee/war/more/more", "a=1"),
+        ("http://www.google.izzle/weehee", ""),
+        ("http://www.google.izzle/", ""),
+      ],
+    },
+  ]
+}
+
+fn chromium_domain_tests() -> List<JarTest> {
+  [
+    JarTest {
+      description: "Fill #1.",
+      from_url: "http://www.google.izzle",
+      set_cookies: ["A=B"],
+      content: "A=B",
+      queries: [
+        ("http://www.google.izzle", "A=B"),
+      ],
+    },
+    JarTest {
+      description: "Fill #2.",
+      from_url: "http://www.google.izzle",
+      set_cookies: ["C=D; domain=.google.izzle"],
+      content: "A=B C=D",
+      queries: [
+        ("http://www.google.izzle", "A=B C=D"),
+      ],
+    },
+    JarTest {
+      description: "Verify A is a host cookie and not accessible from subdomain.",
+      from_url: "http://unused.nil",
+      set_cookies: [],
+      content: "A=B C=D",
+      queries: [
+        ("http://foo.www.google.izzle", "C=D"),
+      ],
+    },
+    JarTest {
+      description: "Verify domain cookies are found on proper domain.",
+      from_url: "http://www.google.izzle",
+      set_cookies: ["E=F; domain=.www.google.izzle"],
+      content: "A=B C=D E=F",
+      queries: [
+        ("http://www.google.izzle", "A=B C=D E=F"),
+      ],
+    },
+    JarTest {
+      description: "Leading dots in domain attributes are optional.",
+      from_url: "http://www.google.izzle",
+      set_cookies: ["G=H; domain=www.google.izzle"],
+      content: "A=B C=D E=F G=H",
+      queries: [
+        ("http://www.google.izzle", "A=B C=D E=F G=H"),
+      ],
+    },
+    JarTest {
+      description: "Verify domain enforcement works #1.",
+      from_url: "http://www.google.izzle",
+      set_cookies: ["K=L; domain=.bar.www.google.izzle"],
+      content: "A=B C=D E=F G=H",
+      queries: [
+        ("http://bar.www.google.izzle", "C=D E=F G=H"),
+      ],
+    },
+    JarTest {
+      description: "Verify domain enforcement works #2.",
+      from_url: "http://unused.nil",
+      set_cookies: [],
+      content: "A=B C=D E=F G=H",
+      queries: [
+        ("http://www.google.izzle", "A=B C=D E=F G=H"),
+      ],
+    },
+  ]
+}
+
+fn chromium_deletion_tests() -> List<JarTest> {
+  [
+    JarTest {
+      description: "Create session cookie a1.",
+      from_url: "http://www.google.com",
+      set_cookies: ["a=1"],
+      content: "a=1",
+      queries: [
+        ("http://www.google.com", "a=1"),
+      ],
+    },
+    JarTest {
+      description: "Delete sc a1 via MaxAge.",
+      from_url: "http://www.google.com",
+      set_cookies: ["a=1; max-age=-1"],
+      content: "",
+      queries: [
+        ("http://www.google.com", ""),
+      ],
+    },
+    JarTest {
+      description: "Create session cookie b2.",
+      from_url: "http://www.google.com",
+      set_cookies: ["b=2"],
+      content: "b=2",
+      queries: [
+        ("http://www.google.com", "b=2"),
+      ],
+    },
+    JarTest {
+      description: "Delete sc b2 via Expires.",
+      from_url: "http://www.google.com",
+      set_cookies: ["b=2; expires=Tue, 01 Jan 2013 11:59:50 UTC"],
+      content: "",
+      queries: [
+        ("http://www.google.com", ""),
+      ],
+    },
+    JarTest {
+      description: "Create persistent cookie c3.",
+      from_url: "http://www.google.com",
+      set_cookies: ["c=3; max-age=3600"],
+      content: "c=3",
+      queries: [
+        ("http://www.google.com", "c=3"),
+      ],
+    },
+    JarTest {
+      description: "Delete pc c3 via MaxAge.",
+      from_url: "http://www.google.com",
+      set_cookies: ["c=3; max-age=-1"],
+      content: "",
+      queries: [
+        ("http://www.google.com", ""),
+      ],
+    },
+    JarTest {
+      description: "Create persistent cookie d4.",
+      from_url: "http://www.google.com",
+      set_cookies: ["d=4; max-age=3600"],
+      content: "d=4",
+      queries: [
+        ("http://www.google.com", "d=4"),
+      ],
+    },
+    JarTest {
+      description: "Delete pc d4 via Expires.",
+      from_url: "http://www.google.com",
+      set_cookies: ["d=4; expires=Tue, 01 Jan 2013 11:59:50 UTC"],
+      content: "",
+      queries: [
+        ("http://www.google.com", ""),
+      ],
+    },
+  ]
+}
+
+fn domain_handling_tests() -> List<JarTest> {
+  [
+    JarTest {
+      description: "Host cookie",
+      from_url: "http://www.host.test",
+      set_cookies: ["a=1"],
+      content: "a=1",
+      queries: [
+        ("http://www.host.test", "a=1"),
+        ("http://host.test", ""),
+        ("http://bar.host.test", ""),
+        ("http://foo.www.host.test", ""),
+        ("http://other.test", ""),
+        ("http://test", ""),
+      ],
+    },
+    JarTest {
+      description: "Domain cookie #1",
+      from_url: "http://www.host.test",
+      set_cookies: ["a=1; domain=host.test"],
+      content: "a=1",
+      queries: [
+        ("http://www.host.test", "a=1"),
+        ("http://host.test", "a=1"),
+        ("http://bar.host.test", "a=1"),
+        ("http://foo.www.host.test", "a=1"),
+        ("http://other.test", ""),
+        ("http://test", ""),
+      ],
+    },
+    JarTest {
+      description: "Domain cookie #2",
+      from_url: "http://www.host.test",
+      set_cookies: ["a=1; domain=.host.test"],
+      content: "a=1",
+      queries: [
+        ("http://www.host.test", "a=1"),
+        ("http://host.test", "a=1"),
+        ("http://bar.host.test", "a=1"),
+        ("http://foo.www.host.test", "a=1"),
+        ("http://other.test", ""),
+        ("http://test", ""),
+      ],
+    },
+    JarTest {
+      description: "Host cookie on IDNA domain #1",
+      from_url: "http://www.bücher.test",
+      set_cookies: ["a=1"],
+      content: "a=1",
+      queries: [
+        ("http://www.bücher.test", "a=1"),
+        ("http://www.xn--bcher-kva.test", "a=1"),
+        ("http://bücher.test", ""),
+        ("http://xn--bcher-kva.test", ""),
+        ("http://bar.bücher.test", ""),
+        ("http://bar.xn--bcher-kva.test", ""),
+        ("http://foo.www.bücher.test", ""),
+        ("http://foo.www.xn--bcher-kva.test", ""),
+        ("http://other.test", ""),
+        ("http://test", ""),
+      ],
+    },
+    JarTest {
+      description: "Host cookie on IDNA domain #2",
+      from_url: "http://www.xn--bcher-kva.test",
+      set_cookies: ["a=1"],
+      content: "a=1",
+      queries: [
+        ("http://www.bücher.test", "a=1"),
+        ("http://www.xn--bcher-kva.test", "a=1"),
+        ("http://bücher.test", ""),
+        ("http://xn--bcher-kva.test", ""),
+        ("http://bar.bücher.test", ""),
+        ("http://bar.xn--bcher-kva.test", ""),
+        ("http://foo.www.bücher.test", ""),
+        ("http://foo.www.xn--bcher-kva.test", ""),
+        ("http://other.test", ""),
+        ("http://test", ""),
+      ],
+    },
+    JarTest {
+      description: "Domain cookie on IDNA domain #1",
+      from_url: "http://www.bücher.test",
+      set_cookies: ["a=1; domain=xn--bcher-kva.test"],
+      content: "a=1",
+      queries: [
+        ("http://www.bücher.test", "a=1"),
+        ("http://www.xn--bcher-kva.test", "a=1"),
+        ("http://bücher.test", "a=1"),
+        ("http://xn--bcher-kva.test", "a=1"),
+        ("http://bar.bücher.test", "a=1"),
+        ("http://bar.xn--bcher-kva.test", "a=1"),
+        ("http://foo.www.bücher.test", "a=1"),
+        ("http://foo.www.xn--bcher-kva.test", "a=1"),
+        ("http://other.test", ""),
+        ("http://test", ""),
+      ],
+    },
+    JarTest {
+      description: "Domain cookie on IDNA domain #2",
+      from_url: "http://www.xn--bcher-kva.test",
+      set_cookies: ["a=1; domain=xn--bcher-kva.test"],
+      content: "a=1",
+      queries: [
+        ("http://www.bücher.test", "a=1"),
+        ("http://www.xn--bcher-kva.test", "a=1"),
+        ("http://bücher.test", "a=1"),
+        ("http://xn--bcher-kva.test", "a=1"),
+        ("http://bar.bücher.test", "a=1"),
+        ("http://bar.xn--bcher-kva.test", "a=1"),
+        ("http://foo.www.bücher.test", "a=1"),
+        ("http://foo.www.xn--bcher-kva.test", "a=1"),
+        ("http://other.test", ""),
+        ("http://test", ""),
+      ],
+    },
+    JarTest {
+      description: "Host cookie on TLD.",
+      from_url: "http://com",
+      set_cookies: ["a=1"],
+      content: "a=1",
+      queries: [
+        ("http://com", "a=1"),
+        ("http://any.com", ""),
+        ("http://any.test", ""),
+      ],
+    },
+    JarTest {
+      description: "Domain cookie on TLD becomes a host cookie.",
+      from_url: "http://com",
+      set_cookies: ["a=1; domain=com"],
+      content: "a=1",
+      queries: [
+        ("http://com", "a=1"),
+        ("http://any.com", ""),
+        ("http://any.test", ""),
+      ],
+    },
+    JarTest {
+      description: "Host cookie on public suffix.",
+      from_url: "http://co.uk",
+      set_cookies: ["a=1"],
+      content: "a=1",
+      queries: [
+        ("http://co.uk", "a=1"),
+        ("http://uk", ""),
+        ("http://some.co.uk", ""),
+        ("http://foo.some.co.uk", ""),
+        ("http://any.uk", ""),
+      ],
+    },
+    JarTest {
+      description: "Domain cookie on public suffix is ignored.",
+      from_url: "http://some.co.uk",
+      set_cookies: ["a=1; domain=co.uk"],
+      content: "",
+      queries: [
+        ("http://co.uk", ""),
+        ("http://uk", ""),
+        ("http://some.co.uk", ""),
+        ("http://foo.some.co.uk", ""),
+        ("http://any.uk", ""),
+      ],
+    },
+  ]
+}

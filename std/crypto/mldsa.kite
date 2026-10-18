@@ -1,0 +1,669 @@
+// std.crypto.mldsa：对齐 Go 1.27 的 crypto/mldsa（FIPS 204 的 ML-DSA-44 / ML-DSA-65 / ML-DSA-87）
+//   mldsa44() / mldsa65() / mldsa87() -> Parameters：public_key_size()、signature_size()、string()
+//   generate_key(params)：系统随机种子；new_private_key(params, seed)：32 字节种子
+//   PrivateKey：bytes()（种子）、equal(other)、public()/public_key()、
+//     sign(message, opts) / sign_deterministic(message, opts)：opts 为 None 或 Some(Options { context })，
+//     sign_hash(message, h) / sign_deterministic_hash(message, h)：对应 Go 里 opts 是 crypto.Hash 的情形，
+//       h = 0 等于不带 context，h = MLDSA_MU（crypto.MLDSAMu）表示 message 是 64 字节的 μ，其他值报
+//       "mldsa: invalid SignerOpts"
+//     sign_with_random(message, opts, random) / sign_external_mu_with_random(mu, random)：
+//       对应内部的 TestingOnlySignWithRandom（给定 32 字节随机数的 hedged 签名，方便测试）
+//   new_public_key(params, encoding)；PublicKey：bytes()、equal(other)、parameters()
+//   verify(pk, message, signature, opts) -> Result<(), Str>；verify_external_mu(pk, mu, signature)
+//   Options { context }：hash_func() 返回 0。错误文字与 Go 相同。
+//   和 Go 的差别：没有 crypto.Signer 接口和 io.Reader 参数（sign 直接用 std.crypto.rand）；
+//     Kite 里不会出现零值 / nil 的密钥，所以没有 "zero private key" / "nil public key" 这几个错误；
+//     不做 FIPS 自检和配对一致性测试；不是常数时间实现。
+
+use std.crypto.sha3
+use std.crypto.rand as crand
+
+pub const PRIVATE_KEY_SIZE: Int = 32
+pub const MLDSA44_PUBLIC_KEY_SIZE: Int = 1312
+pub const MLDSA65_PUBLIC_KEY_SIZE: Int = 1952
+pub const MLDSA87_PUBLIC_KEY_SIZE: Int = 2592
+pub const MLDSA44_SIGNATURE_SIZE: Int = 2420
+pub const MLDSA65_SIGNATURE_SIZE: Int = 3309
+pub const MLDSA87_SIGNATURE_SIZE: Int = 4627
+
+// crypto.MLDSAMu 的编号
+pub const MLDSA_MU: Int = 20
+
+const Q: Int = 8380417
+const N: Int = 256
+const HALF_Q: Int = 4190208
+
+const ZETAS: List<Int> = [
+  1, 4808194, 3765607, 3761513, 5178923, 5496691, 5234739, 5178987, 7778734, 3542485, 2682288,
+  2129892, 3764867, 7375178, 557458, 7159240, 5010068, 4317364, 2663378, 6705802, 4855975, 7946292,
+  676590, 7044481, 5152541, 1714295, 2453983, 1460718, 7737789, 4795319, 2815639, 2283733, 3602218,
+  3182878, 2740543, 4793971, 5269599, 2101410, 3704823, 1159875, 394148, 928749, 1095468, 4874037,
+  2071829, 4361428, 3241972, 2156050, 3415069, 1759347, 7562881, 4805951, 3756790, 6444618, 6663429,
+  4430364, 5483103, 3192354, 556856, 3870317, 2917338, 1853806, 3345963, 1858416, 3073009, 1277625,
+  5744944, 3852015, 4183372, 5157610, 5258977, 8106357, 2508980, 2028118, 1937570, 4564692, 2811291,
+  5396636, 7270901, 4158088, 1528066, 482649, 1148858, 5418153, 7814814, 169688, 2462444, 5046034,
+  4213992, 4892034, 1987814, 5183169, 1736313, 235407, 5130263, 3258457, 5801164, 1787943, 5989328,
+  6125690, 3482206, 4197502, 7080401, 6018354, 7062739, 2461387, 3035980, 621164, 3901472, 7153756,
+  2925816, 3374250, 1356448, 5604662, 2683270, 5601629, 4912752, 2312838, 7727142, 7921254, 348812,
+  8052569, 1011223, 6026202, 4561790, 6458164, 6143691, 1744507, 1753, 6444997, 5720892, 6924527,
+  2660408, 6600190, 8321269, 2772600, 1182243, 87208, 636927, 4415111, 4423672, 6084020, 5095502,
+  4663471, 8352605, 822541, 1009365, 5926272, 6400920, 1596822, 4423473, 4620952, 6695264, 4969849,
+  2678278, 4611469, 4829411, 635956, 8129971, 5925040, 4234153, 6607829, 2192938, 6653329, 2387513,
+  4768667, 8111961, 5199961, 3747250, 2296099, 1239911, 4541938, 3195676, 2642980, 1254190, 8368000,
+  2998219, 141835, 8291116, 2513018, 7025525, 613238, 7070156, 6161950, 7921677, 6458423, 4040196,
+  4908348, 2039144, 6500539, 7561656, 6201452, 6757063, 2105286, 6006015, 6346610, 586241, 7200804,
+  527981, 5637006, 6903432, 1994046, 2491325, 6987258, 507927, 7192532, 7655613, 6545891, 5346675,
+  8041997, 2647994, 3009748, 5767564, 4148469, 749577, 4357667, 3980599, 2569011, 6764887, 1723229,
+  1665318, 2028038, 1163598, 5011144, 3994671, 8368538, 7009900, 3020393, 3363542, 214880, 545376,
+  7609976, 3105558, 7277073, 508145, 7826699, 860144, 3430436, 140244, 6866265, 6195333, 3123762,
+  2358373, 6187330, 5365997, 6663603, 2926054, 7987710, 8077412, 3531229, 4405932, 4606686, 1900052,
+  7598542, 1054478, 7648983,
+]
+
+pub type Parameters = { name: Str, pk_size: Int, sig_size: Int }
+
+pub fn mldsa44() -> Parameters {
+  Parameters {
+    name: "ML-DSA-44",
+    pk_size: MLDSA44_PUBLIC_KEY_SIZE,
+    sig_size: MLDSA44_SIGNATURE_SIZE,
+  }
+}
+
+pub fn mldsa65() -> Parameters {
+  Parameters {
+    name: "ML-DSA-65",
+    pk_size: MLDSA65_PUBLIC_KEY_SIZE,
+    sig_size: MLDSA65_SIGNATURE_SIZE,
+  }
+}
+
+pub fn mldsa87() -> Parameters {
+  Parameters {
+    name: "ML-DSA-87",
+    pk_size: MLDSA87_PUBLIC_KEY_SIZE,
+    sig_size: MLDSA87_SIGNATURE_SIZE,
+  }
+}
+
+impl Parameters {
+  pub fn public_key_size(self) -> Int { self.pk_size }
+
+  pub fn signature_size(self) -> Int { self.sig_size }
+
+  pub fn string(self) -> Str { self.name }
+}
+
+pub type Options = { context: Str }
+
+impl Options {
+  pub fn hash_func(self) -> Int { 0 }
+}
+
+// 内部参数：k、l、η、log₂γ₁、γ₂ 的分母、λ、τ、ω
+type Params = {
+  k: Int,
+  l: Int,
+  eta: Int,
+  g1: Int,
+  g2: Int,
+  lam: Int,
+  tau: Int,
+  omega: Int,
+}
+
+fn internal_params(p: Parameters) -> Result<Params, Str> {
+  if p == mldsa44() {
+    return Ok(Params { k: 4, l: 4, eta: 2, g1: 17, g2: 88, lam: 128, tau: 39, omega: 80 })
+  }
+  if p == mldsa65() {
+    return Ok(Params { k: 6, l: 5, eta: 4, g1: 19, g2: 32, lam: 192, tau: 49, omega: 55 })
+  }
+  if p == mldsa87() {
+    return Ok(Params { k: 8, l: 7, eta: 2, g1: 19, g2: 32, lam: 256, tau: 60, omega: 75 })
+  }
+  Err("mldsa: invalid parameters")
+}
+
+fn pub_key_size(p: Params) -> Int { 32 + p.k * N * 10 / 8 }
+
+fn sig_size(p: Params) -> Int { p.lam / 4 + p.l * N * (p.g1 + 1) / 8 + p.omega + p.k }
+
+pub type PublicKey = { params: Parameters, p: Params, raw: List<Int>, tr: List<Int> }
+
+pub type PrivateKey = {
+  seed: List<Int>,
+  pub_: PublicKey,
+  a: List<List<Int>>,
+  s1: List<List<Int>>,
+  s2: List<List<Int>>,
+  t0: List<List<Int>>,
+  kk: List<Int>,
+}
+
+// ---- 多项式运算（系数是 [0, q) 里的普通整数，不用 Montgomery 形式）----
+
+fn ntt(f0: List<Int>) -> List<Int> {
+  var f = f0
+  var len_ = 128
+  while len_ >= 1 {
+    let base = 128 / len_
+    var g: List<Int> = []
+    for i in 0..N {
+      let blk = i / (2 * len_)
+      let z = ZETAS[base + blk]
+      if i - blk * 2 * len_ < len_ {
+        g = push(g, (f[i] + z * f[i + len_]) % Q)
+      } else {
+        g = push(g, (f[i - len_] - z * f[i] % Q + Q) % Q)
+      }
+    }
+    f = g
+    len_ = len_ / 2
+  }
+  f
+}
+
+fn inverse_ntt(f0: List<Int>) -> List<Int> {
+  var f = f0
+  var len_ = 1
+  while len_ < N {
+    let top = 256 / len_ - 1
+    var g: List<Int> = []
+    for i in 0..N {
+      let blk = i / (2 * len_)
+      let z = ZETAS[top - blk]
+      if i - blk * 2 * len_ < len_ {
+        g = push(g, (f[i] + f[i + len_]) % Q)
+      } else {
+        // -ζ·(t − u) = ζ·(u − t)
+        g = push(g, z * ((f[i] - f[i - len_] + Q) % Q) % Q)
+      }
+    }
+    f = g
+    len_ = len_ * 2
+  }
+  map(f, (x) => x * 8347681 % Q)
+}
+
+fn nmul(a: List<Int>, b: List<Int>) -> List<Int> { map(0..N, (i) => a[i] * b[i] % Q) }
+
+fn padd(a: List<Int>, b: List<Int>) -> List<Int> { map(0..N, (i) => (a[i] + b[i]) % Q) }
+
+fn psub(a: List<Int>, b: List<Int>) -> List<Int> { map(0..N, (i) => (a[i] - b[i] + Q) % Q) }
+
+fn zero_poly() -> List<Int> { map(0..N, (_) => 0) }
+
+fn centered(x: Int) -> Int { if x <= HALF_Q { x } else { x - Q } }
+
+fn inf_norm(x: Int) -> Int { if x <= HALF_Q { x } else { Q - x } }
+
+fn exceeds(w: List<Int>, bound: Int) -> Bool {
+  for x in w { if inf_norm(x) >= bound { return true } }
+  false
+}
+
+// ---- 采样 ----
+
+fn sample_ntt(rho: List<Int>, s: Int, r: Int) -> List<Int> {
+  var sp = sha3.new_shake128().write(rho + [s, r])
+  var a: List<Int> = []
+  var buf: List<Int> = []
+  var off = 0
+  while len(a) < N {
+    if off >= len(buf) {
+      let (b, sp2) = sp.read(168)
+      buf = b
+      sp = sp2
+      off = 0
+    }
+    let v = (buf[off] | (buf[off + 1] << 8) | (buf[off + 2] << 16)) & 0x7fffff
+    off += 3
+    if v < Q { a = push(a, v) }
+  }
+  a
+}
+
+fn coeff_from_half_byte(b: Int, eta: Int) -> Int {
+  if eta == 2 {
+    if b > 14 { return -1 }
+    return (2 - b % 5 + Q) % Q
+  }
+  if b > 8 { return -1 }
+  (4 - b + Q) % Q
+}
+
+fn sample_bounded_poly(rho: List<Int>, r: Int, eta: Int) -> List<Int> {
+  var sp = sha3.new_shake256().write(rho + [r, 0])
+  var a: List<Int> = []
+  var buf: List<Int> = []
+  var off = 0
+  loop {
+    if off >= len(buf) {
+      let (b, sp2) = sp.read(136)
+      buf = b
+      sp = sp2
+      off = 0
+    }
+    let c0 = coeff_from_half_byte(buf[off] & 15, eta)
+    let c1 = coeff_from_half_byte(buf[off] >> 4, eta)
+    off += 1
+    if c0 >= 0 { a = push(a, c0) }
+    if len(a) >= N { break }
+    if c1 >= 0 { a = push(a, c1) }
+    if len(a) >= N { break }
+  }
+  a
+}
+
+fn sample_in_ball(rho: List<Int>, tau: Int) -> List<Int> {
+  var sp = sha3.new_shake256().write(rho)
+  let (head, sp1) = sp.read(136)
+  sp = sp1
+  let s = head[..8]
+  var buf = head
+  var off = 8
+  var c = zero_poly()
+  for i in 256 - tau..256 {
+    var j = 0
+    loop {
+      if off >= len(buf) {
+        let (b, sp2) = sp.read(136)
+        buf = b
+        sp = sp2
+        off = 0
+      }
+      j = buf[off]
+      off += 1
+      if j <= i { break }
+    }
+    c = set(c, i, c[j])
+    let bit_idx = i + tau - 256
+    let bit = (s[bit_idx / 8] >> (bit_idx % 8)) & 1
+    c = set(c, j, if bit == 0 { 1 } else { Q - 1 })
+  }
+  c
+}
+
+// ---- 编码 ----
+
+// 每个值 d 位，小端位序
+fn encode_bits(f: List<Int>, d: Int) -> List<Int> {
+  var out: List<Int> = []
+  var acc = 0
+  var nb = 0
+  for x in f {
+    acc = acc | (x << nb)
+    nb += d
+    while nb >= 8 {
+      out = push(out, acc & 255)
+      acc = acc >> 8
+      nb -= 8
+    }
+  }
+  out
+}
+
+fn decode_bits(b: List<Int>, d: Int) -> List<Int> {
+  var out: List<Int> = []
+  var acc = 0
+  var nb = 0
+  let mask = (1 << d) - 1
+  for x in b {
+    acc = acc | (x << nb)
+    nb += 8
+    while nb >= d {
+      out = push(out, acc & mask)
+      acc = acc >> d
+      nb -= d
+    }
+  }
+  out
+}
+
+fn bit_pack(r: List<Int>, g1: Int) -> List<Int> {
+  let b = 1 << g1
+  encode_bits(map(r, (x) => b - centered(x)), g1 + 1)
+}
+
+fn bit_unpack(v: List<Int>, g1: Int) -> List<Int> {
+  let b = 1 << g1
+  map(decode_bits(v, g1 + 1), (w) => (b - w + Q) % Q)
+}
+
+fn power2_round(r: Int) -> (Int, Int) {
+  let r1 = (r + 4095) >> 13
+  (r1, (r - (r1 << 13) + Q) % Q)
+}
+
+fn high_bits32(x: Int) -> Int {
+  let r1 = (x + 127) >> 7
+  (((r1 * 1025) + (1 << 21)) >> 22) & 15
+}
+
+fn high_bits88(x: Int) -> Int {
+  let r1 = (x + 127) >> 7
+  let r = ((r1 * 11275) + (1 << 23)) >> 24
+  if r == 44 { 0 } else { r }
+}
+
+fn high_bits(x: Int, g2: Int) -> Int { if g2 == 32 { high_bits32(x) } else { high_bits88(x) } }
+
+// Decompose：(r1, r0)，r0 是有符号的
+fn decompose(x: Int, g2: Int) -> (Int, Int) {
+  let r1 = high_bits(x, g2)
+  let r0 = x - r1 * 2 * ((Q - 1) / g2)
+  (r1, if HALF_Q + 1 <= r0 { r0 - Q } else { r0 })
+}
+
+fn use_hint(x: Int, hint: Int, g2: Int) -> Int {
+  let m = (Q - 1) / (2 * ((Q - 1) / g2))
+  let (r1, r0) = decompose(x, g2)
+  if hint == 1 {
+    if r0 > 0 { (r1 + 1) % m } else { (r1 - 1 + m) % m }
+  } else {
+    r1
+  }
+}
+
+fn w1_encode(w1: List<Int>, g2: Int) -> List<Int> {
+  encode_bits(w1, if g2 == 32 { 4 } else { 6 })
+}
+
+fn shake256(b: List<Int>, n: Int) -> List<Int> { sha3.sum_shake256(b, n) }
+
+fn le16(x: Int) -> List<Int> { [x & 255, (x >> 8) & 255] }
+
+fn compute_matrix_a(rho: List<Int>, p: Params) -> List<List<Int>> {
+  var a: List<List<Int>> = []
+  for r in 0..p.k { for s in 0..p.l { a = push(a, sample_ntt(rho, s, r)) } }
+  a
+}
+
+fn t1_hat(t1: List<List<Int>>) -> List<List<Int>> {
+  map(t1, (t) => ntt(map(t, (x) => x << 13)))
+}
+
+// ---- 密钥 ----
+
+fn new_private_key_internal(seed: List<Int>, params: Parameters, p: Params) -> PrivateKey {
+  let k = p.k
+  let l = p.l
+  let xi = shake256(seed + [k, l], 128)
+  let rho = xi[..32]
+  let rhos = xi[32..96]
+  let kk = xi[96..128]
+  let a = compute_matrix_a(rho, p)
+  var s1: List<List<Int>> = []
+  for r in 0..l { s1 = push(s1, ntt(sample_bounded_poly(rhos, r, p.eta))) }
+  var s2: List<List<Int>> = []
+  for r in 0..k { s2 = push(s2, ntt(sample_bounded_poly(rhos, l + r, p.eta))) }
+  var t1: List<List<Int>> = []
+  var t0: List<List<Int>> = []
+  for i in 0..k {
+    var th = s2[i]
+    for j in 0..l { th = padd(th, nmul(a[i * l + j], s1[j])) }
+    let t = inverse_ntt(th)
+    var hi: List<Int> = []
+    var lo: List<Int> = []
+    for x in t {
+      let (r1, r0) = power2_round(x)
+      hi = push(hi, r1)
+      lo = push(lo, r0)
+    }
+    t1 = push(t1, hi)
+    t0 = push(t0, ntt(lo))
+  }
+  let raw = rho + fold(t1, [], (acc, t) => acc + encode_bits(t, 10))
+  let pk = PublicKey { params: params, p: p, raw: raw, tr: shake256(raw, 64) }
+  PrivateKey { seed: seed, pub_: pk, a: a, s1: s1, s2: s2, t0: t0, kk: kk }
+}
+
+pub fn generate_key(params: Parameters) -> Result<PrivateKey, Str> {
+  let p = internal_params(params)?
+  Ok(new_private_key_internal(crand.read(32), params, p))
+}
+
+pub fn new_private_key(params: Parameters, seed: List<Int>) -> Result<PrivateKey, Str> {
+  let p = internal_params(params)?
+  if len(seed) != 32 { return Err("mldsa: invalid seed length") }
+  Ok(new_private_key_internal(seed, params, p))
+}
+
+pub fn new_public_key(params: Parameters, encoding: List<Int>) -> Result<PublicKey, Str> {
+  let p = internal_params(params)?
+  if len(encoding) != pub_key_size(p) { return Err("mldsa: invalid public key length") }
+  Ok(PublicKey { params: params, p: p, raw: encoding, tr: shake256(encoding, 64) })
+}
+
+impl PublicKey {
+  pub fn bytes(self) -> List<Int> { self.raw }
+
+  pub fn equal(self, x: PublicKey) -> Bool { self.params == x.params && self.raw == x.raw }
+
+  pub fn parameters(self) -> Parameters { self.params }
+}
+
+fn compute_message_hash(tr: List<Int>, msg: List<Int>, context: Str) -> Result<List<Int>, Str> {
+  let ctx = __bytes(context)
+  if len(ctx) > 255 { return Err("mldsa: context too long") }
+  Ok(shake256(tr + [0, len(ctx)] + ctx + msg, 64))
+}
+
+fn ctx_of(opts: Option<Options>) -> Str { match opts { Some(o) => o.context, None => "" } }
+
+fn sign_internal(priv: PrivateKey, mu: List<Int>, rnd: List<Int>) -> List<Int> {
+  let p = priv.pub_.p
+  let k = p.k
+  let l = p.l
+  let beta = p.tau * p.eta
+  let gamma1 = 1 << p.g1
+  let gamma2 = (Q - 1) / p.g2
+  let ylen = (p.g1 + 1) * N / 8
+  let nonce = shake256(priv.kk + rnd + mu, 64)
+  var kappa = 0
+  loop {
+    var y: List<List<Int>> = []
+    for _ in 0..l {
+      y = push(y, bit_unpack(shake256(nonce + le16(kappa), ylen), p.g1))
+      kappa += 1
+    }
+    let yh = map(y, (e) => ntt(e))
+    var w: List<List<Int>> = []
+    for i in 0..k {
+      var wh = zero_poly()
+      for j in 0..l { wh = padd(wh, nmul(priv.a[i * l + j], yh[j])) }
+      w = push(w, inverse_ntt(wh))
+    }
+    let w1 = fold(w, [], (acc, wi) => acc + w1_encode(map(wi, (x) => high_bits(x, p.g2)), p.g2))
+    let ch = shake256(mu + w1, p.lam / 4)
+    let c = ntt(sample_in_ball(ch, p.tau))
+    var ok = true
+    var z: List<List<Int>> = []
+    for i in 0..l {
+      let zi = padd(y[i], inverse_ntt(nmul(c, priv.s1[i])))
+      if exceeds(zi, gamma1 - beta) {
+        ok = false
+        break
+      }
+      z = push(z, zi)
+    }
+    if !ok { continue }
+    var cs2: List<List<Int>> = []
+    for i in 0..k {
+      let cs = inverse_ntt(nmul(c, priv.s2[i]))
+      let r0 = psub(w[i], cs)
+      for x in r0 {
+        let (_, lo) = decompose(x, p.g2)
+        if (if lo < 0 { -lo } else { lo }) >= gamma2 - beta {
+          ok = false
+          break
+        }
+      }
+      if !ok { break }
+      cs2 = push(cs2, cs)
+    }
+    if !ok { continue }
+    var ct0: List<List<Int>> = []
+    for i in 0..k {
+      let ct = inverse_ntt(nmul(c, priv.t0[i]))
+      if exceeds(ct, gamma2) {
+        ok = false
+        break
+      }
+      ct0 = push(ct0, ct)
+    }
+    if !ok { continue }
+    var count = 0
+    var hints: List<Int> = []
+    var limits: List<Int> = []
+    for i in 0..k {
+      for j in 0..N {
+        let r = (w[i][j] - cs2[i][j] + Q) % Q
+        let v1 = high_bits(r, p.g2)
+        let r1 = high_bits((r + ct0[i][j]) % Q, p.g2)
+        if v1 != r1 {
+          count += 1
+          hints = push(hints, j)
+        }
+      }
+      limits = push(limits, len(hints))
+    }
+    if count > p.omega { continue }
+    let zb = fold(z, [], (acc, zi) => acc + bit_pack(zi, p.g1))
+    let pad = map(0..p.omega - len(hints), (_) => 0)
+    return ch + zb + hints + pad + limits
+  }
+}
+
+impl PrivateKey {
+  pub fn bytes(self) -> List<Int> { self.seed }
+
+  pub fn equal(self, x: PrivateKey) -> Bool {
+    self.pub_.params == x.pub_.params && self.seed == x.seed
+  }
+
+  pub fn public(self) -> PublicKey { self.pub_ }
+
+  pub fn public_key(self) -> PublicKey { self.pub_ }
+
+  pub fn sign(self, message: List<Int>, opts: Option<Options>) -> Result<List<Int>, Str> {
+    let mu = compute_message_hash(self.pub_.tr, message, ctx_of(opts))?
+    Ok(sign_internal(self, mu, crand.read(32)))
+  }
+
+  pub fn sign_deterministic(
+    self,
+    message: List<Int>,
+    opts: Option<Options>,
+  ) -> Result<List<Int>, Str> {
+    let mu = compute_message_hash(self.pub_.tr, message, ctx_of(opts))?
+    Ok(sign_internal(self, mu, map(0..32, (_) => 0)))
+  }
+
+  pub fn sign_hash(self, message: List<Int>, h: Int) -> Result<List<Int>, Str> {
+    if h == 0 { return self.sign(message, None) }
+    if h != MLDSA_MU { return Err("mldsa: invalid SignerOpts") }
+    if len(message) != 64 { return Err("mldsa: invalid message hash length") }
+    Ok(sign_internal(self, message, crand.read(32)))
+  }
+
+  pub fn sign_deterministic_hash(self, message: List<Int>, h: Int) -> Result<List<Int>, Str> {
+    if h == 0 { return self.sign_deterministic(message, None) }
+    if h != MLDSA_MU { return Err("mldsa: invalid SignerOpts") }
+    if len(message) != 64 { return Err("mldsa: invalid message hash length") }
+    Ok(sign_internal(self, message, map(0..32, (_) => 0)))
+  }
+
+  pub fn sign_with_random(
+    self,
+    message: List<Int>,
+    opts: Option<Options>,
+    random: List<Int>,
+  ) -> Result<List<Int>, Str> {
+    let mu = compute_message_hash(self.pub_.tr, message, ctx_of(opts))?
+    if len(random) != 32 { return Err("mldsa: invalid random length") }
+    Ok(sign_internal(self, mu, random))
+  }
+
+  pub fn sign_external_mu_with_random(
+    self,
+    mu: List<Int>,
+    random: List<Int>,
+  ) -> Result<List<Int>, Str> {
+    if len(mu) != 64 { return Err("mldsa: invalid message hash length") }
+    if len(random) != 32 { return Err("mldsa: invalid random length") }
+    Ok(sign_internal(self, mu, random))
+  }
+}
+
+// ---- 验签 ----
+
+fn hint_decode(y: List<Int>, p: Params) -> Result<List<List<Int>>, Str> {
+  let omega = p.omega
+  var h: List<List<Int>> = []
+  var idx = 0
+  for i in 0..p.k {
+    var hi = zero_poly()
+    let limit = y[omega + i]
+    if limit < idx || limit > omega { return Err("mldsa: invalid signature encoding") }
+    let first = idx
+    while idx < limit {
+      if idx > first && y[idx - 1] >= y[idx] { return Err("mldsa: invalid signature encoding") }
+      hi = set(hi, y[idx], 1)
+      idx += 1
+    }
+    h = push(h, hi)
+  }
+  for i in idx..omega { if y[i] != 0 { return Err("mldsa: invalid signature encoding") } }
+  Ok(h)
+}
+
+fn verify_internal(pk: PublicKey, mu: List<Int>, sig: List<Int>) -> Result<(), Str> {
+  let p = pk.p
+  let k = p.k
+  let l = p.l
+  let beta = p.tau * p.eta
+  let gamma1 = 1 << p.g1
+  if len(sig) != sig_size(p) { return Err("mldsa: invalid signature length") }
+  let rho = pk.raw[..32]
+  var t1: List<List<Int>> = []
+  for i in 0..k { t1 = push(t1, decode_bits(pk.raw[32 + 320 * i..32 + 320 * (i + 1)], 10)) }
+  let a = compute_matrix_a(rho, p)
+  let t1h = t1_hat(t1)
+  let clen = p.lam / 4
+  let zlen = (p.g1 + 1) * N / 8
+  let ch = sig[..clen]
+  var z: List<List<Int>> = []
+  for i in 0..l { z = push(z, bit_unpack(sig[clen + zlen * i..clen + zlen * (i + 1)], p.g1)) }
+  let h = hint_decode(sig[clen + zlen * l..], p)?
+  let c = ntt(sample_in_ball(ch, p.tau))
+  let zh = map(z, (e) => ntt(e))
+  var w1: List<Int> = []
+  for i in 0..k {
+    var wh = zero_poly()
+    for j in 0..l { wh = padd(wh, nmul(a[i * l + j], zh[j])) }
+    wh = psub(wh, nmul(c, t1h[i]))
+    let w = inverse_ntt(wh)
+    w1 = w1 + w1_encode(map(0..N, (j) => use_hint(w[j], h[i][j], p.g2)), p.g2)
+  }
+  let computed = shake256(mu + w1, clen)
+  for zi in z { if exceeds(zi, gamma1 - beta) { return Err("mldsa: invalid signature") } }
+  if ch != computed { return Err("mldsa: invalid signature") }
+  Ok(())
+}
+
+pub fn verify(
+  pk: PublicKey,
+  message: List<Int>,
+  signature: List<Int>,
+  opts: Option<Options>,
+) -> Result<(), Str> {
+  let mu = compute_message_hash(pk.tr, message, ctx_of(opts))?
+  verify_internal(pk, mu, signature)
+}
+
+pub fn verify_external_mu(pk: PublicKey, mu: List<Int>, signature: List<Int>) -> Result<(), Str> {
+  if len(mu) != 64 { return Err("mldsa: invalid message hash length") }
+  verify_internal(pk, mu, signature)
+}

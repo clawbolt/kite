@@ -1,0 +1,936 @@
+// std.net.http.cookiejar：内存里的 RFC 6265 cookie jar（对齐 Go 1.27 的 net/http/cookiejar，含 punycode.go）
+//   let jar = cookiejar.new(cookiejar.Options { public_suffix_list: Some(psl) })   // 或 cookiejar.new(cookiejar.options())
+//   let jar2 = jar.set_cookies(u, cookies)          // u: url.URL；返回新的 Jar（值不可变）
+//   let cs = jar2.cookies(u)                        // List<Cookie>，只带 name / value / quoted
+//   时间可注入：set_cookies_at(u, cookies, now_ms) / cookies_at(u, now_ms) -> (List<Cookie>, Jar)
+//   PublicSuffixList 是 { public_suffix: fn(Str) -> Str, description: Str }，用 public_suffix_list(f, desc) 构造
+//   Cookie 类型（对应 Go 的 http.Cookie）在本模块里定义，std.net.http 里没有 cookie 类型：
+//     new_cookie(name, value)、parse_set_cookie(line)（= http.ParseSetCookie）、read_set_cookies(lines)、c.string()
+// 和 Go 的差别：
+//   - 时间点一律是 unix 毫秒（Int），和 std.time 一致；Go 的 time.Time 精确到纳秒。Cookie.expires 用 Option<Int>，
+//     None 对应 Go 的零值 time.Time{}。
+//   - Jar 是不可变值：set_cookies 返回新 Jar。Go 的 Cookies 会顺带删除过期条目并更新 LastAccess，
+//     这里 cookies_at 把更新后的 Jar 一起返回；cookies(u) 只返回 cookie 列表、丢弃更新（过期条目仍会被
+//     过滤掉，只是没从 Jar 里删除，之后再 set 同名 cookie 时会沿用旧的 creation）。要完全照 Go 的语义就用 cookies_at。
+//   - 没有锁（值不可变，无需互斥）。New 永远不会失败，所以 new 直接返回 Jar 而不是 (Jar, error)。
+//   - 额外导出 entries()（按 id 排序的内部条目）和 Go 里未导出的辅助函数（has_dot_suffix、canonical_host、
+//     has_port、jar_key、is_ip、default_path、domain_and_type、encode、to_ascii、split_host_port），便于测试。
+//   - url.URL 来自 std.net.url：它的 parse 会把 host 转成小写且不对 host 做百分号解码（Go 会解码 %25），
+//     cookiejar 本身直接使用 u.host。
+//   - 字符串按字符（而不是字节）下标；进入比较的主机名都已是 ASCII，结果相同。
+//   - parse_set_cookie 的 Expires 支持 "Mon, 02 Jan 2006 15:04:05 MST" 和 "Mon, 02-Jan-2006 15:04:05 MST"，
+//     时区缩写按 Go 的规则（3 个大写字母，或 4/5 个大写字母以 T 结尾）接受，一律按 UTC 偏移 0 处理
+//     （Go 在缩写与本机时区同名时会用本机偏移）；"GMT+3" 这类带偏移的写法不支持。
+//   - Cookie.string() 遇到非法字节/非法 domain 时和 Go 一样丢弃，但不像 Go 那样往日志打印警告。
+//     Raw 字段只在 parse_set_cookie 里填写。
+
+use std.net.url
+use std.net.netip
+use std.time
+use std.sort
+use std.strconv
+
+// ───────────── Cookie（对应 net/http.Cookie） ─────────────
+
+pub const SAME_SITE_DEFAULT_MODE: Int = 1
+pub const SAME_SITE_LAX_MODE: Int = 2
+pub const SAME_SITE_STRICT_MODE: Int = 3
+pub const SAME_SITE_NONE_MODE: Int = 4
+
+pub type Cookie = {
+  name: Str,
+  value: Str,
+  quoted: Bool,
+  path: Str,
+  domain: Str,
+  expires: Option<Int>,
+  raw_expires: Str,
+  max_age: Int,
+  secure: Bool,
+  http_only: Bool,
+  same_site: Int,
+  partitioned: Bool,
+  raw: Str,
+  unparsed: List<Str>,
+}
+
+pub fn new_cookie(name: Str, value: Str) -> Cookie {
+  Cookie {
+    name: name,
+    value: value,
+    quoted: false,
+    path: "",
+    domain: "",
+    expires: None,
+    raw_expires: "",
+    max_age: 0,
+    secure: false,
+    http_only: false,
+    same_site: 0,
+    partitioned: false,
+    raw: "",
+    unparsed: [],
+  }
+}
+
+pub const ERR_BLANK_COOKIE: Str = "http: blank cookie"
+pub const ERR_EQUAL_NOT_FOUND_IN_COOKIE: Str = "http: '=' not found in cookie"
+pub const ERR_INVALID_COOKIE_NAME: Str = "http: invalid cookie name"
+pub const ERR_INVALID_COOKIE_VALUE: Str = "http: invalid cookie value"
+
+fn is_token_char(o: Int) -> Bool {
+  (o >= 48 && o <= 57)
+    || (o >= 65 && o <= 90)
+    || (o >= 97 && o <= 122)
+    || o == 33
+    || (o >= 35 && o <= 39)
+    || o == 42
+    || o == 43
+    || o == 45
+    || o == 46
+    || o == 94
+    || o == 95
+    || o == 96
+    || o == 124
+    || o == 126
+}
+
+fn is_token(s: Str) -> Bool {
+  if s == "" { return false }
+  for c in chars(s) {
+    if !is_token_char(__ord(c)) { return false }
+  }
+  true
+}
+
+fn is_trim_space(c: Str) -> Bool { c == " " || c == "\t" || c == "\n" || c == "\r" }
+
+// textproto.TrimString：去掉两端的 ASCII 空白（空格、\t、\n、\r）
+fn trim_string(s: Str) -> Str {
+  var a = 0
+  var b = len(s)
+  while a < b && is_trim_space(__str_slice(s, a, a + 1)) { a += 1 }
+  while b > a && is_trim_space(__str_slice(s, b - 1, b)) { b -= 1 }
+  __str_slice(s, a, b)
+}
+
+fn cut(s: Str, sep: Str) -> (Str, Str, Bool) {
+  let i = __str_find(s, sep, 0)
+  if i < 0 {
+    (s, "", false)
+  } else {
+    (__str_slice(s, 0, i), __str_slice(s, i + len(sep), len(s)), true)
+  }
+}
+
+fn last_index(s: Str, sub: Str) -> Int {
+  var i = len(s) - len(sub)
+  while i >= 0 {
+    if __str_slice(s, i, i + len(sub)) == sub { return i }
+    i -= 1
+  }
+  -1
+}
+
+fn count(s: Str, sub: Str) -> Int {
+  var n = 0
+  var i = __str_find(s, sub, 0)
+  while i >= 0 {
+    n += 1
+    i = __str_find(s, sub, i + len(sub))
+  }
+  n
+}
+
+fn valid_cookie_value_byte(o: Int) -> Bool { o >= 32 && o < 127 && o != 34 && o != 59 && o != 92 }
+
+fn valid_cookie_path_byte(o: Int) -> Bool { o >= 32 && o < 127 && o != 59 }
+
+// 返回 (value, quoted, ok)
+fn parse_cookie_value(raw0: Str, allow_double_quote: Bool) -> (Str, Bool, Bool) {
+  var raw = raw0
+  var quoted = false
+  let dq = allow_double_quote && len(raw) > 1 && starts_with(raw, "\"") && ends_with(raw, "\"")
+  if dq {
+    raw = __str_slice(raw, 1, len(raw) - 1)
+    quoted = true
+  }
+  for c in chars(raw) {
+    if !valid_cookie_value_byte(__ord(c)) { return ("", quoted, false) }
+  }
+  (raw, quoted, true)
+}
+
+fn ascii_is_print(s: Str) -> Bool {
+  for c in chars(s) {
+    let o = __ord(c)
+    if o < 32 || o > 126 { return false }
+  }
+  true
+}
+
+fn ascii_is(s: Str) -> Bool {
+  for c in chars(s) {
+    if __ord(c) > 127 { return false }
+  }
+  true
+}
+
+// ascii.ToLower：只在 s 全是可打印 ASCII 时返回小写
+fn ascii_to_lower(s: Str) -> Option<Str> { if ascii_is_print(s) { Some(lower(s)) } else { None } }
+
+fn ascii_equal_fold(s: Str, t: Str) -> Bool { len(s) == len(t) && ascii_lower(s) == ascii_lower(t) }
+
+fn ascii_lower(s: Str) -> Str {
+  var out = ""
+  for c in chars(s) {
+    let o = __ord(c)
+    out = out + (if o >= 65 && o <= 90 { __chr(o + 32) } else { c })
+  }
+  out
+}
+
+// strconv.Atoi（十进制，可带 + / - 号）
+fn atoi(s: Str) -> Option<Int> {
+  if s == "" { return None }
+  var i = 0
+  var neg = false
+  let c0 = __str_slice(s, 0, 1)
+  if c0 == "+" || c0 == "-" {
+    neg = c0 == "-"
+    i = 1
+    if len(s) == 1 { return None }
+  }
+  var v = 0
+  while i < len(s) {
+    let o = __ord(__str_slice(s, i, i + 1))
+    if o < 48 || o > 57 { return None }
+    let d = o - 48
+    // 溢出检查：按负数累加，范围 [-2^63, 2^63-1]
+    if v < (-9223372036854775807 - 1 + d) / 10 { return None }
+    v = v * 10 - d
+    i += 1
+  }
+  if neg { Some(v) } else if v == -9223372036854775807 - 1 { None } else { Some(-v) }
+}
+
+fn upper_count(s: Str) -> Int {
+  var n = 0
+  for c in chars(s) {
+    let o = __ord(c)
+    if o >= 65 && o <= 90 { n += 1 } else { break }
+  }
+  n
+}
+
+// Go 的 parseTimeZone 能接受的时区缩写（不含 GMT±h 与 ±hhmm 形式）
+fn zone_abbrev_ok(z: Str) -> Bool {
+  if len(z) < 3 { return false }
+  if z == "ChST" || z == "MeST" { return true }
+  let n = upper_count(z)
+  if n != len(z) { return false }
+  match n {
+    3 => true,
+    4 => __str_slice(z, 3, 4) == "T" || z == "WITA",
+    5 => __str_slice(z, 4, 5) == "T",
+    _ => false,
+  }
+}
+
+fn parse_expires(v: Str) -> Option<Int> {
+  let sp = last_index(v, " ")
+  if sp < 0 { return None }
+  let z = __str_slice(v, sp + 1, len(v))
+  if !zone_abbrev_ok(z) { return None }
+  let w = __str_slice(v, 0, sp) + " UTC"
+  match time.parse(time.RFC1123, w) {
+    Ok(t) => { return Some(t) },
+    Err(_) => {},
+  }
+  match time.parse("Mon, 02-Jan-2006 15:04:05 MST", w) {
+    Ok(t) => Some(t),
+    Err(_) => None,
+  }
+}
+
+// http.ParseSetCookie
+pub fn parse_set_cookie(line: Str) -> Result<Cookie, Str> {
+  let parts = split(trim_string(line), ";")
+  if len(parts) == 1 && parts[0] == "" { return Err(ERR_BLANK_COOKIE) }
+  let p0 = trim_string(parts[0])
+  let (name0, value0, ok0) = cut(p0, "=")
+  if !ok0 { return Err(ERR_EQUAL_NOT_FOUND_IN_COOKIE) }
+  let name = trim_string(name0)
+  if !is_token(name) { return Err(ERR_INVALID_COOKIE_NAME) }
+  let (value, quoted, ok1) = parse_cookie_value(value0, true)
+  if !ok1 { return Err(ERR_INVALID_COOKIE_VALUE) }
+  var c = Cookie { name: name, value: value, quoted: quoted, raw: line, ..new_cookie("", "") }
+  var i = 1
+  while i < len(parts) {
+    let part = trim_string(parts[i])
+    i += 1
+    if part == "" { continue }
+    let (attr, val0, _) = cut(part, "=")
+    let Some(lower_attr) = ascii_to_lower(attr) else { continue }
+    let (val, _, okv) = parse_cookie_value(val0, false)
+    if !okv {
+      c = Cookie { unparsed: push(c.unparsed, part), ..c }
+      continue
+    }
+    if lower_attr == "samesite" {
+      let ss = match ascii_to_lower(val) {
+        None => SAME_SITE_DEFAULT_MODE,
+        Some("lax") => SAME_SITE_LAX_MODE,
+        Some("strict") => SAME_SITE_STRICT_MODE,
+        Some("none") => SAME_SITE_NONE_MODE,
+        Some(_) => SAME_SITE_DEFAULT_MODE,
+      }
+      c = Cookie { same_site: ss, ..c }
+      continue
+    } else if lower_attr == "secure" {
+      c = Cookie { secure: true, ..c }
+      continue
+    } else if lower_attr == "httponly" {
+      c = Cookie { http_only: true, ..c }
+      continue
+    } else if lower_attr == "domain" {
+      c = Cookie { domain: val, ..c }
+      continue
+    } else if lower_attr == "max-age" {
+      match atoi(val) {
+        Some(secs) => {
+          if !(secs != 0 && __str_slice(val, 0, 1) == "0") {
+            c = Cookie { max_age: if secs <= 0 { -1 } else { secs }, ..c }
+            continue
+          }
+        },
+        None => {},
+      }
+    } else if lower_attr == "expires" {
+      c = Cookie { raw_expires: val, ..c }
+      match parse_expires(val) {
+        Some(t) => {
+          c = Cookie { expires: Some(t), ..c }
+          continue
+        },
+        None => { c = Cookie { expires: None, ..c } },
+      }
+    } else if lower_attr == "path" {
+      c = Cookie { path: val, ..c }
+      continue
+    } else if lower_attr == "partitioned" {
+      c = Cookie { partitioned: true, ..c }
+      continue
+    }
+    c = Cookie { unparsed: push(c.unparsed, part), ..c }
+  }
+  Ok(c)
+}
+
+// http.Response.Cookies 的核心（readSetCookies）：解析每一行 Set-Cookie，跳过出错的
+pub fn read_set_cookies(lines: List<Str>) -> List<Cookie> {
+  var out = []
+  for l in lines {
+    match parse_set_cookie(l) {
+      Ok(c) => { out = push(out, c) },
+      Err(_) => {},
+    }
+  }
+  out
+}
+
+fn sanitize(v: Str, valid: fn(Int) -> Bool) -> Str {
+  var out = ""
+  for c in chars(v) {
+    if valid(__ord(c)) { out = out + c }
+  }
+  out
+}
+
+fn sanitize_cookie_value(v0: Str, quoted: Bool) -> Str {
+  let v = sanitize(v0, valid_cookie_value_byte)
+  if contains(v, " ") || contains(v, ",") || quoted { "\"" + v + "\"" } else { v }
+}
+
+fn is_cookie_domain_name(s0: Str) -> Bool {
+  if len(__bytes(s0)) == 0 || len(__bytes(s0)) > 255 { return false }
+  let s = if __str_slice(s0, 0, 1) == "." { __str_slice(s0, 1, len(s0)) } else { s0 }
+  var last = "."
+  var ok = false
+  var partlen = 0
+  for c in chars(s) {
+    let o = __ord(c)
+    if (o >= 97 && o <= 122) || (o >= 65 && o <= 90) {
+      ok = true
+      partlen += 1
+    } else if o >= 48 && o <= 57 {
+      partlen += 1
+    } else if c == "-" {
+      if last == "." { return false }
+      partlen += 1
+    } else if c == "." {
+      if last == "." || last == "-" { return false }
+      if partlen > 63 || partlen == 0 { return false }
+      partlen = 0
+    } else {
+      return false
+    }
+    last = c
+  }
+  if last == "-" || partlen > 63 { return false }
+  ok
+}
+
+// net.ParseIP(v) != nil（不含 zone）
+fn parse_ip_ok(v: Str) -> Bool {
+  if contains(v, "%") { return false }
+  is_ok(netip.parse_addr(v))
+}
+
+fn valid_cookie_domain(v: Str) -> Bool {
+  if is_cookie_domain_name(v) { return true }
+  parse_ip_ok(v) && !contains(v, ":")
+}
+
+// 1601-01-01T00:00:00Z 的 unix 毫秒
+const YEAR_1601_MS: Int = -11644473600000
+
+impl Cookie {
+  // http.Cookie.String：Cookie 头（只有 name/value）或 Set-Cookie 头的序列化；name 非法时返回 ""
+  fn string(self) -> Str {
+    if !is_token(self.name) { return "" }
+    var b = self.name + "=" + sanitize_cookie_value(self.value, self.quoted)
+    if self.path != "" { b = b + "; Path=" + sanitize(self.path, valid_cookie_path_byte) }
+    if self.domain != "" && valid_cookie_domain(self.domain) {
+      let d = if __str_slice(self.domain, 0, 1) == "." {
+        __str_slice(self.domain, 1, len(self.domain))
+      } else {
+        self.domain
+      }
+      b = b + "; Domain=" + d
+    }
+    match self.expires {
+      Some(t) => {
+        if t >= YEAR_1601_MS {
+          b = b + "; Expires=" + time.format(t, "Mon, 02 Jan 2006 15:04:05 GMT")
+        }
+      },
+      None => {},
+    }
+    if self.max_age > 0 {
+      b = b + "; Max-Age={self.max_age}"
+    } else if self.max_age < 0 {
+      b = b + "; Max-Age=0"
+    }
+    if self.http_only { b = b + "; HttpOnly" }
+    if self.secure { b = b + "; Secure" }
+    if self.same_site == SAME_SITE_NONE_MODE {
+      b = b + "; SameSite=None"
+    } else if self.same_site == SAME_SITE_LAX_MODE {
+      b = b + "; SameSite=Lax"
+    } else if self.same_site == SAME_SITE_STRICT_MODE {
+      b = b + "; SameSite=Strict"
+    }
+    if self.partitioned { b = b + "; Partitioned" }
+    b
+  }
+}
+
+// ───────────── PublicSuffixList / Options / Jar ─────────────
+
+// PublicSuffixList：public_suffix("foo1.foo2.foo3.co.uk") == "co.uk"；description 对应 Go 的 String()
+pub type PublicSuffixList = { public_suffix: fn(Str) -> Str, description: Str }
+
+pub fn public_suffix_list(f: fn(Str) -> Str, description: Str) -> PublicSuffixList {
+  PublicSuffixList { public_suffix: f, description: description }
+}
+
+impl PublicSuffixList {
+  fn suffix(self, domain: Str) -> Str {
+    let f = self.public_suffix
+    f(domain)
+  }
+
+  fn string(self) -> Str { self.description }
+}
+
+// public_suffix_list 为 None 时可以用于测试，但不安全：foo.co.uk 的服务器能给 bar.co.uk 设 cookie
+pub type Options = { public_suffix_list: Option<PublicSuffixList> }
+
+pub fn options() -> Options { Options { public_suffix_list: None } }
+
+// 内部条目（Go 里未导出的 entry），字段同 RFC 6265
+pub type Entry = {
+  name: Str,
+  value: Str,
+  quoted: Bool,
+  domain: Str,
+  path: Str,
+  same_site: Str,
+  secure: Bool,
+  http_only: Bool,
+  persistent: Bool,
+  host_only: Bool,
+  expires: Int,
+  creation: Int,
+  last_access: Int,
+  seq_num: Int,
+}
+
+impl Entry {
+  // "domain;path;name"
+  fn id(self) -> Str { self.domain + ";" + self.path + ";" + self.name }
+
+  fn should_send(self, https: Bool, host: Str, path: Str) -> Bool {
+    self.domain_match(host) && self.path_match(path) && self.secure_match(https)
+  }
+
+  fn domain_match(self, host: Str) -> Bool {
+    if self.domain == host { return true }
+    !self.host_only && has_dot_suffix(host, self.domain)
+  }
+
+  fn path_match(self, request_path: Str) -> Bool {
+    if request_path == self.path { return true }
+    if starts_with(request_path, self.path) {
+      let n = len(self.path)
+      if __str_slice(self.path, n - 1, n) == "/" { return true }
+      if __str_slice(request_path, n, n + 1) == "/" { return true }
+    }
+    false
+  }
+
+  fn secure_match(self, https: Bool) -> Bool {
+    if !self.secure { return true }
+    if https { return true }
+    if is_localhost(self.domain) { return true }
+    match netip.parse_addr(self.domain) {
+      Ok(ip) => ip.is_loopback(),
+      Err(_) => false,
+    }
+  }
+}
+
+fn is_localhost(host0: Str) -> Bool {
+  var host = host0
+  if ends_with(host, ".") { host = __str_slice(host, 0, len(host) - 1) }
+  let idx = last_index(host, ".")
+  if idx >= 0 { host = __str_slice(host, idx + 1, len(host)) }
+  ascii_equal_fold(host, "localhost")
+}
+
+// s 是否以 "." + suffix 结尾
+pub fn has_dot_suffix(s: Str, suffix: Str) -> Bool {
+  let ls = len(s)
+  let lf = len(suffix)
+  ls > lf && __str_slice(s, ls - lf - 1, ls - lf) == "." && __str_slice(s, ls - lf, ls) == suffix
+}
+
+pub type Jar = {
+  ps_list: Option<PublicSuffixList>,
+  entry_map: Map<Str, Map<Str, Entry>>,
+  next_seq_num: Int,
+}
+
+// cookiejar.New（Go 的 New 永远返回 nil 错误）
+pub fn new(o: Options) -> Jar {
+  Jar { ps_list: o.public_suffix_list, entry_map: Map(), next_seq_num: 0 }
+}
+
+pub const ERR_ILLEGAL_DOMAIN: Str = "cookiejar: illegal cookie domain attribute"
+pub const ERR_MALFORMED_DOMAIN: Str = "cookiejar: malformed cookie domain attribute"
+
+// 会话 cookie 的过期时间：9999-12-31T23:59:59Z
+pub const END_OF_TIME: Int = 253402300799000
+
+fn result_cookie(e: Entry) -> Cookie {
+  Cookie { name: e.name, value: e.value, quoted: e.quoted, ..new_cookie("", "") }
+}
+
+impl Jar {
+  fn public_suffix_list(self) -> Option<PublicSuffixList> { self.ps_list }
+
+  // 所有条目（含已过期但还没删除的），按 id 排序
+  fn entries(self) -> List<Entry> {
+    var all = []
+    for (_, sub) in self.entry_map {
+      for (_, e) in sub { all = push(all, e) }
+    }
+    sort_by(all, (e) => e.id())
+  }
+
+  // Jar.Cookies：用当前时间；不返回更新后的 Jar（见开头注释）
+  fn cookies(self, u: url.URL) -> List<Cookie> {
+    let (cs, _) = self.cookies_at(u, time.unix_ms())
+    cs
+  }
+
+  // Go 的 cookies(u, now)：返回 cookie 列表和更新后的 Jar（删除过期条目、更新 last_access）
+  fn cookies_at(self, u: url.URL, now: Int) -> (List<Cookie>, Jar) {
+    if u.scheme != "http" && u.scheme != "https" { return ([], self) }
+    let Ok(host) = canonical_host(u.host) else { return ([], self) }
+    let key = jar_key(host, self.ps_list)
+    if !contains(self.entry_map, key) { return ([], self) }
+    var submap = self.entry_map[key]
+    let https = u.scheme == "https"
+    let path = if u.path == "" { "/" } else { u.path }
+    var modified = false
+    var selected = []
+    for (id, e) in self.entry_map[key] {
+      if e.persistent && !(e.expires > now) {
+        submap = remove(submap, id)
+        modified = true
+        continue
+      }
+      if !e.should_send(https, host, path) { continue }
+      let e2 = Entry { last_access: now, ..e }
+      submap = set(submap, id, e2)
+      selected = push(selected, e2)
+      modified = true
+    }
+    var j = self
+    if modified {
+      let em = if len(submap) == 0 {
+        remove(self.entry_map, key)
+      } else {
+        set(self.entry_map, key, submap)
+      }
+      j = Jar { entry_map: em, ..self }
+    }
+    let sorted = sort.sort(
+      selected,
+      (a, b) => {
+        if a.path != b.path { return a.path > b.path }
+        if a.creation != b.creation { return a.creation < b.creation }
+        a.seq_num < b.seq_num
+      },
+    )
+    (map(sorted, result_cookie), j)
+  }
+
+  // Jar.SetCookies：用当前时间
+  fn set_cookies(self, u: url.URL, cookies: List<Cookie>) -> Jar {
+    self.set_cookies_at(u, cookies, time.unix_ms())
+  }
+
+  // Go 的 setCookies(u, cookies, now)
+  fn set_cookies_at(self, u: url.URL, cookies: List<Cookie>, now: Int) -> Jar {
+    if len(cookies) == 0 { return self }
+    if u.scheme != "http" && u.scheme != "https" { return self }
+    let Ok(host) = canonical_host(u.host) else { return self }
+    let key = jar_key(host, self.ps_list)
+    let def_path = default_path(u.path)
+    let had = contains(self.entry_map, key)
+    var submap: Map<Str, Entry> = if had { self.entry_map[key] } else { Map() }
+    var seq = self.next_seq_num
+    var modified = false
+    for cookie in cookies {
+      let Ok((e0, rm)) = self.new_entry(cookie, now, def_path, host) else { continue }
+      let id = e0.id()
+      if rm {
+        if contains(submap, id) {
+          submap = remove(submap, id)
+          modified = true
+        }
+        continue
+      }
+      var e = e0
+      if contains(submap, id) {
+        let old = submap[id]
+        e = Entry { creation: old.creation, seq_num: old.seq_num, ..e }
+      } else {
+        e = Entry { creation: now, seq_num: seq, ..e }
+        seq += 1
+      }
+      submap = set(submap, id, Entry { last_access: now, ..e })
+      modified = true
+    }
+    var em = self.entry_map
+    if modified {
+      em = if len(submap) == 0 { remove(em, key) } else { set(em, key, submap) }
+    }
+    Jar { entry_map: em, next_seq_num: seq, ..self }
+  }
+
+  // newEntry：返回 (条目, 是否删除)；domain 属性非法时返回 Err
+  fn new_entry(self, c: Cookie, now: Int, def_path: Str, host: Str) -> Result<(Entry, Bool), Str> {
+    let path = if c.path == "" || __str_slice(c.path, 0, 1) != "/" { def_path } else { c.path }
+    let (domain, host_only) = self.domain_and_type(host, c.domain)?
+    var e = Entry {
+      name: c.name,
+      value: "",
+      quoted: false,
+      domain: domain,
+      path: path,
+      same_site: "",
+      secure: false,
+      http_only: false,
+      persistent: false,
+      host_only: host_only,
+      expires: 0,
+      creation: 0,
+      last_access: 0,
+      seq_num: 0,
+    }
+    if c.max_age < 0 {
+      return Ok((e, true))
+    } else if c.max_age > 0 {
+      e = Entry { expires: now + c.max_age * 1000, persistent: true, ..e }
+    } else {
+      match c.expires {
+        None => { e = Entry { expires: END_OF_TIME, persistent: false, ..e } },
+        Some(t) => {
+          if !(t > now) { return Ok((e, true)) }
+          e = Entry { expires: t, persistent: true, ..e }
+        },
+      }
+    }
+    let ss = if c.same_site == SAME_SITE_DEFAULT_MODE {
+      "SameSite"
+    } else if c.same_site == SAME_SITE_STRICT_MODE {
+      "SameSite=Strict"
+    } else if c.same_site == SAME_SITE_LAX_MODE {
+      "SameSite=Lax"
+    } else {
+      ""
+    }
+    Ok(
+      (
+        Entry {
+          value: c.value,
+          quoted: c.quoted,
+          secure: c.secure,
+          http_only: c.http_only,
+          same_site: ss,
+          ..e
+        },
+        false,
+      ),
+    )
+  }
+
+  // domainAndType：返回 (domain, host_only)
+  fn domain_and_type(self, host: Str, domain0: Str) -> Result<(Str, Bool), Str> {
+    if domain0 == "" { return Ok((host, true)) }
+    if is_ip(host) {
+      if host != domain0 { return Err(ERR_ILLEGAL_DOMAIN) }
+      return Ok((host, true))
+    }
+    let d1 = if starts_with(domain0, ".") { __str_slice(domain0, 1, len(domain0)) } else { domain0 }
+    if d1 == "" || starts_with(d1, ".") { return Err(ERR_MALFORMED_DOMAIN) }
+    let Some(domain) = ascii_to_lower(d1) else { return Err(ERR_MALFORMED_DOMAIN) }
+    if ends_with(domain, ".") { return Err(ERR_MALFORMED_DOMAIN) }
+    match self.ps_list {
+      Some(psl) => {
+        let ps = psl.suffix(domain)
+        if ps != "" && !has_dot_suffix(domain, ps) {
+          if host == domain { return Ok((host, true)) }
+          return Err(ERR_ILLEGAL_DOMAIN)
+        }
+      },
+      None => {},
+    }
+    if host != domain && !has_dot_suffix(host, domain) { return Err(ERR_ILLEGAL_DOMAIN) }
+    Ok((domain, false))
+  }
+}
+
+// 和 Jar 方法同名的独立函数，方便测试
+pub fn domain_and_type(j: Jar, host: Str, domain: Str) -> Result<(Str, Bool), Str> {
+  j.domain_and_type(host, domain)
+}
+
+// net.SplitHostPort，错误信息与 Go 的 *net.AddrError 相同
+pub fn split_host_port(hostport: Str) -> Result<(Str, Str), Str> {
+  let err = (why: Str) => Err("address " + hostport + ": " + why)
+  let missing_port = "missing port in address"
+  let too_many_colons = "too many colons in address"
+  let i = last_index(hostport, ":")
+  if i < 0 { return err(missing_port) }
+  var host = ""
+  var j = 0
+  var k = 0
+  if starts_with(hostport, "[") {
+    let end = __str_find(hostport, "]", 0)
+    if end < 0 { return err("missing ']' in address") }
+    if end + 1 == len(hostport) { return err(missing_port) }
+    if end + 1 != i {
+      if __str_slice(hostport, end + 1, end + 2) == ":" { return err(too_many_colons) }
+      return err(missing_port)
+    }
+    host = __str_slice(hostport, 1, end)
+    j = 1
+    k = end + 1
+  } else {
+    host = __str_slice(hostport, 0, i)
+    if contains(host, ":") { return err(too_many_colons) }
+  }
+  if contains(__str_slice(hostport, j, len(hostport)), "[") {
+    return err("unexpected '[' in address")
+  }
+  if contains(__str_slice(hostport, k, len(hostport)), "]") {
+    return err("unexpected ']' in address")
+  }
+  Ok((host, __str_slice(hostport, i + 1, len(hostport))))
+}
+
+// canonicalHost：去掉端口和结尾的点，转成 punycode 并转小写
+pub fn canonical_host(host0: Str) -> Result<Str, Str> {
+  var host = host0
+  if has_port(host) {
+    let (h, _) = split_host_port(host)?
+    host = h
+  }
+  if ends_with(host, ".") { host = __str_slice(host, 0, len(host) - 1) }
+  let encoded = to_ascii(host)?
+  // Go 用 ascii.ToLower 且忽略 ok：含不可打印字符时得到 ""
+  Ok(match ascii_to_lower(encoded) {
+    Some(l) => l,
+    None => "",
+  })
+}
+
+// host 是否带端口（host 可以是主机名、IPv4 或 IPv6 地址）
+pub fn has_port(host: Str) -> Bool {
+  let colons = count(host, ":")
+  if colons == 0 { return false }
+  if colons == 1 { return true }
+  starts_with(host, "[") && contains(host, "]:")
+}
+
+// jarKey：host 的 eTLD+1（psl 为 None 时取最后两段）
+pub fn jar_key(host: Str, psl: Option<PublicSuffixList>) -> Str {
+  if is_ip(host) { return host }
+  var i = 0
+  match psl {
+    None => {
+      i = last_index(host, ".")
+      if i <= 0 { return host }
+    },
+    Some(p) => {
+      let suffix = p.suffix(host)
+      if suffix == host { return host }
+      i = len(host) - len(suffix)
+      if i <= 0 || __str_slice(host, i - 1, i) != "." { return host }
+    },
+  }
+  let prev_dot = last_index(__str_slice(host, 0, i - 1), ".")
+  __str_slice(host, prev_dot + 1, len(host))
+}
+
+// isIP：含 ':' 或 '%' 一律当作 IP（保守处理），否则看 net.ParseIP
+pub fn is_ip(host: Str) -> Bool {
+  if contains(host, ":") || contains(host, "%") { return true }
+  parse_ip_ok(host)
+}
+
+// defaultPath：RFC 6265 5.1.4 的 default-path
+pub fn default_path(path: Str) -> Str {
+  if path == "" || __str_slice(path, 0, 1) != "/" { return "/" }
+  let i = last_index(path, "/")
+  if i == 0 { return "/" }
+  __str_slice(path, 0, i)
+}
+
+// ───────────── punycode（RFC 3492）与 IDNA toASCII ─────────────
+
+const P_BASE: Int = 36
+const P_DAMP: Int = 700
+const P_INITIAL_BIAS: Int = 72
+const P_INITIAL_N: Int = 128
+const P_SKEW: Int = 38
+const P_TMAX: Int = 26
+const P_TMIN: Int = 1
+
+// 按 int32 回绕
+fn w32(x: Int) -> Int { ((x + 2147483648) & 0xffffffff) - 2147483648 }
+
+fn encode_digit(d: Int) -> Str {
+  if d >= 0 && d < 26 { return __chr(d + 97) }
+  if d >= 26 && d < 36 { return __chr(d + 22) }
+  panic("cookiejar: internal error in punycode encoding")
+}
+
+fn adapt(delta0: Int, num_points: Int, first_time: Bool) -> Int {
+  var delta = if first_time { delta0 / P_DAMP } else { delta0 / 2 }
+  delta += delta / num_points
+  var k = 0
+  while delta > ((P_BASE - P_TMIN) * P_TMAX) / 2 {
+    delta = delta / (P_BASE - P_TMIN)
+    k += P_BASE
+  }
+  k + (P_BASE - P_TMIN + 1) * delta / (delta + P_SKEW)
+}
+
+// encode：按 RFC 3492 6.3 编码 s，并在前面加上 prefix
+pub fn encode(prefix: Str, s: Str) -> Result<Str, Str> {
+  let rs = map(chars(s), (c) => __ord(c))
+  var out = prefix
+  var delta = 0
+  var n = P_INITIAL_N
+  var bias = P_INITIAL_BIAS
+  var b = 0
+  var remaining = 0
+  for r in rs {
+    if r < 128 {
+      b += 1
+      out = out + __chr(r)
+    } else {
+      remaining += 1
+    }
+  }
+  var h = b
+  if b > 0 { out = out + "-" }
+  let bad = "cookiejar: invalid label " + strconv.quote_go(s)
+  while remaining != 0 {
+    var m = 2147483647
+    for r in rs {
+      if m > r && r >= n { m = r }
+    }
+    delta = w32(delta + w32((m - n) * (h + 1)))
+    if delta < 0 { return Err(bad) }
+    n = m
+    for r in rs {
+      if r < n {
+        delta = w32(delta + 1)
+        if delta < 0 { return Err(bad) }
+        continue
+      }
+      if r > n { continue }
+      var q = delta
+      var k = P_BASE
+      loop {
+        var t = k - bias
+        if t < P_TMIN { t = P_TMIN } else if t > P_TMAX { t = P_TMAX }
+        if q < t { break }
+        out = out + encode_digit(t + (q - t) % (P_BASE - t))
+        q = (q - t) / (P_BASE - t)
+        k += P_BASE
+      }
+      out = out + encode_digit(q)
+      bias = adapt(delta, h + 1, h == b)
+      delta = 0
+      h += 1
+      remaining -= 1
+    }
+    delta = w32(delta + 1)
+    n += 1
+  }
+  Ok(out)
+}
+
+pub const ACE_PREFIX: Str = "xn--"
+
+// toASCII：把域名或标签转成 ASCII 形式，例如 "bücher.example.com" → "xn--bcher-kva.example.com"
+pub fn to_ascii(s: Str) -> Result<Str, Str> {
+  if ascii_is(s) { return Ok(s) }
+  var labels = []
+  for label in split(s, ".") {
+    if ascii_is(label) {
+      labels = push(labels, label)
+    } else {
+      labels = push(labels, encode(ACE_PREFIX, label)?)
+    }
+  }
+  Ok(join(labels, "."))
+}

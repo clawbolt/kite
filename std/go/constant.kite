@@ -1,0 +1,927 @@
+// std.go.constant：对齐 Go 1.27 的 go/constant（无类型常量的值和运算）
+//   Value 是枚举：Unknown / Bool / String / Int(IntVal) / Float(FloatVal) / Complex(re, im)
+//     IntVal 是 Small(Int)（Go 的 int64Val）或 Large(BigInt)（intVal，不能用 int64 表示时）
+//     FloatVal 是 Rat(Rat)（ratVal，分数）或 Big(BigFloat)（floatVal，精度 512 位）
+//   Kind 是枚举 Unknown/Bool/String/Int/Float/Complex，打印出来就是 Go 的 Kind.String()
+//   方法：x.kind() x.string() x.exact_string()
+//   函数（Go 名字改成蛇形）：make_unknown make_bool make_string make_int64 make_uint64 make_float64
+//     make_from_literal(lit, tok, zero) make_imag make_from_bytes bytes
+//     make_big_int / make_rat / make_big_float（对应 Go 的 Make(*big.Int / *big.Rat / *big.Float)）
+//     bool_val string_val int64_val uint64_val float32_val float64_val val string_len
+//     bit_len sign num denom real imag to_int to_float to_complex
+//     unary_op(op, y, prec) binary_op(x, op, y) shift(x, op, s) compare(x, op, y)
+//   token 用 std.go.token 的 Int 常量（token.ADD 等）。
+//   和 Go 的差别：
+//     - uint64 用 Int 的位模式表示（uint64_val 的结果用 bits.ustr 打印）；float32 用 Float 表示（数值是 float32 可表示的）
+//     - Go 的 Make(any) / Val(x) any 没法照搬：Make 拆成 make_bool/make_string/make_int64/make_big_int/make_rat/
+//       make_big_float；val 返回枚举 Val（Nil/Bool/String/Int64/BigInt/Rat/BigFloat）
+//     - 字符串拼接直接拼，不做 Go 的惰性拼接（结果相同）
+//     - Float64Val/Float32Val 对 int64 的“是否精确”按 Go 在 arm64 上的行为（float→int64 饱和）实现
+//     - 非法操作和 Go 一样 panic，消息格式相同
+
+use std.math
+use std.math.bits
+use std.math.big
+use std.math.big.{ BigInt }
+use std.math.big.rat
+use std.math.big.rat.{ Rat }
+use std.math.big.float as bigfloat
+use std.math.big.float.{ BigFloat, Accuracy, RoundingMode }
+use std.strconv
+use std.go.token
+
+const PREC: Int = 512
+
+const MAX_EXP: Int = 4096
+
+const MIN_INT: Int = -9223372036854775807 - 1
+
+const MAX_INT: Int = 9223372036854775807
+
+pub enum Kind {
+  Unknown
+  Bool
+  String
+  Int
+  Float
+  Complex
+}
+
+pub enum IntVal {
+  Small(Int)
+  Large(BigInt)
+}
+
+pub enum FloatVal {
+  Rat(Rat)
+  Big(BigFloat)
+}
+
+pub enum Value {
+  Unknown
+  Bool(Bool)
+  String(Str)
+  Int(IntVal)
+  Float(FloatVal)
+  Complex(Value, Value)
+}
+
+pub enum Val {
+  Nil
+  Bool(Bool)
+  String(Str)
+  Int64(Int)
+  BigInt(BigInt)
+  Rat(Rat)
+  BigFloat(BigFloat)
+}
+
+// ───────── 内部构造 ─────────
+
+fn new_float() -> BigFloat { bigfloat.zero().set_prec(PREC) }
+
+fn small(x: Int) -> Value { Value.Int(IntVal.Small(x)) }
+
+fn large(x: BigInt) -> Value { Value.Int(IntVal.Large(x)) }
+
+fn ratv(x: Rat) -> Value { Value.Float(FloatVal.Rat(x)) }
+
+fn floatv(x: BigFloat) -> Value { Value.Float(FloatVal.Big(x)) }
+
+fn make_int(x: BigInt) -> Value {
+  if x.is_int64() { small(x.int64()) } else { large(x) }
+}
+
+fn small_int(x: BigInt) -> Bool { x.bit_len() < MAX_EXP }
+
+fn make_rat_(x: Rat) -> Value {
+  if small_int(x.num()) && small_int(x.denom()) { return ratv(x) }
+  floatv(new_float().set_rat(x))
+}
+
+fn make_float_(x: BigFloat) -> Value {
+  if x.sign() == 0 { return floatv(new_float()) }
+  if x.is_inf() { return Value.Unknown }
+  floatv(x)
+}
+
+fn make_complex(re: Value, im: Value) -> Value {
+  if re.kind() == Kind.Unknown || im.kind() == Kind.Unknown { return Value.Unknown }
+  Value.Complex(re, im)
+}
+
+fn small_float64(x: Float) -> Bool {
+  if math.is_inf(x) { return false }
+  let (_, e) = rat.frexp(x)
+  -MAX_EXP < e && e < MAX_EXP
+}
+
+fn small_float(x: BigFloat) -> Bool {
+  if x.is_inf() { return false }
+  if x.sign() == 0 { return true }
+  let (_, e) = x.mant_exp()
+  -MAX_EXP < e && e < MAX_EXP
+}
+
+fn make_float_from_literal(lit: Str) -> Option<Value> {
+  let Some(f) = new_float().set_string(lit) else { return None }
+  if small_float(f) {
+    let l = if f.sign() == 0 { "0" } else { lit }
+    match rat.parse(l) {
+      Some(r) => { return Some(ratv(r)) },
+      None => {},
+    }
+  }
+  Some(make_float_(f))
+}
+
+fn i_to_big(x: IntVal) -> BigInt {
+  match x {
+    IntVal.Small(v) => big.new_int(v),
+    IntVal.Large(v) => v,
+  }
+}
+
+fn f_to_big(x: FloatVal) -> BigFloat {
+  match x {
+    FloatVal.Rat(r) => new_float().set_rat(r),
+    FloatVal.Big(f) => f,
+  }
+}
+
+// ───────── String / ExactString ─────────
+
+fn str_string(s: Str) -> Str {
+  let q = strconv.quote_go(s)
+  if len(q) > 72 { return __str_slice(q, 0, 69) + "..." }
+  q
+}
+
+fn sign_str(e: Int) -> Str { if e < 0 { "{e}" } else { "+{e}" } }
+
+fn bigfloat_string(f: BigFloat) -> Str {
+  if f.is_inf() { return f.string() }
+  let (x, _) = f.float64()
+  if (f.sign() == 0) == (x == 0.0) && !math.is_inf(x) {
+    var s = strconv.format_float_go(x, "g", 6, 64)
+    if !f.is_int() && __str_find(s, ".", 0) < 0 { s = strconv.format_float_go(x, "g", -1, 64) }
+    return s
+  }
+  let (mant, exp) = f.mant_exp()
+  var (m, _) = mant.float64()
+  let d = float(exp) * 0.30102999566398119521373889472449302676818988146210854131
+  var e = int(d)
+  m = m * math.pow(10.0, d - float(e))
+  let am = if m < 0.0 { -m } else { m }
+  if am < 1.0 - 0.5e-6 {
+    m = m * 10.0
+    e -= 1
+  } else if am >= 10.0 {
+    m = m / 10.0
+    e += 1
+  }
+  strconv.format_float_go(m, "g", 6, 64) + "e" + sign_str(e)
+}
+
+impl Value {
+  fn kind(self) -> Kind {
+    match self {
+      Value.Unknown => Kind.Unknown,
+      Value.Bool(_) => Kind.Bool,
+      Value.String(_) => Kind.String,
+      Value.Int(_) => Kind.Int,
+      Value.Float(_) => Kind.Float,
+      Value.Complex(_, _) => Kind.Complex,
+    }
+  }
+
+  fn string(self) -> Str {
+    match self {
+      Value.Unknown => "unknown",
+      Value.Bool(b) => strconv.format_bool(b),
+      Value.String(s) => str_string(s),
+      Value.Int(IntVal.Small(v)) => "{v}",
+      Value.Int(IntVal.Large(v)) => v.string(),
+      Value.Float(f) => bigfloat_string(f_to_big(f)),
+      Value.Complex(re, im) => "({re.string()} + {im.string()}i)",
+    }
+  }
+
+  fn exact_string(self) -> Str {
+    match self {
+      Value.String(s) => strconv.quote_go(s),
+      Value.Float(FloatVal.Rat(r)) => r.rat_string(),
+      Value.Float(FloatVal.Big(f)) => f.text("p", 0),
+      Value.Complex(re, im) => "({re.exact_string()} + {im.exact_string()}i)",
+      _ => self.string(),
+    }
+  }
+}
+
+// ───────── 构造函数 ─────────
+
+pub fn make_unknown() -> Value { Value.Unknown }
+
+pub fn make_bool(b: Bool) -> Value { Value.Bool(b) }
+
+pub fn make_string(s: Str) -> Value { Value.String(s) }
+
+pub fn make_int64(x: Int) -> Value { small(x) }
+
+// x 是 uint64 的位模式
+pub fn make_uint64(x: Int) -> Value {
+  if x >= 0 { return small(x) }
+  large(big.new_uint64(x))
+}
+
+pub fn make_float64(x: Float) -> Value {
+  if math.is_inf(x) || math.is_nan(x) { return Value.Unknown }
+  let y = x + 0.0
+  if small_float64(x) {
+    match rat.from_float64(y) {
+      Some(r) => { return ratv(r) },
+      None => { return Value.Unknown },
+    }
+  }
+  floatv(new_float().set_float64(y))
+}
+
+// Make(*big.Int)
+pub fn make_big_int(x: BigInt) -> Value { make_int(x) }
+
+// Make(*big.Rat)
+pub fn make_rat(x: Rat) -> Value { make_rat_(x) }
+
+// Make(*big.Float)
+pub fn make_big_float(x: BigFloat) -> Value { make_float_(x) }
+
+pub fn make_from_literal(lit: Str, tok: Int, zero: Int) -> Value {
+  if zero != 0 { panic("MakeFromLiteral called with non-zero last argument") }
+  if tok == token.INT {
+    match big.parse(lit, 0) {
+      Some(x) => { return make_int(x) },
+      None => {},
+    }
+  } else if tok == token.FLOAT {
+    match make_float_from_literal(lit) {
+      Some(x) => { return x },
+      None => {},
+    }
+  } else if tok == token.IMAG {
+    let n = len(lit)
+    if n > 0 && __str_slice(lit, n - 1, n) == "i" {
+      match make_float_from_literal(__str_slice(lit, 0, n - 1)) {
+        Some(im) => { return make_complex(small(0), im) },
+        None => {},
+      }
+    }
+  } else if tok == token.CHAR {
+    let n = len(lit)
+    if n >= 2 {
+      match strconv.unquote_char(__str_slice(lit, 1, n - 1), 39) {
+        Ok((code, _, _)) => { return small(code) },
+        Err(_) => {},
+      }
+    }
+  } else if tok == token.STRING {
+    match strconv.unquote_go(lit) {
+      Ok(s) => { return Value.String(s) },
+      Err(_) => {},
+    }
+  } else {
+    panic("{token.token_string(tok)} is not a valid token")
+  }
+  Value.Unknown
+}
+
+// ───────── 访问函数 ─────────
+
+pub fn bool_val(x: Value) -> Bool {
+  match x {
+    Value.Bool(b) => b,
+    Value.Unknown => false,
+    _ => panic("{x.string()} not a Bool"),
+  }
+}
+
+pub fn string_val(x: Value) -> Str {
+  match x {
+    Value.String(s) => s,
+    Value.Unknown => "",
+    _ => panic("{x.string()} not a String"),
+  }
+}
+
+pub fn string_len(x: Value) -> Int {
+  match x {
+    Value.String(s) => len(__bytes(s)),
+    Value.Unknown => 0,
+    _ => panic("{x.string()} not a String"),
+  }
+}
+
+pub fn int64_val(x: Value) -> (Int, Bool) {
+  match x {
+    Value.Int(IntVal.Small(v)) => (v, true),
+    Value.Int(IntVal.Large(v)) => (v.int64(), false),
+    Value.Unknown => (0, false),
+    _ => panic("{x.string()} not an Int"),
+  }
+}
+
+// 结果是 uint64 的位模式
+pub fn uint64_val(x: Value) -> (Int, Bool) {
+  match x {
+    Value.Int(IntVal.Small(v)) => (v, v >= 0),
+    Value.Int(IntVal.Large(v)) => (v.uint64(), v.is_uint64()),
+    Value.Unknown => (0, false),
+    _ => panic("{x.string()} not an Int"),
+  }
+}
+
+// Go 在 arm64 上 float→int64 的转换（超出范围时饱和）
+fn f2i_sat(f: Float) -> Int {
+  if f >= 9223372036854775807.0 { return MAX_INT }
+  if f < -9223372036854775807.0 { return MIN_INT }
+  int(f)
+}
+
+// Rat → float32：照搬 Go 的 quotToFloat32（包括极小值时“是否精确”的行为）
+fn rat_float32(r: Rat) -> (Float, Bool) {
+  let a = r.num().abs_value()
+  let b = r.denom()
+  let alen = a.bit_len()
+  if alen == 0 { return (0.0, true) }
+  let blen = b.bit_len()
+  var exp = alen - blen
+  let sh = 25 - exp
+  let (a2, b2) = if sh > 0 { (a.lsh(sh), b) } else if sh < 0 { (a, b.lsh(-sh)) } else { (a, b) }
+  let (q, rm) = a2.quo_rem(b2)
+  var mantissa = q.int64() & 0xffffffff
+  var have_rem = rm.sign() != 0
+  if (mantissa >> 25) == 1 {
+    if (mantissa & 1) == 1 { have_rem = true }
+    mantissa = mantissa >> 1
+    exp += 1
+  }
+  if -149 <= exp && exp <= -126 {
+    let shift = -126 - (exp - 1)
+    let lost = mantissa & ((1 << shift) - 1)
+    have_rem = have_rem || lost != 0
+    mantissa = mantissa >> shift
+    exp = -125
+  }
+  var exact = !have_rem
+  if (mantissa & 1) != 0 {
+    exact = false
+    if have_rem || (mantissa & 2) != 0 {
+      mantissa += 1
+      if mantissa >= (1 << 25) {
+        mantissa = mantissa >> 1
+        exp += 1
+      }
+    }
+  }
+  mantissa = mantissa >> 1
+  var f = strconv.round_float32(rat.ldexp(float(mantissa), exp - 24))
+  if math.is_inf(f) { exact = false }
+  if r.sign() < 0 { f = -f }
+  (f, exact)
+}
+
+pub fn float32_val(x: Value) -> (Float, Bool) {
+  match x {
+    Value.Int(IntVal.Small(v)) => {
+      let (f, _) = bigfloat.zero().set_int64(v).float32()
+      (f, f2i_sat(f) == v)
+    },
+    Value.Int(IntVal.Large(v)) => {
+      let (f, acc) = new_float().set_int(v).float32()
+      (f, acc == Accuracy.Exact)
+    },
+    Value.Float(FloatVal.Rat(r)) => rat_float32(r),
+    Value.Float(FloatVal.Big(b)) => {
+      let (f, acc) = b.float32()
+      (f, acc == Accuracy.Exact)
+    },
+    Value.Unknown => (0.0, false),
+    _ => panic("{x.string()} not a Float"),
+  }
+}
+
+pub fn float64_val(x: Value) -> (Float, Bool) {
+  match x {
+    Value.Int(IntVal.Small(v)) => {
+      let f = float(v)
+      (f, f2i_sat(f) == v)
+    },
+    Value.Int(IntVal.Large(v)) => {
+      let (f, acc) = new_float().set_int(v).float64()
+      (f, acc == Accuracy.Exact)
+    },
+    Value.Float(FloatVal.Rat(r)) => r.float64(),
+    Value.Float(FloatVal.Big(b)) => {
+      let (f, acc) = b.float64()
+      (f, acc == Accuracy.Exact)
+    },
+    Value.Unknown => (0.0, false),
+    _ => panic("{x.string()} not a Float"),
+  }
+}
+
+pub fn val(x: Value) -> Val {
+  match x {
+    Value.Bool(b) => Val.Bool(b),
+    Value.String(s) => Val.String(s),
+    Value.Int(IntVal.Small(v)) => Val.Int64(v),
+    Value.Int(IntVal.Large(v)) => Val.BigInt(v),
+    Value.Float(FloatVal.Rat(r)) => Val.Rat(r),
+    Value.Float(FloatVal.Big(f)) => Val.BigFloat(f),
+    _ => Val.Nil,
+  }
+}
+
+pub fn bit_len(x: Value) -> Int {
+  match x {
+    Value.Int(IntVal.Small(v)) => {
+      if v == MIN_INT { 64 } else { bits.len64(if v < 0 { -v } else { v }) }
+    },
+    Value.Int(IntVal.Large(v)) => v.bit_len(),
+    Value.Unknown => 0,
+    _ => panic("{x.string()} not an Int"),
+  }
+}
+
+pub fn sign(x: Value) -> Int {
+  match x {
+    Value.Int(IntVal.Small(v)) => { if v < 0 { -1 } else if v > 0 { 1 } else { 0 } },
+    Value.Int(IntVal.Large(v)) => v.sign(),
+    Value.Float(FloatVal.Rat(r)) => r.sign(),
+    Value.Float(FloatVal.Big(f)) => f.sign(),
+    Value.Complex(re, im) => sign(re) | sign(im),
+    Value.Unknown => 1,
+    _ => panic("{x.string()} not numeric"),
+  }
+}
+
+// 绝对值的小端字节
+pub fn bytes(x: Value) -> List<Int> {
+  match x {
+    Value.Int(i) => reverse(i_to_big(i).bytes()),
+    _ => panic("{x.string()} not an Int"),
+  }
+}
+
+pub fn make_from_bytes(bs: List<Int>) -> Value { make_int(big.set_bytes(reverse(bs))) }
+
+pub fn num(x: Value) -> Value {
+  match x {
+    Value.Int(_) => x,
+    Value.Float(FloatVal.Rat(r)) => make_int(r.num()),
+    Value.Float(FloatVal.Big(f)) => {
+      if small_float(f) {
+        let (r, _) = f.rat()
+        match r {
+          Some(q) => make_int(q.num()),
+          None => Value.Unknown,
+        }
+      } else {
+        Value.Unknown
+      }
+    },
+    Value.Unknown => Value.Unknown,
+    _ => panic("{x.string()} not Int or Float"),
+  }
+}
+
+pub fn denom(x: Value) -> Value {
+  match x {
+    Value.Int(_) => small(1),
+    Value.Float(FloatVal.Rat(r)) => make_int(r.denom()),
+    Value.Float(FloatVal.Big(f)) => {
+      if small_float(f) {
+        let (r, _) = f.rat()
+        match r {
+          Some(q) => make_int(q.denom()),
+          None => Value.Unknown,
+        }
+      } else {
+        Value.Unknown
+      }
+    },
+    Value.Unknown => Value.Unknown,
+    _ => panic("{x.string()} not Int or Float"),
+  }
+}
+
+pub fn make_imag(x: Value) -> Value {
+  match x {
+    Value.Unknown => x,
+    Value.Int(_) => make_complex(small(0), x),
+    Value.Float(_) => make_complex(small(0), x),
+    _ => panic("{x.string()} not Int or Float"),
+  }
+}
+
+pub fn real(x: Value) -> Value {
+  match x {
+    Value.Complex(re, _) => re,
+    Value.Bool(_) => panic("{x.string()} not numeric"),
+    Value.String(_) => panic("{x.string()} not numeric"),
+    _ => x,
+  }
+}
+
+pub fn imag(x: Value) -> Value {
+  match x {
+    Value.Unknown => x,
+    Value.Int(_) => small(0),
+    Value.Float(_) => small(0),
+    Value.Complex(_, im) => im,
+    _ => panic("{x.string()} not numeric"),
+  }
+}
+
+// ───────── 数值转换 ─────────
+
+fn exact_int(f: BigFloat) -> Option<BigInt> {
+  let (i, acc) = f.int()
+  if acc == Accuracy.Exact { i } else { None }
+}
+
+pub fn to_int(x: Value) -> Value {
+  match x {
+    Value.Int(_) => { return x },
+    Value.Float(FloatVal.Rat(r)) => { if r.is_int() { return make_int(r.num()) } },
+    Value.Float(FloatVal.Big(f)) => {
+      if small_float(f) {
+        match exact_int(f) {
+          Some(i) => { return make_int(i) },
+          None => {},
+        }
+        let t = bigfloat.zero().set_prec(PREC - 4)
+        match exact_int(t.set_mode(RoundingMode.ToZero).set(f)) {
+          Some(i) => { return make_int(i) },
+          None => {},
+        }
+        match exact_int(t.set_mode(RoundingMode.AwayFromZero).set(f)) {
+          Some(i) => { return make_int(i) },
+          None => {},
+        }
+      }
+    },
+    Value.Complex(_, _) => {
+      let re = to_float(x)
+      if re.kind() == Kind.Float { return to_int(re) }
+    },
+    _ => {},
+  }
+  Value.Unknown
+}
+
+pub fn to_float(x: Value) -> Value {
+  match x {
+    Value.Int(IntVal.Small(v)) => ratv(rat.from_int64(v)),
+    Value.Int(IntVal.Large(v)) => {
+      if small_int(v) { ratv(rat.from_int(v)) } else { floatv(new_float().set_int(v)) }
+    },
+    Value.Float(_) => x,
+    Value.Complex(re, im) => { if sign(im) == 0 { to_float(re) } else { Value.Unknown } },
+    _ => Value.Unknown,
+  }
+}
+
+pub fn to_complex(x: Value) -> Value {
+  match x {
+    Value.Int(_) => Value.Complex(x, small(0)),
+    Value.Float(_) => Value.Complex(x, small(0)),
+    Value.Complex(_, _) => x,
+    _ => Value.Unknown,
+  }
+}
+
+// ───────── 运算 ─────────
+
+fn is32bit(x: Int) -> Bool { -2147483648 <= x && x <= 2147483647 }
+
+fn is63bit(x: Int) -> Bool { -4611686018427387904 <= x && x <= 4611686018427387903 }
+
+pub fn unary_op(op: Int, y: Value, prec: Int) -> Value {
+  if op == token.ADD {
+    match y {
+      Value.Bool(_) => {},
+      Value.String(_) => {},
+      _ => { return y },
+    }
+  } else if op == token.SUB {
+    match y {
+      Value.Unknown => { return y },
+      Value.Int(IntVal.Small(v)) => {
+        if v != MIN_INT { return small(-v) }
+        return make_int(big.new_int(v).negate())
+      },
+      Value.Int(IntVal.Large(v)) => { return make_int(v.negate()) },
+      Value.Float(FloatVal.Rat(r)) => { return make_rat_(r.negate()) },
+      Value.Float(FloatVal.Big(f)) => { return make_float_(new_float().neg(f)) },
+      Value.Complex(re, im) => {
+        return make_complex(unary_op(token.SUB, re, 0), unary_op(token.SUB, im, 0))
+      },
+      _ => {},
+    }
+  } else if op == token.XOR {
+    let z0 = match y {
+      Value.Unknown => { return y },
+      Value.Int(i) => i_to_big(i).not(),
+      _ => panic("invalid unary operation {token.token_string(op)}{y.string()}"),
+    }
+    let z = if prec > 0 { z0.and_not(big.new_int(-1).lsh(prec)) } else { z0 }
+    return make_int(z)
+  } else if op == token.NOT {
+    match y {
+      Value.Unknown => { return y },
+      Value.Bool(b) => { return Value.Bool(!b) },
+      _ => {},
+    }
+  }
+  panic("invalid unary operation {token.token_string(op)}{y.string()}")
+}
+
+fn vord(x: Value) -> Int {
+  match x {
+    Value.Unknown => 0,
+    Value.Bool(_) => 1,
+    Value.String(_) => 1,
+    Value.Int(IntVal.Small(_)) => 2,
+    Value.Int(IntVal.Large(_)) => 3,
+    Value.Float(FloatVal.Rat(_)) => 4,
+    Value.Float(FloatVal.Big(_)) => 5,
+    Value.Complex(_, _) => 6,
+  }
+}
+
+// 不变式：vord(x) < vord(y)
+fn match0(x: Value, y: Value) -> (Value, Value) {
+  match y {
+    Value.Int(IntVal.Large(_)) => {
+      match x {
+        Value.Int(IntVal.Small(v)) => { return (large(big.new_int(v)), y) },
+        _ => {},
+      }
+    },
+    Value.Float(FloatVal.Rat(_)) => {
+      match x {
+        Value.Int(i) => { return (ratv(rat.from_int(i_to_big(i))), y) },
+        _ => {},
+      }
+    },
+    Value.Float(FloatVal.Big(_)) => {
+      match x {
+        Value.Int(i) => { return (floatv(new_float().set_int(i_to_big(i))), y) },
+        Value.Float(FloatVal.Rat(r)) => { return (floatv(new_float().set_rat(r)), y) },
+        _ => {},
+      }
+    },
+    Value.Complex(_, _) => {
+      match x {
+        Value.Int(_) => { return (Value.Complex(x, small(0)), y) },
+        Value.Float(_) => { return (Value.Complex(x, small(0)), y) },
+        _ => {},
+      }
+    },
+    _ => {},
+  }
+  (x, x)
+}
+
+fn match_vals(x: Value, y: Value) -> (Value, Value) {
+  let ox = vord(x)
+  let oy = vord(y)
+  if ox < oy { return match0(x, y) }
+  if ox > oy {
+    let (b, a) = match0(y, x)
+    return (a, b)
+  }
+  (x, y)
+}
+
+fn bin_err(x: Value, op: Int, y: Value) -> Never {
+  panic("invalid binary operation {x.string()} {token.token_string(op)} {y.string()}")
+}
+
+fn int64_op(a: Int, op: Int, b: Int) -> Option<Value> {
+  if op == token.ADD {
+    if !is63bit(a) || !is63bit(b) { return Some(make_int(big.new_int(a).add(big.new_int(b)))) }
+    return Some(small(a + b))
+  }
+  if op == token.SUB {
+    if !is63bit(a) || !is63bit(b) { return Some(make_int(big.new_int(a).sub(big.new_int(b)))) }
+    return Some(small(a - b))
+  }
+  if op == token.MUL {
+    if !is32bit(a) || !is32bit(b) { return Some(make_int(big.new_int(a).mul(big.new_int(b)))) }
+    return Some(small(a * b))
+  }
+  if op == token.QUO { return Some(make_rat_(rat.new_rat(a, b))) }
+  if op == token.QUO_ASSIGN {
+    if b == -1 { return Some(small(bits.wneg(a))) }
+    return Some(small(a / b))
+  }
+  if op == token.REM {
+    if b == -1 { return Some(small(0)) }
+    return Some(small(a % b))
+  }
+  if op == token.AND { return Some(small(a & b)) }
+  if op == token.OR { return Some(small(a | b)) }
+  if op == token.XOR { return Some(small(a ^ b)) }
+  if op == token.AND_NOT { return Some(small(a & ~b)) }
+  None
+}
+
+fn bigint_op(a: BigInt, op: Int, b: BigInt) -> Option<Value> {
+  if op == token.ADD { return Some(make_int(a.add(b))) }
+  if op == token.SUB { return Some(make_int(a.sub(b))) }
+  if op == token.MUL { return Some(make_int(a.mul(b))) }
+  if op == token.QUO {
+    if b.sign() == 0 { panic("division by zero") }
+    return Some(make_rat_(rat.from_frac(a, b)))
+  }
+  if op == token.QUO_ASSIGN { return Some(make_int(a.quo(b))) }
+  if op == token.REM { return Some(make_int(a.rem(b))) }
+  if op == token.AND { return Some(make_int(a.and(b))) }
+  if op == token.OR { return Some(make_int(a.or(b))) }
+  if op == token.XOR { return Some(make_int(a.xor(b))) }
+  if op == token.AND_NOT { return Some(make_int(a.and_not(b))) }
+  None
+}
+
+fn rat_op(a: Rat, op: Int, b: Rat) -> Option<Value> {
+  if op == token.ADD { return Some(make_rat_(a.add(b))) }
+  if op == token.SUB { return Some(make_rat_(a.sub(b))) }
+  if op == token.MUL { return Some(make_rat_(a.mul(b))) }
+  if op == token.QUO { return Some(make_rat_(a.quo(b))) }
+  None
+}
+
+fn float_op(a: BigFloat, op: Int, b: BigFloat) -> Option<Value> {
+  if op == token.ADD { return Some(make_float_(new_float().add(a, b))) }
+  if op == token.SUB { return Some(make_float_(new_float().sub(a, b))) }
+  if op == token.MUL { return Some(make_float_(new_float().mul(a, b))) }
+  if op == token.QUO { return Some(make_float_(new_float().quo(a, b))) }
+  None
+}
+
+fn add(x: Value, y: Value) -> Value { binary_op(x, token.ADD, y) }
+
+fn sub(x: Value, y: Value) -> Value { binary_op(x, token.SUB, y) }
+
+fn mul(x: Value, y: Value) -> Value { binary_op(x, token.MUL, y) }
+
+fn quo(x: Value, y: Value) -> Value { binary_op(x, token.QUO, y) }
+
+fn complex_op(a: Value, b: Value, op: Int, c: Value, d: Value) -> Option<Value> {
+  if op == token.ADD { return Some(make_complex(add(a, c), add(b, d))) }
+  if op == token.SUB { return Some(make_complex(sub(a, c), sub(b, d))) }
+  if op == token.MUL {
+    let ac = mul(a, c)
+    let bd = mul(b, d)
+    let bc = mul(b, c)
+    let ad = mul(a, d)
+    return Some(make_complex(sub(ac, bd), add(bc, ad)))
+  }
+  if op == token.QUO {
+    let ac = mul(a, c)
+    let bd = mul(b, d)
+    let bc = mul(b, c)
+    let ad = mul(a, d)
+    let cc = mul(c, c)
+    let dd = mul(d, d)
+    let s = add(cc, dd)
+    let re = quo(add(ac, bd), s)
+    let im = quo(sub(bc, ad), s)
+    return Some(make_complex(re, im))
+  }
+  None
+}
+
+pub fn binary_op(x_: Value, op: Int, y_: Value) -> Value {
+  let (x, y) = match_vals(x_, y_)
+  let r = match (x, y) {
+    (Value.Unknown, _) => Some(x),
+    (Value.Bool(a), Value.Bool(b)) => {
+      if op == token.LAND {
+        Some(Value.Bool(a && b))
+      } else if op == token.LOR {
+        Some(Value.Bool(a || b))
+      } else {
+        None
+      }
+    },
+    (Value.Int(IntVal.Small(a)), Value.Int(IntVal.Small(b))) => int64_op(a, op, b),
+    (Value.Int(IntVal.Large(a)), Value.Int(IntVal.Large(b))) => bigint_op(a, op, b),
+    (Value.Float(FloatVal.Rat(a)), Value.Float(FloatVal.Rat(b))) => rat_op(a, op, b),
+    (Value.Float(FloatVal.Big(a)), Value.Float(FloatVal.Big(b))) => float_op(a, op, b),
+    (Value.Complex(a, b), Value.Complex(c, d)) => complex_op(a, b, op, c, d),
+    (Value.String(a), Value.String(b)) => {
+      if op == token.ADD { Some(Value.String(a + b)) } else { None }
+    },
+    _ => None,
+  }
+  match r {
+    Some(v) => v,
+    None => bin_err(x_, op, y_),
+  }
+}
+
+pub fn shift(x: Value, op: Int, s: Int) -> Value {
+  match x {
+    Value.Unknown => { return x },
+    Value.Int(IntVal.Small(v)) => {
+      if s == 0 { return x }
+      if op == token.SHL { return make_int(big.new_int(v).lsh(s)) }
+      if op == token.SHR {
+        if s > 63 { return small(if v < 0 { -1 } else { 0 }) }
+        return small(v >> s)
+      }
+    },
+    Value.Int(IntVal.Large(v)) => {
+      if s == 0 { return x }
+      if op == token.SHL { return make_int(v.lsh(s)) }
+      if op == token.SHR { return make_int(v.rsh(s)) }
+    },
+    _ => {},
+  }
+  panic("invalid shift {x.string()} {token.token_string(op)} {s}")
+}
+
+fn cmp_zero(x: Int, op: Int) -> Bool {
+  if op == token.EQL { return x == 0 }
+  if op == token.NEQ { return x != 0 }
+  if op == token.LSS { return x < 0 }
+  if op == token.LEQ { return x <= 0 }
+  if op == token.GTR { return x > 0 }
+  if op == token.GEQ { return x >= 0 }
+  panic("invalid comparison {x} {token.token_string(op)} 0")
+}
+
+fn icmp(a: Int, b: Int) -> Int { if a < b { -1 } else if a > b { 1 } else { 0 } }
+
+fn scmp(a: Str, b: Str) -> Int { if a < b { -1 } else if a > b { 1 } else { 0 } }
+
+fn cmp_err(x: Value, op: Int, y: Value) -> Never {
+  panic("invalid comparison {x.string()} {token.token_string(op)} {y.string()}")
+}
+
+pub fn compare(x_: Value, op: Int, y_: Value) -> Bool {
+  let (x, y) = match_vals(x_, y_)
+  match (x, y) {
+    (Value.Unknown, _) => false,
+    (Value.Bool(a), Value.Bool(b)) => {
+      if op == token.EQL {
+        a == b
+      } else if op == token.NEQ {
+        a != b
+      } else {
+        cmp_err(x_, op, y_)
+      }
+    },
+    (Value.Int(IntVal.Small(a)), Value.Int(IntVal.Small(b))) => {
+      if op == token.EQL
+        || op == token.NEQ
+        || op == token.LSS
+        || op == token.LEQ
+        || op == token.GTR
+        || op == token.GEQ {
+        cmp_zero(icmp(a, b), op)
+      } else {
+        cmp_err(x_, op, y_)
+      }
+    },
+    (Value.Int(IntVal.Large(a)), Value.Int(IntVal.Large(b))) => cmp_zero(a.cmp(b), op),
+    (Value.Float(FloatVal.Rat(a)), Value.Float(FloatVal.Rat(b))) => cmp_zero(a.cmp(b), op),
+    (Value.Float(FloatVal.Big(a)), Value.Float(FloatVal.Big(b))) => cmp_zero(a.cmp(b), op),
+    (Value.Complex(a, b), Value.Complex(c, d)) => {
+      let re = compare(a, token.EQL, c)
+      let im = compare(b, token.EQL, d)
+      if op == token.EQL {
+        re && im
+      } else if op == token.NEQ {
+        !re || !im
+      } else {
+        cmp_err(x_, op, y_)
+      }
+    },
+    (Value.String(a), Value.String(b)) => {
+      if op == token.EQL
+        || op == token.NEQ
+        || op == token.LSS
+        || op == token.LEQ
+        || op == token.GTR
+        || op == token.GEQ {
+        cmp_zero(scmp(a, b), op)
+      } else {
+        cmp_err(x_, op, y_)
+      }
+    },
+    _ => cmp_err(x_, op, y_),
+  }
+}
