@@ -39,7 +39,13 @@ pub const CLASS_PRIVATE: Int = 3
 
 pub type BitString = { bytes: List<Int>, bit_length: Int }
 
-pub type RawValue = { class: Int, tag: Int, is_compound: Bool, bytes: List<Int>, full_bytes: List<Int> }
+pub type RawValue = {
+  class: Int,
+  tag: Int,
+  is_compound: Bool,
+  bytes: List<Int>,
+  full_bytes: List<Int>,
+}
 
 // time.Time：unix 秒、纳秒、所在时区相对 UTC 的秒数
 pub type Time = { unix: Int, nsec: Int, offset: Int }
@@ -117,10 +123,32 @@ pub fn zero_value(ty: Ty) -> Val {
 
 // ── 参数（parseFieldParameters） ──
 
-pub type Params = { optional: Bool, explicit: Bool, application: Bool, private: Bool, default: Option<Int>, tag: Option<Int>, string_type: Int, time_type: Int, set: Bool, omit_empty: Bool }
+pub type Params = {
+  optional: Bool,
+  explicit: Bool,
+  application: Bool,
+  private: Bool,
+  default: Option<Int>,
+  tag: Option<Int>,
+  string_type: Int,
+  time_type: Int,
+  set: Bool,
+  omit_empty: Bool,
+}
 
 pub fn parse_params(s: Str) -> Params {
-  var p = Params { optional: false, explicit: false, application: false, private: false, default: None, tag: None, string_type: 0, time_type: 0, set: false, omit_empty: false }
+  var p = Params {
+    optional: false,
+    explicit: false,
+    application: false,
+    private: false,
+    default: None,
+    tag: None,
+    string_type: 0,
+    time_type: 0,
+    set: false,
+    omit_empty: false,
+  }
   if s == "" { return p }
   for part in split(s, ",") {
     if part == "optional" {
@@ -140,9 +168,13 @@ pub fn parse_params(s: Str) -> Params {
     } else if part == "utf8" {
       p = Params { string_type: TAG_UTF8_STRING, ..p }
     } else if starts_with(part, "default:") {
-      if let Ok(v) = strconv.parse_int_base(__str_slice(part, 8, len(part)), 10) { p = Params { default: Some(v), ..p } }
+      if let Ok(v) = strconv.parse_int_base(__str_slice(part, 8, len(part)), 10) {
+        p = Params { default: Some(v), ..p }
+      }
     } else if starts_with(part, "tag:") {
-      if let Ok(v) = strconv.parse_int_base(__str_slice(part, 4, len(part)), 10) { p = Params { tag: Some(v), ..p } }
+      if let Ok(v) = strconv.parse_int_base(__str_slice(part, 4, len(part)), 10) {
+        p = Params { tag: Some(v), ..p }
+      }
     } else if part == "set" {
       p = Params { set: true, ..p }
     } else if part == "application" {
@@ -202,7 +234,11 @@ fn universal_type(ty: Ty) -> (Bool, Int, Bool, Bool) {
     TStruct(_, _) => (false, TAG_SEQUENCE, true, true),
     TBytes => (false, TAG_OCTET_STRING, false, true),
     TRawContent => (false, TAG_OCTET_STRING, false, true),
-    TSlice(n, _) => if ends_with(n, "SET") { (false, TAG_SET, true, true) } else { (false, TAG_SEQUENCE, true, true) },
+    TSlice(n, _) => if ends_with(n, "SET") {
+      (false, TAG_SET, true, true)
+    } else {
+      (false, TAG_SEQUENCE, true, true)
+    },
     TStr => (false, TAG_PRINTABLE_STRING, false, true),
     TAny => (false, 0, false, false),
   }
@@ -230,7 +266,9 @@ pub fn parse_bool(b: List<Int>) -> Result<Bool, Str> {
 fn check_integer(b: List<Int>) -> Str {
   if len(b) == 0 { return structural("empty integer") }
   if len(b) == 1 { return "" }
-  if (b[0] == 0 && (b[1] & 0x80) == 0) || (b[0] == 0xff && (b[1] & 0x80) == 0x80) { return structural("integer not minimally-encoded") }
+  if (b[0] == 0 && (b[1] & 0x80) == 0) || (b[0] == 0xff && (b[1] & 0x80) == 0x80) {
+    return structural("integer not minimally-encoded")
+  }
   ""
 }
 
@@ -264,7 +302,9 @@ pub fn parse_big_int(b: List<Int>) -> Result<BigInt, Str> {
 pub fn parse_bit_string(b: List<Int>) -> Result<BitString, Str> {
   if len(b) == 0 { return Err(syntax("zero length BIT STRING")) }
   let pad = b[0]
-  if pad > 7 || (len(b) == 1 && pad > 0) || (b[len(b) - 1] & ((1 << pad) - 1)) != 0 { return Err(syntax("invalid padding bits in BIT STRING")) }
+  if pad > 7 || (len(b) == 1 && pad > 0) || (b[len(b) - 1] & ((1 << pad) - 1)) != 0 {
+    return Err(syntax("invalid padding bits in BIT STRING"))
+  }
   Ok(BitString { bytes: b[1..], bit_length: (len(b) - 1) * 8 - pad })
 }
 
@@ -278,7 +318,9 @@ impl BitString {
     let shift = 8 - self.bit_length % 8
     if shift == 8 || len(self.bytes) == 0 { return self.bytes }
     var a = [self.bytes[0] >> shift]
-    for i in 1..len(self.bytes) { a = push(a, ((self.bytes[i - 1] << (8 - shift)) & 255) | (self.bytes[i] >> shift)) }
+    for i in 1..len(self.bytes) {
+      a = push(a, ((self.bytes[i - 1] << (8 - shift)) & 255) | (self.bytes[i] >> shift))
+    }
     a
   }
 }
@@ -323,18 +365,34 @@ pub fn parse_oid(b: List<Int>) -> Result<List<Int>, Str> {
 fn is_numeric(c: Int) -> Bool { (c >= 48 && c <= 57) || c == 32 }
 
 fn is_printable(c: Int, asterisk: Bool, ampersand: Bool) -> Bool {
-  (c >= 97 && c <= 122) || (c >= 65 && c <= 90) || (c >= 48 && c <= 57) || (c >= 39 && c <= 41) || (c >= 43 && c <= 47) || c == 32 || c == 58 || c == 61 || c == 63 || (asterisk && c == 42) || (ampersand && c == 38)
+  (c >= 97 && c <= 122)
+    || (c >= 65 && c <= 90)
+    || (c >= 48 && c <= 57)
+    || (c >= 39 && c <= 41)
+    || (c >= 43 && c <= 47)
+    || c == 32
+    || c == 58
+    || c == 61
+    || c == 63
+    || (asterisk && c == 42)
+    || (ampersand && c == 38)
 }
 
 fn ascii(b: List<Int>) -> Str { unwrap(__from_bytes(b)) }
 
 pub fn parse_numeric_string(b: List<Int>) -> Result<Str, Str> {
-  for c in b { if !is_numeric(c) { return Err(syntax("NumericString contains invalid character")) } }
+  for c in b {
+    if !is_numeric(c) { return Err(syntax("NumericString contains invalid character")) }
+  }
   Ok(ascii(b))
 }
 
 pub fn parse_printable_string(b: List<Int>) -> Result<Str, Str> {
-  for c in b { if !is_printable(c, true, true) { return Err(syntax("PrintableString contains invalid character")) } }
+  for c in b {
+    if !is_printable(c, true, true) {
+      return Err(syntax("PrintableString contains invalid character"))
+    }
+  }
   Ok(ascii(b))
 }
 
@@ -363,7 +421,9 @@ pub fn parse_bmp_string(b0: List<Int>) -> Result<Str, Str> {
   var i = 0
   while i < len(b) {
     let p = (b[i] << 8) + b[i + 1]
-    if p == 0xfffe || p == 0xffff || (p >= 0xfdd0 && p <= 0xfdef) || (p >= 0xd800 && p <= 0xdfff) { return Err("invalid BMPString") }
+    if p == 0xfffe || p == 0xffff || (p >= 0xfdd0 && p <= 0xfdef) || (p >= 0xd800 && p <= 0xdfff) {
+      return Err("invalid BMPString")
+    }
     s = push(s, p)
     i += 2
   }
@@ -377,7 +437,11 @@ fn tquote(b: List<Int>) -> Str {
   var out = "\""
   for c in b {
     if c >= 0x80 || c < 32 {
-      out = out + "\\x" + __str_slice(hexd, c >> 4, (c >> 4) + 1) + __str_slice(hexd, c & 15, (c & 15) + 1)
+      out = out + "\\x" + __str_slice(hexd, c >> 4, (c >> 4) + 1) + __str_slice(
+        hexd,
+        c & 15,
+        (c & 15) + 1,
+      )
     } else {
       if c == 34 || c == 92 { out = out + "\\" }
       out = out + ascii([c])
@@ -471,11 +535,19 @@ pub fn civil(t: Time) -> (Int, Int, Int, Int, Int, Int) {
 
 // time.Date（字段已在范围内）
 pub fn make_time(y: Int, mo: Int, d: Int, h: Int, mi: Int, s: Int, nsec: Int, offset: Int) -> Time {
-  Time { unix: days_from_civil(y, mo, d) * 86400 + h * 3600 + mi * 60 + s - offset, nsec: nsec, offset: offset }
+  Time {
+    unix: days_from_civil(y, mo, d) * 86400 + h * 3600 + mi * 60 + s - offset,
+    nsec: nsec,
+    offset: offset,
+  }
 }
 
 fn perr(layout: Str, value: List<Int>, lelem: Str, velem: List<Int>, msg: Str) -> Str {
-  if msg == "" { return "parsing time " + tquote(value) + " as " + tquote(__bytes(layout)) + ": cannot parse " + tquote(velem) + " as " + tquote(__bytes(lelem)) }
+  if msg == "" {
+    return "parsing time " + tquote(value) + " as " + tquote(
+      __bytes(layout),
+    ) + ": cannot parse " + tquote(velem) + " as " + tquote(__bytes(lelem))
+  }
   "parsing time " + tquote(value) + msg
 }
 
@@ -602,7 +674,9 @@ fn parse_time(layout: Str, chunks: List<Str>, value: List<Int>) -> Result<Time, 
   }
   if month < 0 { month = 1 }
   if day < 0 { day = 1 }
-  if day < 1 || day > days_in(month, year) { return Err(perr(layout, value, "", v, ": day out of range")) }
+  if day < 1 || day > days_in(month, year) {
+    return Err(perr(layout, value, "", v, ": day out of range"))
+  }
   let off = if utc { 0 } else { zone }
   Ok(make_time(year, month, day, hour, minute, sec, nsec, off))
 }
@@ -668,7 +742,11 @@ pub fn parse_utc_time(b: List<Int>) -> Result<Time, Str> {
   let t = r?
   let ser = format_time(t, chunks)
   if __bytes(ser) != b {
-    return Err("asn1: time did not serialize back to the original value and may be invalid: given " + strconv.quote_go(ascii(b)) + ", but serialized as " + strconv.quote_go(ser))
+    return Err(
+      "asn1: time did not serialize back to the original value and may be invalid: given " + strconv
+        .quote_go(ascii(b)) + ", but serialized as " + strconv
+        .quote_go(ser),
+    )
   }
   let (y, mo, d, h, mi, s) = civil(t)
   if y >= 2050 { return Ok(make_time(y - 100, mo, d, h, mi, s, t.nsec, t.offset)) }
@@ -680,7 +758,11 @@ pub fn parse_generalized_time(b: List<Int>) -> Result<Time, Str> {
   let t = parse_time("20060102150405.999999999Z0700", ch, b)?
   let ser = format_time(t, ch)
   if __bytes(ser) != b {
-    return Err("asn1: time did not serialize back to the original value and may be invalid: given " + strconv.quote_go(ascii(b)) + ", but serialized as " + strconv.quote_go(ser))
+    return Err(
+      "asn1: time did not serialize back to the original value and may be invalid: given " + strconv
+        .quote_go(ascii(b)) + ", but serialized as " + strconv
+        .quote_go(ser),
+    )
   }
   Ok(t)
 }
@@ -689,7 +771,9 @@ pub fn parse_generalized_time(b: List<Int>) -> Result<Time, Str> {
 
 pub type TagLen = { class: Int, tag: Int, length: Int, is_compound: Bool }
 
-fn tl_s(t: TagLen) -> Str { "\{class:{t.class} tag:{t.tag} length:{t.length} isCompound:{t.is_compound}}" }
+fn tl_s(t: TagLen) -> Str {
+  "\{class:{t.class} tag:{t.tag} length:{t.length} isCompound:{t.is_compound}}"
+}
 
 fn parse_tag_len(b: List<Int>, off0: Int) -> (TagLen, Int, Str) {
   var off = off0
@@ -741,7 +825,12 @@ fn set_default(ty: Ty, p: Params) -> (Bool, Val) {
 }
 
 fn is_string_tag(t: Int) -> Bool {
-  t == TAG_IA5_STRING || t == TAG_GENERAL_STRING || t == TAG_T61_STRING || t == TAG_UTF8_STRING || t == TAG_NUMERIC_STRING || t == TAG_BMP_STRING
+  t == TAG_IA5_STRING
+    || t == TAG_GENERAL_STRING
+    || t == TAG_T61_STRING
+    || t == TAG_UTF8_STRING
+    || t == TAG_NUMERIC_STRING
+    || t == TAG_BMP_STRING
 }
 
 fn res_val<T>(r: Result<T, Str>, f: fn(T) -> Val, cur: Val) -> (Val, Str) {
@@ -752,7 +841,11 @@ fn res_val<T>(r: Result<T, Str>, f: fn(T) -> Val, cur: Val) -> (Val, Str) {
 }
 
 // 返回 (新的偏移, 值, 错误)；出错时值无意义
-fn parse_field(cur: Val, ty: Ty, b: List<Int>, init: Int, p: Params, depth0: Int) -> (Int, Val, Str) {
+fn parse_field(cur: Val, ty: Ty, b: List<Int>, init: Int, p: Params, depth0: Int) -> (
+  Int,
+  Val,
+  Str,
+) {
   let depth = depth0 + 1
   if depth > 10000 { return (init, cur, structural("nesting depth exceeded")) }
   var off = init
@@ -816,14 +909,15 @@ fn parse_field(cur: Val, ty: Ty, b: List<Int>, init: Int, p: Params, depth0: Int
     let ec = if p.application { CLASS_APPLICATION } else { CLASS_CONTEXT_SPECIFIC }
     if off == len(b) { return (off, cur, structural("explicit tag has no child")) }
     if t.class == ec && t.tag == unwrap(p.tag) && (t.length == 0 || t.is_compound) {
-      if ty == TRaw {
-      } else if t.length > 0 {
+      if ty == TRaw {} else if t.length > 0 {
         let (t2, o4, e4) = parse_tag_len(b, off)
         off = o4
         t = t2
         if e4 != "" { return (off, cur, e4) }
       } else {
-        if ty != TFlag { return (off, cur, structural("zero length explicit tag was not an asn1.Flag")) }
+        if ty != TFlag {
+          return (off, cur, structural("zero length explicit tag was not an asn1.Flag"))
+        }
         return (off, VBool(true), "")
       }
     } else {
@@ -871,13 +965,29 @@ fn parse_field(cur: Val, ty: Ty, b: List<Int>, init: Int, p: Params, depth0: Int
   if (!mact && (t.class != ecls || t.tag != etag)) || (!match_any && t.is_compound != compound) {
     let (ok, dv) = set_default(ty, p)
     if ok { return (init, dv, "") }
-    return (off, cur, structural("tags don't match ({etag} vs {tl_s(t)}) {params_s(p)} {type_name(ty)} @{off}"))
+    return (
+      off,
+      cur,
+      structural("tags don't match ({etag} vs {tl_s(t)}) {params_s(p)} {type_name(ty)} @{off}"),
+    )
   }
   if invalid_length(off, t.length, len(b)) { return (off, cur, syntax("data truncated")) }
   let inner = b[off..off + t.length]
   off += t.length
   match ty {
-    TRaw => { return (off, VRaw(RawValue { class: t.class, tag: t.tag, is_compound: t.is_compound, bytes: inner, full_bytes: b[init..off] }), "") },
+    TRaw => {
+      return (
+        off,
+        VRaw(RawValue {
+          class: t.class,
+          tag: t.tag,
+          is_compound: t.is_compound,
+          bytes: inner,
+          full_bytes: b[init..off],
+        }),
+        "",
+      )
+    },
     TOid => {
       let (v, e) = res_val(parse_oid(inner), (x) => VOid(x), cur)
       return (off, v, e)
@@ -928,7 +1038,14 @@ fn parse_field(cur: Val, ty: Ty, b: List<Int>, init: Int, p: Params, depth0: Int
       }
       var io = 0
       for i in start..len(fs) {
-        let (o5, v5, e5) = parse_field(vals[i], fs[i].ty, inner, io, parse_params(fs[i].params), depth)
+        let (o5, v5, e5) = parse_field(
+          vals[i],
+          fs[i].ty,
+          inner,
+          io,
+          parse_params(fs[i].params),
+          depth,
+        )
         io = o5
         if e5 != "" { return (off, VStruct(vals), e5) }
         vals = set(vals, i, v5)
@@ -978,7 +1095,9 @@ fn parse_sequence_of(b: List<Int>, el: Ty, depth: Int) -> (Val, Str) {
     var tg = t0.tag
     if is_string_tag(tg) { tg = TAG_PRINTABLE_STRING }
     if tg == TAG_GENERALIZED_TIME || tg == TAG_UTC_TIME { tg = TAG_UTC_TIME }
-    if !match_any && (t0.class != CLASS_UNIVERSAL || t0.is_compound != compound || tg != etag) { return (VNil, structural("sequence tag mismatch")) }
+    if !match_any && (t0.class != CLASS_UNIVERSAL || t0.is_compound != compound || tg != etag) {
+      return (VNil, structural("sequence tag mismatch"))
+    }
     if invalid_length(off, t0.length, len(b)) { return (VNil, syntax("truncated sequence")) }
     off += t0.length
     n += 1
@@ -1001,7 +1120,9 @@ pub fn unmarshal_with_params(b: List<Int>, ty: Ty, params: Str) -> Result<(Val, 
   Ok((v, b[off..]))
 }
 
-pub fn unmarshal(b: List<Int>, ty: Ty) -> Result<(Val, List<Int>), Str> { unmarshal_with_params(b, ty, "") }
+pub fn unmarshal(b: List<Int>, ty: Ty) -> Result<(Val, List<Int>), Str> {
+  unmarshal_with_params(b, ty, "")
+}
 
 // ── 编码（makeField / makeBody） ──
 
@@ -1098,7 +1219,9 @@ fn big_body(n: Option<BigInt>) -> Result<List<Int>, Str> {
 }
 
 fn oid_body(oid: List<Int>) -> Result<List<Int>, Str> {
-  if len(oid) < 2 || oid[0] > 2 || (oid[0] < 2 && oid[1] >= 40) { return Err(structural("invalid object identifier")) }
+  if len(oid) < 2 || oid[0] > 2 || (oid[0] < 2 && oid[1] >= 40) {
+    return Err(structural("invalid object identifier"))
+  }
   var out = append_base128([], oid[0] * 40 + oid[1])
   for i in 2..len(oid) { out = append_base128(out, oid[i]) }
   Ok(out)
@@ -1138,7 +1261,9 @@ fn generalized_time_body(t: Time) -> Result<List<Int>, Str> {
   Ok(__bytes(four(y) + time_common(t)))
 }
 
-fn sort_bytes(xs: List<List<Int>>) -> List<List<Int>> { sort_with(xs, (a, b) => compare_bytes(a, b)) }
+fn sort_bytes(xs: List<List<Int>>) -> List<List<Int>> {
+  sort_with(xs, (a, b) => compare_bytes(a, b))
+}
 
 fn compare_bytes(a: List<Int>, b: List<Int>) -> Int {
   let n = if len(a) < len(b) { len(a) } else { len(b) }
@@ -1215,9 +1340,15 @@ fn make_body(v: Val, ty: Ty, p: Params) -> Result<List<Int>, Str> {
       if p.string_type == TAG_IA5_STRING {
         for c in b { if c > 127 { return Err(structural("IA5String contains invalid character")) } }
       } else if p.string_type == TAG_PRINTABLE_STRING {
-        for c in b { if !is_printable(c, true, false) { return Err(structural("PrintableString contains invalid character")) } }
+        for c in b {
+          if !is_printable(c, true, false) {
+            return Err(structural("PrintableString contains invalid character"))
+          }
+        }
       } else if p.string_type == TAG_NUMERIC_STRING {
-        for c in b { if !is_numeric(c) { return Err(structural("NumericString contains invalid character")) } }
+        for c in b {
+          if !is_numeric(c) { return Err(structural("NumericString contains invalid character")) }
+        }
       }
       return Ok(b)
     },
@@ -1282,8 +1413,12 @@ fn make_field(v: Val, ty0: Ty, p0: Params) -> Result<List<Int>, Str> {
   let (match_any, tag0, compound, ok) = universal_type(ty)
   if !ok || match_any { return Err(structural("unknown Go type: " + type_name(ty))) }
   var tag = tag0
-  if p.time_type != 0 && tag != TAG_UTC_TIME { return Err(structural("explicit time type given to non-time member")) }
-  if p.string_type != 0 && tag != TAG_PRINTABLE_STRING { return Err(structural("explicit string type given to non-string member")) }
+  if p.time_type != 0 && tag != TAG_UTC_TIME {
+    return Err(structural("explicit time type given to non-time member"))
+  }
+  if p.string_type != 0 && tag != TAG_PRINTABLE_STRING {
+    return Err(structural("explicit string type given to non-string member"))
+  }
   if tag == TAG_PRINTABLE_STRING {
     if p.string_type == 0 {
       let VStr(s) = v else { return Err(structural("unknown Go type")) }
@@ -1308,7 +1443,13 @@ fn make_field(v: Val, ty0: Ty, p0: Params) -> Result<List<Int>, Str> {
   let body = make_body(v, ty, p)?
   var class = CLASS_UNIVERSAL
   if let Some(pt) = p.tag {
-    class = if p.application { CLASS_APPLICATION } else if p.private { CLASS_PRIVATE } else { CLASS_CONTEXT_SPECIFIC }
+    class = if p.application {
+      CLASS_APPLICATION
+    } else if p.private {
+      CLASS_PRIVATE
+    } else {
+      CLASS_CONTEXT_SPECIFIC
+    }
     if p.explicit {
       let inner = tag_and_length(CLASS_UNIVERSAL, tag, len(body), compound) + body
       return Ok(tag_and_length(class, pt, len(inner), true) + inner)
@@ -1318,6 +1459,8 @@ fn make_field(v: Val, ty0: Ty, p0: Params) -> Result<List<Int>, Str> {
   Ok(tag_and_length(class, tag, len(body), compound) + body)
 }
 
-pub fn marshal_with_params(v: Val, ty: Ty, params: Str) -> Result<List<Int>, Str> { make_field(v, ty, parse_params(params)) }
+pub fn marshal_with_params(v: Val, ty: Ty, params: Str) -> Result<List<Int>, Str> {
+  make_field(v, ty, parse_params(params))
+}
 
 pub fn marshal(v: Val, ty: Ty) -> Result<List<Int>, Str> { marshal_with_params(v, ty, "") }

@@ -36,7 +36,11 @@ fn main() {
     print("RC4b " + h(ks2))
   }
   for n in [0, 7, 9, 16, 24] {
-    print("KEY {n} " + nil_or(des.new_cipher(map(0..n, (_) => 0))) + " " + nil_or(des.new_triple_des_cipher(map(0..n, (_) => 0))))
+    print(
+      "KEY {n} " + nil_or(des.new_cipher(map(0..n, (_) => 0))) + " " + nil_or(
+        des.new_triple_des_cipher(map(0..n, (_) => 0)),
+      ),
+    )
   }
   for n in [0, 1, 256, 257] {
     match rc4.new_cipher(map(0..n, (_) => 0)) {

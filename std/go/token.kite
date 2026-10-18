@@ -97,7 +97,98 @@ const ADDITIONAL_BEG_: Int = 87
 pub const TILDE: Int = 88
 const ADDITIONAL_END_: Int = 89
 
-const TOKENS: List<Str> = ["ILLEGAL", "EOF", "COMMENT", "", "IDENT", "INT", "FLOAT", "IMAG", "CHAR", "STRING", "", "", "+", "-", "*", "/", "%", "&", "|", "^", "<<", ">>", "&^", "+=", "-=", "*=", "/=", "%=", "&=", "|=", "^=", "<<=", ">>=", "&^=", "&&", "||", "<-", "++", "--", "==", "<", ">", "=", "!", "!=", "<=", ">=", ":=", "...", "(", "[", "{{", ",", ".", ")", "]", "}}", ";", ":", "", "", "break", "case", "chan", "const", "continue", "default", "defer", "else", "fallthrough", "for", "func", "go", "goto", "if", "import", "interface", "map", "package", "range", "return", "select", "struct", "switch", "type", "var", "", "", "~", ""]
+const TOKENS: List<Str> = [
+  "ILLEGAL",
+  "EOF",
+  "COMMENT",
+  "",
+  "IDENT",
+  "INT",
+  "FLOAT",
+  "IMAG",
+  "CHAR",
+  "STRING",
+  "",
+  "",
+  "+",
+  "-",
+  "*",
+  "/",
+  "%",
+  "&",
+  "|",
+  "^",
+  "<<",
+  ">>",
+  "&^",
+  "+=",
+  "-=",
+  "*=",
+  "/=",
+  "%=",
+  "&=",
+  "|=",
+  "^=",
+  "<<=",
+  ">>=",
+  "&^=",
+  "&&",
+  "||",
+  "<-",
+  "++",
+  "--",
+  "==",
+  "<",
+  ">",
+  "=",
+  "!",
+  "!=",
+  "<=",
+  ">=",
+  ":=",
+  "...",
+  "(",
+  "[",
+  "{{",
+  ",",
+  ".",
+  ")",
+  "]",
+  "}}",
+  ";",
+  ":",
+  "",
+  "",
+  "break",
+  "case",
+  "chan",
+  "const",
+  "continue",
+  "default",
+  "defer",
+  "else",
+  "fallthrough",
+  "for",
+  "func",
+  "go",
+  "goto",
+  "if",
+  "import",
+  "interface",
+  "map",
+  "package",
+  "range",
+  "return",
+  "select",
+  "struct",
+  "switch",
+  "type",
+  "var",
+  "",
+  "",
+  "~",
+  "",
+]
 
 pub const LOWEST_PREC: Int = 0
 pub const UNARY_PREC: Int = 6
@@ -115,7 +206,9 @@ pub fn precedence(op: Int) -> Int {
   if op == LAND { return 2 }
   if op == EQL || op == NEQ || op == LSS || op == LEQ || op == GTR || op == GEQ { return 3 }
   if op == ADD || op == SUB || op == OR || op == XOR { return 4 }
-  if op == MUL || op == QUO || op == REM || op == SHL || op == SHR || op == AND || op == AND_NOT { return 5 }
+  if op == MUL || op == QUO || op == REM || op == SHL || op == SHR || op == AND || op == AND_NOT {
+    return 5
+  }
   LOWEST_PREC
 }
 
@@ -194,14 +287,18 @@ impl File {
 
   pub fn add_line(self, offset: Int) -> File {
     let i = len(self.lines)
-    if (i == 0 || self.lines[i - 1] < offset) && offset < self.size { return File { lines: push(self.lines, offset), ..self } }
+    if (i == 0 || self.lines[i - 1] < offset) && offset < self.size {
+      return File { lines: push(self.lines, offset), ..self }
+    }
     self
   }
 
   // Go 的 MergeLine 遇到非法行号会 panic；这里返回 Err
   pub fn merge_line(self, line: Int) -> Result<File, Str> {
     if line < 1 { return Err("invalid line number {line} (should be >= 1)") }
-    if line >= len(self.lines) { return Err("invalid line number {line} (should be < {len(self.lines)})") }
+    if line >= len(self.lines) {
+      return Err("invalid line number {line} (should be < {len(self.lines)})")
+    }
     Ok(File { lines: self.lines[0..line] + self.lines[line + 1..], ..self })
   }
 
@@ -230,16 +327,28 @@ impl File {
 
   pub fn line_start(self, line: Int) -> Result<Int, Str> {
     if line < 1 { return Err("invalid line number {line} (should be >= 1)") }
-    if line > len(self.lines) { return Err("invalid line number {line} (should be < {len(self.lines)})") }
+    if line > len(self.lines) {
+      return Err("invalid line number {line} (should be < {len(self.lines)})")
+    }
     Ok(self.base + self.lines[line - 1])
   }
 
-  pub fn add_line_info(self, offset: Int, filename: Str, line: Int) -> File { self.add_line_column_info(offset, filename, line, 1) }
+  pub fn add_line_info(self, offset: Int, filename: Str, line: Int) -> File {
+    self.add_line_column_info(offset, filename, line, 1)
+  }
 
   pub fn add_line_column_info(self, offset: Int, filename: Str, line: Int, column: Int) -> File {
     let i = len(self.infos)
     if (i == 0 || self.infos[i - 1].offset < offset) && offset < self.size {
-      return File { infos: push(self.infos, LineInfo { offset: offset, filename: filename, line: line, column: column }), ..self }
+      return File {
+        infos: push(self.infos, LineInfo {
+          offset: offset,
+          filename: filename,
+          line: line,
+          column: column,
+        }),
+        ..self
+      }
     }
     self
   }
@@ -277,7 +386,11 @@ impl File {
         if j >= 0 {
           let d = line - (j + 1)
           line = alt.line + d
-          if alt.column == 0 { column = 0 } else if d == 0 { column = alt.column + (offset - alt.offset) }
+          if alt.column == 0 {
+            column = 0
+          } else if d == 0 {
+            column = alt.column + (offset - alt.offset)
+          }
         }
       }
     }
@@ -334,11 +447,17 @@ impl FileSet {
 
   // 把扫描 / 解析之后更新过的 File（按 base 认）写回
   pub fn set_file(self, f: File) -> FileSet {
-    FileSet { files: map(self.files, (g) => if g.base == f.base && g.name == f.name { f } else { g }), ..self }
+    FileSet {
+      files: map(self.files, (g) => if g.base == f.base && g.name == f.name { f } else { g }),
+      ..self
+    }
   }
 
   pub fn remove_file(self, f: File) -> FileSet {
-    FileSet { files: filter(self.files, (g) => !(g.base == f.base && g.size == f.size && g.name == f.name)), ..self }
+    FileSet {
+      files: filter(self.files, (g) => !(g.base == f.base && g.size == f.size && g.name == f.name)),
+      ..self
+    }
   }
 
   pub fn iterate(self) -> List<File> { self.files }

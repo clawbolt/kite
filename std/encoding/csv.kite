@@ -39,7 +39,9 @@ pub fn parse_with(text: Str, sep: Str) -> Result<List<List<Str>>, Str> {
         }
       }
       if !closed { return Err("csv: 第 {start} 行的引号没有闭合") }
-      if i < n && cs[i] != sep && cs[i] != "\n" && cs[i] != cr { return Err("csv: 第 {line} 行引号后面多了字符") }
+      if i < n && cs[i] != sep && cs[i] != "\n" && cs[i] != cr {
+        return Err("csv: 第 {line} 行引号后面多了字符")
+      }
       any = true
       continue
     }
@@ -75,7 +77,15 @@ pub fn format_with(rows: List<List<Str>>, sep: Str) -> Str {
     for f in r {
       if !first { out = out + sep }
       first = false
-      let need = f != "" && (contains(f, sep) || contains(f, "\"") || contains(f, "\n") || contains(f, __chr(13)) || starts_with(f, " ") || ends_with(f, " "))
+      let need = f != ""
+        && (
+          contains(f, sep)
+            || contains(f, "\"")
+            || contains(f, "\n")
+            || contains(f, __chr(13))
+            || starts_with(f, " ")
+            || ends_with(f, " ")
+        )
       out = out + if need { "\"" + replace(f, "\"", "\"\"") + "\"" } else { f }
     }
     out = out + "\n"
@@ -91,7 +101,9 @@ pub fn parse_records(text: Str) -> Result<List<Map<Str, Str>>, Str> {
   var out: List<Map<Str, Str>> = []
   var k = 2
   for r in rows[1..] {
-    if len(r) != len(head) { return Err("csv: 第 {k} 条记录有 {len(r)} 个字段，表头有 {len(head)} 个") }
+    if len(r) != len(head) {
+      return Err("csv: 第 {k} 条记录有 {len(r)} 个字段，表头有 {len(head)} 个")
+    }
     out = push(out, Map(zip(head, r)))
     k += 1
   }

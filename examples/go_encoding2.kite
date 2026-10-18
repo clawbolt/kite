@@ -4,12 +4,12 @@ use std.unicode.utf16
 fn show(r: Result<(List<Int>, Int), Str>) -> Str {
   match r {
     Ok((bs, n)) => "ok {bs} {n}",
-    Err(e)      => "err " + e,
+    Err(e) => "err " + e,
   }
 }
 fn showb(b: Option<pem.Block>) -> Str {
   match b {
-    None    => "nil",
+    None => "nil",
     Some(x) => {
       let hs = sort(map(keys(x.headers), (k) => k + "=" + x.headers[k]))
       "{x.typ} {hs} {x.bytes}"
@@ -17,28 +17,80 @@ fn showb(b: Option<pem.Block>) -> Str {
   }
 }
 fn main() {
-  for s in ["", "a", "ab", "abc", "abcd", "\u{0}\u{0}\u{0}\u{0}", "\u{0}\u{0}\u{0}\u{0}x", "\u{0}\u{0}", "Man is distinguished", "你好世界"] {
+  for s in [
+    "",
+    "a",
+    "ab",
+    "abc",
+    "abcd",
+    "\u{0}\u{0}\u{0}\u{0}",
+    "\u{0}\u{0}\u{0}\u{0}x",
+    "\u{0}\u{0}",
+    "Man is distinguished",
+    "你好世界",
+  ] {
     let e = ascii85.encode_to_string(__bytes(s))
-    print(e, ascii85.max_encoded_len(len(__bytes(s))), show(ascii85.decode(__bytes(e), true)), show(ascii85.decode(__bytes(e), false)))
+    print(
+      e,
+      ascii85.max_encoded_len(len(__bytes(s))),
+      show(ascii85.decode(__bytes(e), true)),
+      show(ascii85.decode(__bytes(e), false)),
+    )
   }
-  for bad in ["9jqo^", "9jqo^B", "9jq o^\nBlb", "zz", "9z", "9jqo~", "uuuuu", "s8W-!", "!", "!!", "ab\{", "  "] {
+  for bad in [
+    "9jqo^",
+    "9jqo^B",
+    "9jq o^\nBlb",
+    "zz",
+    "9z",
+    "9jqo~",
+    "uuuuu",
+    "s8W-!",
+    "!",
+    "!!",
+    "ab\{",
+    "  ",
+  ] {
     print(bad, show(ascii85.decode(__bytes(bad), true)), show(ascii85.decode(__bytes(bad), false)))
   }
   var data: List<Int> = []
   for i in 0..100 { data = push(data, (i * 37) % 256) }
-  let b = pem.Block { typ: "TEST DATA", headers: Map([("Proc-Type", "4,ENCRYPTED"), ("Zeta", "z"), ("Alpha", "a b")]), bytes: data }
+  let b = pem.Block {
+    typ: "TEST DATA",
+    headers: Map([("Proc-Type", "4,ENCRYPTED"), ("Zeta", "z"), ("Alpha", "a b")]),
+    bytes: data,
+  }
   let enc = unwrap(pem.encode_to_memory(b))
   print(enc)
   let enc2 = unwrap(pem.encode_to_memory(pem.Block { typ: "EMPTY", headers: Map(), bytes: [] }))
   print(enc2)
   print(pem.encode(pem.Block { typ: "X", headers: Map([("a:b", "c")]), bytes: [] }))
-  let docs = [enc, "junk\n" + enc + "tail", enc2 + enc, "-----BEGIN A-----\nAQID\n-----END A-----", "-----BEGIN A-----\nAQID\n-----END B-----\n", "-----BEGIN A-----\r\nAQ ID\t\r\n-----END A-----  \r\nnext", "-----BEGIN A-----\nAQI*\n-----END A-----\n", "no pem here", "-----BEGIN A----\nAQID\n-----END A-----\n-----BEGIN C-----\nBAU=\n-----END C-----\n", "-----BEGIN A-----\nK: v\n\nAQID\n-----END A-----x\n"]
+  let docs = [
+    enc,
+    "junk\n" + enc + "tail",
+    enc2 + enc,
+    "-----BEGIN A-----\nAQID\n-----END A-----",
+    "-----BEGIN A-----\nAQID\n-----END B-----\n",
+    "-----BEGIN A-----\r\nAQ ID\t\r\n-----END A-----  \r\nnext",
+    "-----BEGIN A-----\nAQI*\n-----END A-----\n",
+    "no pem here",
+    "-----BEGIN A----\nAQID\n-----END A-----\n-----BEGIN C-----\nBAU=\n-----END C-----\n",
+    "-----BEGIN A-----\nK: v\n\nAQID\n-----END A-----x\n",
+  ]
   for d in docs {
     let (blk, rest) = pem.decode(d)
     print(showb(blk), "|" + rest + "|")
   }
-  for r in [0, 0x41, 0xd7ff, 0xd800, 0xdfff, 0xe000, 0xffff, 0x10000, 0x1f600, 0x10ffff, 0x110000, -1] {
-    print(r, utf16.is_surrogate(r), utf16.rune_len(r), utf16.encode_rune(r), utf16.append_rune([], r))
+  for r in [
+    0, 0x41, 0xd7ff, 0xd800, 0xdfff, 0xe000, 0xffff, 0x10000, 0x1f600, 0x10ffff, 0x110000, -1,
+  ] {
+    print(
+      r,
+      utf16.is_surrogate(r),
+      utf16.rune_len(r),
+      utf16.encode_rune(r),
+      utf16.append_rune([], r),
+    )
   }
   print(utf16.decode_rune(0xd83d, 0xde00), utf16.decode_rune(0xd83d, 0x41))
   let u = utf16.encode([0x48, 0x1f600, 0xd800, 0x10ffff, 0x110000, 0x4e2d])

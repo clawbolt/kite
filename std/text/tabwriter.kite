@@ -23,18 +23,41 @@ pub const ESCAPE: Int = 255
 pub type Cell = { size: Int, width: Int, htab: Bool }
 
 pub type Writer = {
-  minwidth: Int, tabwidth: Int, padding: Int, padchar: Int, flags: Int,
-  buf: List<Int>, pos: Int, cell: Cell, end_char: Int,
-  lines: List<List<Cell>>, widths: List<Int>, out: List<Int>,
+  minwidth: Int,
+  tabwidth: Int,
+  padding: Int,
+  padchar: Int,
+  flags: Int,
+  buf: List<Int>,
+  pos: Int,
+  cell: Cell,
+  end_char: Int,
+  lines: List<List<Cell>>,
+  widths: List<Int>,
+  out: List<Int>,
 }
 
 fn empty_cell() -> Cell { Cell { size: 0, width: 0, htab: false } }
 
 pub fn new_writer(minwidth: Int, tabwidth: Int, padding: Int, padchar: Int, flags0: Int) -> Writer {
-  if minwidth < 0 || tabwidth < 0 || padding < 0 { panic("negative minwidth, tabwidth, or padding") }
+  if minwidth < 0 || tabwidth < 0 || padding < 0 {
+    panic("negative minwidth, tabwidth, or padding")
+  }
   let flags = if padchar == 9 { flags0 & ~ALIGN_RIGHT } else { flags0 }
-  Writer { minwidth: minwidth, tabwidth: tabwidth, padding: padding, padchar: padchar, flags: flags,
-           buf: [], pos: 0, cell: empty_cell(), end_char: 0, lines: [[]], widths: [], out: [] }
+  Writer {
+    minwidth: minwidth,
+    tabwidth: tabwidth,
+    padding: padding,
+    padchar: padchar,
+    flags: flags,
+    buf: [],
+    pos: 0,
+    cell: empty_cell(),
+    end_char: 0,
+    lines: [[]],
+    widths: [],
+    out: [],
+  }
 }
 
 fn rep(b: Int, n: Int) -> List<Int> {
@@ -52,7 +75,7 @@ impl Writer {
   fn output(self) -> Str {
     match __from_bytes(self.out) {
       Some(t) => t,
-      None    => {
+      None => {
         var t = ""
         var i = 0
         while i < len(self.out) {
@@ -70,7 +93,9 @@ impl Writer {
   // 取出已写出的文本并清空
   fn take_output(self) -> (Str, Writer) { (self.output(), Writer { out: [], ..self }) }
 
-  fn reset(self) -> Writer { Writer { buf: [], pos: 0, cell: empty_cell(), end_char: 0, lines: [[]], widths: [], ..self } }
+  fn reset(self) -> Writer {
+    Writer { buf: [], pos: 0, cell: empty_cell(), end_char: 0, lines: [[]], widths: [], ..self }
+  }
 
   fn emit(self, bs: List<Int>) -> Writer { Writer { out: self.out + bs, ..self } }
 
@@ -160,7 +185,11 @@ impl Writer {
   }
 
   fn append_text(self, text: List<Int>) -> Writer {
-    Writer { buf: self.buf + text, cell: Cell { size: self.cell.size + len(text), ..self.cell }, ..self }
+    Writer {
+      buf: self.buf + text,
+      cell: Cell { size: self.cell.size + len(text), ..self.cell },
+      ..self
+    }
   }
 
   fn update_width(self) -> Writer {
@@ -169,7 +198,15 @@ impl Writer {
   }
 
   fn start_escape(self, ch: Int) -> Writer {
-    let e = if ch == ESCAPE { ESCAPE } else if ch == 60 { 62 } else if ch == 38 { 59 } else { self.end_char }
+    let e = if ch == ESCAPE {
+      ESCAPE
+    } else if ch == 60 {
+      62
+    } else if ch == 38 {
+      59
+    } else {
+      self.end_char
+    }
     Writer { end_char: e, ..self }
   }
 
@@ -177,7 +214,9 @@ impl Writer {
     var w = self
     if w.end_char == ESCAPE {
       w = w.update_width()
-      if (w.flags & STRIP_ESCAPE) == 0 { w = Writer { cell: Cell { width: w.cell.width - 2, ..w.cell }, ..w } }
+      if (w.flags & STRIP_ESCAPE) == 0 {
+        w = Writer { cell: Cell { width: w.cell.width - 2, ..w.cell }, ..w }
+      }
     } else if w.end_char == 59 {
       w = Writer { cell: Cell { width: w.cell.width + 1, ..w.cell }, ..w }
     }

@@ -34,7 +34,13 @@ pub fn encode_rune(r: Int) -> (Int, Int) {
 
 // 码点需要几个 UTF-16 码元；无效码点返回 -1
 pub fn rune_len(r: Int) -> Int {
-  if 0 <= r && r < SURR1 || SURR3 <= r && r < SURR_SELF { 1 } else if SURR_SELF <= r && r <= MAX_RUNE { 2 } else { -1 }
+  if 0 <= r && r < SURR1 || SURR3 <= r && r < SURR_SELF {
+    1
+  } else if SURR_SELF <= r && r <= MAX_RUNE {
+    2
+  } else {
+    -1
+  }
 }
 
 pub fn append_rune(a: List<Int>, r: Int) -> List<Int> {

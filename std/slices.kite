@@ -99,7 +99,7 @@ pub fn chunk<T>(xs: List<T>, n: Int) -> List<List<T>> {
   var out: List<List<T>> = []
   var i = 0
   while i < len(xs) {
-    out = push(out, xs[i..if i + n < len(xs) { i + n } else { len(xs) }])
+    out = push(out, xs[i.. if i + n < len(xs) { i + n } else { len(xs) }])
     i += n
   }
   out

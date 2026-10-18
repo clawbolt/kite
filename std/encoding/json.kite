@@ -122,7 +122,15 @@ fn number(cs: List<Str>, i: Int) -> Result<(Json, Int), Str> {
 
 fn hex_val(c: Str) -> Int {
   let o = __ord(c)
-  if o >= 48 && o <= 57 { o - 48 } else if o >= 97 && o <= 102 { o - 87 } else if o >= 65 && o <= 70 { o - 55 } else { -1 }
+  if o >= 48 && o <= 57 {
+    o - 48
+  } else if o >= 97 && o <= 102 {
+    o - 87
+  } else if o >= 65 && o <= 70 {
+    o - 55
+  } else {
+    -1
+  }
 }
 
 fn hex4(cs: List<Str>, i: Int) -> Result<Int, Str> {
@@ -237,7 +245,21 @@ fn quote_str(s: Str) -> Str {
   var out = "\""
   for c in chars(s) {
     let o = __ord(c)
-    out = out + (if c == "\"" { "\\\"" } else if c == "\\" { "\\\\" } else if o == 10 { "\\n" } else if o == 13 { "\\r" } else if o == 9 { "\\t" } else if o < 32 { "\\u00" + hex2(o) } else { c })
+    out = out + (if c == "\"" {
+      "\\\""
+    } else if c == "\\" {
+      "\\\\"
+    } else if o == 10 {
+      "\\n"
+    } else if o == 13 {
+      "\\r"
+    } else if o == 9 {
+      "\\t"
+    } else if o < 32 {
+      "\\u00" + hex2(o)
+    } else {
+      c
+    })
   }
   out + "\""
 }
@@ -252,7 +274,10 @@ pub fn stringify(v: Json) -> Str {
     JNum(x) => num(x),
     JStr(s) => quote_str(s),
     JArr(xs) => "[" + join(map(xs, (x) => stringify(x)), ",") + "]",
-    JObj(m) => "\{" + join(map(sort(keys(m)), (k) => quote_str(k) + ":" + stringify(unwrap(get(m, k)))), ",") + "\}",
+    JObj(m) => "\{" + join(
+      map(sort(keys(m)), (k) => quote_str(k) + ":" + stringify(unwrap(get(m, k)))),
+      ",",
+    ) + "\}",
   }
 }
 
@@ -264,11 +289,20 @@ fn ind_str(n: Int) -> Str {
 
 fn pp(v: Json, lv: Int) -> Str {
   match v {
-    JArr(xs) => if len(xs) == 0 { "[]" } else {
-      "[\n" + join(map(xs, (x) => ind_str(lv + 1) + pp(x, lv + 1)), ",\n") + "\n" + ind_str(lv) + "]"
+    JArr(xs) => if len(xs) == 0 {
+      "[]"
+    } else {
+      "[\n" + join(map(xs, (x) => ind_str(lv + 1) + pp(x, lv + 1)), ",\n") + "\n" + ind_str(
+        lv,
+      ) + "]"
     },
-    JObj(m) => if len(m) == 0 { "\{\}" } else {
-      let items = map(sort(keys(m)), (k) => ind_str(lv + 1) + quote_str(k) + ": " + pp(unwrap(get(m, k)), lv + 1))
+    JObj(m) => if len(m) == 0 {
+      "\{\}"
+    } else {
+      let items = map(
+        sort(keys(m)),
+        (k) => ind_str(lv + 1) + quote_str(k) + ": " + pp(unwrap(get(m, k)), lv + 1),
+      )
       "\{\n" + join(items, ",\n") + "\n" + ind_str(lv) + "\}"
     },
     _ => stringify(v),
@@ -360,7 +394,15 @@ pub fn indent(bs: List<Int>, prefix: Str, ind: Str) -> Result<List<Int>, SyntaxE
   let pb = __bytes(prefix)
   let ib = __bytes(ind)
   let fix = !(all_blank(prefix) && all_blank(ind))
-  let o = jt.Opts { allow_invalid_utf8: true, allow_dup: true, legacy: true, canonical: false, multiline: true, prefix: if fix { spaces(len(pb)) } else { pb }, indent: if fix { spaces(len(ib)) } else { ib } }
+  let o = jt.Opts {
+    allow_invalid_utf8: true,
+    allow_dup: true,
+    legacy: true,
+    canonical: false,
+    multiline: true,
+    prefix: if fix { spaces(len(pb)) } else { pb },
+    indent: if fix { spaces(len(ib)) } else { ib },
+  }
   let r0 = jt.append_format(bs, o)
   if let Err(e) = r0 { return Err(syn(e)) }
   var out = unwrap(r0)
@@ -394,7 +436,9 @@ pub fn indent(bs: List<Int>, prefix: Str, ind: Str) -> Result<List<Int>, SyntaxE
     out = res
   }
   var t = len(bs)
-  while t > 0 && (bs[t - 1] == 32 || bs[t - 1] == 10 || bs[t - 1] == 13 || bs[t - 1] == 9) { t -= 1 }
+  while t > 0 && (bs[t - 1] == 32 || bs[t - 1] == 10 || bs[t - 1] == 13 || bs[t - 1] == 9) {
+    t -= 1
+  }
   Ok(out + bs[t..])
 }
 
@@ -467,7 +511,11 @@ fn build(b: List<Int>, p0: Int, path: List<Str>) -> Result<(Json, Int), Str> {
   let (q, _) = jt.consume_number(b, p)
   let text = unwrap(__from_bytes(b[p..q]))
   let (f, err) = strconv.parse_float_go(text, 64)
-  if err != "" { return Err("json: cannot unmarshal number " + text + " into " + into_what(path) + " of type float64") }
+  if err != "" {
+    return Err(
+      "json: cannot unmarshal number " + text + " into " + into_what(path) + " of type float64",
+    )
+  }
   Ok((JNum(f), q))
 }
 
@@ -483,7 +531,9 @@ fn enc(v: Json) -> Result<List<Int>, Str> {
     JBool(b) => Ok(__bytes(if b { "true" } else { "false" })),
     JInt(i) => Ok(__bytes("{i}")),
     JNum(f) => {
-      if f != f || f - f != 0.0 { return Err("json: unsupported value: " + strconv.format_float_go(f, "g", -1, 64)) }
+      if f != f || f - f != 0.0 {
+        return Err("json: unsupported value: " + strconv.format_float_go(f, "g", -1, 64))
+      }
       Ok(jt.append_float(f, 64))
     },
     JStr(s) => Ok(jt.append_quote([], __bytes(s), true, true)),

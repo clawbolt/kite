@@ -27,14 +27,24 @@ fn main() {
         var k = 0
         while k < len(b) && b[k] < 128 { k += 1 }
         let rest = strconv.quote_bytes_with(b[k..], 34, false, false)
-        print("ERR " + show("\"error parsing regexp: invalid UTF-8: `" + __str_slice(rest, 1, len(rest) - 1) + "`\""))
+        print(
+          "ERR " + show(
+            "\"error parsing regexp: invalid UTF-8: `" + __str_slice(
+              rest,
+              1,
+              len(rest) - 1,
+            ) + "`\"",
+          ),
+        )
       },
       Some(pat) => match rs.parse(pat, fl) {
         Err(e) => print("ERR " + show(q(rs.error_string(e)))),
         Ok(re) => {
           print("S " + show(rs.to_string(re)))
           let s = rs.simplify(re)
-          print("Z " + show(rs.to_string(s)) + " {rs.max_cap(re)} " + q(join(rs.cap_names(re), ",")))
+          print(
+            "Z " + show(rs.to_string(s)) + " {rs.max_cap(re)} " + q(join(rs.cap_names(re), ",")),
+          )
           let p = unwrap(rs.compile(s))
           let (pre, comp) = p.prefix()
           print("P " + show(p.to_string()) + " " + q(pre) + " {comp} {p.start_cond()} {p.num_cap}")

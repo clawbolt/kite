@@ -9,11 +9,17 @@ pub type Spec = { name: Str, kind: Str, default: Str, help: Str }
 
 pub type Flags = { values: Map<Str, Str>, given: Set<Str>, rest: List<Str>, specs: List<Spec> }
 
-pub fn str(name: Str, default: Str, help: Str) -> Spec { Spec { name: name, kind: "str", default: default, help: help } }
+pub fn str(name: Str, default: Str, help: Str) -> Spec {
+  Spec { name: name, kind: "str", default: default, help: help }
+}
 
-pub fn int(name: Str, default: Int, help: Str) -> Spec { Spec { name: name, kind: "int", default: "{default}", help: help } }
+pub fn int(name: Str, default: Int, help: Str) -> Spec {
+  Spec { name: name, kind: "int", default: "{default}", help: help }
+}
 
-pub fn bool(name: Str, help: Str) -> Spec { Spec { name: name, kind: "bool", default: "false", help: help } }
+pub fn bool(name: Str, help: Str) -> Spec {
+  Spec { name: name, kind: "bool", default: "false", help: help }
+}
 
 fn find_spec(specs: List<Spec>, name: Str) -> Option<Spec> { find(specs, (s) => s.name == name) }
 
@@ -35,7 +41,13 @@ fn check(s: Spec, v: Str) -> Result<Str, Str> {
       Err(_) => Err("参数 -{s.name} 需要整数，给的是 {v}"),
     }
   } else if s.kind == "bool" {
-    if v == "true" || v == "1" || v == "t" { Ok("true") } else if v == "false" || v == "0" || v == "f" { Ok("false") } else { Err("参数 -{s.name} 需要布尔值，给的是 {v}") }
+    if v == "true" || v == "1" || v == "t" {
+      Ok("true")
+    } else if v == "false" || v == "0" || v == "f" {
+      Ok("false")
+    } else {
+      Err("参数 -{s.name} 需要布尔值，给的是 {v}")
+    }
   } else {
     Ok(v)
   }
@@ -57,7 +69,11 @@ pub fn parse(specs: List<Spec>, argv: List<Str>) -> Result<Flags, Str> {
       i += 1
       continue
     }
-    var body = if starts_with(a, "--") { __str_slice(a, 2, len(a)) } else { __str_slice(a, 1, len(a)) }
+    var body = if starts_with(a, "--") {
+      __str_slice(a, 2, len(a))
+    } else {
+      __str_slice(a, 1, len(a))
+    }
     var val: Option<Str> = None
     let eq = __str_find(body, "=", 0)
     if eq >= 0 {

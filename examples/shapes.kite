@@ -12,7 +12,7 @@ trait Describe {
 impl Shape {
   fn area(self) -> Float {
     match self {
-      Circle(r)  => 3.14159 * r * r
+      Circle(r) => 3.14159 * r * r
       Rect(w, h) => w * h
     }
   }

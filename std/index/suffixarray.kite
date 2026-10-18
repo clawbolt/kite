@@ -29,9 +29,13 @@ pub fn new(data: List<Int>) -> Index {
     let r = rank
     let kk = k
     let key2 = (i: Int) => if i + kk < n { r[i + kk] } else { -1 }
-    sa = sort_with(sa, (a, b) => if r[a] != r[b] { if r[a] < r[b] { -1 } else { 1 } } else { let x = key2(a)
+    sa = sort_with(sa, (a, b) => if r[a] != r[b] {
+      if r[a] < r[b] { -1 } else { 1 }
+    } else {
+      let x = key2(a)
       let y = key2(b)
-      if x < y { -1 } else if x > y { 1 } else { 0 } })
+      if x < y { -1 } else if x > y { 1 } else { 0 }
+    })
     var nr = map(0..n, (_) => 0)
     var cls = 0
     for t in 1..n {

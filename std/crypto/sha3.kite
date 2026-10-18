@@ -9,12 +9,36 @@
 
 use std.math.bits
 
-const RC: List<Int> = [0x0000000000000001, 0x0000000000008082, -0x7fffffffffff7f76, -0x7fffffff7fff8000, 0x000000000000808b, 0x0000000080000001,
-  -0x7fffffff7fff7f7f, -0x7fffffffffff7ff7, 0x000000000000008a, 0x0000000000000088, 0x0000000080008009, 0x000000008000000a,
-  0x000000008000808b, -0x7fffffffffffff75, -0x7fffffffffff7f77, -0x7fffffffffff7ffd, -0x7fffffffffff7ffe, -0x7fffffffffffff80,
-  0x000000000000800a, -0x7fffffff7ffffff6, -0x7fffffff7fff7f7f, -0x7fffffffffff7f80, 0x0000000080000001, -0x7fffffff7fff7ff8]
+const RC: List<Int> = [
+  0x0000000000000001,
+  0x0000000000008082,
+  -0x7fffffffffff7f76,
+  -0x7fffffff7fff8000,
+  0x000000000000808b,
+  0x0000000080000001,
+  -0x7fffffff7fff7f7f,
+  -0x7fffffffffff7ff7,
+  0x000000000000008a,
+  0x0000000000000088,
+  0x0000000080008009,
+  0x000000008000000a,
+  0x000000008000808b,
+  -0x7fffffffffffff75,
+  -0x7fffffffffff7f77,
+  -0x7fffffffffff7ffd,
+  -0x7fffffffffff7ffe,
+  -0x7fffffffffffff80,
+  0x000000000000800a,
+  -0x7fffffff7ffffff6,
+  -0x7fffffff7fff7f7f,
+  -0x7fffffffffff7f80,
+  0x0000000080000001,
+  -0x7fffffff7fff7ff8,
+]
 
-const ROT: List<Int> = [0, 1, 62, 28, 27, 36, 44, 6, 55, 20, 3, 10, 43, 25, 39, 41, 45, 15, 21, 8, 18, 2, 61, 56, 14]
+const ROT: List<Int> = [
+  0, 1, 62, 28, 27, 36, 44, 6, 55, 20, 3, 10, 43, 25, 39, 41, 45, 15, 21, 8, 18, 2, 61, 56, 14,
+]
 
 fn rotl(x: Int, n: Int) -> Int { if n == 0 { x } else { (x << n) | bits.shr(x, 64 - n) } }
 
@@ -75,7 +99,17 @@ fn lanes_bytes(a: List<Int>, rate: Int) -> List<Int> {
 }
 
 // 海绵状态：a 25 条 lane；buf 未满一块的输入；squeezing 后 out 是当前可读的字节，pos 已读位置
-pub type Sponge = { a: List<Int>, buf: List<Int>, rate: Int, ds: Int, out_len: Int, squeezing: Bool, out: List<Int>, pos: Int, init: List<Int> }
+pub type Sponge = {
+  a: List<Int>,
+  buf: List<Int>,
+  rate: Int,
+  ds: Int,
+  out_len: Int,
+  squeezing: Bool,
+  out: List<Int>,
+  pos: Int,
+  init: List<Int>,
+}
 
 fn new_sponge(rate: Int, ds: Int, out_len: Int, init: List<Int>) -> Sponge {
   var a = zeros(25)
@@ -86,7 +120,17 @@ fn new_sponge(rate: Int, ds: Int, out_len: Int, init: List<Int>) -> Sponge {
       i += rate
     }
   }
-  Sponge { a: a, buf: [], rate: rate, ds: ds, out_len: out_len, squeezing: false, out: [], pos: 0, init: init }
+  Sponge {
+    a: a,
+    buf: [],
+    rate: rate,
+    ds: ds,
+    out_len: out_len,
+    squeezing: false,
+    out: [],
+    pos: 0,
+    init: init,
+  }
 }
 
 impl Sponge {

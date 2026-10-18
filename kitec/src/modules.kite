@@ -4,7 +4,28 @@
 use std.fs
 use std.path
 use ast
-use ast.{ Node, K, Lit, Nm, TyX, Pat, Attr, Vis, EvF, UseP, IPart, AConst, TAssoc, Arm, SArm, Gen, FnD, ImplD, TraitD, MatchD }
+use ast.{
+  Node,
+  K,
+  Lit,
+  Nm,
+  TyX,
+  Pat,
+  Attr,
+  Vis,
+  EvF,
+  UseP,
+  IPart,
+  AConst,
+  TAssoc,
+  Arm,
+  SArm,
+  Gen,
+  FnD,
+  ImplD,
+  TraitD,
+  MatchD,
+}
 use lexer
 use parser
 
@@ -56,32 +77,32 @@ fn me(ln: Int, msg: Str) -> ME { ME { ln: ln, msg: msg } }
 
 fn decl_named(k: K) -> Bool {
   match k {
-    NFn(_)      => true,
+    NFn(_) => true,
     NStruct(..) => true,
-    NEnum(..)   => true,
-    NTrait(_)   => true,
-    NAlias(..)  => true,
-    _           => false,
+    NEnum(..) => true,
+    NTrait(_) => true,
+    NAlias(..) => true,
+    _ => false,
   }
 }
 
 // 声明的名字（Fn / Struct / Enum / Trait / Alias / Mod）
 pub fn decl_name(n: Node) -> Str {
   match n.k {
-    NFn(f)          => f.name,
+    NFn(f) => f.name,
     NStruct(m, _, _) => m,
-    NEnum(m, _, _)  => m,
-    NTrait(t)       => t.name,
+    NEnum(m, _, _) => m,
+    NTrait(t) => t.name,
     NAlias(m, _, _) => m,
-    NMod(m, _)      => unwrap_or(m, ""),
-    _               => "",
+    NMod(m, _) => unwrap_or(m, ""),
+    _ => "",
   }
 }
 
 fn is_pub(n: Node) -> Bool {
   match n.vis {
     Some(v) => v.is_pub,
-    None    => false,
+    None => false,
   }
 }
 
@@ -112,19 +133,19 @@ fn pm(l: L, m: Mod) -> L { L { mods: set(l.mods, m.key, m), ..l } }
 
 pub fn pat_binds(p: Pat) -> List<Str> {
   match p {
-    PBind(n)               => [ast.nm_str(n)],
-    PVar(n)                => [ast.nm_str(n)],
-    PTuple(xs)             => binds_of(xs),
+    PBind(n) => [ast.nm_str(n)],
+    PVar(n) => [ast.nm_str(n)],
+    PTuple(xs) => binds_of(xs),
     PList(pre, rest, post) => {
       var out = binds_of(pre)
       if let Some(r) = rest { if r != "_" && r != "" { out = push(out, r) } }
       out + binds_of(post)
     },
-    PVariant(_, Some(xs))  => binds_of(xs),
-    PStruct(_, fs)         => binds_of(map(fs, (f) => f.1)),
-    POr(xs)                => pat_binds(xs[0]),
-    PAt(a, b)              => pat_binds(a) + pat_binds(b),
-    _                      => [],
+    PVariant(_, Some(xs)) => binds_of(xs),
+    PStruct(_, fs) => binds_of(map(fs, (f) => f.1)),
+    POr(xs) => pat_binds(xs[0]),
+    PAt(a, b) => pat_binds(a) + pat_binds(b),
+    _ => [],
   }
 }
 
@@ -145,7 +166,7 @@ fn up_s(u: UseP) -> Str {
 
 fn is_vs(u: UseP) -> Bool {
   match u {
-    UName(_)  => true,
+    UName(_) => true,
     UGroup(_) => false,
   }
 }
@@ -153,28 +174,28 @@ fn is_vs(u: UseP) -> Bool {
 fn use_path(n: Node) -> List<UseP> {
   match n.k {
     NUse(p, _) => p,
-    _          => [],
+    _ => [],
   }
 }
 
 fn use_alias(n: Node) -> Str? {
   match n.k {
     NUse(_, a) => a,
-    _          => None,
+    _ => None,
   }
 }
 
 fn is_use(n: Node) -> Bool {
   match n.k {
     NUse(..) => true,
-    _        => false,
+    _ => false,
   }
 }
 
 fn is_let(n: Node) -> Bool {
   match n.k {
     NLet(..) => true,
-    _        => false,
+    _ => false,
   }
 }
 
@@ -182,13 +203,15 @@ fn is_let(n: Node) -> Bool {
 fn inline_mod(n: Node) -> List<Node>? {
   match n.k {
     NMod(_, its) => its,
-    _            => None,
+    _ => None,
   }
 }
 
 // ── 路径 ──
 
-fn abspath(cwd: Str, p: Str) -> Str { if path.is_abs(p) { path.clean(p) } else { path.join([cwd, p]) } }
+fn abspath(cwd: Str, p: Str) -> Str {
+  if path.is_abs(p) { path.clean(p) } else { path.join([cwd, p]) }
+}
 
 fn dirname(p: Str) -> Str { path.dir(p) }
 
@@ -213,7 +236,7 @@ fn is_file(p: Str) -> Bool { fs.is_file(p) }
 
 fn manifest_name(root: Str) -> (Str, Bool) {
   let src = match fs.read(path.join([root, "kite.toml"])) {
-    Ok(s)  => s,
+    Ok(s) => s,
     Err(_) => "",
   }
   var name = ""
@@ -252,13 +275,19 @@ fn infer_package(cwd: Str, main: Str) -> Pkg {
   if !found { return Pkg { name: "", root: d, src: d, prefix: "", deps: [] } }
   let src = path.join([root, "src"])
   let (name, deps) = manifest_name(root)
-  Pkg { name: name, root: root, src: if fs.is_dir(src) { src } else { d }, prefix: "", deps: if deps { ["?"] } else { [] } }
+  Pkg {
+    name: name,
+    root: root,
+    src: if fs.is_dir(src) { src } else { d },
+    prefix: "",
+    deps: if deps { ["?"] } else { [] },
+  }
 }
 
 // 依赖表：读 kite.lock（由 Python 包管理器 kite get 生成），名字 → Pkg；所有依赖共享同一张表
 fn dep_table(root: Str) -> Result<Map<Str, Pkg>, Str> {
   let src = match fs.read(path.join([root, "kite.lock"])) {
-    Ok(s)  => s,
+    Ok(s) => s,
     Err(_) => { return Err("依赖包（还没有 kite.lock，先运行 kite get）") },
   }
   var ents: List<(Str, Str, Str)> = []
@@ -286,7 +315,11 @@ fn dep_table(root: Str) -> Result<Map<Str, Pkg>, Str> {
   let names = map(ents, (e) => e.0)
   var tab: Map<Str, Pkg> = Map()
   for (n, v, sv) in ents {
-    let d = if starts_with(sv, "path+") { path.clean(path.join([root, __str_slice(sv, 5, len(sv))])) } else { path.join([root, ".kite", "deps", n + "-" + v]) }
+    let d = if starts_with(sv, "path+") {
+      path.clean(path.join([root, __str_slice(sv, 5, len(sv))]))
+    } else {
+      path.join([root, ".kite", "deps", n + "-" + v])
+    }
     if !fs.is_dir(d) { return Err("依赖包 {n} 还没安装（先运行 kite get）") }
     tab = set(tab, n, Pkg { name: n, root: d, src: path.join([d, "src"]), prefix: n, deps: names })
   }
@@ -301,7 +334,7 @@ pub fn new_l(cwd: Str, main: Str, kite_dir: Str) -> L {
   var dun = ""
   if len(rp0.deps) > 0 {
     match dep_table(rp0.root) {
-      Ok(t)  => {
+      Ok(t) => {
         dtab = t
         rp = Pkg { deps: keys(t), ..rp0 }
       },
@@ -340,140 +373,185 @@ fn rs(r: Rn, s: Str) -> Str {
 fn rso(r: Rn, s: Str?) -> Str? {
   match s {
     Some(x) => Some(rs(r, x)),
-    None    => None,
+    None => None,
   }
 }
 
 fn rnm(r: Rn, n: Nm) -> Nm {
   match n {
-    NmS(s)          => NmS(rs(r, s)),
-    NmQ(s, Some(q)) => if q == r.old || starts_with(q, r.pre) { NmQ(s, Some(r.new + __str_slice(q, len(r.old), len(q)))) } else { n },
-    _               => n,
+    NmS(s) => NmS(rs(r, s)),
+    NmQ(s, Some(q)) => if q == r.old || starts_with(q, r.pre) {
+      NmQ(s, Some(r.new + __str_slice(q, len(r.old), len(q))))
+    } else {
+      n
+    },
+    _ => n,
   }
 }
 
 fn rlit(r: Rn, l: Lit) -> Lit {
   match l {
     LStr(s) => LStr(rs(r, s)),
-    _       => l,
+    _ => l,
   }
 }
 
 fn rlito(r: Rn, l: Lit?) -> Lit? {
   match l {
     Some(x) => Some(rlit(r, x)),
-    None    => None,
+    None => None,
   }
 }
 
 fn rt(r: Rn, t: TyX) -> TyX {
   match t {
     YCon(n, a, l) => YCon(rs(r, n), map(a, (x) => rt(r, x)), l),
-    YTup(a, l)    => YTup(map(a, (x) => rt(r, x)), l),
-    YDyn(bs, l)   => YDyn(map(bs, (b) => rs(r, b)), l),
-    YImpl(bs, l)  => YImpl(map(bs, (b) => rs(r, b)), l),
+    YTup(a, l) => YTup(map(a, (x) => rt(r, x)), l),
+    YDyn(bs, l) => YDyn(map(bs, (b) => rs(r, b)), l),
+    YImpl(bs, l) => YImpl(map(bs, (b) => rs(r, b)), l),
     YUnsafe(x, l) => YUnsafe(rt(r, x), l),
-    YFn(a, b, l)  => YFn(map(a, (x) => rt(r, x)), rt(r, b), l),
+    YFn(a, b, l) => YFn(map(a, (x) => rt(r, x)), rt(r, b), l),
   }
 }
 
 fn rto(r: Rn, t: TyX?) -> TyX? {
   match t {
     Some(x) => Some(rt(r, x)),
-    None    => None,
+    None => None,
   }
 }
 
 fn rp(r: Rn, p: Pat) -> Pat {
   match p {
-    PBind(n)               => PBind(rnm(r, n)),
-    PVar(n)                => PVar(rnm(r, n)),
-    PLit(l)                => PLit(rlit(r, l)),
-    PRange(lo, hi, inc)    => PRange(rlito(r, lo), rlito(r, hi), inc),
-    PTuple(xs)             => PTuple(map(xs, (x) => rp(r, x))),
-    PList(pre, rest, post) => PList(map(pre, (x) => rp(r, x)), rso(r, rest), map(post, (x) => rp(r, x))),
-    PVariant(n, subs)      => PVariant(rnm(r, n), match subs {
+    PBind(n) => PBind(rnm(r, n)),
+    PVar(n) => PVar(rnm(r, n)),
+    PLit(l) => PLit(rlit(r, l)),
+    PRange(lo, hi, inc) => PRange(rlito(r, lo), rlito(r, hi), inc),
+    PTuple(xs) => PTuple(map(xs, (x) => rp(r, x))),
+    PList(pre, rest, post) => PList(
+      map(pre, (x) => rp(r, x)),
+      rso(r, rest),
+      map(post, (x) => rp(r, x)),
+    ),
+    PVariant(n, subs) => PVariant(rnm(r, n), match subs {
       Some(xs) => Some(map(xs, (x) => rp(r, x))),
-      None     => None,
+      None => None,
     }),
-    PStruct(n, fs)         => PStruct(rnm(r, n), map(fs, (f) => (rs(r, f.0), rp(r, f.1)))),
-    POr(xs)                => POr(map(xs, (x) => rp(r, x))),
-    PAt(a, b)              => PAt(rp(r, a), rp(r, b)),
-    _                      => p,
+    PStruct(n, fs) => PStruct(rnm(r, n), map(fs, (f) => (rs(r, f.0), rp(r, f.1)))),
+    POr(xs) => POr(map(xs, (x) => rp(r, x))),
+    PAt(a, b) => PAt(rp(r, a), rp(r, b)),
+    _ => p,
   }
 }
 
 fn rpo(r: Rn, p: Pat?) -> Pat? {
   match p {
     Some(x) => Some(rp(r, x)),
-    None    => None,
+    None => None,
   }
 }
 
-fn rparams(r: Rn, ps: List<(Str, TyX?)>) -> List<(Str, TyX?)> { map(ps, (p) => (rs(r, p.0), rto(r, p.1))) }
+fn rparams(r: Rn, ps: List<(Str, TyX?)>) -> List<(Str, TyX?)> {
+  map(ps, (p) => (rs(r, p.0), rto(r, p.1)))
+}
 
 fn rgen(r: Rn, g: Gen) -> Gen {
-  Gen { names: map(g.names, (x) => rs(r, x)), bounds: map(g.bounds, (b) => (b.0, map(b.1, (t) => rt(r, t)))), cgens: map(g.cgens, (x) => rs(r, x)) }
+  Gen {
+    names: map(g.names, (x) => rs(r, x)),
+    bounds: map(g.bounds, (b) => (b.0, map(b.1, (t) => rt(r, t)))),
+    cgens: map(g.cgens, (x) => rs(r, x)),
+  }
 }
 
 fn rconst(r: Rn, c: AConst) -> AConst { AConst { name: rs(r, c.name), ty: rt(r, c.ty), ..c } }
 
 fn rk(r: Rn, k: K) -> K {
   match k {
-    NFn(f)                 => NFn(FnD {
-      name: rs(r, f.name), params: rparams(r, f.params), ret: rto(r, f.ret), gen: rgen(r, f.gen),
+    NFn(f) => NFn(FnD {
+      name: rs(r, f.name),
+      params: rparams(r, f.params),
+      ret: rto(r, f.ret),
+      gen: rgen(r, f.gen),
       ext: match f.ext {
         Some(ls) => Some(map(ls, (x) => rs(r, x))),
-        None     => None,
-      }, cname: rso(r, f.cname), ..f
+        None => None,
+      },
+      cname: rso(r, f.cname),
+      ..f
     }),
-    NStruct(n, fs, g)      => NStruct(rs(r, n), rparams(r, fs), rgen(r, g)),
-    NAlias(n, t, g)        => NAlias(rs(r, n), rt(r, t), rgen(r, g)),
-    NEnum(n, vs, g)        => NEnum(rs(r, n), map(vs, (v) => (rs(r, v.0), match v.1 {
-      EvList(l) => EvList(map(l, (f) => (rs(r, f.0), rt(r, f.1)))),
-      EvRec(l)  => EvRec(map(l, (f) => (rs(r, f.0), rt(r, f.1)))),
-      EvNone    => EvNone,
-    })), rgen(r, g)),
-    NTrait(t)              => NTrait(TraitD {
+    NStruct(n, fs, g) => NStruct(rs(r, n), rparams(r, fs), rgen(r, g)),
+    NAlias(n, t, g) => NAlias(rs(r, n), rt(r, t), rgen(r, g)),
+    NEnum(n, vs, g) => NEnum(
+      rs(r, n),
+      map(vs, (v) => (rs(r, v.0), match v.1 {
+        EvList(l) => EvList(map(l, (f) => (rs(r, f.0), rt(r, f.1)))),
+        EvRec(l) => EvRec(map(l, (f) => (rs(r, f.0), rt(r, f.1)))),
+        EvNone => EvNone,
+      })),
+      rgen(r, g),
+    ),
+    NTrait(t) => NTrait(TraitD {
       name: rs(r, t.name),
-      assoc: map(t.assoc, (a) => TAssoc { name: rs(r, a.name), bounds: map(a.bounds, (b) => rs(r, b)), dflt: rto(r, a.dflt) }),
-      supers: map(t.supers, (x) => rs(r, x)), consts: map(t.consts, (c) => rconst(r, c)), ..t
+      assoc: map(t.assoc, (a) => TAssoc {
+        name: rs(r, a.name),
+        bounds: map(a.bounds, (b) => rs(r, b)),
+        dflt: rto(r, a.dflt),
+      }),
+      supers: map(t.supers, (x) => rs(r, x)),
+      consts: map(t.consts, (c) => rconst(r, c)),
+      ..t
     }),
-    NImpl(d)               => NImpl(ImplD {
-      tr: rto(r, d.tr), target: rs(r, d.target), target_t: rt(r, d.target_t), gen: rgen(r, d.gen),
-      assoc: map(d.assoc, (a) => (rs(r, a.0), rt(r, a.1))), consts: map(d.consts, (c) => rconst(r, c)), ..d
+    NImpl(d) => NImpl(ImplD {
+      tr: rto(r, d.tr),
+      target: rs(r, d.target),
+      target_t: rt(r, d.target_t),
+      gen: rgen(r, d.gen),
+      assoc: map(d.assoc, (a) => (rs(r, a.0), rt(r, a.1))),
+      consts: map(d.consts, (c) => rconst(r, c)),
+      ..d
     }),
-    NUse(p, a)             => {
-      let p1 = if len(p) > 0 && up_s(p[0]) == r.old && is_vs(p[0]) { push([], UName(r.new)) + skip(p, 1) } else { p }
-      NUse(map(p1, (u) => match u {
-        UName(s)  => UName(rs(r, s)),
-        UGroup(g) => UGroup(map(g, (e) => (rs(r, e.0), rso(r, e.1)))),
-      }), rso(r, a))
+    NUse(p, a) => {
+      let p1 = if len(p) > 0 && up_s(p[0]) == r.old && is_vs(p[0]) {
+        push([], UName(r.new)) + skip(p, 1)
+      } else {
+        p
+      }
+      NUse(
+        map(p1, (u) => match u {
+          UName(s) => UName(rs(r, s)),
+          UGroup(g) => UGroup(map(g, (e) => (rs(r, e.0), rso(r, e.1)))),
+        }),
+        rso(r, a),
+      )
     },
-    NMod(n, its)           => NMod(rso(r, n), its),
-    NLet(p, m, t, v, ic)   => NLet(rp(r, p), m, rto(r, t), v, ic),
-    NBreak(l, v, b)        => NBreak(rso(r, l), v, b),
-    NContinue(l)           => NContinue(rso(r, l)),
-    NFor(p, it, b)         => NFor(rp(r, p), it, b),
-    NLoop(b, l)            => NLoop(b, rso(r, l)),
-    NAssign(t, op, v)      => NAssign(t, rs(r, op), v),
-    NLit(l)                => NLit(rlit(r, l)),
-    NName(s)               => NName(rs(r, if s == r.old { r.new } else { s })),
-    NBin(op, a, b)         => NBin(rs(r, op), a, b),
-    NUnary(op, x, pos)     => NUnary(rs(r, op), x, pos),
-    NCast(v, t)            => NCast(v, rt(r, t)),
-    NIs(v, p)              => NIs(v, rp(r, p)),
-    NTypeApp(f, ts)        => NTypeApp(f, map(ts, (t) => rto(r, t))),
-    NField(o, s)           => NField(o, rnm(r, s)),
-    NInterp(ps)            => NInterp(map(ps, (p) => match p {
-      IStr(s)  => IStr(rs(r, s)),
+    NMod(n, its) => NMod(rso(r, n), its),
+    NLet(p, m, t, v, ic) => NLet(rp(r, p), m, rto(r, t), v, ic),
+    NBreak(l, v, b) => NBreak(rso(r, l), v, b),
+    NContinue(l) => NContinue(rso(r, l)),
+    NFor(p, it, b) => NFor(rp(r, p), it, b),
+    NLoop(b, l) => NLoop(b, rso(r, l)),
+    NAssign(t, op, v) => NAssign(t, rs(r, op), v),
+    NLit(l) => NLit(rlit(r, l)),
+    NName(s) => NName(rs(r, if s == r.old { r.new } else { s })),
+    NBin(op, a, b) => NBin(rs(r, op), a, b),
+    NUnary(op, x, pos) => NUnary(rs(r, op), x, pos),
+    NCast(v, t) => NCast(v, rt(r, t)),
+    NIs(v, p) => NIs(v, rp(r, p)),
+    NTypeApp(f, ts) => NTypeApp(f, map(ts, (t) => rto(r, t))),
+    NField(o, s) => NField(o, rnm(r, s)),
+    NInterp(ps) => NInterp(map(ps, (p) => match p {
+      IStr(s) => IStr(rs(r, s)),
       IExpr(e) => IExpr(e),
     })),
-    NLambda(ps, b, ctx)    => NLambda(rparams(r, ps), b, rso(r, ctx)),
-    NStructLit(n, fs, b)   => NStructLit(rnm(r, n), map(fs, (f) => (rs(r, f.0), f.1)), b),
-    NSelect(arms)          => NSelect(map(arms, (a) => SArm { kind: rs(r, a.kind), pat: rpo(r, a.pat), ..a })),
-    NMatch(m)              => NMatch(MatchD { arms: map(m.arms, (a) => Arm { pat: rp(r, a.pat), ..a }), ..m }),
-    _                      => k,
+    NLambda(ps, b, ctx) => NLambda(rparams(r, ps), b, rso(r, ctx)),
+    NStructLit(n, fs, b) => NStructLit(rnm(r, n), map(fs, (f) => (rs(r, f.0), f.1)), b),
+    NSelect(arms) => NSelect(map(arms, (a) => SArm {
+      kind: rs(r, a.kind),
+      pat: rpo(r, a.pat),
+      ..a
+    })),
+    NMatch(m) => NMatch(MatchD { arms: map(m.arms, (a) => Arm { pat: rp(r, a.pat), ..a }), ..m }),
+    _ => k,
   }
 }
 
@@ -482,21 +560,29 @@ fn ren(r: Rn, x: Node) -> Node {
     k: rk(r, x.k),
     vis: match x.vis {
       Some(v) => Some(Vis { vis: rso(r, v.vis), ..v }),
-      None    => None,
+      None => None,
     },
     label: rso(r, x.label),
     attrs: match x.attrs {
-      Some(ats) => Some(map(ats, (a) => Attr { name: rs(r, a.name), args: map(a.args, (kv) => (rso(r, kv.0), rlito(r, kv.1))), line: a.line })),
-      None      => None,
+      Some(ats) => Some(map(ats, (a) => Attr {
+        name: rs(r, a.name),
+        args: map(a.args, (kv) => (rso(r, kv.0), rlito(r, kv.1))),
+        line: a.line,
+      })),
+      None => None,
     },
     ..x
   }
   ast.with_kids(n1, map(ast.kids(n1), (y) => ren(r, y)))
 }
 
-fn rename_mod(x: Node, old: Str, new: Str, exact: Bool) -> Node { ren(Rn { old: old, new: new, pre: old + ".", exact: exact }, x) }
+fn rename_mod(x: Node, old: Str, new: Str, exact: Bool) -> Node {
+  ren(Rn { old: old, new: new, pre: old + ".", exact: exact }, x)
+}
 
-fn ren_list(xs: List<Node>, old: Str, new: Str, exact: Bool) -> List<Node> { map(xs, (w) => rename_mod(w, old, new, exact)) }
+fn ren_list(xs: List<Node>, old: Str, new: Str, exact: Bool) -> List<Node> {
+  map(xs, (w) => rename_mod(w, old, new, exact))
+}
 
 // ── 函数体里的 mod（hoist_local_mods）──
 
@@ -506,11 +592,11 @@ fn hoist(l0: L, its: List<Node>) -> Result<(L, List<Node>, List<Node>), ME> {
   var res: List<Node> = []
   for it in its {
     let go = match it.k {
-      NFn(_)   => true,
+      NFn(_) => true,
       NImpl(_) => true,
       NLet(..) => true,
       NTrait(_) => true,
-      _        => false,
+      _ => false,
     }
     if go {
       let (l1, o1, x) = walk_h(l, it, out)?
@@ -531,7 +617,7 @@ fn walk_h(l0: L, x0: Node, out0: List<Node>) -> Result<(L, List<Node>, Node), ME
   var out = out0
   var x = x0
   match x.k {
-    NMod(..)      => { return Ok((l, out, x)) },
+    NMod(..) => { return Ok((l, out, x)) },
     NBlock(ss, u) => {
       var stmts = ss
       let mods0 = filter(stmts, is_inline_mod)
@@ -552,14 +638,18 @@ fn walk_h(l0: L, x0: Node, out0: List<Node>) -> Result<(L, List<Node>, Node), ME
           let nn = "__lm{l.lm}_{mn}"
           mods = map(mods, (o) => match o.k {
             NMod(n, Some(its)) => Node { k: NMod(n, Some(ren_list(its, mn, nn, false))), ..o },
-            _                  => o,
+            _ => o,
           })
           stmts = ren_list(stmts, mn, nn, false)
           let mi = mods[i]
-          mods = set(mods, i, Node { k: NMod(Some(nn), inline_mod(mi)), vis: match mi.vis {
-            Some(v) => Some(Vis { is_pub: false, ..v }),
-            None    => Some(Vis { is_pub: false, vis: None, has_vis: false }),
-          }, ..mi })
+          mods = set(mods, i, Node {
+            k: NMod(Some(nn), inline_mod(mi)),
+            vis: match mi.vis {
+              Some(v) => Some(Vis { is_pub: false, ..v }),
+              None => Some(Vis { is_pub: false, vis: None, has_vis: false }),
+            },
+            ..mi
+          })
           i += 1
         }
         out = out + mods
@@ -570,24 +660,29 @@ fn walk_h(l0: L, x0: Node, out0: List<Node>) -> Result<(L, List<Node>, Node), ME
         for st in uses {
           let p = use_path(st)
           let lastp = p[len(p) - 1]
-          if up_s(lastp) == "*" { return Err(me(st.line, "函数体里不支持 use m.*，请逐个列出名字")) }
+          if up_s(lastp) == "*" {
+            return Err(me(st.line, "函数体里不支持 use m.*，请逐个列出名字"))
+          }
           let al = use_alias(st)
           let ents = match lastp {
             UGroup(es) => map(es, use_name),
-            UName(s)   => [(s, unwrap_or(al, s))],
+            UName(s) => [(s, unwrap_or(al, s))],
           }
           for (orig, bnd) in ents {
             l = L { lm: l.lm + 1, ..l }
             let nb = "__lmu{l.lm}_{bnd}"
             let un = ast.mkn(st.line, NUse(take(p, len(p) - 1) + [UName(orig)], Some(nb)))
-            out = push(out, Node { vis: Some(Vis { is_pub: false, vis: None, has_vis: true }), ..un })
+            out = push(out, Node {
+              vis: Some(Vis { is_pub: false, vis: None, has_vis: true }),
+              ..un
+            })
             stmts = ren_list(stmts, bnd, nb, first_upper(bnd))
           }
         }
       }
       x = Node { k: NBlock(stmts, u), ..x }
     },
-    _             => (),
+    _ => (),
   }
   var ys: List<Node> = []
   for y in ast.kids(x) {
@@ -638,7 +733,8 @@ fn kstd_use(l: L, p: List<UseP>) -> Bool {
   match segs[len(segs) - 1] {
     UGroup(ms) => {
       let pre = take(segs, len(segs) - 1)
-      (len(pre) > 0 && std_find(l, pre).1 > 0) || any(ms, (m) => full_std(l, pre + [UName(use_name(m).0)]))
+      (len(pre) > 0 && std_find(l, pre).1 > 0)
+        || any(ms, (m) => full_std(l, pre + [UName(use_name(m).0)]))
     },
     _ => std_find(l, segs).1 > 0,
   }
@@ -647,15 +743,17 @@ fn kstd_use(l: L, p: List<UseP>) -> Bool {
 fn parse_file(l: L, p: Str) -> Result<(L, List<Node>), ME> {
   let idx = l.nfiles
   let l1 = L { nfiles: l.nfiles + 1, files: push(l.files, p), ..l }
-  let src = if p == l.ov && l.ov != "" { l.ovsrc } else {
+  let src = if p == l.ov && l.ov != "" {
+    l.ovsrc
+  } else {
     match fs.read(p) {
-      Ok(s)  => s,
+      Ok(s) => s,
       Err(e) => { return Err(me(0, "无法读取 {p}: {e}")) },
     }
   }
   match parser.parse_off(src, idx * LINE_BASE) {
     Ok(its) => Ok((l1, its)),
-    Err(e)  => Err(me(-2, syntax_msg(relpath(l.cwd, p), e))),
+    Err(e) => Err(me(-2, syntax_msg(relpath(l.cwd, p), e))),
   }
 }
 
@@ -667,7 +765,7 @@ pub fn syntax_msg(file: Str, e: Str) -> Str {
   if sp < 0 { return file + ": " + e }
   let lc = split(__str_slice(rest, 0, sp), ":")
   let ln = match parse_int(lc[0]) {
-    Ok(n)  => n % LINE_BASE,
+    Ok(n) => n % LINE_BASE,
     Err(_) => 0,
   }
   let col = if len(lc) > 1 && lc[1] != "-" { ":" + lc[1] } else { "" }
@@ -678,7 +776,7 @@ pub fn syntax_msg(file: Str, e: Str) -> Str {
 pub fn resolve_static(l: L, p: List<UseP>) -> (Str, Int) {
   let pk = l.root
   let segs = filter(p, (x) => match x {
-    UName(s)  => s != "*",
+    UName(s) => s != "*",
     UGroup(_) => false,
   })
   let (f, n) = find_module_file(l, pk.src, segs)
@@ -752,7 +850,13 @@ fn resolve_use(l0: L, key0: Str, p: List<UseP>, ln: Int) -> Result<(L, Str, List
     if is_file(lib) && abspath(l0.cwd, lib) != l0.main {
       let (f2, n2) = find_module_file(l0, pkg.src, skip(p, 1))
       if f2 != "" {
-        let (l1, k) = load(l0, mangle(pkg.prefix, path_join_strs(take(skip(p, 1), n2))), f2, pkg, ln)?
+        let (l1, k) = load(
+          l0,
+          mangle(pkg.prefix, path_join_strs(take(skip(p, 1), n2))),
+          f2,
+          pkg,
+          ln,
+        )?
         return Ok((l1, k, skip(p, 1 + n2)))
       }
       let (l1, k) = load(l0, pkg.name, lib, pkg, ln)?
@@ -824,7 +928,9 @@ pub fn load_main_src(l0: L, given: Str) -> Result<(List<Node>, List<Str>), ME> {
             if prev != key {
               let a = if prev == "" { "主文件" } else { prev }
               let b = if key == "" { "主文件" } else { key }
-              return Err(me(it.line, "枚举变体 {vn} 在 {a} 和 {b} 中重复定义（变体目前是全局名字）"))
+              return Err(
+                me(it.line, "枚举变体 {vn} 在 {a} 和 {b} 中重复定义（变体目前是全局名字）"),
+              )
             }
           }
           variants = set(variants, vn, key)
@@ -854,22 +960,30 @@ fn declare(l0: L, key: Str) -> Result<L, ME> {
   info = Mod { items: hoisted + its, ..gm(l, key) }
   for it in info.items {
     var names: List<Str> = []
-    if decl_named(it.k) { names = [decl_name(it)] } else if let NLet(p, _, _, _, _) = it.k { names = pat_binds(p) }
+    if decl_named(it.k) {
+      names = [decl_name(it)]
+    } else if let NLet(p, _, _, _, _) = it.k {
+      names = pat_binds(p)
+    }
     let is_type = match it.k {
       NStruct(..) => true,
-      NEnum(..)   => true,
-      NTrait(_)   => true,
-      NAlias(..)  => true,
-      _           => false,
+      NEnum(..) => true,
+      NTrait(_) => true,
+      NAlias(..) => true,
+      _ => false,
     }
     for nm in names {
       info = Mod { names: set(info.names, nm, mangle(info.prefix, nm)), ..info }
       if is_pub(it) {
         let vv = match it.vis {
           Some(v) => if v.has_vis { v.vis } else { None },
-          None    => None,
+          None => None,
         }
-        info = Mod { pubs: set(info.pubs, nm, true), vis: set(info.vis, nm, unwrap_or(vv, "pub")), ..info }
+        info = Mod {
+          pubs: set(info.pubs, nm, true),
+          vis: set(info.vis, nm, unwrap_or(vv, "pub")),
+          ..info
+        }
       }
       if is_type { info = Mod { types: set(info.types, nm, true), ..info } }
     }
@@ -885,11 +999,22 @@ fn declare(l0: L, key: Str) -> Result<L, ME> {
       let ckey = if key != "" { key + "." + mn } else { mn }
       if contains(l.mods, ckey) { return Err(me(it.line, "内联模块 {mn} 和已有模块 {ckey} 重名")) }
       var child = new_mod(ckey, info.path, info.pkg)
-      child = Mod { items: mits, parent: Some(key), inl: set(Map(), "super", key), inl_pub: set(Map(), "super", false), ..child }
+      child = Mod {
+        items: mits,
+        parent: Some(key),
+        inl: set(Map(), "super", key),
+        inl_pub: set(Map(), "super", false),
+        ..child
+      }
       l = pm(l, child)
       l = declare(l, ckey)?
       let pi = gm(l, key)
-      l = pm(l, Mod { children: push(pi.children, ckey), inl_pub: set(pi.inl_pub, mn, is_pub(it)), deps: push(pi.deps, ckey), ..pi })
+      l = pm(l, Mod {
+        children: push(pi.children, ckey),
+        inl_pub: set(pi.inl_pub, mn, is_pub(it)),
+        deps: push(pi.deps, ckey),
+        ..pi
+      })
       inline = set(inline, mn, ckey)
     } else {
       rest = push(rest, it)
@@ -928,10 +1053,10 @@ fn finish(l0: L, key: Str) -> Result<L, ME> {
   var its: List<Node> = []
   for it in info.items {
     let go = match it.k {
-      NFn(_)   => true,
+      NFn(_) => true,
       NImpl(_) => true,
       NLet(..) => true,
-      _        => false,
+      _ => false,
     }
     if go {
       let (a, v) = walk_kstd(l, it, hoisted)
@@ -953,7 +1078,12 @@ fn finish(l0: L, key: Str) -> Result<L, ME> {
           split_ = true
           for m in ms {
             let (nm, al) = use_name(m)
-            if full_std(l, pre + [UName(nm)]) { uses = push(uses, ast.mkn(it.line, NUse([UName("std")] + pre + [UName(nm)], Some(al)))) }
+            if full_std(l, pre + [UName(nm)]) {
+              uses = push(
+                uses,
+                ast.mkn(it.line, NUse([UName("std")] + pre + [UName(nm)], Some(al))),
+              )
+            }
           }
           let rest = filter(ms, (m) => !full_std(l, pre + [UName(use_name(m).0)]))
           if len(rest) > 0 {
@@ -989,14 +1119,18 @@ fn finish(l0: L, key: Str) -> Result<L, ME> {
         aliases = set(aliases, unwrap_or(al, up_s(p[len(p) - 1])), k)
       } else if len(rest) == 1 && up_s(rest[0]) == "*" && is_vs(rest[0]) {
         let m = gm(l, k)
-        for nm in sort(keys(m.pubs)) { if visible(l, m, nm, key) { imports = set(imports, nm, unwrap(get(m.names, nm))) } }
+        for nm in sort(keys(m.pubs)) {
+          if visible(l, m, nm, key) { imports = set(imports, nm, unwrap(get(m.names, nm))) }
+        }
       } else {
         let lastr = rest[len(rest) - 1]
         let is_group = !is_vs(lastr)
-        if len(rest) > 1 && !is_group { return Err(me(it.line, "找不到模块 " + path_join_strs(take(p, len(p) - 1)))) }
+        if len(rest) > 1 && !is_group {
+          return Err(me(it.line, "找不到模块 " + path_join_strs(take(p, len(p) - 1))))
+        }
         let names = match lastr {
           UGroup(es) => map(es, use_name),
-          UName(s)   => [(s, unwrap_or(al, s))],
+          UName(s) => [(s, unwrap_or(al, s))],
         }
         for (nm, b) in names { imports = set(imports, b, export(l, k, nm, it.line, Some(key))?) }
       }
@@ -1027,7 +1161,9 @@ fn within(l: L, req: Str, m: Str) -> Bool {
 fn sub_mod(l: L, key: Str, name: Str, ln: Int, req: Str) -> Result<Str, ME> {
   let m = gm(l, key)
   let ck = unwrap_or(get(m.inl, name), "")
-  if name == "super" && !within(l, req, key) { return Err(me(ln, "{key}.super 只能在模块 {key} 内部使用")) }
+  if name == "super" && !within(l, req, key) {
+    return Err(me(ln, "{key}.super 只能在模块 {key} 内部使用"))
+  }
   if !within(l, req, key) && !unwrap_or(get(m.inl_pub, name), false) {
     return Err(me(ln, "{key}.{name} 是私有模块（写 pub mod {name} 才能在外面使用）"))
   }
@@ -1039,9 +1175,11 @@ fn export(l: L, key: Str, name: Str, ln: Int, req: Str?) -> Result<Str, ME> {
   if !contains(m.names, name) { return Err(me(ln, "模块 {key} 里没有 {name}")) }
   let inside = match req {
     Some(r) => within(l, r, key),
-    None    => false,
+    None => false,
   }
-  if !contains(m.pubs, name) && !inside { return Err(me(ln, "{key}.{name} 是私有的（在定义前加 pub 才能被其他模块使用）")) }
+  if !contains(m.pubs, name) && !inside {
+    return Err(me(ln, "{key}.{name} 是私有的（在定义前加 pub 才能被其他模块使用）"))
+  }
   if let Some(r) = req {
     if !visible(l, m, name, r) {
       let lvl = unwrap_or(get(m.vis, name), "pub")
@@ -1075,7 +1213,13 @@ fn visible(l: L, m: Mod, name: Str, req: Str) -> Bool {
 // ── Resolver ──
 // ── Resolver ──
 
-type R = { key: Str, aliases: Map<Str, Str>, imports: Map<Str, Str>, scopes: List<List<Str>>, gens: List<Str> }
+type R = {
+  key: Str,
+  aliases: Map<Str, Str>,
+  imports: Map<Str, Str>,
+  scopes: List<List<Str>>,
+  gens: List<Str>,
+}
 
 fn is_local(r: R, n: Str) -> Bool { any(r.scopes, (s) => contains(s, n)) }
 
@@ -1119,7 +1263,7 @@ fn tns(l: L, r: R, vs: List<Str>, gens: List<Str>) -> Result<List<Str>, ME> {
 fn rhead(l: L, r: R, t: TyX, gens: List<Str>) -> Result<TyX, ME> {
   match t {
     YCon(n, a, ln) => Ok(YCon(type_name(l, r, n, gens)?, a, ln)),
-    _              => {
+    _ => {
       let _ = type_name(l, r, "", gens)?
       Ok(t)
     },
@@ -1132,13 +1276,13 @@ fn rty(l: L, r: R, t: TyX, gens: List<Str>) -> Result<TyX, ME> {
       let n2 = type_name(l, r, n, gens)?
       Ok(YCon(n2, rtys(l, r, a, gens)?, ln))
     },
-    YTup(a, ln)    => Ok(YTup(rtys(l, r, a, gens)?, ln)),
-    YFn(a, b, ln)  => {
+    YTup(a, ln) => Ok(YTup(rtys(l, r, a, gens)?, ln)),
+    YFn(a, b, ln) => {
       let a2 = rtys(l, r, a, gens)?
       Ok(YFn(a2, rty(l, r, b, gens)?, ln))
     },
-    YDyn(bs, ln)   => Ok(YDyn(tns(l, r, bs, gens)?, ln)),
-    YImpl(bs, ln)  => Ok(YImpl(tns(l, r, bs, gens)?, ln)),
+    YDyn(bs, ln) => Ok(YDyn(tns(l, r, bs, gens)?, ln)),
+    YImpl(bs, ln) => Ok(YImpl(tns(l, r, bs, gens)?, ln)),
     YUnsafe(x, ln) => Ok(YUnsafe(rty(l, r, x, gens)?, ln)),
   }
 }
@@ -1146,7 +1290,7 @@ fn rty(l: L, r: R, t: TyX, gens: List<Str>) -> Result<TyX, ME> {
 fn rtyo(l: L, r: R, t: TyX?, gens: List<Str>) -> Result<TyX?, ME> {
   match t {
     Some(x) => Ok(Some(rty(l, r, x, gens)?)),
-    None    => Ok(None),
+    None => Ok(None),
   }
 }
 
@@ -1164,29 +1308,31 @@ fn rnm_t(l: L, r: R, n: Nm) -> Result<Nm, ME> {
 
 fn rpat(l: L, r: R, p: Pat) -> Result<Pat, ME> {
   match p {
-    PTuple(xs)             => Ok(PTuple(rpats(l, r, xs)?)),
+    PTuple(xs) => Ok(PTuple(rpats(l, r, xs)?)),
     PList(pre, rest, post) => {
       let a = rpats(l, r, pre)?
       Ok(PList(a, rest, rpats(l, r, post)?))
     },
-    PAt(a, b)              => Ok(PAt(a, rpat(l, r, b)?)),
-    PVariant(n, subs)      => {
+    PAt(a, b) => Ok(PAt(a, rpat(l, r, b)?)),
+    PVariant(n, subs) => {
       let info = gm(l, r.key)
       if let NmS(s) = n {
-        if is_none(subs) && contains(info.names, s) && !is_local(r, s) { return Ok(PVariant(NmS(unwrap(get(info.names, s))), None)) }
+        if is_none(subs) && contains(info.names, s) && !is_local(r, s) {
+          return Ok(PVariant(NmS(unwrap(get(info.names, s))), None))
+        }
       }
       match subs {
         Some(xs) => Ok(PVariant(n, Some(rpats(l, r, xs)?))),
-        None     => Ok(p),
+        None => Ok(p),
       }
     },
-    PStruct(n, fs)         => {
+    PStruct(n, fs) => {
       var out: List<(Str, Pat)> = []
       for f in fs { out = push(out, (f.0, rpat(l, r, f.1)?)) }
       Ok(PStruct(rnm_t(l, r, n)?, out))
     },
-    POr(xs)                => Ok(POr(rpats(l, r, xs)?)),
-    _                      => Ok(p),
+    POr(xs) => Ok(POr(rpats(l, r, xs)?)),
+    _ => Ok(p),
   }
 }
 
@@ -1248,7 +1394,7 @@ fn top(l: L, r0: R, it: Node) -> Result<(R, Node), ME> {
   let info = gm(l, r.key)
   let mangled = (n: Str) => unwrap(get(info.names, n))
   match it.k {
-    NFn(f)          => {
+    NFn(f) => {
       let x = Node { k: NFn(FnD { name: value(l, r, f.name), ..f }), ..it }
       return rfn(l, r, x, [])
     },
@@ -1262,8 +1408,8 @@ fn top(l: L, r0: R, it: Node) -> Result<(R, Node), ME> {
       for v in vs {
         let nf = match v.1 {
           EvList(xs) => EvList(rfields(l, r, xs, g.names)?),
-          EvRec(xs)  => EvRec(rfields(l, r, xs, g.names)?),
-          EvNone     => EvNone,
+          EvRec(xs) => EvRec(rfields(l, r, xs, g.names)?),
+          EvNone => EvNone,
         }
         out = push(out, (v.0, nf))
       }
@@ -1273,11 +1419,15 @@ fn top(l: L, r0: R, it: Node) -> Result<(R, Node), ME> {
       let g2 = rbounds(l, r, g, g.names)?
       return Ok((r, Node { k: NAlias(mangled(n), rty(l, r, t, g.names)?, g2), ..it }))
     },
-    NTrait(t)       => {
+    NTrait(t) => {
       var assoc: List<TAssoc> = []
       for a in t.assoc {
         let bs = tns(l, r, a.bounds, [])?
-        assoc = push(assoc, TAssoc { name: a.name, bounds: bs, dflt: rtyo(l, r, a.dflt, ["Self"])? })
+        assoc = push(assoc, TAssoc {
+          name: a.name,
+          bounds: bs,
+          dflt: rtyo(l, r, a.dflt, ["Self"])?,
+        })
       }
       let sups = tns(l, r, t.supers, [])?
       let (r1, cs) = rconsts(l, r, t.consts, ["Self"])?
@@ -1288,9 +1438,18 @@ fn top(l: L, r0: R, it: Node) -> Result<(R, Node), ME> {
         r = r2
         ms = push(ms, mv)
       }
-      return Ok((r, Node { k: NTrait(TraitD { name: mangled(t.name), methods: ms, assoc: assoc, supers: sups, consts: cs }), ..it }))
+      return Ok((r, Node {
+        k: NTrait(TraitD {
+          name: mangled(t.name),
+          methods: ms,
+          assoc: assoc,
+          supers: sups,
+          consts: cs,
+        }),
+        ..it
+      }))
     },
-    NImpl(_)        => { return rimpl(l, r, it) },
+    NImpl(_) => { return rimpl(l, r, it) },
     NLet(p, m, t, v, ic) => {
       let (r1, v2) = rexpr(l, r, v)?
       r = r1
@@ -1298,9 +1457,9 @@ fn top(l: L, r0: R, it: Node) -> Result<(R, Node), ME> {
       let t2 = rtyo(l, r, t, [])?
       return Ok((r, Node { k: NLet(top_pat(info, p2), m, t2, v2, ic), ..it }))
     },
-    NUse(..)        => { return Ok((r, it)) },
-    NMod(..)        => { return Ok((r, it)) },
-    _               => (),
+    NUse(..) => { return Ok((r, it)) },
+    NMod(..) => { return Ok((r, it)) },
+    _ => (),
   }
   r = push_scope(r, [])
   let (r3, sx) = rstmt(l, r, it)?
@@ -1310,21 +1469,25 @@ fn top(l: L, r0: R, it: Node) -> Result<(R, Node), ME> {
 fn top_pat(info: Mod, p: Pat) -> Pat {
   let nm = (s: Str) => unwrap_or(get(info.names, s), s)
   match p {
-    PBind(n)               => PBind(NmS(nm(ast.nm_str(n)))),
-    PVar(n)                => PVar(NmS(nm(ast.nm_str(n)))),
-    POr(xs)                => POr(map(xs, (q) => top_pat(info, q))),
-    PAt(a, b)              => PAt(top_pat(info, a), top_pat(info, b)),
-    PTuple(xs)             => PTuple(map(xs, (q) => top_pat(info, q))),
-    PList(pre, rest, post) => PList(map(pre, (q) => top_pat(info, q)), match rest {
-      Some(s) => if s == "" { rest } else { Some(nm(s)) },
-      None    => None,
-    }, map(post, (q) => top_pat(info, q))),
-    PVariant(n, subs)      => PVariant(n, match subs {
+    PBind(n) => PBind(NmS(nm(ast.nm_str(n)))),
+    PVar(n) => PVar(NmS(nm(ast.nm_str(n)))),
+    POr(xs) => POr(map(xs, (q) => top_pat(info, q))),
+    PAt(a, b) => PAt(top_pat(info, a), top_pat(info, b)),
+    PTuple(xs) => PTuple(map(xs, (q) => top_pat(info, q))),
+    PList(pre, rest, post) => PList(
+      map(pre, (q) => top_pat(info, q)),
+      match rest {
+        Some(s) => if s == "" { rest } else { Some(nm(s)) },
+        None => None,
+      },
+      map(post, (q) => top_pat(info, q)),
+    ),
+    PVariant(n, subs) => PVariant(n, match subs {
       Some(xs) => Some(map(xs, (q) => top_pat(info, q))),
-      None     => None,
+      None => None,
     }),
-    PStruct(n, fs)         => PStruct(n, map(fs, (f) => (f.0, top_pat(info, f.1)))),
-    _                      => p,
+    PStruct(n, fs) => PStruct(n, map(fs, (f) => (f.0, top_pat(info, f.1)))),
+    _ => p,
   }
 }
 
@@ -1332,7 +1495,7 @@ fn rimpl(l: L, r0: R, it: Node) -> Result<(R, Node), ME> {
   var r = r0
   let d = match it.k {
     NImpl(x) => x,
-    _        => { return Ok((r, it)) },
+    _ => { return Ok((r, it)) },
   }
   let gens = d.gen.names
   let gs = push(gens, "Self")
@@ -1350,14 +1513,25 @@ fn rimpl(l: L, r0: R, it: Node) -> Result<(R, Node), ME> {
   }
   let (r2, cs) = rconsts(l, r, d.consts, gs)?
   r = r2
-  Ok((r, Node { k: NImpl(ImplD { tr: tr, target: target, target_t: tt, assoc: assoc, methods: ms, consts: cs, ..d }), ..it }))
+  Ok((r, Node {
+    k: NImpl(ImplD {
+      tr: tr,
+      target: target,
+      target_t: tt,
+      assoc: assoc,
+      methods: ms,
+      consts: cs,
+      ..d
+    }),
+    ..it
+  }))
 }
 
 fn rfn(l: L, r0: R, fnode: Node, outer: List<Str>) -> Result<(R, Node), ME> {
   var r = r0
   let f = match fnode.k {
     NFn(x) => x,
-    _      => { return Ok((r, fnode)) },
+    _ => { return Ok((r, fnode)) },
   }
   let gens = outer + f.gen.names
   let ps = rfields_o(l, r, f.params, gens)?
@@ -1391,7 +1565,7 @@ fn rx(l: L, r: R, e: Node?) -> Result<(R, Node?), ME> {
       let (r1, v) = rexpr(l, r, x)?
       Ok((r1, Some(v)))
     },
-    None    => Ok((r, None)),
+    None => Ok((r, None)),
   }
 }
 
@@ -1405,15 +1579,15 @@ fn rstmt(l: L, r0: R, s: Node) -> Result<(R, Node), ME> {
       let x = Node { k: NLet(p2, m, rtyo(l, r, t, r.gens)?, v2, ic), ..s }
       return Ok((bind(r, p2), x))
     },
-    NFn(_)          => { return rfn(l, r, s, r.gens) },
-    NImpl(_)        => { return rimpl(l, r, s) },
-    NStruct(..)     => { return Ok((r, s)) },
-    NEnum(..)       => { return Ok((r, s)) },
-    NAlias(..)      => { return Ok((r, s)) },
-    NTrait(_)       => { return Ok((r, s)) },
-    NUse(..)        => { return Ok((r, s)) },
-    NMod(..)        => { return Ok((r, s)) },
-    NExprStmt(e)    => {
+    NFn(_) => { return rfn(l, r, s, r.gens) },
+    NImpl(_) => { return rimpl(l, r, s) },
+    NStruct(..) => { return Ok((r, s)) },
+    NEnum(..) => { return Ok((r, s)) },
+    NAlias(..) => { return Ok((r, s)) },
+    NTrait(_) => { return Ok((r, s)) },
+    NUse(..) => { return Ok((r, s)) },
+    NMod(..) => { return Ok((r, s)) },
+    NExprStmt(e) => {
       let (r1, v) = rexpr(l, r, e)?
       return Ok((r1, Node { k: NExprStmt(v), ..s }))
     },
@@ -1422,7 +1596,7 @@ fn rstmt(l: L, r0: R, s: Node) -> Result<(R, Node), ME> {
       let (r2, v2) = rexpr(l, r1, v)?
       return Ok((r2, Node { k: NAssign(t2, op, v2), ..s }))
     },
-    NReturn(v)      => {
+    NReturn(v) => {
       let (r1, v2) = rx(l, r, v)?
       return Ok((r1, Node { k: NReturn(v2), ..s }))
     },
@@ -1430,24 +1604,24 @@ fn rstmt(l: L, r0: R, s: Node) -> Result<(R, Node), ME> {
       let (r1, v2) = rx(l, r, v)?
       return Ok((r1, Node { k: NBreak(lb, v2, bare), ..s }))
     },
-    NContinue(_)    => { return Ok((r, s)) },
-    NDefer(b)       => {
+    NContinue(_) => { return Ok((r, s)) },
+    NDefer(b) => {
       let (r1, v) = rexpr(l, r, b)?
       return Ok((r1, Node { k: NDefer(v), ..s }))
     },
-    NFor(p, it, b)  => {
+    NFor(p, it, b) => {
       let (r1, it2) = rexpr(l, r, it)?
       let p2 = rpat(l, r1, p)?
       r = bind(push_scope(r1, []), p2)
       let (r2, b2) = rexpr(l, r, b)?
       return Ok((pop_scope(r2), Node { k: NFor(p2, it2, b2), ..s }))
     },
-    NWhile(c, b)    => {
+    NWhile(c, b) => {
       let (r1, c2) = rx(l, r, c)?
       let (r2, b2) = rexpr(l, r1, b)?
       return Ok((r2, Node { k: NWhile(c2, b2), ..s }))
     },
-    _               => (),
+    _ => (),
   }
   // 其他语句：Python 版就地解析，这里和 kitec 迁移前一样只取作用域，不替换节点
   let (r3, _) = rexpr(l, r, s)?
@@ -1462,7 +1636,7 @@ fn rexpr(l: L, r: R, e: Node) -> Result<(R, Node), ME> {
 fn is_name(n: Node) -> Str? {
   match n.k {
     NName(s) => Some(s),
-    _        => None,
+    _ => None,
   }
 }
 
@@ -1471,7 +1645,7 @@ fn rexpr_m(l: L, r0: R, e: Node) -> Result<(R, Node, Str), ME> {
   var r = r0
   let ln = e.line
   match e.k {
-    NName(s)        => { return Ok((r, Node { k: NName(value(l, r, s)), ..e }, "#")) },
+    NName(s) => { return Ok((r, Node { k: NName(value(l, r, s)), ..e }, "#")) },
     NField(o, fname0) => {
       let fname = ast.nm_str(fname0)
       if let Some(on) = is_name(o) {
@@ -1498,7 +1672,7 @@ fn rexpr_m(l: L, r0: R, e: Node) -> Result<(R, Node, Str), ME> {
       let (r2, o3) = rexpr(l, r, o)?
       return Ok((r2, Node { k: NField(o3, fname0), ..e }, "#"))
     },
-    NBlock(ss, u)   => {
+    NBlock(ss, u) => {
       let (r1, b) = rblock(l, r, e, ss, u)?
       return Ok((r1, b, "#"))
     },
@@ -1514,7 +1688,7 @@ fn rexpr_m(l: L, r0: R, e: Node) -> Result<(R, Node, Str), ME> {
       let (r1, b2) = rexpr(l, r, b)?
       return Ok((pop_scope(r1), Node { k: NLambda(ps2, b2, ctx), ..e }, "#"))
     },
-    NMatch(m)       => {
+    NMatch(m) => {
       let (r1, subj) = rexpr(l, r, m.subject)?
       r = r1
       var arms: List<Arm> = []
@@ -1532,17 +1706,34 @@ fn rexpr_m(l: L, r0: R, e: Node) -> Result<(R, Node, Str), ME> {
       let ic = match m.is_conj {
         Some((isn, rt)) => {
           let isn2 = match isn.k {
-            NIs(v, p) => if ast.kname(subj) == ast.kname(v) { Node { k: NIs(subj, p), ..isn } } else { isn },
-            _         => isn,
+            NIs(v, p) => if ast.kname(subj) == ast.kname(v) {
+              Node { k: NIs(subj, p), ..isn }
+            } else {
+              isn
+            },
+            _ => isn,
           }
-          let rt2 = if len(arms) > 0 && ast.kname(arms[0].body) == ast.kname(rt) { arms[0].body } else { rt }
+          let rt2 = if len(arms) > 0 && ast.kname(arms[0].body) == ast.kname(rt) {
+            arms[0].body
+          } else {
+            rt
+          }
           Some((isn2, rt2))
         },
-        None            => None,
+        None => None,
       }
-      return Ok((r, Node { k: NMatch(MatchD { subject: subj, arms: arms, let_else: le, is_conj: ic, ..m }), ..e }, "#"))
+      return Ok(
+        (
+          r,
+          Node {
+            k: NMatch(MatchD { subject: subj, arms: arms, let_else: le, is_conj: ic, ..m }),
+            ..e
+          },
+          "#",
+        ),
+      )
     },
-    NSelect(arms0)  => {
+    NSelect(arms0) => {
       var arms: List<SArm> = []
       for a in arms0 {
         let (r1, av) = rx(l, r, a.a)?
@@ -1561,7 +1752,7 @@ fn rexpr_m(l: L, r0: R, e: Node) -> Result<(R, Node, Str), ME> {
       }
       return Ok((r, Node { k: NSelect(arms), ..e }, "#"))
     },
-    NIs(v, p)       => {
+    NIs(v, p) => {
       let (r1, v2) = rexpr(l, r, v)?
       return Ok((r1, Node { k: NIs(v2, rpat(l, r1, p)?), ..e }, "#"))
     },
@@ -1573,7 +1764,7 @@ fn rexpr_m(l: L, r0: R, e: Node) -> Result<(R, Node, Str), ME> {
           let nq = type_name(l, r, q, [])?
           if nq != q { NmQ(ast.nm_str(nm1), Some(nq)) } else { nm1 }
         },
-        _               => nm1,
+        _ => nm1,
       }
       var out: List<(Str, Node)> = []
       for f in fs {
@@ -1584,11 +1775,11 @@ fn rexpr_m(l: L, r0: R, e: Node) -> Result<(R, Node, Str), ME> {
       let (r2, b2) = rx(l, r, base)?
       return Ok((r2, Node { k: NStructLit(nm2, out, b2), ..e }, "#"))
     },
-    NInterp(ps)     => {
+    NInterp(ps) => {
       var out: List<IPart> = []
       for p in ps {
         match p {
-          IStr(_)  => { out = push(out, p) },
+          IStr(_) => { out = push(out, p) },
           IExpr(x) => {
             let (r1, v) = rexpr(l, r, x)?
             r = r1
@@ -1598,24 +1789,24 @@ fn rexpr_m(l: L, r0: R, e: Node) -> Result<(R, Node, Str), ME> {
       }
       return Ok((r, Node { k: NInterp(out), ..e }, "#"))
     },
-    NLet(..)        => { return stmt_m(l, r, e) },
-    NAssign(..)     => { return stmt_m(l, r, e) },
-    NReturn(_)      => { return stmt_m(l, r, e) },
-    NDefer(_)       => { return stmt_m(l, r, e) },
-    NFor(..)        => { return stmt_m(l, r, e) },
-    NWhile(..)      => { return stmt_m(l, r, e) },
-    NExprStmt(_)    => { return stmt_m(l, r, e) },
-    NBreak(..)      => { return stmt_m(l, r, e) },
-    NContinue(_)    => { return stmt_m(l, r, e) },
-    NFn(_)          => { return stmt_m(l, r, e) },
-    NImpl(_)        => { return stmt_m(l, r, e) },
-    NStruct(..)     => { return stmt_m(l, r, e) },
-    NEnum(..)       => { return stmt_m(l, r, e) },
-    NAlias(..)      => { return stmt_m(l, r, e) },
-    NTrait(_)       => { return stmt_m(l, r, e) },
-    NUse(..)        => { return stmt_m(l, r, e) },
-    NMod(..)        => { return stmt_m(l, r, e) },
-    _               => (),
+    NLet(..) => { return stmt_m(l, r, e) },
+    NAssign(..) => { return stmt_m(l, r, e) },
+    NReturn(_) => { return stmt_m(l, r, e) },
+    NDefer(_) => { return stmt_m(l, r, e) },
+    NFor(..) => { return stmt_m(l, r, e) },
+    NWhile(..) => { return stmt_m(l, r, e) },
+    NExprStmt(_) => { return stmt_m(l, r, e) },
+    NBreak(..) => { return stmt_m(l, r, e) },
+    NContinue(_) => { return stmt_m(l, r, e) },
+    NFn(_) => { return stmt_m(l, r, e) },
+    NImpl(_) => { return stmt_m(l, r, e) },
+    NStruct(..) => { return stmt_m(l, r, e) },
+    NEnum(..) => { return stmt_m(l, r, e) },
+    NAlias(..) => { return stmt_m(l, r, e) },
+    NTrait(_) => { return stmt_m(l, r, e) },
+    NUse(..) => { return stmt_m(l, r, e) },
+    NMod(..) => { return stmt_m(l, r, e) },
+    _ => (),
   }
   // 其余表达式：逐个解析直接子节点
   var ys: List<Node> = []
@@ -1646,7 +1837,7 @@ fn refs(x: Node, owner: Map<Str, Int>, acc0: List<Int>) -> List<Int> {
 fn let_parts(n: Node) -> (Pat, Node, Bool)? {
   match n.k {
     NLet(p, _, _, v, ic) => Some((p, v, ic)),
-    _                    => None,
+    _ => None,
   }
 }
 
@@ -1658,13 +1849,14 @@ fn order_consts(its: List<Node>) -> List<Node> {
     i += 1
   }
   if len(idx) < 2 { return its }
-  let ok_kind = (it: Node) => decl_named(it.k) || match it.k {
-    NImpl(_) => true,
-    NUse(..) => true,
-    NMod(..) => true,
-    NLet(..) => true,
-    _        => false,
-  }
+  let ok_kind = (it: Node) => decl_named(it.k)
+    || match it.k {
+      NImpl(_) => true,
+      NUse(..) => true,
+      NMod(..) => true,
+      NLet(..) => true,
+      _ => false,
+    }
   if any(its, (it) => !ok_kind(it)) { return its }
   if any(idx, (j) => !unwrap(let_parts(its[j])).2) { return its }
   let consts = map(idx, (j) => its[j])
@@ -1695,7 +1887,11 @@ fn order_consts(its: List<Node>) -> List<Node> {
   }
   take(rest, first) + map(out, (n) => consts[n]) + skip(rest, first)
 }
-fn visit(c: Int, deps: List<List<Int>>, done0: List<Int>, busy0: List<Int>, out0: List<Int>) -> (List<Int>, List<Int>, List<Int>) {
+fn visit(c: Int, deps: List<List<Int>>, done0: List<Int>, busy0: List<Int>, out0: List<Int>) -> (
+  List<Int>,
+  List<Int>,
+  List<Int>,
+) {
   if contains(done0, c) || contains(busy0, c) { return (done0, busy0, out0) }
   var done = done0
   var busy = push(busy0, c)
@@ -1723,7 +1919,11 @@ pub fn strip_lm(msg: Str) -> Str {
       var j = i + 4
       if j < n && __str_slice(msg, j, j + 1) == "u" { j += 1 }
       let d0 = j
-      while j < n && __ord(__str_slice(msg, j, j + 1)) >= 48 && __ord(__str_slice(msg, j, j + 1)) <= 57 { j += 1 }
+      while j < n
+        && __ord(__str_slice(msg, j, j + 1)) >= 48
+        && __ord(__str_slice(msg, j, j + 1)) <= 57 {
+        j += 1
+      }
       if j > d0 && j < n && __str_slice(msg, j, j + 1) == "_" {
         i = j + 1
         continue
@@ -1734,4 +1934,3 @@ pub fn strip_lm(msg: Str) -> Str {
   }
   out
 }
-

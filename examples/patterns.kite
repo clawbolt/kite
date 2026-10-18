@@ -19,24 +19,24 @@ fn first_even(xs: List<Int>) -> Str {
 
 fn f1(o: Option<Shape>) -> Int {
   match o {
-    Some(Circle(_))  => 1
+    Some(Circle(_)) => 1
     Some(Rect(_, _)) => 2
-    None             => 0
+    None => 0
   }
 }
 
 fn f2(a: Bool, b: Option<Int>) -> Int {
   match (a, b) {
     (true, Some(_)) => 1
-    (false, _)      => 2
-    (_, None)       => 3
+    (false, _) => 2
+    (_, None) => 3
   }
 }
 
 fn f3(xs: List<Int>) -> Int {
   match xs {
-    []             => 0
-    [x]            => x
+    [] => 0
+    [x] => x
     [x, y, ..rest] => x + y + len(rest)
   }
 }
@@ -45,13 +45,16 @@ type P = { x: Int, ok: Bool }
 
 fn f4(p: P) -> Int {
   match p {
-    P { x, ok: true }   => x
+    P { x, ok: true } => x
     P { ok: false, .. } => 0
   }
 }
 
 fn main() {
-  print("穷尽", f1(Some(Circle(1.0))), f1(None), f2(true, None), f3([1, 2, 3]), f4(P { x: 5, ok: true }))
+  print("穷尽", f1(Some(Circle(1.0))), f1(None), f2(true, None), f3([1, 2, 3]), f4(P {
+    x: 5,
+    ok: true,
+  }))
   let o = Some(3)
   if let Some(x) = o { print("有", x) } else { print("无") }
   let label = if let Some(x) = o { x * 10 } else if let None = o { 0 } else { -1 }

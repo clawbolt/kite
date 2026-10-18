@@ -7,14 +7,18 @@
 use std.go.token as token
 use std.go.scanner as scanner
 use std.go.ast as ast
-use std.go.ast.{Node}
+use std.go.ast.{ Node }
 use std.go.parser as parser
 use std.go.printer as printer
 
 const PARSER_MODE: Int = 68   // ParseComments | SkipObjectResolution
 
 pub fn config() -> printer.Config {
-  printer.Config { mode: printer.USE_SPACES | printer.TAB_INDENT | printer.NORMALIZE_NUMBERS, tabwidth: 8, indent: 0 }
+  printer.Config {
+    mode: printer.USE_SPACES | printer.TAB_INDENT | printer.NORMALIZE_NUMBERS,
+    tabwidth: 8,
+    indent: 0,
+  }
 }
 
 fn has_unsorted_imports(f: Node) -> Bool {
@@ -37,7 +41,9 @@ pub fn node(fset0: token.FileSet, n0: Node) -> Result<List<Int>, Str> {
   if n is File { .. } && has_unsorted_imports(n) {
     let buf = printer.fprint_bytes(config(), fset, n)?
     let (fs1, f1, errs) = parser.parse_file(fset, "", buf, PARSER_MODE)
-    if len(errs) > 0 { return Err("format.Node internal error (" + scanner.list_string(errs) + ")") }
+    if len(errs) > 0 {
+      return Err("format.Node internal error (" + scanner.list_string(errs) + ")")
+    }
     let (fs2, f2) = ast.sort_imports(fs1, f1)
     fset = fs2
     n = f2
@@ -55,11 +61,15 @@ fn err_text(errs: List<scanner.Error>) -> Str { scanner.list_string(errs) }
 // 返回 (FileSet, File, 片段类型, indentAdj, 错误)
 fn parse(src: List<Int>) -> (token.FileSet, Node, Int, Int, List<scanner.Error>) {
   let (fs, f, errs) = parser.parse_file(token.new_file_set(), "", src, PARSER_MODE)
-  if len(errs) == 0 || __str_find(err_text(errs), "expected 'package'", 0) < 0 { return (fs, f, ADJ_NONE, 0, errs) }
+  if len(errs) == 0 || __str_find(err_text(errs), "expected 'package'", 0) < 0 {
+    return (fs, f, ADJ_NONE, 0, errs)
+  }
   let psrc = __bytes("package p;") + src
   let (fs2, f2, errs2) = parser.parse_file(token.new_file_set(), "", psrc, PARSER_MODE)
   if len(errs2) == 0 { return (fs2, f2, ADJ_DECLS, 0, errs2) }
-  if __str_find(err_text(errs2), "expected declaration", 0) < 0 { return (fs2, f2, ADJ_NONE, 0, errs2) }
+  if __str_find(err_text(errs2), "expected declaration", 0) < 0 {
+    return (fs2, f2, ADJ_NONE, 0, errs2)
+  }
   let fsrc = __bytes("package p; func _() {{") + src + [10, 10, 125]
   let (fs3, f3, errs3) = parser.parse_file(token.new_file_set(), "", fsrc, PARSER_MODE)
   if len(errs3) == 0 { return (fs3, f3, ADJ_STMTS, -1, errs3) }

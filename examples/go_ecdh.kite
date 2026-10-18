@@ -10,7 +10,12 @@ fn zeros(n: Int) -> List<Int> { map(0..n, (_) => 0) }
 
 fn main() {
   let sizes = [32, 32, 48, 66]
-  let ns = ["", "ffffffff00000000ffffffffffffffffbce6faada7179e84f3b9cac2fc632551", "ffffffffffffffffffffffffffffffffffffffffffffffffc7634d81f4372ddf581a0db248b0a77aecec196accc52973", "01fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffa51868783bf2f966b7fcc0148f709a5d03bb5c9b8899c47aebb6fb71e91386409"]
+  let ns = [
+    "",
+    "ffffffff00000000ffffffffffffffffbce6faada7179e84f3b9cac2fc632551",
+    "ffffffffffffffffffffffffffffffffffffffffffffffffc7634d81f4372ddf581a0db248b0a77aecec196accc52973",
+    "01fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffa51868783bf2f966b7fcc0148f709a5d03bb5c9b8899c47aebb6fb71e91386409",
+  ]
   for c in 0..4 {
     print("CURVE " + ecdh.curve_name(c))
     let size = sizes[c]
@@ -66,7 +71,14 @@ fn main() {
         }
       }
     } else {
-      for s in ["0000000000000000000000000000000000000000000000000000000000000000", "0100000000000000000000000000000000000000000000000000000000000000", "ecffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7f", "e0eb7a7c3b41b8ae1656e3faf19fc46ada098deb9c32b1fd866205165f49b800", "0900000000000000000000000000000000000000000000000000000000000080", "eeffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7f"] {
+      for s in [
+        "0000000000000000000000000000000000000000000000000000000000000000",
+        "0100000000000000000000000000000000000000000000000000000000000000",
+        "ecffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7f",
+        "e0eb7a7c3b41b8ae1656e3faf19fc46ada098deb9c32b1fd866205165f49b800",
+        "0900000000000000000000000000000000000000000000000000000000000080",
+        "eeffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7f",
+      ] {
         match ecdh.new_public_key(c, unwrap(hex.decode(s))) {
           Err(e) => print("X " + s + " " + e),
           Ok(p) => {

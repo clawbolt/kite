@@ -14,7 +14,9 @@ fn main() {
     {
       let dk = unwrap(mlkem.new_decapsulation_key(3, seed))
       let ek = dk.encapsulation_key()
-      print("768 <nil> " + h(ek.bytes()) + " {len(ek.bytes())} " + hex.encode_bytes(dk.bytes()[..8]))
+      print("768 <nil> " + h(ek.bytes()) + " {len(ek.bytes())} " + hex.encode_bytes(dk.bytes()[
+        ..8
+      ]))
       let (k, ct) = unwrap(mlkem.encapsulate_with(ek, r))
       print(" ENC " + hex.encode_bytes(k) + " " + h(ct) + " {len(ct)} <nil>")
       print(" DEC " + hex.encode_bytes(unwrap(dk.decapsulate(ct))) + " <nil>")

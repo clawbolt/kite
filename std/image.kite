@@ -19,7 +19,10 @@ pub fn zp() -> Point { pt(0, 0) }
 pub fn zr() -> Rectangle { Rectangle { min: zp(), max: zp() } }
 
 pub fn rect(x0: Int, y0: Int, x1: Int, y1: Int) -> Rectangle {
-  Rectangle { min: pt(if x0 > x1 { x1 } else { x0 }, if y0 > y1 { y1 } else { y0 }), max: pt(if x0 > x1 { x0 } else { x1 }, if y0 > y1 { y0 } else { y1 }) }
+  Rectangle { min: pt(if x0 > x1 { x1 } else { x0 }, if y0 > y1 { y1 } else { y0 }), max: pt(
+    if x0 > x1 { x0 } else { x1 },
+    if y0 > y1 { y0 } else { y1 },
+  ) }
 }
 
 impl Point {
@@ -28,7 +31,9 @@ impl Point {
   pub fn sub(self, q: Point) -> Point { pt(self.x - q.x, self.y - q.y) }
   pub fn mul(self, k: Int) -> Point { pt(self.x * k, self.y * k) }
   pub fn div(self, k: Int) -> Point { pt(self.x / k, self.y / k) }
-  pub fn in_(self, r: Rectangle) -> Bool { r.min.x <= self.x && self.x < r.max.x && r.min.y <= self.y && self.y < r.max.y }
+  pub fn in_(self, r: Rectangle) -> Bool {
+    r.min.x <= self.x && self.x < r.max.x && r.min.y <= self.y && self.y < r.max.y
+  }
   pub fn mod_(self, r: Rectangle) -> Point {
     let w = r.dx()
     let h = r.dy()
@@ -47,8 +52,12 @@ impl Rectangle {
   pub fn dx(self) -> Int { self.max.x - self.min.x }
   pub fn dy(self) -> Int { self.max.y - self.min.y }
   pub fn size(self) -> Point { pt(self.dx(), self.dy()) }
-  pub fn add(self, p: Point) -> Rectangle { Rectangle { min: self.min.add(p), max: self.max.add(p) } }
-  pub fn sub(self, p: Point) -> Rectangle { Rectangle { min: self.min.sub(p), max: self.max.sub(p) } }
+  pub fn add(self, p: Point) -> Rectangle {
+    Rectangle { min: self.min.add(p), max: self.max.add(p) }
+  }
+  pub fn sub(self, p: Point) -> Rectangle {
+    Rectangle { min: self.min.sub(p), max: self.max.sub(p) }
+  }
   pub fn inset(self, n: Int) -> Rectangle {
     var x0 = self.min.x
     var x1 = self.max.x
@@ -72,8 +81,16 @@ impl Rectangle {
   }
   pub fn intersect(self, s: Rectangle) -> Rectangle {
     let r = Rectangle {
-      min: pt(if self.min.x < s.min.x { s.min.x } else { self.min.x }, if self.min.y < s.min.y { s.min.y } else { self.min.y }),
-      max: pt(if self.max.x > s.max.x { s.max.x } else { self.max.x }, if self.max.y > s.max.y { s.max.y } else { self.max.y }),
+      min: pt(if self.min.x < s.min.x { s.min.x } else { self.min.x }, if self.min.y < s.min.y {
+        s.min.y
+      } else {
+        self.min.y
+      }),
+      max: pt(if self.max.x > s.max.x { s.max.x } else { self.max.x }, if self.max.y > s.max.y {
+        s.max.y
+      } else {
+        self.max.y
+      }),
     }
     if r.empty() { zr() } else { r }
   }
@@ -81,14 +98,29 @@ impl Rectangle {
     if self.empty() { return s }
     if s.empty() { return self }
     Rectangle {
-      min: pt(if self.min.x > s.min.x { s.min.x } else { self.min.x }, if self.min.y > s.min.y { s.min.y } else { self.min.y }),
-      max: pt(if self.max.x < s.max.x { s.max.x } else { self.max.x }, if self.max.y < s.max.y { s.max.y } else { self.max.y }),
+      min: pt(if self.min.x > s.min.x { s.min.x } else { self.min.x }, if self.min.y > s.min.y {
+        s.min.y
+      } else {
+        self.min.y
+      }),
+      max: pt(if self.max.x < s.max.x { s.max.x } else { self.max.x }, if self.max.y < s.max.y {
+        s.max.y
+      } else {
+        self.max.y
+      }),
     }
   }
   pub fn empty(self) -> Bool { self.min.x >= self.max.x || self.min.y >= self.max.y }
-  pub fn eq(self, s: Rectangle) -> Bool { (self.min.eq(s.min) && self.max.eq(s.max)) || (self.empty() && s.empty()) }
+  pub fn eq(self, s: Rectangle) -> Bool {
+    (self.min.eq(s.min) && self.max.eq(s.max)) || (self.empty() && s.empty())
+  }
   pub fn overlaps(self, s: Rectangle) -> Bool {
-    !self.empty() && !s.empty() && self.min.x < s.max.x && s.min.x < self.max.x && self.min.y < s.max.y && s.min.y < self.max.y
+    !self.empty()
+      && !s.empty()
+      && self.min.x < s.max.x
+      && s.min.x < self.max.x
+      && self.min.y < s.max.y
+      && s.min.y < self.max.y
   }
   pub fn in_(self, s: Rectangle) -> Bool {
     if self.empty() { return true }
@@ -96,7 +128,9 @@ impl Rectangle {
   }
   pub fn canon(self) -> Rectangle { rect(self.min.x, self.min.y, self.max.x, self.max.y) }
   // Rectangle 作为图像时的 At
-  pub fn at(self, x: Int, y: Int) -> Color { if pt(x, y).in_(self) { color.opaque() } else { color.transparent() } }
+  pub fn at(self, x: Int, y: Int) -> Color {
+    if pt(x, y).in_(self) { color.opaque() } else { color.transparent() }
+  }
 }
 
 // ── 图像 ──
@@ -123,28 +157,63 @@ pub const RATIO_411: Int = 4
 pub const RATIO_410: Int = 5
 
 pub fn ratio_string(s: Int) -> Str {
-  if s >= 0 && s <= 5 { return "YCbCrSubsampleRatio" + ["444", "422", "420", "440", "411", "410"][s] }
+  if s >= 0 && s <= 5 {
+    return "YCbCrSubsampleRatio" + ["444", "422", "420", "440", "411", "410"][s]
+  }
   "YCbCrSubsampleRatioUnknown"
 }
 
 pub type Image = {
-  kind: Int, rect: Rectangle, stride: Int, pix: List<Int>, palette: List<Color>,
-  y: List<Int>, cb: List<Int>, cr: List<Int>, a: List<Int>, y_stride: Int, c_stride: Int, a_stride: Int, ratio: Int,
+  kind: Int,
+  rect: Rectangle,
+  stride: Int,
+  pix: List<Int>,
+  palette: List<Color>,
+  y: List<Int>,
+  cb: List<Int>,
+  cr: List<Int>,
+  a: List<Int>,
+  y_stride: Int,
+  c_stride: Int,
+  a_stride: Int,
+  ratio: Int,
   uniform: Color,
 }
 
 fn bpp(kind: Int) -> Int { [4, 8, 4, 8, 1, 2, 1, 2, 4, 1, 0, 0, 0][kind] }
 
-pub fn kind_name(kind: Int) -> Str { ["RGBA", "RGBA64", "NRGBA", "NRGBA64", "Alpha", "Alpha16", "Gray", "Gray16", "CMYK", "Paletted", "YCbCr", "NYCbCrA", "Uniform"][kind] }
+pub fn kind_name(kind: Int) -> Str {
+  [
+    "RGBA", "RGBA64", "NRGBA", "NRGBA64", "Alpha", "Alpha16", "Gray", "Gray16", "CMYK", "Paletted",
+    "YCbCr", "NYCbCrA", "Uniform",
+  ][kind]
+}
 
 fn zeros(n: Int) -> List<Int> { map(0..n, (_) => 0) }
 
 fn blank(kind: Int, r: Rectangle) -> Image {
-  Image { kind: kind, rect: r, stride: 0, pix: [], palette: [], y: [], cb: [], cr: [], a: [], y_stride: 0, c_stride: 0, a_stride: 0, ratio: 0, uniform: color.transparent() }
+  Image {
+    kind: kind,
+    rect: r,
+    stride: 0,
+    pix: [],
+    palette: [],
+    y: [],
+    cb: [],
+    cr: [],
+    a: [],
+    y_stride: 0,
+    c_stride: 0,
+    a_stride: 0,
+    ratio: 0,
+    uniform: color.transparent(),
+  }
 }
 
 fn buf_len(b: Int, r: Rectangle, name: Str) -> Result<Int, Str> {
-  if r.dx() < 0 || r.dy() < 0 { return Err("image: New" + name + " Rectangle has huge or negative dimensions") }
+  if r.dx() < 0 || r.dy() < 0 {
+    return Err("image: New" + name + " Rectangle has huge or negative dimensions")
+  }
   Ok(b * r.dx() * r.dy())
 }
 
@@ -163,23 +232,49 @@ fn ycbcr_size(r: Rectangle, s: Int) -> (Int, Int, Int, Int) {
   let w = r.dx()
   let h = r.dy()
   if s == RATIO_422 { return (w, h, (r.max.x + 1) / 2 - r.min.x / 2, h) }
-  if s == RATIO_420 { return (w, h, (r.max.x + 1) / 2 - r.min.x / 2, (r.max.y + 1) / 2 - r.min.y / 2) }
+  if s == RATIO_420 {
+    return (w, h, (r.max.x + 1) / 2 - r.min.x / 2, (r.max.y + 1) / 2 - r.min.y / 2)
+  }
   if s == RATIO_440 { return (w, h, w, (r.max.y + 1) / 2 - r.min.y / 2) }
   if s == RATIO_411 { return (w, h, (r.max.x + 3) / 4 - r.min.x / 4, h) }
-  if s == RATIO_410 { return (w, h, (r.max.x + 3) / 4 - r.min.x / 4, (r.max.y + 1) / 2 - r.min.y / 2) }
+  if s == RATIO_410 {
+    return (w, h, (r.max.x + 3) / 4 - r.min.x / 4, (r.max.y + 1) / 2 - r.min.y / 2)
+  }
   (w, h, w, h)
 }
 
 pub fn new_ycbcr(r: Rectangle, s: Int) -> Result<Image, Str> {
   let (w, h, cw, ch) = ycbcr_size(r, s)
-  if w < 0 || h < 0 || cw < 0 || ch < 0 { return Err("image: NewYCbCr Rectangle has huge or negative dimensions") }
-  Ok(Image { y: zeros(w * h), cb: zeros(cw * ch), cr: zeros(cw * ch), y_stride: w, c_stride: cw, ratio: s, ..blank(YCBCR, r) })
+  if w < 0 || h < 0 || cw < 0 || ch < 0 {
+    return Err("image: NewYCbCr Rectangle has huge or negative dimensions")
+  }
+  Ok(Image {
+    y: zeros(w * h),
+    cb: zeros(cw * ch),
+    cr: zeros(cw * ch),
+    y_stride: w,
+    c_stride: cw,
+    ratio: s,
+    ..blank(YCBCR, r)
+  })
 }
 
 pub fn new_nycbcra(r: Rectangle, s: Int) -> Result<Image, Str> {
   let (w, h, cw, ch) = ycbcr_size(r, s)
-  if w < 0 || h < 0 || cw < 0 || ch < 0 { return Err("image: NewNYCbCrA Rectangle has huge or negative dimension") }
-  Ok(Image { y: zeros(w * h), cb: zeros(cw * ch), cr: zeros(cw * ch), a: zeros(w * h), y_stride: w, c_stride: cw, a_stride: w, ratio: s, ..blank(NYCBCRA, r) })
+  if w < 0 || h < 0 || cw < 0 || ch < 0 {
+    return Err("image: NewNYCbCrA Rectangle has huge or negative dimension")
+  }
+  Ok(Image {
+    y: zeros(w * h),
+    cb: zeros(cw * ch),
+    cr: zeros(cw * ch),
+    a: zeros(w * h),
+    y_stride: w,
+    c_stride: cw,
+    a_stride: w,
+    ratio: s,
+    ..blank(NYCBCRA, r)
+  })
 }
 
 // image.NewUniform
@@ -197,7 +292,20 @@ impl Image {
     let k = self.kind
     if k == PALETTED { return -1 }
     if k == UNIFORM { return color.model_of(self.uniform) }
-    [color.RGBA_MODEL, color.RGBA64_MODEL, color.NRGBA_MODEL, color.NRGBA64_MODEL, color.ALPHA_MODEL, color.ALPHA16_MODEL, color.GRAY_MODEL, color.GRAY16_MODEL, color.CMYK_MODEL, -1, color.YCBCR_MODEL, color.NYCBCRA_MODEL][k]
+    [
+      color.RGBA_MODEL,
+      color.RGBA64_MODEL,
+      color.NRGBA_MODEL,
+      color.NRGBA64_MODEL,
+      color.ALPHA_MODEL,
+      color.ALPHA16_MODEL,
+      color.GRAY_MODEL,
+      color.GRAY16_MODEL,
+      color.CMYK_MODEL,
+      -1,
+      color.YCBCR_MODEL,
+      color.NYCBCRA_MODEL,
+    ][k]
   }
 
   // 按图像的模型转换颜色
@@ -209,11 +317,17 @@ impl Image {
     color.convert(self.color_model(), c)
   }
 
-  pub fn pix_offset(self, x: Int, y: Int) -> Int { (y - self.rect.min.y) * self.stride + (x - self.rect.min.x) * bpp(self.kind) }
+  pub fn pix_offset(self, x: Int, y: Int) -> Int {
+    (y - self.rect.min.y) * self.stride + (x - self.rect.min.x) * bpp(self.kind)
+  }
 
-  pub fn y_offset(self, x: Int, y: Int) -> Int { (y - self.rect.min.y) * self.y_stride + (x - self.rect.min.x) }
+  pub fn y_offset(self, x: Int, y: Int) -> Int {
+    (y - self.rect.min.y) * self.y_stride + (x - self.rect.min.x)
+  }
 
-  pub fn a_offset(self, x: Int, y: Int) -> Int { (y - self.rect.min.y) * self.a_stride + (x - self.rect.min.x) }
+  pub fn a_offset(self, x: Int, y: Int) -> Int {
+    (y - self.rect.min.y) * self.a_stride + (x - self.rect.min.x)
+  }
 
   pub fn c_offset(self, x: Int, y: Int) -> Int {
     let r = self.rect
@@ -238,24 +352,47 @@ impl Image {
     let inside = pt(x, y).in_(self.rect)
     let p = self.pix
     let i = if inside && k < YCBCR { self.pix_offset(x, y) } else { 0 }
-    Some(if k == RGBA { if inside { Color.RGBA(p[i], p[i + 1], p[i + 2], p[i + 3]) } else { Color.RGBA(0, 0, 0, 0) } }
-    else if k == RGBA64 { if inside { Color.RGBA64(be16(p, i), be16(p, i + 2), be16(p, i + 4), be16(p, i + 6)) } else { Color.RGBA64(0, 0, 0, 0) } }
-    else if k == NRGBA { if inside { Color.NRGBA(p[i], p[i + 1], p[i + 2], p[i + 3]) } else { Color.NRGBA(0, 0, 0, 0) } }
-    else if k == NRGBA64 { if inside { Color.NRGBA64(be16(p, i), be16(p, i + 2), be16(p, i + 4), be16(p, i + 6)) } else { Color.NRGBA64(0, 0, 0, 0) } }
-    else if k == ALPHA { Color.Alpha(if inside { p[i] } else { 0 }) }
-    else if k == ALPHA16 { Color.Alpha16(if inside { be16(p, i) } else { 0 }) }
-    else if k == GRAY { Color.Gray(if inside { p[i] } else { 0 }) }
-    else if k == GRAY16 { Color.Gray16(if inside { be16(p, i) } else { 0 }) }
-    else if k == CMYK { if inside { Color.CMYK(p[i], p[i + 1], p[i + 2], p[i + 3]) } else { Color.CMYK(0, 0, 0, 0) } }
-    else if k == YCBCR {
-      if !inside { Color.YCbCr(0, 0, 0) } else {
+    Some(if k == RGBA {
+      if inside { Color.RGBA(p[i], p[i + 1], p[i + 2], p[i + 3]) } else { Color.RGBA(0, 0, 0, 0) }
+    } else if k == RGBA64 {
+      if inside {
+        Color.RGBA64(be16(p, i), be16(p, i + 2), be16(p, i + 4), be16(p, i + 6))
+      } else {
+        Color.RGBA64(0, 0, 0, 0)
+      }
+    } else if k == NRGBA {
+      if inside { Color.NRGBA(p[i], p[i + 1], p[i + 2], p[i + 3]) } else { Color.NRGBA(0, 0, 0, 0) }
+    } else if k == NRGBA64 {
+      if inside {
+        Color.NRGBA64(be16(p, i), be16(p, i + 2), be16(p, i + 4), be16(p, i + 6))
+      } else {
+        Color.NRGBA64(0, 0, 0, 0)
+      }
+    } else if k == ALPHA {
+      Color.Alpha(if inside { p[i] } else { 0 })
+    } else if k == ALPHA16 {
+      Color.Alpha16(if inside { be16(p, i) } else { 0 })
+    } else if k == GRAY {
+      Color.Gray(if inside { p[i] } else { 0 })
+    } else if k == GRAY16 {
+      Color.Gray16(if inside { be16(p, i) } else { 0 })
+    } else if k == CMYK {
+      if inside { Color.CMYK(p[i], p[i + 1], p[i + 2], p[i + 3]) } else { Color.CMYK(0, 0, 0, 0) }
+    } else if k == YCBCR {
+      if !inside {
+        Color.YCbCr(0, 0, 0)
+      } else {
         let ci = self.c_offset(x, y)
         Color.YCbCr(self.y[self.y_offset(x, y)], self.cb[ci], self.cr[ci])
       }
     } else {
-      if !inside { Color.NYCbCrA(0, 0, 0, 0) } else {
+      if !inside {
+        Color.NYCbCrA(0, 0, 0, 0)
+      } else {
         let ci = self.c_offset(x, y)
-        Color.NYCbCrA(self.y[self.y_offset(x, y)], self.cb[ci], self.cr[ci], self.a[self.a_offset(x, y)])
+        Color.NYCbCrA(self.y[self.y_offset(x, y)], self.cb[ci], self.cr[ci], self.a[
+          self.a_offset(x, y)
+        ])
       }
     })
   }
@@ -271,9 +408,13 @@ impl Image {
   }
 
   // 用另一份像素数据读 RGBA64At（draw 在可变副本上工作时用）
-  pub fn rgba64_at_pix(self, p: List<Int>, x: Int, y: Int) -> (Int, Int, Int, Int) { Image { pix: p, ..self }.rgba64_at(x, y) }
+  pub fn rgba64_at_pix(self, p: List<Int>, x: Int, y: Int) -> (Int, Int, Int, Int) {
+    Image { pix: p, ..self }.rgba64_at(x, y)
+  }
 
-  pub fn color_index_at(self, x: Int, y: Int) -> Int { if pt(x, y).in_(self.rect) { self.pix[self.pix_offset(x, y)] } else { 0 } }
+  pub fn color_index_at(self, x: Int, y: Int) -> Int {
+    if pt(x, y).in_(self.rect) { self.pix[self.pix_offset(x, y)] } else { 0 }
+  }
 
   fn put(self, i: Int, vals: List<Int>) -> Image {
     var p = self.pix
@@ -290,7 +431,9 @@ impl Image {
   pub fn set(self, x: Int, y: Int, c: Color) -> Image {
     if !pt(x, y).in_(self.rect) || self.kind == UNIFORM { return self }
     let k = self.kind
-    if k == PALETTED { return self.put(self.pix_offset(x, y), [color.palette_index(self.palette, c)]) }
+    if k == PALETTED {
+      return self.put(self.pix_offset(x, y), [color.palette_index(self.palette, c)])
+    }
     if k == YCBCR || k == NYCBCRA { return self }
     self.put(self.pix_offset(x, y), self.px_bytes(c))
   }
@@ -302,8 +445,26 @@ impl Image {
       Color.RGBA(r, g, b, a) => [r, g, b, a],
       Color.NRGBA(r, g, b, a) => [r, g, b, a],
       Color.CMYK(r, g, b, a) => [r, g, b, a],
-      Color.RGBA64(r, g, b, a) => [r >> 8, r & 255, g >> 8, g & 255, b >> 8, b & 255, a >> 8, a & 255],
-      Color.NRGBA64(r, g, b, a) => [r >> 8, r & 255, g >> 8, g & 255, b >> 8, b & 255, a >> 8, a & 255],
+      Color.RGBA64(r, g, b, a) => [
+        r >> 8,
+        r & 255,
+        g >> 8,
+        g & 255,
+        b >> 8,
+        b & 255,
+        a >> 8,
+        a & 255,
+      ],
+      Color.NRGBA64(r, g, b, a) => [
+        r >> 8,
+        r & 255,
+        g >> 8,
+        g & 255,
+        b >> 8,
+        b & 255,
+        a >> 8,
+        a & 255,
+      ],
       Color.Alpha(a) => [a],
       Color.Gray(a) => [a],
       Color.Alpha16(a) => [a >> 8, a & 255],
@@ -316,7 +477,9 @@ impl Image {
   pub fn set_rgba64(self, x: Int, y: Int, r: Int, g: Int, b: Int, a: Int) -> Image {
     if !pt(x, y).in_(self.rect) { return self }
     let k = self.kind
-    if k == RGBA || k == RGBA64 || k == ALPHA || k == ALPHA16 || k == PALETTED { return self.set(x, y, Color.RGBA64(r, g, b, a)) }
+    if k == RGBA || k == RGBA64 || k == ALPHA || k == ALPHA16 || k == PALETTED {
+      return self.set(x, y, Color.RGBA64(r, g, b, a))
+    }
     let i = self.pix_offset(x, y)
     if k == NRGBA || k == NRGBA64 {
       var r2 = r
@@ -348,7 +511,13 @@ impl Image {
     if k == UNIFORM { return self }
     if r.empty() {
       let e = blank(k, zr())
-      return if k == PALETTED { Image { palette: self.palette, ..e } } else if k == YCBCR || k == NYCBCRA { Image { ratio: self.ratio, ..e } } else { e }
+      return if k == PALETTED {
+        Image { palette: self.palette, ..e }
+      } else if k == YCBCR || k == NYCBCRA {
+        Image { ratio: self.ratio, ..e }
+      } else {
+        e
+      }
     }
     if k == YCBCR || k == NYCBCRA {
       let yi = self.y_offset(r.min.x, r.min.y)

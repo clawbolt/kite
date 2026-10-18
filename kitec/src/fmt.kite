@@ -1,31 +1,34 @@
-// kitec fmt —— Kite 代码格式化器（对应 fmt.py，输出逐字节相同）
+// kitec fmt —— Kite 代码格式化器
 //
-// 原则
-// - 保留注释、字符串原文和换行结构（Kite 的换行有语义），只改缩进、空格和空行
-// - 2 空格缩进；同一行开多个括号只缩进一级；以 |> . && || 开头的续行多缩进一级
-// - 运算符两侧加空格；范围 .. / ..= 不加；泛型 <T> 与比较 < 自动区分
-// - 连续空行压成一行；{ 之后、} 之前不留空行；文件以单个换行结尾
-// - 安全网：格式化前后用正式词法分析器比对 token 序列（含换行标记），不一致就拒绝输出
-// - 幂等：fmt(fmt(x)) == fmt(x)
+// 规则见 docs/fmt.md。要点：
+// - 行宽 100（全角字符算 2 列），2 空格缩进；语句之间的换行有语义，原样保留
+// - 放不下时从外到内断开：赋值右边 → 最低优先级的 || && |> → 方法链 → 括号列表（单行 / 拥抱最后一项 / 每项一行加尾逗号）
+// - 魔法尾逗号：多行且带尾逗号的 ( [ 列表保持展开；多行的 { } 列表保持多行
+// - 安全网：输出和输入的 token 序列（含语句分隔 NEWLINE，忽略尾逗号）必须相同，且能解析；幂等
 use std.fs
 use std.io
 use lexer
+use parser
 
 const INDENT: Str = "  "
-const BINARY: List<Str> = ["=", "==", "!=", "<=", ">=", "+", "-", "*", "/", "%", "&&", "||", "|>", "=>", "->",
-  "+=", "-=", "*=", "/=", "%=", "|=", "&=", "|", "&", "<", ">", "^", "<<", "^=", "<<=", ">>="]
+const BINARY: List<Str> = [
+  "=", "==", "!=", "<=", ">=", "+", "-", "*", "/", "%", "&&", "||", "|>", "=>", "->", "+=", "-=",
+  "*=", "/=", "%=", "|=", "&=", "|", "&", "<", ">", "^", "<<", "^=", "<<=", ">>=",
+]
 const TIGHT: List<Str> = ["..", "..=", "::", "."]
 const OPENERS: List<Str> = ["(", "[", "\{"]
 const CLOSERS: List<Str> = [")", "]", "}"]
 const CONT_PREFIX: List<Str> = ["|>", ".", "&&", "||"]
 // 这些关键字后面跟 ( [ 时要空格（if (a) / for (x, y) in …）
-const SPACE_KW: List<Str> = ["async", "if", "match", "for", "while", "in", "return", "let", "var", "is", "else", "spawn",
-  "await", "defer", "as", "loop", "break", "continue"]
+const SPACE_KW: List<Str> = [
+  "async", "if", "match", "for", "while", "in", "return", "let", "var", "is", "else", "spawn",
+  "await", "defer", "as", "loop", "break", "continue",
+]
 
 // 类型, 原文, 前面是否有空白, 行尾注释前保留的原始空白（-1 表示没有记录）
-pub type T = { k: Str, s: Str, sp: Bool, gap: Int }
+pub type T = { k: Str, s: Str, sp: Bool, gap: Int, pos: Int }
 
-fn tk(k: Str, s: Str, sp: Bool) -> T { T { k: k, s: s, sp: sp, gap: -1 } }
+fn tk(k: Str, s: Str, sp: Bool, pos: Int) -> T { T { k: k, s: s, sp: sp, gap: -1, pos: pos } }
 
 fn sub(cs: List<Str>, a: Int, b: Int) -> Str {
   let n = len(cs)
@@ -57,7 +60,9 @@ fn all_digits(s: Str) -> Bool {
   true
 }
 
-fn is_ws(c: Str) -> Bool { c == " " || c == "\t" || c == "\r" || c == "\n" || c == "\x0b" || c == "\x0c" }
+fn is_ws(c: Str) -> Bool {
+  c == " " || c == "\t" || c == "\r" || c == "\n" || c == "\x0b" || c == "\x0c"
+}
 
 fn rstrip(s: Str) -> Str {
   let cs = chars(s)
@@ -114,7 +119,7 @@ pub fn tokenize(src: Str) -> Result<List<List<T>>, Str> {
     if at(cs, i, "//") {
       let j0 = find(cs, "\n", i)
       let j = if j0 < 0 { n } else { j0 }
-      cur = push(cur, tk("comment", rstrip(sub(cs, i, j)), sp))
+      cur = push(cur, tk("comment", rstrip(sub(cs, i, j)), sp, i))
       i = j
       sp = false
       continue
@@ -122,7 +127,7 @@ pub fn tokenize(src: Str) -> Result<List<List<T>>, Str> {
     if at(cs, i, "/*") {
       let j = find(cs, "*/", i + 2)
       if j < 0 { return Err("块注释未闭合") }
-      cur = push(cur, tk("comment", sub(cs, i, j + 2), sp))
+      cur = push(cur, tk("comment", sub(cs, i, j + 2), sp, i))
       i = j + 2
       sp = false
       continue
@@ -134,16 +139,24 @@ pub fn tokenize(src: Str) -> Result<List<List<T>>, Str> {
         let h = k - i - 1
         let e = find(cs, "\"" + rep("#", h), k + 1)
         if e < 0 { return Err("原始字符串未闭合") }
-        cur = push(cur, tk("str", sub(cs, i, e + 1 + h), sp))
+        cur = push(cur, tk("str", sub(cs, i, e + 1 + h), sp, i))
         i = e + 1 + h
         sp = false
         continue
       }
     }
-    if c == "'" && i + 2 < n && (cs[i + 1] == "\\" || cs[i + 2] == "'") && cs[i + 1] != "\n" && cs[i + 1] != "'" {
-      let j0 = if cs[i + 1] == "\\" { if cs[i + 2] == "'" { find(cs, "'", i + 3) } else { find(cs, "'", i + 2) } } else { i + 2 }
+    if c == "'"
+      && i + 2 < n
+      && (cs[i + 1] == "\\" || cs[i + 2] == "'")
+      && cs[i + 1] != "\n"
+      && cs[i + 1] != "'" {
+      let j0 = if cs[i + 1] == "\\" {
+        if cs[i + 2] == "'" { find(cs, "'", i + 3) } else { find(cs, "'", i + 2) }
+      } else {
+        i + 2
+      }
       let j = if j0 < 0 { n - 1 } else { j0 }
-      cur = push(cur, tk("str", sub(cs, i, j + 1), sp))
+      cur = push(cur, tk("str", sub(cs, i, j + 1), sp, i))
       i = j + 1
       sp = false
       continue
@@ -153,7 +166,13 @@ pub fn tokenize(src: Str) -> Result<List<List<T>>, Str> {
       var depth = 0
       while j < n {
         let d = cs[j]
-        if d == "\\" {
+        if d == "\\" && depth == 0 {
+          j += 2
+          continue
+        }
+        if depth == 0
+          && j + 1 < n
+          && (d == "\{" && cs[j + 1] == "\{" || d == "}" && cs[j + 1] == "}") {
           j += 2
           continue
         }
@@ -166,7 +185,7 @@ pub fn tokenize(src: Str) -> Result<List<List<T>>, Str> {
         }
         j += 1
       }
-      cur = push(cur, tk("str", sub(cs, i, j + 1), sp))
+      cur = push(cur, tk("str", sub(cs, i, j + 1), sp, i))
       i = j + 1
       sp = false
       continue
@@ -174,12 +193,25 @@ pub fn tokenize(src: Str) -> Result<List<List<T>>, Str> {
     if lexer.is_digit(c) {
       var j = i
       let hex = lower(sub(cs, i, i + 2)) == "0x"
-      while j < n && (lexer.is_alnum(cs[j]) || cs[j] == "_"
-        || (cs[j] == "+" || cs[j] == "-") && j > 0 && (cs[j - 1] == "e" || cs[j - 1] == "E") && !hex && j + 1 < n && lexer.is_digit(cs[j + 1])
-        || cs[j] == "." && j + 1 < n && lexer.is_digit(cs[j + 1]) && !contains(cs[i..j], ".") && !(len(cur) > 0 && cur[len(cur) - 1].s == ".")) {
+      while j < n
+        && (
+          lexer.is_alnum(cs[j])
+            || cs[j] == "_"
+            || (cs[j] == "+" || cs[j] == "-")
+              && j > 0
+              && (cs[j - 1] == "e" || cs[j - 1] == "E")
+              && !hex
+              && j + 1 < n
+              && lexer.is_digit(cs[j + 1])
+            || cs[j] == "."
+              && j + 1 < n
+              && lexer.is_digit(cs[j + 1])
+              && !contains(cs[i..j], ".")
+              && !(len(cur) > 0 && cur[len(cur) - 1].s == ".")
+        ) {
         j += 1
       }
-      cur = push(cur, tk("num", sub(cs, i, j), sp))
+      cur = push(cur, tk("num", sub(cs, i, j), sp, i))
       i = j
       sp = false
       continue
@@ -187,7 +219,7 @@ pub fn tokenize(src: Str) -> Result<List<List<T>>, Str> {
     if c == "'" && i + 1 < n && (lexer.is_alpha(cs[i + 1]) || cs[i + 1] == "_") {
       var j = i + 1
       while j < n && (lexer.is_alnum(cs[j]) || cs[j] == "_") { j += 1 }
-      cur = push(cur, tk("id", sub(cs, i, j), sp))
+      cur = push(cur, tk("id", sub(cs, i, j), sp, i))
       i = j
       sp = false
       continue
@@ -196,7 +228,7 @@ pub fn tokenize(src: Str) -> Result<List<List<T>>, Str> {
       var j = i
       while j < n && (lexer.is_alnum(cs[j]) || cs[j] == "_") { j += 1 }
       let w = sub(cs, i, j)
-      cur = push(cur, tk(if contains(lexer.KEYWORDS, w) { "kw" } else { "id" }, w, sp))
+      cur = push(cur, tk(if contains(lexer.KEYWORDS, w) { "kw" } else { "id" }, w, sp, i))
       i = j
       sp = false
       continue
@@ -210,13 +242,13 @@ pub fn tokenize(src: Str) -> Result<List<List<T>>, Str> {
     }
     if hit == ">>" {
       // 拆成两个 >，让 List<List<Int>> 的泛型识别照常工作；右移在排版时再拼回去
-      cur = push(push(cur, tk("op", ">", sp)), tk("op", ">", false))
+      cur = push(push(cur, tk("op", ">", sp, i)), tk("op", ">", false, i))
       i += 2
     } else if hit != "" {
-      cur = push(cur, tk("op", hit, sp))
+      cur = push(cur, tk("op", hit, sp, i))
       i += len(chars(hit))
     } else {
-      cur = push(cur, tk("other", c, sp))
+      cur = push(cur, tk("other", c, sp, i))
       i += 1
     }
     sp = false
@@ -230,10 +262,21 @@ fn generic_spans(toks: List<T>) -> Set<Int> {
   let n = len(toks)
   for i in 0..n {
     let t = toks[i]
-    if t.s != "<" || i == 0 || !(toks[i - 1].k == "id" || toks[i - 1].s == "impl" || toks[i - 1].s == ".") { continue }
+    if t.s != "<"
+      || i == 0
+      || !(toks[i - 1].k == "id" || toks[i - 1].s == "impl" || toks[i - 1].s == ".") {
+      continue
+    }
     let prev = toks[i - 1].s
     let before = if i >= 2 { toks[i - 2].s } else { "" }
-    if !(lexer.first_upper(prev) || prev == "impl" || prev == "." || contains(["fn", "type", "enum", "trait", "impl"], before)) { continue }
+    if !(
+      lexer.first_upper(prev)
+        || prev == "impl"
+        || prev == "."
+        || contains(["fn", "type", "enum", "trait", "impl"], before)
+    ) {
+      continue
+    }
     var depth = 0
     var j = i
     var ok = false
@@ -247,7 +290,12 @@ fn generic_spans(toks: List<T>) -> Set<Int> {
           ok = true
           break
         }
-      } else if !(s.k == "id" || s.k == "kw" || (s.k == "num" && all_digits(s.s)) || contains([",", ":", "+", "(", ")", "[", "]", "->", ".", ";"], s.s)) {
+      } else if !(
+        s.k == "id"
+          || s.k == "kw"
+          || (s.k == "num" && all_digits(s.s))
+          || contains([",", ":", "+", "(", ")", "[", "]", "->", ".", ";", "?"], s.s)
+      ) {
         break
       }
       j += 1
@@ -265,8 +313,9 @@ fn generic_spans(toks: List<T>) -> Set<Int> {
 
 fn unary(prev: T?) -> Bool {
   match prev {
-    None    => true,
-    Some(p) => (p.k == "op" && !contains([")", "]", "}", "?"], p.s)) || (p.k == "kw" && !contains(["self", "Self", "true", "false"], p.s)),
+    None => true,
+    Some(p) => (p.k == "op" && !contains([")", "]", "}", "?"], p.s))
+      || (p.k == "kw" && !contains(["self", "Self", "true", "false"], p.s)),
   }
 }
 
@@ -291,14 +340,15 @@ fn set_braces(toks: List<T>) -> (Set<Int>, Set<Int>) {
   (opens, closes)
 }
 
-pub fn format_line(toks: List<T>) -> Str {
+// 每个 token 前面应有的空白（第一个为空串）
+pub fn spaces(toks: List<T>) -> List<Str> {
   let gen = generic_spans(toks)
   let (sopen, sclose) = set_braces(toks)
   var out: List<Str> = []
   for i in 0..len(toks) {
     let t = toks[i]
     if i == 0 {
-      out = push(out, t.s)
+      out = push(out, "")
       continue
     }
     let p = toks[i - 1]
@@ -353,29 +403,28 @@ pub fn format_line(toks: List<T>) -> Str {
       space = if p.s == "\{" { "" } else { " " }
     } else if p.s == "\{" || p.s == "}" {
       space = " "
-    } else if contains(["id", "kw", "num", "str"], p.k) && contains(["id", "kw", "num", "str"], t.k) {
+    } else if contains(["id", "kw", "num", "str"], p.k)
+      && contains(["id", "kw", "num", "str"], t.k) {
       space = " "
     } else {
       space = if t.sp { " " } else { "" }
     }
     if keep {
-      out = push(push(out, if t.gap >= 0 { rep(" ", t.gap) } else { " " }), s)
+      out = push(out, if t.gap >= 0 { rep(" ", t.gap) } else { " " })
     } else {
-      out = push(push(out, space), s)
+      out = push(out, space)
     }
   }
+  out
+}
+
+pub fn format_line(toks: List<T>) -> Str {
+  let sp = spaces(toks)
+  var out: List<Str> = []
+  for i in 0..len(toks) { out = push(push(out, sp[i]), toks[i].s) }
   join(out, "")
 }
 
-fn leading_closers(toks: List<T>) -> Int {
-  var n = 0
-  for t in toks {
-    if contains(CLOSERS, t.s) { n += 1 } else { return n }
-  }
-  n
-}
-
-// 行尾注释前的原始空白宽度（Python 的 rl.rfind(注释) 之前的空白）
 fn comment_gap(rl: Str, cmt: Str) -> Int {
   let rc = chars(rl)
   let cc = chars(cmt)
@@ -387,6 +436,1038 @@ fn comment_gap(rl: Str, cmt: Str) -> Int {
   idx - k
 }
 
+// ───────── 排版引擎 ─────────
+//
+// 1. 词法：tokenize 得到物理行；用正式词法分析器找出“语句分隔”的换行（它会插 NEWLINE 的地方）
+// 2. 括号树：() [] {} 配对成组；换行记成 EBr（是否语句分隔、后面几个空行）
+// 3. 文档：组 → DA（逗号列表）/ 块；语句内的 && || |> 断点、方法链、赋值右边各自成组
+// 4. 打印：Wadler 式，外层先断；每个组自己判断放不放得下
+const WIDTH: Int = 100
+const BIG: Int = 1000000000
+const ASSIGN: List<Str> = ["=", "+=", "-=", "*=", "/=", "%=", "|=", "&=", "^=", "<<=", ">>=", "=>"]
+const LOGIC: List<Str> = ["|>", "||", "&&"]
+// 这些 token 前的换行由格式化器重新决定（拼回去）
+const JOIN_BEFORE: List<Str> = [".", "&&", "||", "|>", "else", "?"]
+// 这些 token 后的换行由格式化器重新决定
+const JOIN_AFTER: List<Str> = [
+  ".", "&&", "||", "|>", "=", "+=", "-=", "*=", "/=", "%=", "|=", "&=", "^=", "<<=", ">>=", "=>",
+]
+
+enum Fe {
+  FT(Int),
+  FB(Bool, Int),
+}
+
+enum El {
+  ETk(Int),
+  EBr(Bool, Int),
+  EGp(Int, Int, List<El>),
+}
+
+enum D {
+  DT(Str, Int),
+  DC(List<D>),
+  DN(D),
+  DNB(D),
+  DG(D, Int),
+  DL(Str),
+  DH,
+  DCm(Str),
+  DA(Str, List<Ai>, Str, Str, Int),
+  DAs(D, D),
+}
+
+// 列表条目：条目（文档, 单行时前面的空白, 行尾注释）/ 单独一行的注释 / 空行
+enum Ai {
+  AI(D, Str, Str),
+  AC(Str),
+  AB,
+}
+
+// DA 标志
+const F_TC: Int = 1      // 展开时加尾逗号
+const F_KEEP: Int = 2    // 单行时也保留尾逗号（单元素元组）
+const F_FORCE: Int = 4   // 必须展开
+const F_FILL: Int = 8    // 展开时按行填满
+
+type Cx = { toks: List<T>, spc: List<Str>, gd: List<Int> }
+
+// 原子：语句里的一个 token、组或换行
+// kind：0 token，1 单行块，2 多行块，3 行注释，4 逗号列表，5 其他组，9 换行
+type At = { d: D, k: Int, kind: Int }
+
+fn bit(x: Int, f: Int) -> Bool { (x / f) % 2 == 1 }
+
+fn cw(c: Str) -> Int {
+  let o = __ord(c)
+  if o < 0x1100 { return 1 }
+  if o <= 0x115f
+    || o >= 0x2e80 && o <= 0xa4cf
+    || o >= 0xac00 && o <= 0xd7a3
+    || o >= 0xf900 && o <= 0xfaff
+    || o >= 0xfe30 && o <= 0xfe4f
+    || o >= 0xff00 && o <= 0xff60
+    || o >= 0xffe0 && o <= 0xffe6
+    || o >= 0x1f300 && o <= 0x1f64f
+    || o >= 0x1f900 && o <= 0x1f9ff
+    || o >= 0x20000 && o <= 0x3fffd {
+    return 2
+  }
+  1
+}
+
+fn swidth(s: Str) -> Int {
+  var w = 0
+  for c in chars(s) { w += cw(c) }
+  w
+}
+
+fn dt(s: Str) -> D { DT(s, swidth(s)) }
+
+fn lead_sp(s: Str) -> Int {
+  var n = 0
+  for c in chars(s) {
+    if c != " " { return n }
+    n += 1
+  }
+  n
+}
+
+fn cat(ds: List<D>) -> D { if len(ds) == 1 { ds[0] } else { DC(ds) } }
+
+// 去掉文档开头的空白
+fn strip_first(d: D) -> D {
+  match d {
+    DT(s, w) => {
+      let n = lead_sp(s)
+      if n == 0 { d } else { DT(__str_slice(s, n, len(s)), w - n) }
+    },
+    DC(ds) => if len(ds) == 0 { d } else { DC([strip_first(ds[0])] + skip(ds, 1)) },
+    DN(x) => DN(strip_first(x)),
+    DNB(x) => DNB(strip_first(x)),
+    DG(x, m) => DG(strip_first(x), m),
+    DAs(l, r) => DAs(strip_first(l), r),
+    _ => d,
+  }
+}
+
+// ── 宽度测量 ──
+
+fn addw(a: Int, b: Int) -> Int { if a >= BIG || b >= BIG { BIG } else { a + b } }
+
+// 单行宽度；含强制换行时为 BIG
+fn fw(d: D) -> Int {
+  match d {
+    DT(_, w) => w,
+    DC(ds) => {
+      var w = 0
+      for x in ds {
+        w = addw(w, fw(x))
+        if w >= BIG { return BIG }
+      }
+      w
+    },
+    DN(x) => fw(x),
+    DNB(x) => fw(x),
+    DG(x, m) => if m == 2 { BIG } else { fw(x) },
+    DL(s) => len(s),
+    DH => BIG,
+    DCm(_) => BIG,
+    DA(o, es, csp, c, f) => {
+      if len(o) > 1 { return BIG }
+      var w = swidth(o) + len(csp) + swidth(c)
+      var n = 0
+      for e in es {
+        match e {
+          AI(x, sp, cm) => {
+            if cm != "" { return BIG }
+            w = addw(w, addw(fw(x), len(sp)))
+            n += 1
+          },
+          _ => { return BIG },
+        }
+      }
+      if n > 1 { w += n - 1 }
+      if bit(f, F_KEEP) { w += 1 }
+      w
+    },
+    DAs(l, r) => addw(fw(l), fw(r)),
+  }
+}
+
+// 到第一个可断点为止的宽度；第二项表示是否遇到了可断点
+fn hw(d: D) -> (Int, Bool) {
+  match d {
+    DT(_, w) => (w, false),
+    DC(ds) => {
+      var w = 0
+      for x in ds {
+        let (a, stop) = hw(x)
+        w += a
+        if stop { return (w, true) }
+      }
+      (w, false)
+    },
+    DN(x) => hw(x),
+    DNB(x) => hw(x),
+    DG(x, _) => hw(x),
+    DL(_) => (0, true),
+    DH => (0, true),
+    DCm(_) => (0, false),
+    DA(o, _, _, _, _) => (swidth(o), true),
+    DAs(l, _) => {
+      let (a, _) = hw(l)
+      (a, true)
+    },
+  }
+}
+
+// 第一行的宽度（可断点都按单行算，遇到强制换行停下）；第二项表示是否遇到强制换行
+fn flw(d: D) -> (Int, Bool) {
+  match d {
+    DT(_, w) => (w, false),
+    DC(ds) => {
+      var w = 0
+      for x in ds {
+        let (a, hard) = flw(x)
+        w += a
+        if hard { return (w, true) }
+      }
+      (w, false)
+    },
+    DN(x) => flw(x),
+    DNB(x) => flw(x),
+    DG(x, m) => if m == 2 { (hw(x).0, true) } else { flw(x) },
+    DL(s) => (len(s), false),
+    DH => (0, true),
+    DCm(_) => (0, true),
+    DA(o, _, _, _, _) => if len(o) > 1 || has_hard(d) { (swidth(o), true) } else { (fw(d), false) },
+    DAs(l, r) => {
+      let (a, hard) = flw(l)
+      if hard { return (a, true) }
+      let (b, h2) = flw(r)
+      (a + b, h2)
+    },
+  }
+}
+
+fn has_hard(d: D) -> Bool {
+  match d {
+    DT(_, _) => false,
+    DC(ds) => any(ds, (x) => has_hard(x)),
+    DN(x) => has_hard(x),
+    DNB(x) => has_hard(x),
+    DG(x, m) => m == 2 || has_hard(x),
+    DL(_) => false,
+    DH => true,
+    DCm(_) => true,
+    DA(o, es, _, _, _) => len(o) > 1
+      || any(es, (e) => match e {
+        AI(x, _, cm) => cm != "" || has_hard(x),
+        _ => true,
+      }),
+    DAs(l, r) => has_hard(l) || has_hard(r),
+  }
+}
+
+// 结尾是不是块或 { [ 列表（可以“拥抱”在调用的最后一个参数位置）
+fn hug_tail(d: D) -> Bool {
+  match d {
+    DC(ds) => len(ds) > 0 && hug_tail(ds[len(ds) - 1]),
+    DN(x) => hug_tail(x),
+    DNB(x) => hug_tail(x),
+    DG(x, m) => m == 0 || hug_tail(x),
+    DA(o, es, _, _, _) => o != "("
+      || len(es) > 0 && match es[len(es) - 1] {
+        AI(x, _, _) => hug_tail(x),
+        _ => false,
+      },
+    DAs(_, r) => hug_tail(r),
+    _ => false,
+  }
+}
+
+// ── 打印 ──
+
+type Pp = { out: List<Str>, col: Int, bol: Bool }
+
+fn emit(p: Pp, s: Str, w: Int) -> Pp {
+  if s == "" { return p }
+  if p.bol {
+    let n = lead_sp(s)
+    if n == len(s) { return p }
+    let s2 = if n == 0 { s } else { __str_slice(s, n, len(s)) }
+    return Pp { out: push(p.out, s2), col: p.col + w - n, bol: false }
+  }
+  Pp { out: push(p.out, s), col: p.col + w, bol: false }
+}
+
+fn newline(p: Pp, ind: Int) -> Pp {
+  var out = p.out
+  // 空行不留缩进
+  if p.bol && len(out) > 0 && starts_with(out[len(out) - 1], "\n") {
+    out = set(out, len(out) - 1, "\n")
+  }
+  Pp { out: push(out, "\n" + rep(INDENT, ind)), col: ind * 2, bol: true }
+}
+
+fn room(p: Pp) -> Int { WIDTH - p.col }
+
+fn pr(d: D, ind: Int, flat: Bool, trail: Int, p: Pp) -> Pp {
+  match d {
+    DT(s, w) => emit(p, s, w),
+    DC(ds) => {
+      let n = len(ds)
+      // 每个元素后面到下一个可断点的宽度
+      var tr: List<Int> = []
+      var acc = trail
+      var k = n - 1
+      while k >= 0 {
+        tr = push(tr, acc)
+        let (a, stop) = hw(ds[k])
+        acc = if stop { a } else { a + acc }
+        k -= 1
+      }
+      var q = p
+      for i in 0..n { q = pr(ds[i], ind, flat, tr[n - 1 - i], q) }
+      q
+    },
+    DN(x) => pr(x, ind + 1, flat, trail, p),
+    DNB(x) => pr(x, if flat { ind } else { ind + 1 }, flat, trail, p),
+    DG(x, m) => {
+      let fits = if m == 2 {
+        false
+      } else if m == 0 {
+        addw(fw(x), trail) <= room(p)
+      } else {
+        let (w, hard) = flw(x)
+        if hard { w <= room(p) } else { w + trail <= room(p) }
+      }
+      pr(x, ind, fits, trail, p)
+    },
+    DL(s) => if flat { emit(p, s, len(s)) } else { newline(p, ind) },
+    DH => newline(p, ind),
+    DCm(s) => Pp { out: push(p.out, s), col: p.col + swidth(s), bol: false },
+    DAs(l, r) => {
+      let q = pr(l, ind, flat, 0, p)
+      if flat || addw(fw(r), trail) <= room(q) { return pr(r, ind, flat, trail, q) }
+      let (a, stop) = hw(r)
+      if (if stop { a } else { a + trail }) <= room(q) { return pr(r, ind, false, trail, q) }
+      pr(r, ind + 1, false, trail, newline(q, ind + 1))
+    },
+    DA(o, es, csp, c, f) => pr_list(o, es, csp, c, f, ind, trail, p),
+  }
+}
+
+fn pr_list(o: Str, es: List<Ai>, csp: Str, c: Str, f: Int, ind: Int, trail: Int, p: Pp) -> Pp {
+  let d = DA(o, es, csp, c, f)
+  let ow = swidth(o)
+  let cw2 = len(csp) + swidth(c)
+  var items: List<(D, Str)> = []
+  for e in es {
+    match e {
+      AI(x, sp, _) => { items = push(items, (x, sp)) },
+      _ => {},
+    }
+  }
+  let n = len(items)
+  // 1. 单行
+  if !bit(f, F_FORCE) && addw(fw(d), trail) <= room(p) {
+    var q = emit(p, o, ow)
+    for i in 0..n {
+      if i > 0 { q = emit(q, ",", 1) }
+      q = emit(q, items[i].1, len(items[i].1))
+      q = pr(items[i].0, ind, true, 0, q)
+    }
+    if bit(f, F_KEEP) { q = emit(q, ",", 1) }
+    return emit(q, csp + c, cw2)
+  }
+  // 2. 拥抱最后一项：前面的项单行，最后一项（闭包、块、{ [ 字面量）展开
+  if !bit(f, F_FORCE) && n > 0 && n == len(es) {
+    let last = items[n - 1].0
+    if has_hard(last) || hug_tail(last) {
+      var w = ow
+      var ok = true
+      for i in 0..n - 1 {
+        let x = fw(items[i].0)
+        if x >= BIG { ok = false }
+        w = addw(w, x + len(items[i].1) + 1)
+      }
+      let lw = hw(last).0
+      if ok && w + len(items[n - 1].1) + lw <= room(p) {
+        var q = emit(p, o, ow)
+        for i in 0..n - 1 {
+          q = emit(q, items[i].1, len(items[i].1))
+          q = pr(items[i].0, ind, true, 0, q)
+          q = emit(q, ",", 1)
+        }
+        q = emit(q, items[n - 1].1, len(items[n - 1].1))
+        q = pr(last, ind, false, cw2 + trail, q)
+        return emit(q, csp + c, cw2)
+      }
+    }
+  }
+  // 3. 展开
+  var q = emit(p, o, ow)
+  let tc = bit(f, F_TC) || bit(f, F_KEEP)
+  var idx = 0
+  if bit(f, F_FILL) {
+    q = newline(q, ind + 1)
+    var first = true
+    for e in es {
+      match e {
+        AI(x, _, _) => {
+          let w = fw(x) + 1
+          if !first {
+            if q.col + 1 + w > WIDTH { q = newline(q, ind + 1) } else { q = emit(q, " ", 1) }
+          }
+          q = pr(x, ind + 1, true, 0, q)
+          idx += 1
+          if idx < n || tc { q = emit(q, ",", 1) }
+          first = false
+        },
+        _ => {},
+      }
+    }
+  } else {
+    var started = false
+    for e in es {
+      match e {
+        AI(x, _, cm) => {
+          q = pr(x, ind + 1, false, 1, newline(q, ind + 1))
+          idx += 1
+          if idx < n || tc { q = emit(q, ",", 1) }
+          if cm != "" { q = Pp { out: push(q.out, cm), col: q.col + swidth(cm), bol: false } }
+          started = true
+        },
+        AC(s) => {
+          q = emit(newline(q, ind + 1), s, swidth(s))
+          started = true
+        },
+        AB => { if started { q = newline(q, ind + 1) } },
+      }
+    }
+  }
+  q = newline(q, ind)
+  emit(q, c, swidth(c))
+}
+
+// ── 词法 → 平面序列 → 括号树 ──
+
+fn is_open(t: T) -> Bool { t.k == "op" && (t.s == "(" || t.s == "[" || t.s == "\{") }
+
+fn is_close(t: T) -> Bool { t.k == "op" && (t.s == ")" || t.s == "]" || t.s == "}") }
+
+// sigpos：词法分析器在其后插入 NEWLINE 的 token 位置
+fn flatten(lines: List<List<T>>, sigpos: Set<Int>) -> (List<T>, List<Fe>) {
+  var toks: List<T> = []
+  var es: List<Fe> = []
+  var last_real = -1
+  for li in 0..len(lines) {
+    if li > 0 && len(es) > 0 {
+      let m = len(es)
+      match es[m - 1] {
+        FB(s, b) => { if len(lines[li - 1]) == 0 { es = set(es, m - 1, FB(s, b + 1)) } },
+        _ => {
+          let s = last_real >= 0 && contains(sigpos, toks[last_real].pos)
+          es = push(es, FB(s, 0))
+        },
+      }
+    }
+    for t in lines[li] {
+      if t.k != "comment" { last_real = len(toks) }
+      es = push(es, FT(len(toks)))
+      toks = push(toks, t)
+    }
+  }
+  (toks, es)
+}
+
+fn tree(toks: List<T>, es: List<Fe>, i0: Int) -> (Int, List<El>) {
+  var out: List<El> = []
+  var i = i0
+  while i < len(es) {
+    match es[i] {
+      FB(s, b) => {
+        out = push(out, EBr(s, b))
+        i += 1
+      },
+      FT(k) => {
+        let t = toks[k]
+        if is_open(t) {
+          let (j, body) = tree(toks, es, i + 1)
+          if j < len(es) {
+            let c = match es[j] {
+              FT(x) => x,
+              _ => -1,
+            }
+            out = push(out, EGp(k, c, body))
+            i = j + 1
+          } else {
+            out = push(out, EGp(k, -1, body))
+            i = j
+          }
+        } else if is_close(t) {
+          return (i, out)
+        } else {
+          out = push(out, ETk(k))
+          i += 1
+        }
+      },
+    }
+  }
+  (i, out)
+}
+
+// 空白：按语句分隔切段，每段整体算（跨物理行）
+fn calc_spaces(toks: List<T>, es: List<Fe>) -> (List<Str>, List<Int>) {
+  var spc: List<Str> = []
+  var gd: List<Int> = []
+  for _ in toks {
+    spc = push(spc, "")
+    gd = push(gd, 0)
+  }
+  var run: List<Int> = []
+  var k = 0
+  while k <= len(es) {
+    let flush = if k == len(es) {
+      true
+    } else {
+      match es[k] {
+        FB(s, _) => s,
+        FT(x) => {
+          run = push(run, x)
+          false
+        },
+      }
+    }
+    if flush && len(run) > 0 {
+      let rt = map(run, (x) => toks[x])
+      let sp = spaces(rt)
+      let gen = generic_spans(rt)
+      var depth = 0
+      for j in 0..len(run) {
+        spc = set(spc, run[j], sp[j])
+        if contains(gen, j) && rt[j].s == ">" { depth -= 1 }
+        gd = set(gd, run[j], depth)
+        if contains(gen, j) && rt[j].s == "<" { depth += 1 }
+      }
+      run = []
+    }
+    k += 1
+  }
+  (spc, gd)
+}
+
+// ── 文档构造 ──
+
+fn tok_of(cx: Cx, e: El) -> T? {
+  match e {
+    ETk(k) => Some(cx.toks[k]),
+    _ => None,
+  }
+}
+
+fn is_cmt(cx: Cx, e: El) -> Bool {
+  match e {
+    ETk(k) => cx.toks[k].k == "comment",
+    _ => false,
+  }
+}
+
+fn is_br(e: El) -> Bool {
+  match e {
+    EBr(_, _) => true,
+    _ => false,
+  }
+}
+
+fn is_real(cx: Cx, e: El) -> Bool {
+  match e {
+    ETk(k) => cx.toks[k].k != "comment",
+    EGp(_, _, _) => true,
+    _ => false,
+  }
+}
+
+fn first_tok(cx: Cx, els: List<El>) -> Int {
+  for e in els {
+    match e {
+      ETk(k) => { return k },
+      EGp(o, _, _) => { return o },
+      _ => {},
+    }
+  }
+  -1
+}
+
+// 语句体（文件顶层或多行块内部）：语句之间强制换行，保留最多一个空行
+fn body_doc(cx: Cx, els: List<El>) -> D {
+  var stmts: List<(List<El>, Bool)> = []
+  var cur: List<El> = []
+  var real = false
+  var blank = false
+  for e in els {
+    match e {
+      EBr(s, b) => {
+        if s || !real {
+          if len(cur) > 0 {
+            stmts = push(stmts, (cur, blank))
+            blank = false
+          }
+          cur = []
+          real = false
+          if b > 0 && len(stmts) > 0 { blank = true }
+        } else {
+          cur = push(cur, e)
+        }
+      },
+      _ => {
+        cur = push(cur, e)
+        if is_real(cx, e) { real = true }
+      },
+    }
+  }
+  if len(cur) > 0 { stmts = push(stmts, (cur, blank)) }
+  var ds: List<D> = []
+  for i in 0..len(stmts) {
+    if i > 0 {
+      ds = push(ds, DH)
+      if stmts[i].1 { ds = push(ds, DH) }
+    }
+    ds = push(ds, strip_first(stmt_doc(cx, stmts[i].0)))
+  }
+  cat(ds)
+}
+
+fn stmt_doc(cx: Cx, els0: List<El>) -> D {
+  var els = els0
+  // 去掉结尾的换行
+  while len(els) > 0 && is_br(els[len(els) - 1]) { els = els[..len(els) - 1] }
+  if len(els) == 0 { return dt("") }
+  if !any(els, (e) => is_real(cx, e)) {
+    // 只有注释
+    var ds: List<D> = []
+    for e in els {
+      match e {
+        ETk(k) => { ds = push(ds, dt(cx.toks[k].s)) },
+        EBr(_, _) => { ds = push(ds, DH) },
+        _ => {},
+      }
+    }
+    return cat(ds)
+  }
+  let last = els[len(els) - 1]
+  match last {
+    ETk(k) => {
+      if cx.toks[k].k == "comment" {
+        return DC([seq_doc(cx, els[..len(els) - 1]), DCm(cx.spc[k] + cx.toks[k].s)])
+      }
+    },
+    _ => {},
+  }
+  seq_doc(cx, els)
+}
+
+// 原子序列中某个 token 原子的原文
+fn at_s(cx: Cx, a: At) -> Str { if a.kind == 0 || a.kind == 3 { cx.toks[a.k].s } else { "" } }
+
+fn mk_atoms(cx: Cx, els: List<El>) -> List<At> {
+  var out: List<At> = []
+  for i in 0..len(els) {
+    let e = els[i]
+    match e {
+      ETk(k) => {
+        let t = cx.toks[k]
+        let nxt_br = i + 1 >= len(els) || is_br(els[i + 1])
+        let kind = if t.k == "comment" && (starts_with(t.s, "//") || nxt_br) { 3 } else { 0 }
+        out = push(out, At { d: dt(cx.spc[k] + t.s), k: k, kind: kind })
+      },
+      EBr(_, _) => { out = push(out, At { d: DH, k: -1, kind: 9 }) },
+      EGp(o, c, body) => {
+        // 前一个元素决定 ( [ 是调用/索引还是表达式
+        var callish = false
+        var rec = false
+        if i > 0 {
+          match els[i - 1] {
+            ETk(k) => {
+              let p = cx.toks[k]
+              callish = p.k == "id"
+                || p.k == "kw" && contains(["self", "Self", "fn"], p.s)
+                || contains([")", "]", ">", "?"], p.s)
+              rec = p.k == "id" && lexer.first_upper(p.s)
+            },
+            EGp(_, _, _) => { callish = true },
+            _ => {},
+          }
+        }
+        let (gd, kind) = group_doc(cx, o, c, body, callish, rec)
+        out = push(out, At { d: DC([dt(cx.spc[o]), gd]), k: o, kind: kind })
+      },
+    }
+  }
+  out
+}
+
+fn seq_doc(cx: Cx, els: List<El>) -> D {
+  let atoms = mk_atoms(cx, els)
+  let n = len(atoms)
+  let raw = any(atoms, (a) => a.kind == 3)
+  // 按保留的换行切成若干行
+  var lines: List<List<At>> = []
+  var cur: List<At> = []
+  for i in 0..n {
+    let a = atoms[i]
+    if a.kind != 9 {
+      cur = push(cur, a)
+      continue
+    }
+    var keep = true
+    if !raw {
+      var j = i + 1
+      while j < n && atoms[j].kind == 9 { j += 1 }
+      let nx = if j < n { at_s(cx, atoms[j]) } else { "" }
+      let pv = if len(cur) > 0 { at_s(cx, cur[len(cur) - 1]) } else { "" }
+      if contains(JOIN_BEFORE, nx) || contains(JOIN_AFTER, pv) || len(cur) == 0 { keep = false }
+    }
+    if keep && len(cur) > 0 {
+      lines = push(lines, cur)
+      cur = []
+    }
+  }
+  if len(cur) > 0 { lines = push(lines, cur) }
+  if len(lines) == 0 { return dt("") }
+  // 续行缩进一级；逗号后的换行（块式 match 里连在一起的分支）不缩进
+  var ds: List<D> = [line_doc(cx, lines[0])]
+  for i in 1..len(lines) {
+    let prev = lines[i - 1]
+    let ln = strip_first(line_doc(cx, lines[i]))
+    if at_s(cx, prev[len(prev) - 1]) == "," {
+      ds = push(push(ds, DH), ln)
+    } else {
+      ds = push(ds, DN(DC([DH, ln])))
+    }
+  }
+  cat(ds)
+}
+
+// 一行：结尾的注释放在组外面
+fn line_doc(cx: Cx, atoms: List<At>) -> D {
+  var xs = atoms
+  var tail: List<D> = []
+  while len(xs) > 0 && xs[len(xs) - 1].kind == 3 {
+    let a = xs[len(xs) - 1]
+    tail = [DCm(cx.spc[a.k] + cx.toks[a.k].s)] + tail
+    xs = xs[..len(xs) - 1]
+  }
+  if any(xs, (a) => a.kind == 3) {
+    // 行中间的注释（块注释）：原样拼接
+    return cat(map(xs, (a) => if a.kind == 1 { DG(a.d, 0) } else { a.d }) + tail)
+  }
+  if len(xs) == 0 { return cat(tail) }
+  cat([seg_doc(cx, xs)] + tail)
+}
+
+// 语句段：块（及 else 链）之前、之间的部分各自做赋值 / 逻辑运算 / 方法链分组；
+// 单行块的断点属于整段：整段放不下时先展开块
+fn seg_doc(cx: Cx, atoms: List<At>) -> D {
+  var bs: List<Int> = []
+  for i in 0..len(atoms) { if atoms[i].kind == 1 || atoms[i].kind == 2 { bs = push(bs, i) } }
+  if len(bs) == 0 { return assign_doc(cx, atoms) }
+  var ds: List<D> = []
+  if bs[0] > 0 { ds = push(ds, assign_doc(cx, atoms[..bs[0]])) }
+  for j in 0..len(bs) {
+    ds = push(ds, atoms[bs[j]].d)
+    let e = if j + 1 < len(bs) { bs[j + 1] } else { len(atoms) }
+    if e > bs[j] + 1 { ds = push(ds, logic_doc(cx, atoms[bs[j] + 1..e])) }
+  }
+  if any(atoms, (a) => a.kind == 1) { DG(cat(ds), 0) } else { cat(ds) }
+}
+
+fn assign_doc(cx: Cx, atoms: List<At>) -> D {
+  var ai = -1
+  for i in 0..len(atoms) {
+    if ai < 0
+      && i > 0
+      && i < len(atoms) - 1
+      && atoms[i].kind == 0
+      && contains(ASSIGN, at_s(cx, atoms[i])) {
+      ai = i
+    }
+  }
+  if ai < 0 { return logic_doc(cx, atoms) }
+  DAs(logic_doc(cx, atoms[..ai + 1]), assign_doc(cx, skip(atoms, ai + 1)))
+}
+
+// 逻辑运算：只在优先级最低的那一类运算符（|> 低于 ||，|| 低于 &&）前断开，各段再递归
+fn logic_doc(cx: Cx, atoms: List<At>) -> D {
+  var op = ""
+  for o in LOGIC {
+    if op == "" {
+      for i in 1..len(atoms) { if atoms[i].kind == 0 && at_s(cx, atoms[i]) == o { op = o } }
+    }
+  }
+  if op == "" { return chain_doc(cx, atoms) }
+  var parts: List<List<At>> = []
+  var cur: List<At> = []
+  for i in 0..len(atoms) {
+    let a = atoms[i]
+    if i > 0 && a.kind == 0 && at_s(cx, a) == op && len(cur) > 0 {
+      parts = push(parts, cur)
+      cur = []
+    }
+    cur = push(cur, a)
+  }
+  parts = push(parts, cur)
+  var rest: List<D> = []
+  for i in 1..len(parts) {
+    let o = parts[i][0]
+    rest = push(
+      push(push(rest, DL(cx.spc[o.k])), dt(cx.toks[o.k].s)),
+      logic_doc(cx, skip(parts[i], 1)),
+    )
+  }
+  DG(DC([logic_doc(cx, parts[0]), DNB(DC(rest))]), 1)
+}
+
+// 方法链：≥2 次 .名字(…) 调用时，在每个 . 前可断
+fn chain_doc(cx: Cx, atoms: List<At>) -> D {
+  let n = len(atoms)
+  var dots: List<Int> = []
+  for i in 0..n {
+    if i > 0
+      && i + 2 < n
+      && atoms[i].kind == 0
+      && at_s(cx, atoms[i]) == "."
+      && atoms[i + 1].kind == 0
+      && cx.toks[atoms[i + 1].k].k == "id"
+      && atoms[i + 2].kind >= 4
+      && atoms[i + 2].kind <= 5
+      && cx.toks[atoms[i + 2].k].s == "(" {
+      dots = push(dots, i)
+    }
+  }
+  if len(dots) < 2 { return cat(map(atoms, (a) => a.d)) }
+  let head = cat(map(atoms[..dots[0]], (a) => a.d))
+  var rest: List<D> = []
+  var mode = 1
+  for j in 0..len(dots) {
+    let a = dots[j]
+    let b = if j + 1 < len(dots) { dots[j + 1] } else { n }
+    let seg = cat(map(atoms[a..b], (x) => x.d))
+    if j + 1 < len(dots) && has_hard(seg) { mode = 2 }
+    rest = push(push(rest, DL("")), seg)
+  }
+  DG(DC([head, DNB(DC(rest))]), mode)
+}
+
+fn has_top(cx: Cx, body: List<El>, s: Str) -> Bool {
+  any(body, (e) => match e {
+    ETk(k) => cx.toks[k].k == "op" && cx.toks[k].s == s && cx.gd[k] == 0,
+    _ => false,
+  })
+}
+
+fn group_doc(cx: Cx, o: Int, c: Int, body: List<El>, callish: Bool, rec: Bool) -> (D, Int) {
+  let os = cx.toks[o].s
+  let cs = if c >= 0 { cx.toks[c].s } else { "" }
+  let multi = any(body, (e) => is_br(e))
+  if os == "\{" {
+    let sig = any(body, (e) => match e {
+      EBr(s, _) => s,
+      _ => false,
+    })
+    let fk = first_tok(cx, body)
+    let record = rec
+      && !multi
+      && fk >= 0
+      && cx.toks[fk].k != "kw"
+      && (has_top(cx, body, ":") || has_top(cx, body, ".."))
+    if sig || has_top(cx, body, ";") || !has_top(cx, body, ",") && !record {
+      return block_doc(cx, o, c, body, multi)
+    }
+  }
+  if !any(body, (e) => !is_br(e)) { return (dt(os + cs), 5) }
+  (list_doc(cx, o, c, body, callish), 4)
+}
+
+fn block_doc(cx: Cx, o: Int, c: Int, body: List<El>, multi: Bool) -> (D, Int) {
+  let cs = if c >= 0 { cx.toks[c].s } else { "" }
+
+  if !any(body, (e) => !is_br(e)) { return (dt("\{" + cs), 5) }
+  if multi {
+    // 多行块：{ 后面同一行的注释留在 { 后面
+    var els = body
+    var head = "\{"
+    if len(els) > 0 {
+      match els[0] {
+        ETk(k) => {
+          if cx.toks[k].k == "comment" && starts_with(cx.toks[k].s, "//") {
+            head = head + cx.spc[k] + cx.toks[k].s
+            els = skip(els, 1)
+          }
+        },
+        _ => {},
+      }
+    }
+    if !any(els, (e) => !is_br(e)) { return (DC([dt(head), DH, dt(cs)]), 2) }
+    return (DC([dt(head), DN(DC([DH, body_doc(cx, els)])), DH, dt(cs)]), 2)
+  }
+  // 单行块：按 ; 分成几段
+  var parts: List<D> = []
+  var cur: List<El> = []
+  for e in body {
+    match e {
+      ETk(k) => {
+        if cx.toks[k].s == ";" && cx.toks[k].k == "op" {
+          if len(cur) > 0 { parts = push(parts, seq_doc(cx, cur)) }
+          parts = push(parts, dt(";"))
+          cur = []
+        } else {
+          cur = push(cur, e)
+        }
+      },
+      _ => { cur = push(cur, e) },
+    }
+  }
+  if len(cur) > 0 { parts = push(parts, seq_doc(cx, cur)) }
+  let fk = first_tok(cx, body)
+  let inner = strip_first(cat(parts))
+  let csp = if c >= 0 { cx.spc[c] } else { "" }
+  (DC([dt("\{"), DN(DC([DL(cx.spc[fk]), inner])), DL(csp), dt(cs)]), 1)
+}
+
+fn list_doc(cx: Cx, o: Int, c: Int, body: List<El>, callish: Bool) -> D {
+  let os = cx.toks[o].s
+  let cs = if c >= 0 { cx.toks[c].s } else { "" }
+  var open = os
+  var es: List<Ai> = []
+  var cur: List<El> = []
+  var last_comma = false
+  var seen_br = false        // 上一个逗号（或开括号）之后见过换行
+  var pend_blank = false
+  var force = false
+  var nitems = 0
+  var last_first = ""        // 最后一项的第一个 token
+  var all_atom = true        // 每项都是单个短 token
+  var i = 0
+  let n = len(body)
+  // 结束一项：去掉结尾的换行 / 注释
+  while i <= n {
+    let e: El? = if i < n { Some(body[i]) } else { None }
+    let is_comma = match e {
+      Some(ETk(k)) => cx.toks[k].k == "op" && cx.toks[k].s == "," && cx.gd[k] == 0,
+      _ => false,
+    }
+    if i == n || is_comma {
+      var xs = cur
+      var cm = ""
+      while len(xs) > 0 && is_br(xs[len(xs) - 1]) { xs = xs[..len(xs) - 1] }
+      if len(xs) > 0
+        && is_cmt(cx, xs[len(xs) - 1])
+        && starts_with(cx.toks[first_tok(cx, [xs[len(xs) - 1]])].s, "//") {
+        let k = first_tok(cx, [xs[len(xs) - 1]])
+        cm = cx.spc[k] + cx.toks[k].s
+        xs = xs[..len(xs) - 1]
+        while len(xs) > 0 && is_br(xs[len(xs) - 1]) { xs = xs[..len(xs) - 1] }
+        force = true
+      }
+      if any(xs, (x) => is_real(cx, x)) {
+        if pend_blank {
+          es = push(es, AB)
+          pend_blank = false
+        }
+        let fk = first_tok(cx, xs)
+        let reals = filter(xs, (x) => !is_br(x))
+        let atom = len(reals) == 1
+          && match reals[0] {
+            ETk(k) => cx.toks[k].k != "comment" && swidth(cx.toks[k].s) <= 10,
+            _ => false,
+          }
+          || len(reals) == 2
+            && match (reals[0], reals[1]) {
+              (ETk(a), ETk(b)) => cx.toks[a].s == "-"
+                && cx.toks[b].k == "num"
+                && swidth(cx.toks[b].s) <= 9,
+              _ => false,
+            }
+        if !atom { all_atom = false }
+        es = push(es, AI(strip_first(seq_doc(cx, xs)), cx.spc[fk], cm))
+        nitems += 1
+        last_first = cx.toks[fk].s
+        last_comma = is_comma
+      } else if cm != "" {
+        es = push(es, AC(cm))
+      }
+      cur = []
+      seen_br = false
+      i += 1
+      continue
+    }
+    match e {
+      Some(EBr(_, b)) => {
+        if !any(cur, (x) => !is_br(x)) {
+          if b > 0 && nitems > 0 {
+            pend_blank = true
+            force = true
+          }
+          seen_br = true
+        } else {
+          cur = push(cur, body[i])
+        }
+      },
+      Some(ETk(k)) => {
+        let t = cx.toks[k]
+        if t.k == "comment" && starts_with(t.s, "//") && !any(cur, (x) => !is_br(x)) {
+          force = true
+          if nitems == 0 && len(es) == 0 && !seen_br {
+            open = open + cx.spc[k] + t.s
+          } else if !seen_br && nitems > 0 && len(cur) == 0 {
+            // 逗号后同一行的注释：属于上一项
+            match es[len(es) - 1] {
+              AI(x, sp, cm) => {
+                es = set(es, len(es) - 1, AI(x, sp, if cm == "" {
+                  cx.spc[k] + t.s
+                } else {
+                  cm + " " + t.s
+                }))
+              },
+              _ => { es = push(es, AC(t.s)) },
+            }
+          } else {
+            if pend_blank {
+              es = push(es, AB)
+              pend_blank = false
+            }
+            es = push(es, AC(t.s))
+          }
+        } else {
+          cur = push(cur, body[i])
+        }
+      },
+      _ => { cur = push(cur, body[i]) },
+    }
+    i += 1
+  }
+  let multi = any(body, (e) => is_br(e))
+  if multi && (os == "\{" || last_comma) { force = true }
+  let dots = starts_with(last_first, ".")
+  var f = 0
+  if os == "(" {
+    if (callish || nitems >= 2) && !dots { f += F_TC }
+    if !callish && nitems == 1 && last_comma { f += F_KEEP }
+  } else if os == "[" {
+    if !callish && !dots { f += F_TC }
+    if all_atom && !callish && nitems >= 2 { f += F_FILL }
+  } else {
+    if !dots { f += F_TC }
+  }
+  if force { f += F_FORCE }
+  let csp = if c >= 0 { cx.spc[c] } else { "" }
+  DA(open, es, csp, cs, f)
+}
+
+// 整个文件
 pub fn format_source(src: Str) -> Result<Str, Str> {
   let raw_lines = split(src, "\n")
   let lines0 = tokenize(src)?
@@ -395,155 +1476,94 @@ pub fn format_source(src: Str) -> Result<Str, Str> {
   for li in 0..len(lines0) {
     var ln = lines0[li]
     let m = len(ln)
-    if li < len(raw_lines) && m >= 2 && ln[m - 1].k == "comment" && ln[m - 1].sp && starts_with(ln[m - 1].s, "//") {
+    if li < len(raw_lines)
+      && m >= 2
+      && ln[m - 1].k == "comment"
+      && ln[m - 1].sp
+      && starts_with(ln[m - 1].s, "//") {
       let g = comment_gap(raw_lines[li], ln[m - 1].s)
       ln = ln[..m - 1] + [T { sp: true, gap: max(1, g), ..ln[m - 1] }]
     }
     lines = push(lines, ln)
   }
-  var out: List<Str> = []
-  var arm: List<Bool> = []          // 与 out 平行：该行是否为 match 分支（直接位于 match { } 内）
-  var stack: List<(Int, Bool)> = [] // 每个未闭合括号：(所在行号, 是否 match 的大括号)
-  var blank = 0
-  for li in 0..len(lines) {
-    let toks = lines[li]
-    if len(toks) == 0 {
-      blank += 1
-      continue
-    }
-    let closers = leading_closers(toks)
-    var tmp = stack
-    for _ in 0..closers { if len(tmp) > 0 { tmp = tmp[..len(tmp) - 1] } }
-    var seen: Set<Int> = Set()
-    for x in tmp { seen = insert(seen, x.0) }
-    var level = len(seen)
-    let in_match = len(tmp) > 0 && tmp[len(tmp) - 1].1
-    if contains(CONT_PREFIX, toks[0].s) { level += 1 }
-    if blank > 0 && len(out) > 0 && !contains(CLOSERS, toks[0].s) {
-      let last = rstrip(out[len(out) - 1])
-      if !(ends_with(last, "\{") || ends_with(last, "(") || ends_with(last, "[")) {
-        out = push(out, "")
-        arm = push(arm, false)
-      }
-    }
-    blank = 0
-    out = push(out, rep(INDENT, level) + format_line(toks))
-    arm = push(arm, in_match)
-    let has_match = any(toks, (t) => t.k == "kw" && t.s == "match")
-    for t in toks {
-      if t.k == "op" && contains(OPENERS, t.s) {
-        stack = push(stack, (li, has_match && t.s == "\{"))
-      } else if t.k == "op" && contains(CLOSERS, t.s) && len(stack) > 0 {
-        stack = stack[..len(stack) - 1]
-      }
-    }
+  // 语句分隔：词法分析器插 NEWLINE 的位置
+  var sigpos: Set<Int> = Set()
+  for t in lexer.lex(src)? {
+    if t.kind == "NEWLINE" { sigpos = insert(sigpos, t.pos) }
   }
-  out = align_arms(out, arm)
-  while len(out) > 0 && out[len(out) - 1] == "" { out = out[..len(out) - 1] }
-  Ok(join(out, "\n") + "\n")
-}
-
-// 行内第一个顶层（不在括号/字符串里）的 => 的位置
-fn arrow_col(line: Str) -> Int {
-  let cs = chars(line)
-  let n = len(cs)
-  var depth = 0
+  let (toks, es) = flatten(lines, sigpos)
+  let (spc, gd) = calc_spaces(toks, es)
+  let cx = Cx { toks: toks, spc: spc, gd: gd }
+  var els: List<El> = []
   var i = 0
-  while i < n {
-    let c = cs[i]
-    if c == "\"" {
-      var j = i + 1
-      var d = 0
-      while j < n {
-        if cs[j] == "\\" {
-          j += 2
-          continue
-        }
-        if cs[j] == "\{" {
-          d += 1
-        } else if cs[j] == "}" && d > 0 {
-          d -= 1
-        } else if cs[j] == "\"" && d == 0 {
-          break
-        }
-        j += 1
-      }
-      i = j + 1
-      continue
-    }
-    if at(cs, i, "//") { return -1 }
-    if c == "(" || c == "[" || c == "\{" {
-      depth += 1
-    } else if c == ")" || c == "]" || c == "}" {
-      depth -= 1
-    } else if depth == 0 && at(cs, if i > 0 { i - 1 } else { 0 }, " => ") && at(cs, i, "=>") {
-      return i - 1
-    }
-    i += 1
-  }
-  -1
-}
-
-// 把同一个 match 里相邻分支的 => 对齐（类似 gofmt 对齐结构体字段）
-fn align_arms(out0: List<Str>, arm: List<Bool>) -> List<Str> {
-  var out = out0
-  var i = 0
-  while i < len(out) {
-    if !arm[i] || arrow_col(out[i]) < 0 {
-      i += 1
-      continue
-    }
-    let ind = lead_ws(out[i])
-    var j = i
-    while j < len(out) && arm[j] && arrow_col(out[j]) >= 0 && lead_ws(out[j]) == ind { j += 1 }
-    if j - i > 1 {
-      var width = 0
-      for k in i..j { width = max(width, arrow_col(out[k])) }
-      for k in i..j {
-        let c = arrow_col(out[k])
-        let cs = chars(out[k])
-        out = set(out, k, join(cs[..c], "") + rep(" ", width - c) + join(cs[c..], ""))
+  while i < len(es) {
+    let (j, part) = tree(toks, es, i)
+    els = els + part
+    if j < len(es) {
+      // 多余的闭括号：当普通 token
+      match es[j] {
+        FT(k) => { els = push(els, ETk(k)) },
+        _ => {},
       }
     }
-    i = max(j, i + 1)
+    i = j + 1
   }
-  out
+  let d = body_doc(cx, els)
+  let p = pr(d, 0, false, 0, Pp { out: [], col: 0, bol: true })
+  var out = join(p.out, "")
+  while ends_with(out, "\n") { out = __str_slice(out, 0, len(out) - 1) }
+  if out == "" { return Ok("\n") }
+  Ok(out + "\n")
 }
 
 fn norm_v(v: lexer.TV) -> Str {
   match v {
-    lexer.TkParts(ps) => "[" + join(map(ps, (p) => match p {
-      lexer.SStr(s)     => lexer.repr_str(s),
-      lexer.SExpr(t, _) => "(expr, " + lexer.repr_str(t) + ")",
-    }), ", ") + "]",
-    _                 => lexer.repr_v(v),
+    lexer.TkParts(ps) => "[" + join(
+      map(ps, (p) => match p {
+        lexer.SStr(s) => lexer.repr_str(s),
+        lexer.SExpr(t, _) => "(expr, " + lexer.repr_str(t) + ")",
+      }),
+      ", ",
+    ) + "]",
+    _ => lexer.repr_v(v),
   }
 }
 
+// 语义签名：token 序列（含语句分隔 NEWLINE），忽略闭括号前的尾逗号和 token 自身的换行标记
 fn sig(src: Str) -> Result<List<Str>, Str> {
   let toks = lexer.lex(src)?
   var out: List<Str> = []
-  for t in toks {
-    let nl = if t.nl { "1" } else { "0" }
-    if t.kind == "OP" && lexer.sv(t.val) == ">>" {
-      // 泛型里 > > 和 >> 等价（格式化会把 List<List<T> > 收紧）
-      out = push(push(out, "OP\x01'>'\x010"), "OP\x01'>'\x01" + nl)
+  for i in 0..len(toks) {
+    let t = toks[i]
+    let v = if t.kind == "OP" { lexer.sv(t.val) } else { "" }
+    if v == ","
+      && i + 1 < len(toks)
+      && toks[i + 1].kind == "OP"
+      && contains([")", "]", "}"], lexer.sv(toks[i + 1].val)) {
+      continue
+    }
+    if v == ">>" {
+      // 泛型里 > > 和 >> 等价
+      out = push(push(out, "OP\x01'>'"), "OP\x01'>'")
     } else {
-      out = push(out, t.kind + "\x01" + norm_v(t.val) + "\x01" + nl)
+      out = push(out, t.kind + "\x01" + norm_v(t.val))
     }
   }
   Ok(out)
 }
 
-// 格式化；若会改变 token 序列则报错（不应发生）
+// 格式化；若会改变程序含义（token 序列 / 语句分隔不同，或解析不了）则报错（不应发生）
 pub fn fmt(src: Str) -> Result<Str, Str> {
-  let res = format_source(src)?
   let before = sig(src)?
+  let parsed = is_ok(parser.parse(src))
+  let res = format_source(src)?
   let after = match sig(res) {
-    Ok(x)  => x,
+    Ok(x) => x,
     Err(_) => [],
   }
-  if after != before { return Err("格式化器内部错误：输出改变了程序含义，已放弃（请报告此文件）") }
+  let bad = "格式化器内部错误：输出改变了程序含义，已放弃（请报告此文件）"
+  if after != before { return Err(bad) }
+  if parsed && is_err(parser.parse(res)) { return Err(bad) }
   Ok(res)
 }
 
@@ -552,7 +1572,7 @@ fn read_stdin() -> Str {
   while true {
     match io.read_line() {
       Some(l) => { out = out + l + "\n" },
-      None    => { return out },
+      None => { return out },
     }
   }
   out
@@ -564,12 +1584,24 @@ pub fn main(args: List<Str>) -> Int {
     __eprint("kite fmt --migrate（0.48 → v0.6 迁移）已废弃")
     return 2
   }
+  if contains(args, "--raw") {
+    for p in filter(args, (a) => !starts_with(a, "-")) {
+      match fs.read(p) {
+        Ok(s) => match format_source(s) {
+          Ok(r) => out_raw(r),
+          Err(e) => __eprint(e),
+        },
+        Err(e) => __eprint(e),
+      }
+    }
+    return 0
+  }
   let write = contains(args, "-w")
   let check = contains(args, "--check")
   let files = filter(args, (a) => !starts_with(a, "-"))
   if len(files) == 0 {
     match fmt(read_stdin()) {
-      Ok(r)  => {
+      Ok(r) => {
         out_raw(r)
         return 0
       },
@@ -582,7 +1614,7 @@ pub fn main(args: List<Str>) -> Int {
   var bad = 0
   for p in files {
     let src = match fs.read(p) {
-      Ok(s)  => s,
+      Ok(s) => s,
       Err(e) => {
         __eprint("{p}:{e}")
         bad = 1
@@ -590,7 +1622,7 @@ pub fn main(args: List<Str>) -> Int {
       },
     }
     let res = match fmt(src) {
-      Ok(r)  => r,
+      Ok(r) => r,
       Err(e) => {
         __eprint("{p}:{e}")
         bad = 1
@@ -605,7 +1637,7 @@ pub fn main(args: List<Str>) -> Int {
     } else if write {
       if res != src {
         match fs.write(p, res) {
-          Ok(_)  => print("已格式化 {p}"),
+          Ok(_) => print("已格式化 {p}"),
           Err(e) => {
             __eprint("{p}:{e}")
             bad = 1

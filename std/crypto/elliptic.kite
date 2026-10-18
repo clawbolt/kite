@@ -7,12 +7,31 @@ use std.math.big.{ BigInt }
 use std.crypto.internal.nistec
 use std.crypto.internal.nistec.{ Jac }
 
-pub type CurveParams = { p: BigInt, n: BigInt, b: BigInt, gx: BigInt, gy: BigInt, bit_size: Int, name: Str }
+pub type CurveParams = {
+  p: BigInt,
+  n: BigInt,
+  b: BigInt,
+  gx: BigInt,
+  gy: BigInt,
+  bit_size: Int,
+  name: Str,
+}
 
 pub type Curve = { params: CurveParams, nist: Int }
 
 fn from_nist(c: nistec.Curve, bits: Int) -> Curve {
-  Curve { params: CurveParams { p: c.p, n: c.n, b: c.b, gx: c.gx, gy: c.gy, bit_size: bits, name: c.name }, nist: c.id }
+  Curve {
+    params: CurveParams {
+      p: c.p,
+      n: c.n,
+      b: c.b,
+      gx: c.gx,
+      gy: c.gy,
+      bit_size: bits,
+      name: c.name,
+    },
+    nist: c.id,
+  }
 }
 
 pub fn p224() -> Curve { from_nist(nistec.p224(), 224) }
@@ -24,23 +43,37 @@ pub fn p521() -> Curve { from_nist(nistec.p521(), 521) }
 pub fn curve_params(params: CurveParams) -> Curve { Curve { params: params, nist: -1 } }
 
 fn nc(c: Curve) -> nistec.Curve {
-  if c.nist == 0 { nistec.p256() } else if c.nist == 1 { nistec.p384() } else if c.nist == 2 { nistec.p521() } else { nistec.p224() }
+  if c.nist == 0 {
+    nistec.p256()
+  } else if c.nist == 1 {
+    nistec.p384()
+  } else if c.nist == 2 {
+    nistec.p521()
+  } else {
+    nistec.p224()
+  }
 }
 
 fn byte_len(c: Curve) -> Int { (c.params.bit_size + 7) / 8 }
 
 fn is_zero_pt(x: BigInt, y: BigInt) -> Bool { x.sign() == 0 && y.sign() == 0 }
 
-fn poly(c: Curve, x: BigInt) -> BigInt { x.mul(x).mul(x).sub(x.lsh(1).add(x)).add(c.params.b).modulo(c.params.p) }
+fn poly(c: Curve, x: BigInt) -> BigInt {
+  x.mul(x).mul(x).sub(x.lsh(1).add(x)).add(c.params.b).modulo(c.params.p)
+}
 
 fn on_curve_raw(c: Curve, x: BigInt, y: BigInt) -> Bool {
-  if x.sign() < 0 || x.cmp(c.params.p) >= 0 || y.sign() < 0 || y.cmp(c.params.p) >= 0 { return false }
+  if x.sign() < 0 || x.cmp(c.params.p) >= 0 || y.sign() < 0 || y.cmp(c.params.p) >= 0 {
+    return false
+  }
   poly(c, x).cmp(y.mul(y).modulo(c.params.p)) == 0
 }
 
 pub fn is_on_curve(c: Curve, x: BigInt, y: BigInt) -> Bool {
   if c.nist >= 0 && is_zero_pt(x, y) { return false }
-  if c.nist >= 0 && (x.bit_len() > c.params.bit_size || y.bit_len() > c.params.bit_size) { return false }
+  if c.nist >= 0 && (x.bit_len() > c.params.bit_size || y.bit_len() > c.params.bit_size) {
+    return false
+  }
   on_curve_raw(c, x, y)
 }
 
@@ -67,7 +100,12 @@ fn g_add(c: Curve, x1: BigInt, y1: BigInt, x2: BigInt, y2: BigInt) -> (BigInt, B
   var l = big.zero()
   if x1.cmp(x2) == 0 {
     if y1.add(y2).modulo(p).sign() == 0 { return (big.zero(), big.zero()) }
-    l = x1.mul(x1).mul(big.new_int(3)).sub(big.new_int(3)).mul(unwrap(y1.lsh(1).mod_inverse(p))).modulo(p)
+    l = x1
+      .mul(x1)
+      .mul(big.new_int(3))
+      .sub(big.new_int(3))
+      .mul(unwrap(y1.lsh(1).mod_inverse(p)))
+      .modulo(p)
   } else {
     l = y2.sub(y1).mul(unwrap(x2.sub(x1).modulo(p).mod_inverse(p))).modulo(p)
   }
@@ -101,10 +139,16 @@ fn check(c: Curve, x: BigInt, y: BigInt) -> Bool { is_zero_pt(x, y) || is_on_cur
 
 // ── 公开接口 ──
 
-pub fn add(c: Curve, x1: BigInt, y1: BigInt, x2: BigInt, y2: BigInt) -> Result<(BigInt, BigInt), Str> {
+pub fn add(c: Curve, x1: BigInt, y1: BigInt, x2: BigInt, y2: BigInt) -> Result<(
+  BigInt, BigInt
+), Str> {
   if c.nist >= 0 {
-    let Some(a) = to_jac(c, x1, y1) else { return Err("crypto/elliptic: Add was called on an invalid point") }
-    let Some(b) = to_jac(c, x2, y2) else { return Err("crypto/elliptic: Add was called on an invalid point") }
+    let Some(a) = to_jac(c, x1, y1) else {
+      return Err("crypto/elliptic: Add was called on an invalid point")
+    }
+    let Some(b) = to_jac(c, x2, y2) else {
+      return Err("crypto/elliptic: Add was called on an invalid point")
+    }
     return Ok(from_jac(c, nistec.add(nc(c), a, b)))
   }
   if !check(c, x1, y1) || !check(c, x2, y2) { return Err(INVALID) }
@@ -113,7 +157,9 @@ pub fn add(c: Curve, x1: BigInt, y1: BigInt, x2: BigInt, y2: BigInt) -> Result<(
 
 pub fn double(c: Curve, x: BigInt, y: BigInt) -> Result<(BigInt, BigInt), Str> {
   if c.nist >= 0 {
-    let Some(a) = to_jac(c, x, y) else { return Err("crypto/elliptic: Double was called on an invalid point") }
+    let Some(a) = to_jac(c, x, y) else {
+      return Err("crypto/elliptic: Double was called on an invalid point")
+    }
     return Ok(from_jac(c, nistec.dbl(nc(c), a)))
   }
   if !check(c, x, y) { return Err(INVALID) }
@@ -130,7 +176,9 @@ fn normalize(c: Curve, k: List<Int>) -> List<Int> {
 
 pub fn scalar_mult(c: Curve, x: BigInt, y: BigInt, k: List<Int>) -> Result<(BigInt, BigInt), Str> {
   if c.nist >= 0 {
-    let Some(a) = to_jac(c, x, y) else { return Err("crypto/elliptic: ScalarMult was called on an invalid point") }
+    let Some(a) = to_jac(c, x, y) else {
+      return Err("crypto/elliptic: ScalarMult was called on an invalid point")
+    }
     return Ok(from_jac(c, nistec.scalar_mult(nc(c), a, normalize(c, k))))
   }
   if !check(c, x, y) { return Err(INVALID) }
@@ -138,7 +186,9 @@ pub fn scalar_mult(c: Curve, x: BigInt, y: BigInt, k: List<Int>) -> Result<(BigI
 }
 
 pub fn scalar_base_mult(c: Curve, k: List<Int>) -> (BigInt, BigInt) {
-  if c.nist >= 0 { return from_jac(c, nistec.scalar_mult(nc(c), nistec.generator(nc(c)), normalize(c, k))) }
+  if c.nist >= 0 {
+    return from_jac(c, nistec.scalar_mult(nc(c), nistec.generator(nc(c)), normalize(c, k)))
+  }
   g_mult(c, c.params.gx, c.params.gy, k)
 }
 

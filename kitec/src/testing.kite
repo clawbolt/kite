@@ -25,9 +25,16 @@ use modules
 use driver
 use pkg
 
-const USAGE: Str = "kitec test [过滤词] [文件/目录...] [-v]\n    过滤词     只运行名字（或 “文件::名字”）包含它的测试\n    -v         通过的测试也显示输出"
+const USAGE: Str =
+  "kitec test [过滤词] [文件/目录...] [-v]\n    过滤词     只运行名字（或 “文件::名字”）包含它的测试\n    -v         通过的测试也显示输出"
 
-fn is_word(c: Str) -> Bool { (c >= "a" && c <= "z") || (c >= "A" && c <= "Z") || (c >= "0" && c <= "9") || c == "_" || __ord(c) > 127 }
+fn is_word(c: Str) -> Bool {
+  (c >= "a" && c <= "z")
+    || (c >= "A" && c <= "Z")
+    || (c >= "0" && c <= "9")
+    || c == "_"
+    || __ord(c) > 127
+}
 
 fn is_sp(c: Str) -> Bool { c == " " || c == "\t" || c == "\r" || c == "\x0b" || c == "\x0c" }
 
@@ -79,7 +86,7 @@ fn collect_files(targets: List<Str>) -> Result<List<Str>, Str> {
   var out: List<Str> = []
   for f in files {
     let src = match fs.read(f) {
-      Ok(s)  => s,
+      Ok(s) => s,
       Err(e) => { return Err("无法读取 {f}: {e}") },
     }
     if any(split(src, "\n"), test_line) { out = push(out, f) }
@@ -96,14 +103,14 @@ fn test_names(items: List<ast.Node>) -> Result<List<Str>, (Int, Str)> {
         if contains(f.name, ".") { continue }
         let marked = match it.attrs {
           Some(xs) => any(xs, (a) => a.name == "test"),
-          None     => false,
+          None => false,
         }
         if marked && (len(f.params) > 0 || len(f.gen.names) > 0 || len(f.gen.cgens) > 0) {
           return Err((it.line, "@test 函数 {f.name} 不能有参数或泛型参数"))
         }
         if marked || starts_with(f.name, "test_") && len(f.params) == 0 { out = push(out, f.name) }
       },
-      _          => (),
+      _ => (),
     }
   }
   Ok(out)
@@ -112,7 +119,7 @@ fn test_names(items: List<ast.Node>) -> Result<List<Str>, (Int, Str)> {
 fn is_main(it: ast.Node) -> Bool {
   match it.k {
     ast.NFn(f) => f.name == "main",
-    _          => false,
+    _ => false,
   }
 }
 
@@ -140,7 +147,7 @@ fn indent(s: Str) -> Str {
 
 fn read_or(p: Str) -> Str {
   match fs.read(p) {
-    Ok(s)  => s,
+    Ok(s) => s,
     Err(_) => "",
   }
 }
@@ -151,7 +158,15 @@ fn safe_name(p: Str) -> Str {
   out
 }
 
-fn run_native(items: List<ast.Node>, srcs: List<Str>, pits: List<ast.Node>, names: List<Str>, file: Str, pre: Str, workdir: Str) -> Result<List<Outcome>, Str> {
+fn run_native(
+  items: List<ast.Node>,
+  srcs: List<Str>,
+  pits: List<ast.Node>,
+  names: List<Str>,
+  file: Str,
+  pre: Str,
+  workdir: Str,
+) -> Result<List<Outcome>, Str> {
   let branches = join(map(names, (n) => "if t == \"{n}\" \{ {n}() \}"), " else ")
   let extra = match parser.parse("fn main() \{\n  let t = __kite_test()\n  {branches}\n\}\n") {
     Ok(xs) => xs,
@@ -160,16 +175,28 @@ fn run_native(items: List<ast.Node>, srcs: List<Str>, pits: List<ast.Node>, name
   let items2 = filter(items, (it) => !is_main(it)) + extra
   let exe = path.join([workdir, safe_name(file)])
   let errf = path.join([workdir, "stderr.txt"])
-  if driver.compile_items(file, pre, items2, srcs, pits, exe, "", true, true) != 0 { return Err("见上面的报错") }
+  if driver.compile_items(file, pre, items2, srcs, pits, exe, "", true, true) != 0 {
+    return Err("见上面的报错")
+  }
   let tmo = if driver.has_cmd("timeout") { "timeout 120 " } else { "" }
   var out: List<Outcome> = []
   for n in names {
     let t0 = __unix_ns()
-    let (code, so) = process.run("KITE_TEST=" + driver.sq(n) + " " + tmo + driver.sq(exe) + " 2>" + driver.sq(errf))
+    let (code, so) = process.run(
+      "KITE_TEST=" + driver.sq(n) + " " + tmo + driver.sq(exe) + " 2>" + driver.sq(errf),
+    )
     let ns = __unix_ns() - t0
     let el = filter(split(trim(read_or(errf)), "\n"), (l) => l != "")
     let ok = code == 0
-    let err = if ok { "" } else if code == 124 && tmo != "" { "超时（120 秒）" } else if len(el) > 0 { el[len(el) - 1] } else { "退出码 {code}" }
+    let err = if ok {
+      ""
+    } else if code == 124 && tmo != "" {
+      "超时（120 秒）"
+    } else if len(el) > 0 {
+      el[len(el) - 1]
+    } else {
+      "退出码 {code}"
+    }
     out = push(out, Outcome { name: n, ok: ok, ns: ns, err: err, output: so })
   }
   Ok(out)
@@ -198,7 +225,7 @@ pub fn main(args: List<Str>) -> Int {
   if len(targets) == 0 {
     let root = match pkg.find_root(__getcwd()) {
       Some(r) => r,
-      None    => {
+      None => {
         __eprint("用法: kite test [过滤词] [文件/目录...]（不在 Kite 包里时需要给出文件）")
         return 2
       },
@@ -210,7 +237,7 @@ pub fn main(args: List<Str>) -> Int {
     }
   }
   let files = match collect_files(targets) {
-    Ok(x)  => x,
+    Ok(x) => x,
     Err(e) => {
       __eprint("错误: {e}")
       return 1
@@ -218,7 +245,7 @@ pub fn main(args: List<Str>) -> Int {
   }
   let pre = match driver.prelude_path() {
     Some(p) => p,
-    None    => { return 1 },
+    None => { return 1 },
   }
   let t_start = __unix_ns()
   var passed = 0
@@ -234,7 +261,7 @@ pub fn main(args: List<Str>) -> Int {
       continue
     }
     let ((items, srcs), pits) = match driver.load(p, pre) {
-      Ok(r)  => r,
+      Ok(r) => r,
       Err(m) => {
         print("{p}\n  ✗ {m}")
         failed += 1
@@ -243,7 +270,7 @@ pub fn main(args: List<Str>) -> Int {
       },
     }
     let names0 = match test_names(items) {
-      Ok(ns)        => ns,
+      Ok(ns) => ns,
       Err((ln, m)) => {
         print("{p}\n  ✗ " + driver.loc(p, ln, m))
         failed += 1
@@ -251,19 +278,24 @@ pub fn main(args: List<Str>) -> Int {
         continue
       },
     }
-    let names = filter(names0, (n) => len(filters) == 0 || any(filters, (f) => contains(n, f) || contains("{p}::{n}", f)))
+    let names = filter(
+      names0,
+      (n) => len(filters) == 0 || any(filters, (f) => contains(n, f) || contains("{p}::{n}", f)),
+    )
     if len(names) == 0 { continue }
     let (errs, _, _, _) = check.check_c(pits, items)
     if len(errs) > 0 {
       print(p)
-      for (ln, msg) in take(errs, 10) { print("  ✗ " + driver.locs(srcs, p, ln, modules.strip_lm(msg))) }
+      for (ln, msg) in take(errs, 10) {
+        print("  ✗ " + driver.locs(srcs, p, ln, modules.strip_lm(msg)))
+      }
       failed += 1
       failures = push(failures, "{p}（类型检查失败）")
       continue
     }
     print(p)
     let results = match run_native(items, srcs, pits, names, p, pre, workdir) {
-      Ok(r)  => r,
+      Ok(r) => r,
       Err(e) => {
         print("  ✗ 编译失败: {e}")
         failed += len(names)
@@ -302,7 +334,13 @@ pub fn main(args: List<Str>) -> Int {
   }
   let t = (secs + 5000000) / 10000000
   let c = t % 100
-  print("结果: {passed} 通过，{failed} 失败（用时 {t / 100}." + (if c < 10 { "0{c}" } else { "{c}" }) + "s）")
+  print(
+    "结果: {passed} 通过，{failed} 失败（用时 {t / 100}." + (if c < 10 {
+      "0{c}"
+    } else {
+      "{c}"
+    }) + "s）",
+  )
   if failed > 0 { 1 } else { 0 }
 }
 

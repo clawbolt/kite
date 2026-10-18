@@ -73,7 +73,9 @@ impl Reader {
       Ok(l) => l,
     }
     if len(line) == 0 { return (r0, Ok(line)) }
-    if check_colon && !contains(line, 58) { return (r0, Err("malformed MIME header: missing colon: " + qb(line))) }
+    if check_colon && !contains(line, 58) {
+      return (r0, Err("malformed MIME header: missing colon: " + qb(line)))
+    }
     var buf = trim(line)
     var r = r0
     loop {
@@ -91,7 +93,9 @@ impl Reader {
     (r, Ok(buf))
   }
 
-  pub fn read_continued_line_bytes(self) -> (Reader, Result<List<Int>, Str>) { self.continued(false) }
+  pub fn read_continued_line_bytes(self) -> (Reader, Result<List<Int>, Str>) {
+    self.continued(false)
+  }
 
   pub fn read_continued_line(self) -> (Reader, Result<Str, Str>) {
     let (r, x) = self.continued(false)
@@ -108,17 +112,35 @@ fn error_s(code: Int, msg: Str) -> Str {
 
 fn parse_code_line(line: Str, expect: Int) -> CodeLine {
   let b = __bytes(line)
-  if len(b) < 4 || (b[3] != 32 && b[3] != 45) { return CodeLine { code: 0, continued: false, message: "", err: "short response: " + strconv.quote_go(line) } }
+  if len(b) < 4 || (b[3] != 32 && b[3] != 45) {
+    return CodeLine {
+      code: 0,
+      continued: false,
+      message: "",
+      err: "short response: " + strconv.quote_go(line),
+    }
+  }
   let cont = b[3] == 45
   var code = 0
   var ok = true
   for k in 0..3 {
     if b[k] < 48 || b[k] > 57 { ok = false } else { code = code * 10 + b[k] - 48 }
   }
-  if !ok || code < 100 { return CodeLine { code: if ok { code } else { 0 }, continued: cont, message: "", err: "invalid response code: " + strconv.quote_go(line) } }
+  if !ok || code < 100 {
+    return CodeLine {
+      code: if ok { code } else { 0 },
+      continued: cont,
+      message: "",
+      err: "invalid response code: " + strconv.quote_go(line),
+    }
+  }
   let msg = lossy(b[4..])
   var e = ""
-  if (1 <= expect && expect < 10 && code / 100 != expect) || (10 <= expect && expect < 100 && code / 10 != expect) || (100 <= expect && expect < 1000 && code != expect) { e = error_s(code, msg) }
+  if (1 <= expect && expect < 10 && code / 100 != expect)
+    || (10 <= expect && expect < 100 && code / 10 != expect)
+    || (100 <= expect && expect < 1000 && code != expect) {
+    e = error_s(code, msg)
+  }
   CodeLine { code: code, continued: cont, message: msg, err: e }
 }
 
@@ -136,7 +158,9 @@ impl Reader {
   pub fn read_code_line(self, expect: Int) -> (Reader, Response) {
     let (r, c) = self.read_code(expect)
     var e = c.err
-    if e == "" && c.continued { e = "unexpected multi-line response: " + strconv.quote_go(c.message) }
+    if e == "" && c.continued {
+      e = "unexpected multi-line response: " + strconv.quote_go(c.message)
+    }
     (r, Response { code: c.code, message: c.message, err: e })
   }
 
@@ -270,7 +294,9 @@ impl MIMEHeader {
     MIMEHeader { keys: self.keys, vals: set(self.vals, i, push(self.vals[i], v)) }
   }
 
-  pub fn add(self, key: Str, v: Str) -> MIMEHeader { self.add_raw(canonical_mime_header_key(key), v) }
+  pub fn add(self, key: Str, v: Str) -> MIMEHeader {
+    self.add_raw(canonical_mime_header_key(key), v)
+  }
 
   pub fn set(self, key: Str, v: Str) -> MIMEHeader {
     let k = canonical_mime_header_key(key)
@@ -292,7 +318,9 @@ impl MIMEHeader {
   pub fn del(self, key: Str) -> MIMEHeader {
     let i = index_of(self, canonical_mime_header_key(key))
     if i < 0 { return self }
-    MIMEHeader { keys: self.keys[..i] + self.keys[i + 1..], vals: self.vals[..i] + self.vals[i + 1..] }
+    MIMEHeader { keys: self.keys[..i] + self.keys[i + 1..], vals: self.vals[..i] + self.vals[
+      i + 1..
+    ] }
   }
 
   // 按键排序的 (键, 值列表)
@@ -303,7 +331,24 @@ impl MIMEHeader {
 }
 
 fn valid_field_byte(c: Int) -> Bool {
-  (c >= 48 && c <= 57) || (c >= 97 && c <= 122) || (c >= 65 && c <= 90) || c == 33 || c == 35 || c == 36 || c == 37 || c == 38 || c == 39 || c == 42 || c == 43 || c == 45 || c == 46 || c == 94 || c == 95 || c == 96 || c == 124 || c == 126
+  (c >= 48 && c <= 57)
+    || (c >= 97 && c <= 122)
+    || (c >= 65 && c <= 90)
+    || c == 33
+    || c == 35
+    || c == 36
+    || c == 37
+    || c == 38
+    || c == 39
+    || c == 42
+    || c == 43
+    || c == 45
+    || c == 46
+    || c == 94
+    || c == 95
+    || c == 96
+    || c == 124
+    || c == 126
 }
 
 fn valid_value_byte(c: Int) -> Bool { (c >= 0x20 && c <= 0x7e) || c == 9 || c >= 128 }
@@ -371,7 +416,9 @@ impl Reader {
       let (key, ok) = canon_key(kv[..ci])
       if !ok { return (r, m, "malformed MIME header line: " + qb(kv)) }
       let v = kv[ci + 1..]
-      for c in v { if !valid_value_byte(c) { return (r, m, "malformed MIME header line: " + qb(kv)) } }
+      for c in v {
+        if !valid_value_byte(c) { return (r, m, "malformed MIME header line: " + qb(kv)) }
+      }
       var s = 0
       while s < len(v) && (v[s] == 32 || v[s] == 9) { s += 1 }
       m = m.add_raw(key, lossy(v[s..]))

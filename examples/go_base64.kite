@@ -6,14 +6,49 @@ fn show(r: Result<List<Int>, Str>) -> Str {
   }
 }
 fn main() {
-  let encs = [base64.std_encoding(), base64.url_encoding(), base64.raw_std_encoding(), base64.raw_url_encoding(), base64.std_encoding().strict(), base64.raw_std_encoding().strict(), base64.std_encoding().with_padding(42)]
+  let encs = [
+    base64.std_encoding(),
+    base64.url_encoding(),
+    base64.raw_std_encoding(),
+    base64.raw_url_encoding(),
+    base64.std_encoding().strict(),
+    base64.raw_std_encoding().strict(),
+    base64.std_encoding().with_padding(42),
+  ]
   let ins = ["", "f", "fo", "foo", "foob", "fooba", "foobar", "你好世界!?>", "\u{0}\u{1}\u{ff}~~~"]
   for e in encs {
     for s in ins {
       let t = e.encode_to_string(__bytes(s))
       print(t, e.encoded_len(len(__bytes(s))), e.decoded_len(len(t)), show(e.decode_string(t)))
     }
-    for bad in ["Zm9v", "Zg==", "Zg=", "Zg", "Zh==", "Zm9=", "Zm8=", "Zm8", "Z===", "====", "Zg==Zg==", "Zm9vYmFy\nZm9v", "Zm9v\r\n", "Zg=\n=", "Zg=\n", "Zg==\n\nx", "Zm9v!", "Zm9v_-", "Zm9v+/", "Zg**", "Zg*", "Z", "Zm9vY", "Zm9vYm", "Zm9vYmE", "\n\nZm9v\n"] {
+    for bad in [
+      "Zm9v",
+      "Zg==",
+      "Zg=",
+      "Zg",
+      "Zh==",
+      "Zm9=",
+      "Zm8=",
+      "Zm8",
+      "Z===",
+      "====",
+      "Zg==Zg==",
+      "Zm9vYmFy\nZm9v",
+      "Zm9v\r\n",
+      "Zg=\n=",
+      "Zg=\n",
+      "Zg==\n\nx",
+      "Zm9v!",
+      "Zm9v_-",
+      "Zm9v+/",
+      "Zg**",
+      "Zg*",
+      "Z",
+      "Zm9vY",
+      "Zm9vYm",
+      "Zm9vYmE",
+      "\n\nZm9v\n",
+    ] {
       print(bad, show(e.decode_string(bad)))
     }
   }

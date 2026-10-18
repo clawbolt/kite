@@ -3,8 +3,47 @@ use std.go.version as goversion
 use std.strconv
 
 fn main() {
-  let vs = ["", "go", "go1", "go1.0", "go1.0.0", "go1.2", "go1.20", "go1.21", "go1.21.0", "go1.21rc1", "go1.21rc2", "go1.21beta1", "go1.21alpha", "go1.22.3", "go1.22.3-custom", "go1.21-bigcorp", "go2", "go2.0", "go01.2", "go1.02", "go1.2.", "go1.21rc", "go1.21rc01", "go1.21RC1", "1.21", "go1.21.0.1", "go10.0", "go1.9.9", "go1.100", "gox", "go1.21.x", "go1.999999999999999999999999"]
-  for x in vs { print(strconv.quote_go(x) + " lang=" + strconv.quote_go(goversion.lang(x)) + " valid={goversion.is_valid(x)}") }
+  let vs = [
+    "",
+    "go",
+    "go1",
+    "go1.0",
+    "go1.0.0",
+    "go1.2",
+    "go1.20",
+    "go1.21",
+    "go1.21.0",
+    "go1.21rc1",
+    "go1.21rc2",
+    "go1.21beta1",
+    "go1.21alpha",
+    "go1.22.3",
+    "go1.22.3-custom",
+    "go1.21-bigcorp",
+    "go2",
+    "go2.0",
+    "go01.2",
+    "go1.02",
+    "go1.2.",
+    "go1.21rc",
+    "go1.21rc01",
+    "go1.21RC1",
+    "1.21",
+    "go1.21.0.1",
+    "go10.0",
+    "go1.9.9",
+    "go1.100",
+    "gox",
+    "go1.21.x",
+    "go1.999999999999999999999999",
+  ]
+  for x in vs {
+    print(
+      strconv
+        .quote_go(x) + " lang=" + strconv
+        .quote_go(goversion.lang(x)) + " valid={goversion.is_valid(x)}",
+    )
+  }
   for x in vs {
     var line = ""
     for y in vs { line = line + "{goversion.compare(x, y)} " }

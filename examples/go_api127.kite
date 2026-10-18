@@ -3,7 +3,20 @@ use std.math.big
 use std.strings
 use std.bytes
 fn main() {
-  for (x, y) in [(7, 2), (-7, 2), (7, -2), (-7, -2), (5, 2), (-5, 2), (6, 4), (-6, 4), (9, 3), (0, 5), (1, 3), (2, 3)] {
+  for (x, y) in [
+    (7, 2),
+    (-7, 2),
+    (7, -2),
+    (-7, -2),
+    (5, 2),
+    (-5, 2),
+    (6, 4),
+    (-6, 4),
+    (9, 3),
+    (0, 5),
+    (1, 3),
+    (2, 3),
+  ] {
     var line = "{x} {y}"
     for m in [big.TRUNC, big.FLOOR, big.ROUND, big.CEIL] {
       let (q, r) = big.new_int(x).divide(big.new_int(y), m)

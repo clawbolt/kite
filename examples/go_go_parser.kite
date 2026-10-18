@@ -3,7 +3,7 @@
 use std.go.token as token
 use std.go.scanner as scanner
 use std.go.ast as ast
-use std.go.ast.{Node}
+use std.go.ast.{ Node }
 use std.go.parser as parser
 use std.strconv
 use std.encoding.hex
@@ -18,7 +18,11 @@ fn hsh(s: Str) -> Int {
 }
 
 fn show(full: Bool, label: Str, s: Str) {
-  if full { print("  " + label + ":\n" + chop(s)) } else { print("  " + label + ": len={__byte_len(s)} hash={hsh(s)}") }
+  if full {
+    print("  " + label + ":\n" + chop(s))
+  } else {
+    print("  " + label + ": len={__byte_len(s)} hash={hsh(s)}")
+  }
 }
 
 fn errs(es: List<scanner.Error>) {
@@ -39,13 +43,24 @@ fn posdump(f: Node) -> Str {
 }
 
 fn resdump(f: Node) -> Str {
-  let (objects, unresolved, scope) = match f { File { objects, unresolved, scope, .. } => (objects, unresolved, scope), _ => ([], [], None) }
+  let (objects, unresolved, scope) = match f {
+    File { objects, unresolved, scope, .. } => (objects, unresolved, scope),
+    _ => ([], [], None),
+  }
   var parts = ast.inspect(f, [], (acc, n) => {
     match n {
       Ident { name, name_pos, obj } => {
         if obj >= 0 {
           let o = objects[obj]
-          return (push(acc, name + "@{name_pos}->" + ast.obj_kind_string(o.kind) + " " + o.name + " {ast.object_pos(o)}|"), true)
+          return (
+            push(
+              acc,
+              name + "@{name_pos}->" + ast.obj_kind_string(
+                o.kind,
+              ) + " " + o.name + " {ast.object_pos(o)}|",
+            ),
+            true,
+          )
         }
         return (push(acc, name + "@{name_pos}->nil|"), true)
       },
@@ -53,7 +68,10 @@ fn resdump(f: Node) -> Str {
     }
   })
   for id in unresolved {
-    match id { Ident { name, name_pos, .. } => { parts = push(parts, "U " + name + "@{name_pos}|") }, _ => {} }
+    match id {
+      Ident { name, name_pos, .. } => { parts = push(parts, "U " + name + "@{name_pos}|") },
+      _ => {},
+    }
   }
   match scope {
     Some(sc) => {
@@ -70,15 +88,46 @@ fn resdump(f: Node) -> Str {
 
 fn no_scope(f: Node) -> Node {
   match f {
-    File { doc, package_pos, name, decls, file_start, file_end, imports, unresolved, comments, go_version, unresolved_set, objects, .. } =>
-      Node.File { doc: doc, package_pos: package_pos, name: name, decls: decls, file_start: file_start, file_end: file_end, scope: None,
-        imports: imports, unresolved: unresolved, comments: comments, go_version: go_version, unresolved_set: unresolved_set, objects: objects },
+    File {
+      doc,
+      package_pos,
+      name,
+      decls,
+      file_start,
+      file_end,
+      imports,
+      unresolved,
+      comments,
+      go_version,
+      unresolved_set,
+      objects,
+      ..
+    } => Node.File {
+      doc: doc,
+      package_pos: package_pos,
+      name: name,
+      decls: decls,
+      file_start: file_start,
+      file_end: file_end,
+      scope: None,
+      imports: imports,
+      unresolved: unresolved,
+      comments: comments,
+      go_version: go_version,
+      unresolved_set: unresolved_set,
+      objects: objects,
+    },
     _ => f,
   }
 }
 
 fn run(full: Bool, name: Str, src: List<Int>) {
-  let (fs, f, es) = parser.parse_file(token.new_file_set(), name, src, parser.PARSE_COMMENTS | parser.SKIP_OBJECT_RESOLUTION | parser.ALL_ERRORS)
+  let (fs, f, es) = parser.parse_file(
+    token.new_file_set(),
+    name,
+    src,
+    parser.PARSE_COMMENTS | parser.SKIP_OBJECT_RESOLUTION | parser.ALL_ERRORS,
+  )
   let gv = match f { File { go_version, .. } => go_version, _ => "" }
   print("  A goversion=" + strconv.quote_go(gv))
   errs(es)
@@ -89,12 +138,27 @@ fn run(full: Bool, name: Str, src: List<Int>) {
   errs(es2)
   show(full, "B res", resdump(f2))
   show(full, "B fprint", ast.fprint(Some(fs2), no_scope(f2), true))
-  let (_, _, es3) = parser.parse_file(token.new_file_set(), name, src, parser.DECLARATION_ERRORS | parser.ALL_ERRORS)
+  let (_, _, es3) = parser.parse_file(
+    token.new_file_set(),
+    name,
+    src,
+    parser.DECLARATION_ERRORS | parser.ALL_ERRORS,
+  )
   errs(es3)
-  let (fs4, f4, es4) = parser.parse_file(token.new_file_set(), name, src, parser.IMPORTS_ONLY | parser.PARSE_COMMENTS)
+  let (fs4, f4, es4) = parser.parse_file(
+    token.new_file_set(),
+    name,
+    src,
+    parser.IMPORTS_ONLY | parser.PARSE_COMMENTS,
+  )
   errs(es4)
   show(full, "D fprint", ast.fprint(Some(fs4), f4, true))
-  let (fs5, f5, es5) = parser.parse_file(token.new_file_set(), name, src, parser.PACKAGE_CLAUSE_ONLY)
+  let (fs5, f5, es5) = parser.parse_file(
+    token.new_file_set(),
+    name,
+    src,
+    parser.PACKAGE_CLAUSE_ONLY,
+  )
   errs(es5)
   show(full, "E fprint", ast.fprint(Some(fs5), f5, true))
 }
@@ -118,9 +182,31 @@ fn main() {
     run(full, name, src)
   }
   let q = __chr(34)
-  let exprs = ["a + b*c", "x[1:2:3]", "f(a, b...)", "<-chan <-chan int", "<-chan chan<- int", "func(x int) int {{ return x }}",
-    "map[string][]int{{" + q + "a" + q + ": {{1}}}}", "a.(type)", "struct{{ x int `tag` }}", "[...]int{{1,2}}", "(", "a +", "x.(T)\n", "1 2", "~int | string",
-    "interface{{ M(); ~int }}", "a[b, c]", "*p++", "a = b", "x = = y", "<-x", "-x.y[z](w)", "T[int]{{}}"]
+  let exprs = [
+    "a + b*c",
+    "x[1:2:3]",
+    "f(a, b...)",
+    "<-chan <-chan int",
+    "<-chan chan<- int",
+    "func(x int) int {{ return x }}",
+    "map[string][]int{{" + q + "a" + q + ": {{1}}}}",
+    "a.(type)",
+    "struct{{ x int `tag` }}",
+    "[...]int{{1,2}}",
+    "(",
+    "a +",
+    "x.(T)\n",
+    "1 2",
+    "~int | string",
+    "interface{{ M(); ~int }}",
+    "a[b, c]",
+    "*p++",
+    "a = b",
+    "x = = y",
+    "<-x",
+    "-x.y[z](w)",
+    "T[int]{{}}",
+  ]
   for e in exprs {
     print("# expr " + strconv.quote_go(e))
     let (x, es) = parser.parse_expr(e)

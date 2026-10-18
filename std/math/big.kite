@@ -240,7 +240,9 @@ fn mshr(a: List<Int>, n: Int) -> List<Int> {
   norm(out)
 }
 
-fn mbitlen(a: List<Int>) -> Int { if len(a) == 0 { 0 } else { (len(a) - 1) * SHIFT + bits.len64(a[len(a) - 1]) } }
+fn mbitlen(a: List<Int>) -> Int {
+  if len(a) == 0 { 0 } else { (len(a) - 1) * SHIFT + bits.len64(a[len(a) - 1]) }
+}
 
 // (a / b, a % b)，b 不为零（Knuth 算法 D 的思路，每步用整段的列表运算）
 fn mdivmod(a: List<Int>, b: List<Int>) -> (List<Int>, List<Int>) {
@@ -313,7 +315,15 @@ pub fn new_uint64(x: Int) -> BigInt {
 }
 
 fn digit_val(c: Int) -> Int {
-  if c >= 48 && c <= 57 { c - 48 } else if c >= 97 && c <= 122 { c - 87 } else if c >= 65 && c <= 90 { c - 29 } else { 99 }
+  if c >= 48 && c <= 57 {
+    c - 48
+  } else if c >= 97 && c <= 122 {
+    c - 87
+  } else if c >= 65 && c <= 90 {
+    c - 29
+  } else {
+    99
+  }
 }
 
 // Go 的 SetString：失败时返回 None
@@ -358,7 +368,15 @@ pub fn parse(s: Str, base0: Int) -> Option<BigInt> {
   parse_digits(bs, i, base, neg, base0 == 0, prefix, 0)
 }
 
-fn parse_digits(bs: List<Int>, start: Int, base: Int, neg: Bool, allow_us: Bool, prev_ok: Bool, count0: Int) -> Option<BigInt> {
+fn parse_digits(
+  bs: List<Int>,
+  start: Int,
+  base: Int,
+  neg: Bool,
+  allow_us: Bool,
+  prev_ok: Bool,
+  count0: Int,
+) -> Option<BigInt> {
   var i = start
   var mag: List<Int> = []
   var count = count0
@@ -401,7 +419,9 @@ fn chunk(base: Int) -> (Int, Int) {
 }
 
 // 大端序字节
-pub fn set_bytes(bs: List<Int>) -> BigInt { fold(bs, zero(), (acc, b) => mk(false, mmul_small(acc.mag, 256, b & 255))) }
+pub fn set_bytes(bs: List<Int>) -> BigInt {
+  fold(bs, zero(), (acc, b) => mk(false, mmul_small(acc.mag, 256, b & 255)))
+}
 
 // 1..n 的乘积等组合函数
 pub fn mul_range(a: Int, b: Int) -> BigInt {
@@ -461,10 +481,26 @@ fn bitop(x: BigInt, y: BigInt, op: Int) -> BigInt {
   var out: List<Int> = []
   var i = 0
   while i < n {
-    out = push(out, if op == 0 { a[i] & b[i] } else if op == 1 { a[i] | b[i] } else if op == 2 { a[i] ^ b[i] } else { a[i] & ((~b[i]) & MASK) })
+    out = push(out, if op == 0 {
+      a[i] & b[i]
+    } else if op == 1 {
+      a[i] | b[i]
+    } else if op == 2 {
+      a[i] ^ b[i]
+    } else {
+      a[i] & ((~b[i]) & MASK)
+    })
     i += 1
   }
-  let neg = if op == 0 { x.neg && y.neg } else if op == 1 { x.neg || y.neg } else if op == 2 { x.neg != y.neg } else { x.neg && !y.neg }
+  let neg = if op == 0 {
+    x.neg && y.neg
+  } else if op == 1 {
+    x.neg || y.neg
+  } else if op == 2 {
+    x.neg != y.neg
+  } else {
+    x.neg && !y.neg
+  }
   from_tc(out, neg)
 }
 
@@ -614,7 +650,13 @@ impl BigInt {
   fn set_bit(self, i: Int, b: Int) -> BigInt {
     if i < 0 { panic("negative bit index") }
     let m = one().lsh(i)
-    if b == 1 { self.or(m) } else if b == 0 { self.and_not(m) } else { panic("set bit is not 0 or 1") }
+    if b == 1 {
+      self.or(m)
+    } else if b == 0 {
+      self.and_not(m)
+    } else {
+      panic("set bit is not 0 or 1")
+    }
   }
 
   fn and(self, y: BigInt) -> BigInt { bitop(self, y, 0) }
@@ -709,7 +751,7 @@ impl BigInt {
     var e = y
     if len(m.mag) > 0 && y.neg {
       match x.mod_inverse(m) {
-        None     => { return None },
+        None => { return None },
         Some(iv) => {
           x = iv
           e = y.abs_value()
@@ -799,7 +841,10 @@ impl BigInt {
     if n < 0 { panic("negative n for ProbablyPrime") }
     if self.neg || len(self.mag) == 0 { return false }
     if len(self.mag) == 1 && self.mag[0] < 64 {
-      return contains([2, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37, 41, 43, 47, 53, 59, 61], self.mag[0])
+      return contains(
+        [2, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37, 41, 43, 47, 53, 59, 61],
+        self.mag[0],
+      )
     }
     if self.mag[0] % 2 == 0 { return false }
     for p in small_primes() {

@@ -1,12 +1,14 @@
 use std.log.slog
-use std.log.slog.{Attr, Handler, HandlerOptions, Value}
+use std.log.slog.{ Attr, Handler, HandlerOptions, Value }
 use std.strings
 
 fn out(h: Handler, lvl: Int, msg: Str, xs: List<Attr>) {
   if h.enabled(lvl) {
     let line = h.handle(slog.new_record(lvl, msg).add_attrs(xs))
     print(__str_slice(line, 0, len(line) - 1))
-  } else { print("(disabled)") }
+  } else {
+    print("(disabled)")
+  }
 }
 
 fn both(f: fn(Bool) -> Handler, lvl: Int, msg: Str, xs: List<Attr>) {
@@ -14,7 +16,9 @@ fn both(f: fn(Bool) -> Handler, lvl: Int, msg: Str, xs: List<Attr>) {
   out(f(true), lvl, msg, xs)
 }
 
-fn mk(o: HandlerOptions, j: Bool) -> Handler { if j { slog.new_json_handler(o) } else { slog.new_text_handler(o) } }
+fn mk(o: HandlerOptions, j: Bool) -> Handler {
+  if j { slog.new_json_handler(o) } else { slog.new_text_handler(o) }
+}
 
 fn plain(j: Bool) -> Handler { mk(slog.default_options(), j) }
 
@@ -24,15 +28,23 @@ fn rep(groups: List<Str>, a: Attr) -> Attr {
   print(join(groups, ".") + "|" + a.key + "|" + slog.kind_string(a.value))
   match a.key {
     "secret" => Attr { key: "", value: Value.VNil },
-    "level" => slog.string("sev", match a.value { Value.VLevel(l) => slog.level_string(l), _ => "?" }),
-    "msg" => slog.string("message", strings.to_upper(match a.value { Value.VStr(s) => s, _ => "?" })),
+    "level" => slog.string("sev", match a.value {
+      Value.VLevel(l) => slog.level_string(l),
+      _ => "?",
+    }),
+    "msg" => slog.string("message", strings.to_upper(match a.value {
+      Value.VStr(s) => s,
+      _ => "?",
+    })),
     "n" => slog.int("n", match a.value { Value.VInt(i) => i * 10, _ => 0 }),
     "hide" => slog.group("x", []),
     _ => a,
   }
 }
 
-fn r(j: Bool) -> Handler { mk(HandlerOptions { level: slog.LEVEL_INFO, replace_attr: Some(rep) }, j) }
+fn r(j: Bool) -> Handler {
+  mk(HandlerOptions { level: slog.LEVEL_INFO, replace_attr: Some(rep) }, j)
+}
 
 fn main() {
   var l = -9
@@ -43,34 +55,92 @@ fn main() {
       Err(e) => print("{s} 0 {e}"),
     }
   }
-  both(plain, slog.LEVEL_INFO, "hello", [slog.string("s", "v"), slog.int("i", -42), slog.uint64("u", 7),
-    slog.float64("f", 3.25), slog.bool("b", true), slog.duration("d", 1500000000), slog.nil_attr("n")])
-  let strs = ["", "a b", "a=b", "q\"x", "tab\tx", "π", "a" + __chr(160) + "b", "back\\slash", "é", "<&>", __chr(8232), __chr(1), __chr(127), __chr(65533), "ok"]
+  both(plain, slog.LEVEL_INFO, "hello", [
+    slog.string("s", "v"),
+    slog.int("i", -42),
+    slog.uint64("u", 7),
+    slog.float64("f", 3.25),
+    slog.bool("b", true),
+    slog.duration("d", 1500000000),
+    slog.nil_attr("n"),
+  ])
+  let strs = [
+    "",
+    "a b",
+    "a=b",
+    "q\"x",
+    "tab\tx",
+    "π",
+    "a" + __chr(160) + "b",
+    "back\\slash",
+    "é",
+    "<&>",
+    __chr(8232),
+    __chr(1),
+    __chr(127),
+    __chr(65533),
+    "ok",
+  ]
   for s in strs { both(plain, slog.LEVEL_WARN, s, [slog.string(s, s)]) }
   for f in [0.0, 1.0, -1.5, 1e20, 1e21, 1.5e-6, 1e-7, 123456789.125, 0.1, 1e100, -2.5e-10] {
     both(plain, slog.LEVEL_INFO, "f", [slog.float64("x", f)])
   }
   let ms = 1000000
   let sec = 1000000000
-  for d in [0, 1, 999, 1000, 1500, 1000000, 2500000, sec, 90 * sec, 3723 * sec + 5 * ms, -1500 * ms, 26 * 3600 * sec] {
+  for d in [
+    0,
+    1,
+    999,
+    1000,
+    1500,
+    1000000,
+    2500000,
+    sec,
+    90 * sec,
+    3723 * sec + 5 * ms,
+    -1500 * ms,
+    26 * 3600 * sec,
+  ] {
     both(plain, slog.LEVEL_INFO, "d", [slog.duration("x", d)])
   }
   both(plain, slog.LEVEL_DEBUG, "skipped", [])
   both(dbg, slog.LEVEL_DEBUG - 1, "debug-1", [])
-  both(dbg, slog.LEVEL_DEBUG, "dbg", [slog.group("g", [slog.int("a", 1), slog.group("h", [slog.string("b", "x y")])])])
-  both(plain, slog.LEVEL_ERROR, "groups", [slog.group("empty", []), slog.group("", [slog.int("inl", 1)]), slog.group("g", [slog.group("e", [])]), slog.int("z", 9)])
+  both(dbg, slog.LEVEL_DEBUG, "dbg", [slog.group("g", [slog.int("a", 1), slog.group("h", [
+    slog.string("b", "x y"),
+  ])])])
+  both(plain, slog.LEVEL_ERROR, "groups", [
+    slog.group("empty", []),
+    slog.group("", [slog.int("inl", 1)]),
+    slog.group("g", [slog.group("e", [])]),
+    slog.int("z", 9),
+  ])
   both(plain, slog.LEVEL_INFO, "emptyonly", [slog.group("e", [])])
-  let w = (j: Bool) => plain(j).with_attrs([slog.string("app", "kite")]).with_group("req").with_attrs([slog.int("id", 5)]).with_group("sub")
+  let w = (j: Bool) => plain(j)
+    .with_attrs([slog.string("app", "kite")])
+    .with_group("req")
+    .with_attrs([slog.int("id", 5)])
+    .with_group("sub")
   both(w, slog.LEVEL_INFO, "nested", [slog.string("k", "v")])
   both(w, slog.LEVEL_INFO, "nested-empty", [])
   let w2 = (j: Bool) => plain(j).with_group("a").with_group("b")
   both(w2, slog.LEVEL_INFO, "nogroup", [])
   both(w2, slog.LEVEL_INFO, "withgroup", [slog.int("x", 1)])
-  let w3 = (j: Bool) => plain(j).with_group("a").with_attrs([slog.group("e", [])]).with_attrs([slog.int("p", 1)])
+  let w3 = (j: Bool) => plain(j)
+    .with_group("a")
+    .with_attrs([slog.group("e", [])])
+    .with_attrs([slog.int("p", 1)])
   both(w3, slog.LEVEL_INFO, "w3", [slog.int("x", 2)])
   let w4 = (j: Bool) => plain(j).with_group("a b").with_attrs([slog.int("c=d", 1)])
   both(w4, slog.LEVEL_INFO, "w4", [slog.string("e", "f")])
-  let wr = (j: Bool) => r(j).with_attrs([slog.int("n", 1)]).with_group("g").with_attrs([slog.string("secret", "s"), slog.int("n", 2)])
-  both(wr, slog.LEVEL_WARN, "rep", [slog.string("secret", "x"), slog.int("n", 3), slog.group("h", [slog.int("n", 4), slog.string("hide", "y")]), slog.string("ok", "y")])
+  let wr = (j: Bool) => r(j)
+    .with_attrs([slog.int("n", 1)])
+    .with_group("g")
+    .with_attrs([slog.string("secret", "s"), slog.int("n", 2)])
+  both(wr, slog.LEVEL_WARN, "rep", [
+    slog.string("secret", "x"),
+    slog.int("n", 3),
+    slog.group("h", [slog.int("n", 4), slog.string("hide", "y")]),
+    slog.string("ok", "y"),
+  ])
   both(r, slog.LEVEL_INFO, "allgone", [slog.string("secret", "x")])
 }

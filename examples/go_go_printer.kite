@@ -2,7 +2,7 @@
 //   数据：go/printer 和 cmd/gofmt 的 testdata、go/format 的片段用例、几个标准库源文件和一组表达式
 use std.go.token as token
 use std.go.ast as ast
-use std.go.ast.{Node}
+use std.go.ast.{ Node }
 use std.go.parser as parser
 use std.go.printer as printer
 use std.go.format as format
@@ -17,11 +17,20 @@ fn hsh(bs: List<Int>) -> Int {
 }
 
 fn show(full: Bool, label: Str, bs: List<Int>) {
-  if full { print("  " + label + ":\n" + unwrap(__from_bytes(bs))) } else { print("  " + label + ": len={len(bs)} hash={hsh(bs)}") }
+  if full {
+    print("  " + label + ":\n" + unwrap(__from_bytes(bs)))
+  } else {
+    print("  " + label + ": len={len(bs)} hash={hsh(bs)}")
+  }
 }
 
 fn pr(cfg: printer.Config, src: List<Int>) -> List<Int> {
-  let (fs, f, errs) = parser.parse_file(token.new_file_set(), "a.go", src, parser.PARSE_COMMENTS | parser.SKIP_OBJECT_RESOLUTION)
+  let (fs, f, errs) = parser.parse_file(
+    token.new_file_set(),
+    "a.go",
+    src,
+    parser.PARSE_COMMENTS | parser.SKIP_OBJECT_RESOLUTION,
+  )
   if len(errs) > 0 { return __bytes("parse error") }
   match printer.fprint_bytes(cfg, fs, f) { Ok(b) => b, Err(e) => __bytes("ERR " + e) }
 }
@@ -34,9 +43,21 @@ fn run(full: Bool, src: List<Int>) {
   show(full, "fprint", pr(printer.Config { mode: 0, tabwidth: 8, indent: 0 }, src))
   show(full, "raw", pr(printer.Config { mode: printer.RAW_FORMAT, tabwidth: 0, indent: 0 }, src))
   if len(src) < 8000 {
-    show(full, "spaces4", pr(printer.Config { mode: printer.USE_SPACES | printer.SOURCE_POS, tabwidth: 4, indent: 1 }, src))
+    show(
+      full,
+      "spaces4",
+      pr(
+        printer.Config { mode: printer.USE_SPACES | printer.SOURCE_POS, tabwidth: 4, indent: 1 },
+        src,
+      ),
+    )
     show(full, "tabs", pr(printer.Config { mode: printer.TAB_INDENT, tabwidth: 2, indent: 0 }, src))
-    let (fs, f, errs) = parser.parse_file(token.new_file_set(), "a.go", src, parser.PARSE_COMMENTS | parser.SKIP_OBJECT_RESOLUTION)
+    let (fs, f, errs) = parser.parse_file(
+      token.new_file_set(),
+      "a.go",
+      src,
+      parser.PARSE_COMMENTS | parser.SKIP_OBJECT_RESOLUTION,
+    )
     if len(errs) == 0 {
       match format.node(fs, f) {
         Ok(b) => show(full, "node", b),
@@ -46,7 +67,9 @@ fn run(full: Bool, src: List<Int>) {
       show(full, "sorted", unwrap(printer.fprint_bytes(printer.default_config(), fs2, f2)))
       let decls = match f2 { File { decls, .. } => decls, _ => [] }
       var parts: List<List<Int>> = []
-      for d in decls { parts = push(parts, unwrap(printer.fprint_bytes(printer.default_config(), fs2, d))) }
+      for d in decls {
+        parts = push(parts, unwrap(printer.fprint_bytes(printer.default_config(), fs2, d)))
+      }
       var all: List<Int> = []
       var i = 0
       for p in parts {
@@ -84,10 +107,31 @@ fn main() {
   }
   if pi != 0 { return }
   let q = __chr(34)
-  let exprs = ["a+b*c", "(a+b)*c", "x[i:j:k]", "f(a, b...)", "func(x int) int {{ return x*2 }}",
-    "struct{{x, y int; z string `json:" + q + "z" + q + "`}}", "map[string][]*T{{" + q + "a" + q + ": nil}}", "<-chan <-chan int", "a.(type)",
-    "x.f(1)(2)[3]", "-x + ^y &^ z", "a<<1 | b>>2", "*p", "&T{{1, 2}}", "interface{{ M(int) string; ~int | ~string }}", "0X1P-2", "0XABCp+3",
-    "0O17", "0B101", "1E9", "0001i", "T[int, string]{{}}", "[...]int{{1, 2, 3}}"]
+  let exprs = [
+    "a+b*c",
+    "(a+b)*c",
+    "x[i:j:k]",
+    "f(a, b...)",
+    "func(x int) int {{ return x*2 }}",
+    "struct{{x, y int; z string `json:" + q + "z" + q + "`}}",
+    "map[string][]*T{{" + q + "a" + q + ": nil}}",
+    "<-chan <-chan int",
+    "a.(type)",
+    "x.f(1)(2)[3]",
+    "-x + ^y &^ z",
+    "a<<1 | b>>2",
+    "*p",
+    "&T{{1, 2}}",
+    "interface{{ M(int) string; ~int | ~string }}",
+    "0X1P-2",
+    "0XABCp+3",
+    "0O17",
+    "0B101",
+    "1E9",
+    "0001i",
+    "T[int, string]{{}}",
+    "[...]int{{1, 2, 3}}",
+  ]
   for e in exprs {
     print("# expr " + strconv.quote_go(e))
     let (x, errs) = parser.parse_expr(e)

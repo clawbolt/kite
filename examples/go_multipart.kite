@@ -8,7 +8,9 @@ use std.strconv
 fn q(s: Str) -> Str { strconv.quote_go(s) }
 fn qb(b: List<Int>) -> Str { strconv.quote_bytes_with(b, 34, false, false) }
 fn es(e: Str) -> Str { if e == "" { "<nil>" } else { e } }
-fn hdr(m: MIMEHeader) -> Str { join(map(m.sorted(), (kv) => kv.0 + "=" + join(map(kv.1, q), ",")), " ") }
+fn hdr(m: MIMEHeader) -> Str {
+  join(map(m.sorted(), (kv) => kv.0 + "=" + join(map(kv.1, q), ",")), " ")
+}
 
 fn parts(name: Str, body: Str, boundary: Str, raw: Bool) {
   print("CASE " + name + " " + q(body))
@@ -21,7 +23,11 @@ fn parts(name: Str, body: Str, boundary: Str, raw: Bool) {
         print("  END " + e)
         return
       },
-      Ok(p) => print("  PART " + hdr(p.header) + " | name=" + q(p.form_name()) + " file=" + q(p.file_name()) + " | " + qb(p.data) + " " + es(p.err)),
+      Ok(p) => print(
+        "  PART " + hdr(p.header) + " | name=" + q(p.form_name()) + " file=" + q(
+          p.file_name(),
+        ) + " | " + qb(p.data) + " " + es(p.err),
+      ),
     }
   }
 }
@@ -35,24 +41,65 @@ fn sb(w: Writer, b: Str) -> (Writer, Str) {
 
 fn main() {
   let b = "MyBoundary"
-  parts("basic", "--MyBoundary\r\nContent-Disposition: form-data; name=\"a\"\r\n\r\nvalue a\r\n--MyBoundary\r\nContent-Disposition: form-data; name=\"f\"; filename=\"../dir/x.txt\"\r\nContent-Type: text/plain\r\n\r\nfile\r\ncontent\r\n--MyBoundary--\r\n", b, false)
-  parts("preamble", "This is a preamble\r\n\r\n--MyBoundary\r\nX: 1\r\n\r\nbody one\r\n--MyBoundary  \r\nX: 2\r\n\r\n--MyBoundary-not\r\nstill body\r\n--MyBoundary--   \r\nepilogue", b, false)
-  parts("lf", "--MyBoundary\nA: b\n\nline1\nline2\n--MyBoundary\n\nsecond\n--MyBoundary--\n", b, false)
-  parts("qp", "--MyBoundary\r\nContent-Transfer-Encoding: quoted-printable\r\n\r\ncaf=C3=A9 =\r\nsoft\r\n--MyBoundary--\r\n", b, false)
-  parts("qp-raw", "--MyBoundary\r\nContent-Transfer-Encoding: quoted-printable\r\n\r\ncaf=C3=A9 =\r\nsoft\r\n--MyBoundary--\r\n", b, true)
+  parts(
+    "basic",
+    "--MyBoundary\r\nContent-Disposition: form-data; name=\"a\"\r\n\r\nvalue a\r\n--MyBoundary\r\nContent-Disposition: form-data; name=\"f\"; filename=\"../dir/x.txt\"\r\nContent-Type: text/plain\r\n\r\nfile\r\ncontent\r\n--MyBoundary--\r\n",
+    b,
+    false,
+  )
+  parts(
+    "preamble",
+    "This is a preamble\r\n\r\n--MyBoundary\r\nX: 1\r\n\r\nbody one\r\n--MyBoundary  \r\nX: 2\r\n\r\n--MyBoundary-not\r\nstill body\r\n--MyBoundary--   \r\nepilogue",
+    b,
+    false,
+  )
+  parts(
+    "lf",
+    "--MyBoundary\nA: b\n\nline1\nline2\n--MyBoundary\n\nsecond\n--MyBoundary--\n",
+    b,
+    false,
+  )
+  parts(
+    "qp",
+    "--MyBoundary\r\nContent-Transfer-Encoding: quoted-printable\r\n\r\ncaf=C3=A9 =\r\nsoft\r\n--MyBoundary--\r\n",
+    b,
+    false,
+  )
+  parts(
+    "qp-raw",
+    "--MyBoundary\r\nContent-Transfer-Encoding: quoted-printable\r\n\r\ncaf=C3=A9 =\r\nsoft\r\n--MyBoundary--\r\n",
+    b,
+    true,
+  )
   parts("unterminated", "--MyBoundary\r\nA: 1\r\n\r\nno end here", b, false)
   parts("nofinal", "--MyBoundary\r\nA: 1\r\n\r\nx\r\n--MyBoundary\r\n", b, false)
-  parts("garbage", "--MyBoundary\r\nA: 1\r\n\r\nx\r\n--MyBoundary\r\nB: 2\r\n\r\ny\r\n--MyBoundary--\r\n", b, false)
+  parts(
+    "garbage",
+    "--MyBoundary\r\nA: 1\r\n\r\nx\r\n--MyBoundary\r\nB: 2\r\n\r\ny\r\n--MyBoundary--\r\n",
+    b,
+    false,
+  )
   parts("badheader", "--MyBoundary\r\nBad Header\r\n\r\nx\r\n--MyBoundary--\r\n", b, false)
   parts("empty", "", b, false)
   parts("onlyfinal", "--MyBoundary--", b, false)
   parts("emptyboundary", "--\r\n", "", false)
   parts("expect", "--MyBoundary\r\nA: 1\r\n\r\nx\r\n--MyBoundary--junk\r\n", b, false)
-  parts("disp", "--MyBoundary\r\nContent-Disposition: attachment; filename=\"a/b/c.bin\"\r\n\r\n1\r\n--MyBoundary\r\nContent-Disposition: form-data; name=\"x\"; filename=\"\"\r\n\r\n2\r\n--MyBoundary\r\nContent-Disposition: form-data; name=x;;\r\n\r\n3\r\n--MyBoundary--\r\n", b, false)
+  parts(
+    "disp",
+    "--MyBoundary\r\nContent-Disposition: attachment; filename=\"a/b/c.bin\"\r\n\r\n1\r\n--MyBoundary\r\nContent-Disposition: form-data; name=\"x\"; filename=\"\"\r\n\r\n2\r\n--MyBoundary\r\nContent-Disposition: form-data; name=x;;\r\n\r\n3\r\n--MyBoundary--\r\n",
+    b,
+    false,
+  )
 
   var w = multipart.new_writer()
   var line = "SB"
-  for x in ["my boundary", "", "bad|char", "trail ", "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"] {
+  for x in [
+    "my boundary",
+    "",
+    "bad|char",
+    "trail ",
+    "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+  ] {
     let (w2, e) = sb(w, x)
     w = w2
     line = line + " " + e
@@ -71,9 +118,23 @@ fn main() {
     Err(e) => print("FORM " + e),
     Ok(f) => {
       print("FORM <nil>")
-      for kv in sort_with(f.value, (a, c) => if a.0 < c.0 { -1 } else if a.0 > c.0 { 1 } else { 0 }) { print("  V " + q(kv.0) + " [" + join(map(kv.1, q), " ") + "]") }
+      for kv in sort_with(f.value, (a, c) => if a.0 < c.0 {
+        -1
+      } else if a.0 > c.0 {
+        1
+      } else {
+        0
+      }) {
+        print("  V " + q(kv.0) + " [" + join(map(kv.1, q), " ") + "]")
+      }
       for kv in f.file {
-        for fh in kv.1 { print("  F " + q(kv.0) + " " + q(fh.filename) + " {fh.size} " + qb(fh.content) + " " + hdr(fh.header)) }
+        for fh in kv.1 {
+          print(
+            "  F " + q(kv.0) + " " + q(fh.filename) + " {fh.size} " + qb(fh.content) + " " + hdr(
+              fh.header,
+            ),
+          )
+        }
       }
     },
   }

@@ -4,32 +4,32 @@ enum Shape { Circle(Float), Rect(Float, Float, Float) }
 impl Shape {
   fn kind(self) -> Str {
     match self {
-      Self.Circle(_)   => "circle",
+      Self.Circle(_) => "circle",
       Self.Rect(w, ..) => "rect {w}",
     }
   }
 }
 fn classify(n: Int) -> Str {
   match n {
-    MAX           => "max",
-    NEG           => "neg3",
-    ..0           => "negative",
+    MAX => "max",
+    NEG => "neg3",
+    ..0 => "negative",
     small @ 1..=8 => "small {small}",
-    100..         => "huge",
-    _             => "mid",
+    100.. => "huge",
+    _ => "mid",
   }
 }
 fn ch(c: Str) -> Str {
   match c {
     'a'..='z' => "lower",
     'A'..='Z' => "upper",
-    _         => "other",
+    _ => "other",
   }
 }
 fn ends(xs: List<Int>) -> Str {
   match xs {
-    []                   => "empty",
-    [x]                  => "one {x}",
+    [] => "empty",
+    [x] => "one {x}",
     [first, ..mid, last] => "{first} {mid} {last}",
   }
 }
@@ -53,9 +53,9 @@ fn main() {
 
 fn sum_tail(xs: List<Int>) -> Int {
   match xs {
-    []         => 0
+    [] => 0
     [.., a, b] => a + b
-    [x]        => x
+    [x] => x
   }
 }
 

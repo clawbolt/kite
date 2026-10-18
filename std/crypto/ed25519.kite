@@ -21,11 +21,24 @@ pub type Options = { hash: Int, context: Str }
 fn p_big() -> BigInt { big.one().lsh(255).sub(big.new_int(19)) }
 
 // ── 域 GF(2^255 - 19)：10 个分量，交替 26 / 25 位（ref10 的表示），乘法展开成直线代码 ──
-fn c_d() -> List<Int> { [56195235, 13857412, 51736253, 6949390, 114729, 24766616, 60832955, 30306712, 48412415, 21499315] }
-fn c_d2() -> List<Int> { [45281625, 27714825, 36363642, 13898781, 229458, 15978800, 54557047, 27058993, 29715967, 9444199] }
-fn c_sqrtm1() -> List<Int> { [34513072, 25610706, 9377949, 3500415, 12389472, 33281959, 41962654, 31548777, 326685, 11406482] }
-fn c_bx() -> List<Int> { [52811034, 25909283, 16144682, 17082669, 27570973, 30858332, 40966398, 8378388, 20764389, 8758491] }
-fn c_by() -> List<Int> { [40265304, 26843545, 13421772, 20132659, 26843545, 6710886, 53687091, 13421772, 40265318, 26843545] }
+fn c_d() -> List<Int> {
+  [56195235, 13857412, 51736253, 6949390, 114729, 24766616, 60832955, 30306712, 48412415, 21499315]
+}
+fn c_d2() -> List<Int> {
+  [45281625, 27714825, 36363642, 13898781, 229458, 15978800, 54557047, 27058993, 29715967, 9444199]
+}
+fn c_sqrtm1() -> List<Int> {
+  [34513072, 25610706, 9377949, 3500415, 12389472, 33281959, 41962654, 31548777, 326685, 11406482]
+}
+fn c_bx() -> List<Int> {
+  [52811034, 25909283, 16144682, 17082669, 27570973, 30858332, 40966398, 8378388, 20764389, 8758491]
+}
+fn c_by() -> List<Int> {
+  [
+    40265304, 26843545, 13421772, 20132659, 26843545, 6710886, 53687091, 13421772, 40265318,
+    26843545,
+  ]
+}
 fn fmul(f: List<Int>, g: List<Int>) -> List<Int> {
   let f0 = f[0]
   let f1 = f[1]
@@ -61,20 +74,41 @@ fn fmul(f: List<Int>, g: List<Int>) -> List<Int> {
   let f5_2 = 2 * f5
   let f7_2 = 2 * f7
   let f9_2 = 2 * f9
-  var h0 = f0 * g0 + f1_2 * g9_19 + f2 * g8_19 + f3_2 * g7_19 + f4 * g6_19 + f5_2 * g5_19 + f6 * g4_19 + f7_2 * g3_19 + f8 * g2_19 + f9_2 * g1_19
-  var h1 = f0 * g1 + f1 * g0 + f2 * g9_19 + f3 * g8_19 + f4 * g7_19 + f5 * g6_19 + f6 * g5_19 + f7 * g4_19 + f8 * g3_19 + f9 * g2_19
-  var h2 = f0 * g2 + f1_2 * g1 + f2 * g0 + f3_2 * g9_19 + f4 * g8_19 + f5_2 * g7_19 + f6 * g6_19 + f7_2 * g5_19 + f8 * g4_19 + f9_2 * g3_19
-  var h3 = f0 * g3 + f1 * g2 + f2 * g1 + f3 * g0 + f4 * g9_19 + f5 * g8_19 + f6 * g7_19 + f7 * g6_19 + f8 * g5_19 + f9 * g4_19
-  var h4 = f0 * g4 + f1_2 * g3 + f2 * g2 + f3_2 * g1 + f4 * g0 + f5_2 * g9_19 + f6 * g8_19 + f7_2 * g7_19 + f8 * g6_19 + f9_2 * g5_19
-  var h5 = f0 * g5 + f1 * g4 + f2 * g3 + f3 * g2 + f4 * g1 + f5 * g0 + f6 * g9_19 + f7 * g8_19 + f8 * g7_19 + f9 * g6_19
-  var h6 = f0 * g6 + f1_2 * g5 + f2 * g4 + f3_2 * g3 + f4 * g2 + f5_2 * g1 + f6 * g0 + f7_2 * g9_19 + f8 * g8_19 + f9_2 * g7_19
-  var h7 = f0 * g7 + f1 * g6 + f2 * g5 + f3 * g4 + f4 * g3 + f5 * g2 + f6 * g1 + f7 * g0 + f8 * g9_19 + f9 * g8_19
-  var h8 = f0 * g8 + f1_2 * g7 + f2 * g6 + f3_2 * g5 + f4 * g4 + f5_2 * g3 + f6 * g2 + f7_2 * g1 + f8 * g0 + f9_2 * g9_19
-  var h9 = f0 * g9 + f1 * g8 + f2 * g7 + f3 * g6 + f4 * g5 + f5 * g4 + f6 * g3 + f7 * g2 + f8 * g1 + f9 * g0
+  var h0 =
+    f0 * g0 + f1_2 * g9_19 + f2 * g8_19 + f3_2 * g7_19 + f4 * g6_19 + f5_2 * g5_19 + f6 * g4_19 + f7_2 * g3_19 + f8 * g2_19 + f9_2 * g1_19
+  var h1 =
+    f0 * g1 + f1 * g0 + f2 * g9_19 + f3 * g8_19 + f4 * g7_19 + f5 * g6_19 + f6 * g5_19 + f7 * g4_19 + f8 * g3_19 + f9 * g2_19
+  var h2 =
+    f0 * g2 + f1_2 * g1 + f2 * g0 + f3_2 * g9_19 + f4 * g8_19 + f5_2 * g7_19 + f6 * g6_19 + f7_2 * g5_19 + f8 * g4_19 + f9_2 * g3_19
+  var h3 =
+    f0 * g3 + f1 * g2 + f2 * g1 + f3 * g0 + f4 * g9_19 + f5 * g8_19 + f6 * g7_19 + f7 * g6_19 + f8 * g5_19 + f9 * g4_19
+  var h4 =
+    f0 * g4 + f1_2 * g3 + f2 * g2 + f3_2 * g1 + f4 * g0 + f5_2 * g9_19 + f6 * g8_19 + f7_2 * g7_19 + f8 * g6_19 + f9_2 * g5_19
+  var h5 =
+    f0 * g5 + f1 * g4 + f2 * g3 + f3 * g2 + f4 * g1 + f5 * g0 + f6 * g9_19 + f7 * g8_19 + f8 * g7_19 + f9 * g6_19
+  var h6 =
+    f0 * g6 + f1_2 * g5 + f2 * g4 + f3_2 * g3 + f4 * g2 + f5_2 * g1 + f6 * g0 + f7_2 * g9_19 + f8 * g8_19 + f9_2 * g7_19
+  var h7 =
+    f0 * g7 + f1 * g6 + f2 * g5 + f3 * g4 + f4 * g3 + f5 * g2 + f6 * g1 + f7 * g0 + f8 * g9_19 + f9 * g8_19
+  var h8 =
+    f0 * g8 + f1_2 * g7 + f2 * g6 + f3_2 * g5 + f4 * g4 + f5_2 * g3 + f6 * g2 + f7_2 * g1 + f8 * g0 + f9_2 * g9_19
+  var h9 =
+    f0 * g9 + f1 * g8 + f2 * g7 + f3 * g6 + f4 * g5 + f5 * g4 + f6 * g3 + f7 * g2 + f8 * g1 + f9 * g0
   fcarry(h0, h1, h2, h3, h4, h5, h6, h7, h8, h9)
 }
 
-fn fcarry(a0: Int, a1: Int, a2: Int, a3: Int, a4: Int, a5: Int, a6: Int, a7: Int, a8: Int, a9: Int) -> List<Int> {
+fn fcarry(
+  a0: Int,
+  a1: Int,
+  a2: Int,
+  a3: Int,
+  a4: Int,
+  a5: Int,
+  a6: Int,
+  a7: Int,
+  a8: Int,
+  a9: Int,
+) -> List<Int> {
   var h0 = a0
   var h1 = a1
   var h2 = a2
@@ -124,12 +158,40 @@ fn fcarry(a0: Int, a1: Int, a2: Int, a3: Int, a4: Int, a5: Int, a6: Int, a7: Int
   [h0, h1, h2, h3, h4, h5, h6, h7, h8, h9]
 }
 
-fn fadd(a: List<Int>, b: List<Int>) -> List<Int> { [a[0] + b[0], a[1] + b[1], a[2] + b[2], a[3] + b[3], a[4] + b[4], a[5] + b[5], a[6] + b[6], a[7] + b[7], a[8] + b[8], a[9] + b[9]] }
+fn fadd(a: List<Int>, b: List<Int>) -> List<Int> {
+  [
+    a[0] + b[0],
+    a[1] + b[1],
+    a[2] + b[2],
+    a[3] + b[3],
+    a[4] + b[4],
+    a[5] + b[5],
+    a[6] + b[6],
+    a[7] + b[7],
+    a[8] + b[8],
+    a[9] + b[9],
+  ]
+}
 
-fn fsub(a: List<Int>, b: List<Int>) -> List<Int> { [a[0] - b[0], a[1] - b[1], a[2] - b[2], a[3] - b[3], a[4] - b[4], a[5] - b[5], a[6] - b[6], a[7] - b[7], a[8] - b[8], a[9] - b[9]] }
+fn fsub(a: List<Int>, b: List<Int>) -> List<Int> {
+  [
+    a[0] - b[0],
+    a[1] - b[1],
+    a[2] - b[2],
+    a[3] - b[3],
+    a[4] - b[4],
+    a[5] - b[5],
+    a[6] - b[6],
+    a[7] - b[7],
+    a[8] - b[8],
+    a[9] - b[9],
+  ]
+}
 
 // 加减之后重新压回范围
-fn fnorm(a: List<Int>) -> List<Int> { fcarry(a[0], a[1], a[2], a[3], a[4], a[5], a[6], a[7], a[8], a[9]) }
+fn fnorm(a: List<Int>) -> List<Int> {
+  fcarry(a[0], a[1], a[2], a[3], a[4], a[5], a[6], a[7], a[8], a[9])
+}
 
 fn fsq(a: List<Int>) -> List<Int> { fmul(a, a) }
 
@@ -220,11 +282,17 @@ fn one_fe() -> List<Int> { set(zero_fe(), 0, 1) }
 
 // ── 常量 ──
 
-fn l_big() -> BigInt { unwrap(big.parse("7237005577332262213973186563042994240857116359379907606001950938285454250989", 10)) }
+fn l_big() -> BigInt {
+  unwrap(
+    big.parse("7237005577332262213973186563042994240857116359379907606001950938285454250989", 10),
+  )
+}
 
 pub type Consts = { d: List<Int>, d2: List<Int>, sqrtm1: List<Int>, bx: List<Int>, by: List<Int> }
 
-fn make_consts() -> Consts { Consts { d: c_d(), d2: c_d2(), sqrtm1: c_sqrtm1(), bx: c_bx(), by: c_by() } }
+fn make_consts() -> Consts {
+  Consts { d: c_d(), d2: c_d2(), sqrtm1: c_sqrtm1(), bx: c_bx(), by: c_by() }
+}
 
 // ── 点（扩展坐标 X, Y, Z, T） ──
 
@@ -377,7 +445,9 @@ fn sign_dom(priv: List<Int>, msg: List<Int>, prefix: Int, context: Str) -> List<
 
 // Sign；私钥长度不对时 Go 会 panic
 pub fn sign(priv: List<Int>, msg: List<Int>) -> Result<List<Int>, Str> {
-  if len(priv) != PRIVATE_KEY_SIZE { return Err("ed25519: bad private key: ed25519: bad private key length: {len(priv)}") }
+  if len(priv) != PRIVATE_KEY_SIZE {
+    return Err("ed25519: bad private key: ed25519: bad private key length: {len(priv)}")
+  }
   Ok(sign_dom(priv, msg, 0, ""))
 }
 
@@ -395,10 +465,20 @@ pub fn sign_with_options(priv: List<Int>, msg: List<Int>, o: Options) -> Result<
     return Ok(sign_dom(priv, msg, 1, o.context))
   }
   if o.hash == HASH_NONE { return Ok(sign_dom(priv, msg, 0, "")) }
-  Err("ed25519: expected opts.HashFunc() zero (unhashed message, for standard Ed25519) or SHA-512 (for Ed25519ph)")
+  Err(
+    "ed25519: expected opts.HashFunc() zero (unhashed message, for standard Ed25519) or SHA-512 (for Ed25519ph)",
+  )
 }
 
-fn verify_dom(neg_a: Pt, pub_: List<Int>, msg: List<Int>, sig: List<Int>, prefix: Int, context: Str, k: Consts) -> Result<(), Str> {
+fn verify_dom(
+  neg_a: Pt,
+  pub_: List<Int>,
+  msg: List<Int>,
+  sig: List<Int>,
+  prefix: Int,
+  context: Str,
+  k: Consts,
+) -> Result<(), Str> {
   if len(sig) != SIGNATURE_SIZE { return Err("ed25519: bad signature length: {len(sig)}") }
   if (sig[63] & 224) != 0 { return Err("ed25519: invalid signature") }
   let kk = reduce_uniform(sha512.digest(dom(prefix, context) + sig[..32] + pub_ + msg))
@@ -410,7 +490,12 @@ fn verify_dom(neg_a: Pt, pub_: List<Int>, msg: List<Int>, sig: List<Int>, prefix
 }
 
 // VerifyWithOptions；公钥长度不对时 Go 会 panic，这里返回同样文字的 Err
-pub fn verify_with_options(pub_: List<Int>, msg: List<Int>, sig: List<Int>, o: Options) -> Result<(), Str> {
+pub fn verify_with_options(
+  pub_: List<Int>,
+  msg: List<Int>,
+  sig: List<Int>,
+  o: Options,
+) -> Result<(), Str> {
   if len(pub_) != PUBLIC_KEY_SIZE { return Err("ed25519: bad public key length: {len(pub_)}") }
   let k = make_consts()
   let Some(neg_a) = decode_neg(pub_, k) else { return Err("ed25519: bad public key") }
@@ -425,7 +510,9 @@ pub fn verify_with_options(pub_: List<Int>, msg: List<Int>, sig: List<Int>, o: O
     return verify_dom(neg_a, pub_, msg, sig, 1, o.context, k)
   }
   if o.hash == HASH_NONE { return verify_dom(neg_a, pub_, msg, sig, 0, "", k) }
-  Err("ed25519: expected opts.Hash zero (unhashed message, for standard Ed25519) or SHA-512 (for Ed25519ph)")
+  Err(
+    "ed25519: expected opts.Hash zero (unhashed message, for standard Ed25519) or SHA-512 (for Ed25519ph)",
+  )
 }
 
 // Verify（公钥长度不对时 Go 会 panic，这里按验证失败处理）

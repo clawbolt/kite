@@ -71,7 +71,17 @@ fn vcmp(a: Ver, b: Ver) -> Int {
 
 fn pre_ok(s: Str) -> Bool {
   if s == "" { return false }
-  for c in chars(s) { if !((c >= "0" && c <= "9") || (c >= "A" && c <= "Z") || (c >= "a" && c <= "z") || c == "." || c == "-") { return false } }
+  for c in chars(s) {
+    if !(
+      (c >= "0" && c <= "9")
+        || (c >= "A" && c <= "Z")
+        || (c >= "a" && c <= "z")
+        || c == "."
+        || c == "-"
+    ) {
+      return false
+    }
+  }
   true
 }
 
@@ -84,14 +94,24 @@ pub fn parse_version(s0: Str) -> Result<Ver, Str> {
   if i >= 0 && !pre_ok(pre) { return Err(bad) }
   let ps = split(core, ".")
   if len(ps) != 3 || !all(ps, all_digits) { return Err(bad) }
-  Ok((unwrap(parse_int(ps[0])), unwrap(parse_int(ps[1])), unwrap(parse_int(ps[2])), if pre != "" { 0 } else { 1 }, pre))
+  Ok(
+    (
+      unwrap(parse_int(ps[0])),
+      unwrap(parse_int(ps[1])),
+      unwrap(parse_int(ps[2])),
+      if pre != "" { 0 } else { 1 },
+      pre,
+    ),
+  )
 }
 
 pub fn vstr(v: Ver) -> Str { "{v.0}.{v.1}.{v.2}" + (if v.4 != "" { "-" + v.4 } else { "" }) }
 
 fn partial(s: Str) -> Result<(List<Int>, Int), Str> {
   let parts = split(trim(s), ".")
-  if len(parts) < 1 || len(parts) > 3 || !all(parts, all_digits) { return Err("无效的版本约束 {rpr(s)}") }
+  if len(parts) < 1 || len(parts) > 3 || !all(parts, all_digits) {
+    return Err("无效的版本约束 {rpr(s)}")
+  }
   var nums = map(parts, (p) => unwrap(parse_int(p)))
   let n = len(nums)
   while len(nums) < 3 { nums = push(nums, 0) }
@@ -101,7 +121,17 @@ fn partial(s: Str) -> Result<(List<Int>, Int), Str> {
 fn ver_tail_ok(s: Str) -> Bool {
   let cs = chars(s)
   if len(cs) == 0 || !is_digit(cs[0]) { return false }
-  for c in cs { if !((c >= "0" && c <= "9") || (c >= "A" && c <= "Z") || (c >= "a" && c <= "z") || c == "." || c == "-") { return false } }
+  for c in cs {
+    if !(
+      (c >= "0" && c <= "9")
+        || (c >= "A" && c <= "Z")
+        || (c >= "a" && c <= "z")
+        || c == "."
+        || c == "-"
+    ) {
+      return false
+    }
+  }
   true
 }
 
@@ -117,7 +147,12 @@ pub fn parse_constraint(c0: Str) -> Result<List<(Str, Ver)>, Str> {
       if op == "" && starts_with(part, o) { op = o }
     }
     let ver = trim(__str_slice(part, len(op), len(part)))
-    if !ver_tail_ok(ver) || (op != "" && ver != __str_slice(part, len(op), len(part)) && trim(__str_slice(part, len(op), len(part))) != ver) {
+    if !ver_tail_ok(ver)
+      || (
+        op != ""
+          && ver != __str_slice(part, len(op), len(part))
+          && trim(__str_slice(part, len(op), len(part))) != ver
+      ) {
       return Err("无效的版本约束 {rpr(part)}")
     }
     if op == "" { op = "^" }
@@ -136,7 +171,13 @@ pub fn parse_constraint(c0: Str) -> Result<List<(Str, Ver)>, Str> {
       lo = (nums[0], nums[1], nums[2], 0, "")
     }
     if op == "^" {
-      let hi = if nums[0] > 0 || n == 1 { (nums[0] + 1, 0, 0, 0, "") } else if nums[1] > 0 || n == 2 { (0, nums[1] + 1, 0, 0, "") } else { (0, 0, nums[2] + 1, 0, "") }
+      let hi = if nums[0] > 0 || n == 1 {
+        (nums[0] + 1, 0, 0, 0, "")
+      } else if nums[1] > 0 || n == 2 {
+        (0, nums[1] + 1, 0, 0, "")
+      } else {
+        (0, 0, nums[2] + 1, 0, "")
+      }
       out = out + [(">=", lo), ("<", hi)]
     } else if op == "~" {
       let hi = if n == 1 { (nums[0] + 1, 0, 0, 0, "") } else { (nums[0], nums[1] + 1, 0, 0, "") }
@@ -145,7 +186,11 @@ pub fn parse_constraint(c0: Str) -> Result<List<(Str, Ver)>, Str> {
       if n < 3 { return Err("= 约束需要完整版本号: {rpr(part)}") }
       out = push(out, ("=", parse_version(ver)?))
     } else {
-      out = push(out, (op, if op == ">=" || op == "<" || lo.4 != "" { lo } else { (nums[0], nums[1], nums[2], 1, "") }))
+      out = push(out, (op, if op == ">=" || op == "<" || lo.4 != "" {
+        lo
+      } else {
+        (nums[0], nums[1], nums[2], 1, "")
+      }))
     }
   }
   Ok(out)
@@ -168,7 +213,7 @@ pub fn satisfies(v: Ver, cons: List<(Str, Ver)>) -> Bool {
 fn sat_str(v: Str, c: Str) -> Bool {
   match (parse_version(v), parse_constraint(c)) {
     (Ok(a), Ok(b)) => satisfies(a, b),
-    _              => false,
+    _ => false,
   }
 }
 
@@ -178,7 +223,9 @@ fn max_ver(vs: List<Str>) -> Str {
   best
 }
 
-fn sort_vers(vs: List<Str>) -> List<Str> { sort_with(vs, (a, b) => vcmp(unwrap(parse_version(a)), unwrap(parse_version(b)))) }
+fn sort_vers(vs: List<Str>) -> List<Str> {
+  sort_with(vs, (a, b) => vcmp(unwrap(parse_version(a)), unwrap(parse_version(b))))
+}
 
 // ───────────────────────── 极简 TOML（kite.toml / kite.lock 用到的子集）─────────────────────────
 // 字符串、整数、布尔、数组、内联表；[表] 与 [[表数组]]；# 注释。表保持键的书写顺序。
@@ -234,12 +281,20 @@ fn tskip(p0: Tp, nl: Bool) -> Tp {
   p
 }
 
-fn bare_char(c: Str) -> Bool { (c >= "a" && c <= "z") || (c >= "A" && c <= "Z") || (c >= "0" && c <= "9") || c == "_" || c == "-" }
+fn bare_char(c: Str) -> Bool {
+  (c >= "a" && c <= "z") || (c >= "A" && c <= "Z") || (c >= "0" && c <= "9") || c == "_" || c == "-"
+}
 
 fn hexval(s: Str) -> Int? {
   var v = 0
   for c in chars(lower(s)) {
-    let d = if c >= "0" && c <= "9" { __ord(c) - 48 } else if c >= "a" && c <= "f" { __ord(c) - 87 } else { return None }
+    let d = if c >= "0" && c <= "9" {
+      __ord(c) - 48
+    } else if c >= "a" && c <= "f" {
+      __ord(c) - 87
+    } else {
+      return None
+    }
     v = v * 16 + d
   }
   Some(v)
@@ -259,13 +314,31 @@ fn tstring(p0: Tp) -> Result<(Tp, Str), Str> {
         let w = if d == "u" { 4 } else { 8 }
         let hx = join(p.cs[min(p.i + 2, len(p.cs))..min(p.i + 2 + w, len(p.cs))], "")
         match hexval(hx) {
-          Some(v) => { if len(hx) == w { out = out + __chr(v) } else { return Err(terr(p, "无效的转义")) } },
-          None    => { return Err(terr(p, "无效的转义")) },
+          Some(v) => {
+            if len(hx) == w { out = out + __chr(v) } else { return Err(terr(p, "无效的转义")) }
+          },
+          None => { return Err(terr(p, "无效的转义")) },
         }
         p = Tp { i: p.i + 2 + w, ..p }
         continue
       }
-      let e = if d == "n" { "\n" } else if d == "t" { "\t" } else if d == "r" { "\r" } else if d == "b" { "\x08" } else if d == "f" { "\x0c" } else if d == "\"" { "\"" } else if d == "\\" { "\\" } else { return Err(terr(p, "无效的转义 \\" + d)) }
+      let e = if d == "n" {
+        "\n"
+      } else if d == "t" {
+        "\t"
+      } else if d == "r" {
+        "\r"
+      } else if d == "b" {
+        "\x08"
+      } else if d == "f" {
+        "\x0c"
+      } else if d == "\"" {
+        "\""
+      } else if d == "\\" {
+        "\\"
+      } else {
+        return Err(terr(p, "无效的转义 \\" + d))
+      }
       out = out + e
       p = Tp { i: p.i + 2, ..p }
       continue
@@ -334,7 +407,7 @@ fn tvalue(p0: Tp) -> Result<(Tp, Tv), Str> {
   if w == "true" { return Ok((Tp { i: j, ..p }, TBool(true))) }
   if w == "false" { return Ok((Tp { i: j, ..p }, TBool(false))) }
   match parse_int(replace(w, "_", "")) {
-    Ok(n)  => Ok((Tp { i: j, ..p }, TInt(n))),
+    Ok(n) => Ok((Tp { i: j, ..p }, TInt(n))),
     Err(_) => Err(terr(p, "无法识别的值")),
   }
 }
@@ -354,13 +427,15 @@ fn toml_parse(src: Str) -> Result<List<(Str, Tv)>, Str> {
       let (p2, name) = tkey(Tp { i: p.i + (if dbl { 2 } else { 1 }), ..p })?
       var p3 = tskip(p2, false)
       let close = if dbl { "]]" } else { "]" }
-      if join(p3.cs[p3.i..min(p3.i + len(close), len(p3.cs))], "") != close { return Err(terr(p3, "表头缺少 {close}")) }
+      if join(p3.cs[p3.i..min(p3.i + len(close), len(p3.cs))], "") != close {
+        return Err(terr(p3, "表头缺少 {close}"))
+      }
       p = Tp { i: p3.i + len(close), ..p3 }
       if dbl {
         let prev = match tget(root, name) {
           Some(TArr(xs)) => xs,
-          None           => [],
-          _              => { return Err(terr(p, "{name} 已经定义成别的类型")) },
+          None => [],
+          _ => { return Err(terr(p, "{name} 已经定义成别的类型")) },
         }
         root = tset(root, name, TArr(push(prev, TTab([]))))
       } else {
@@ -368,7 +443,7 @@ fn toml_parse(src: Str) -> Result<List<(Str, Tv)>, Str> {
         defined = push(defined, name)
         match tget(root, name) {
           None => { root = tset(root, name, TTab([])) },
-          _    => { return Err(terr(p, "表 [{name}] 重复定义")) },
+          _ => { return Err(terr(p, "表 [{name}] 重复定义")) },
         }
       }
       cur = name
@@ -388,18 +463,18 @@ fn toml_parse(src: Str) -> Result<List<(Str, Tv)>, Str> {
     } else if arr {
       let xs = match tget(root, cur) {
         Some(TArr(x)) => x,
-        _             => [],
+        _ => [],
       }
       let last = match xs[len(xs) - 1] {
         TTab(t) => t,
-        _       => [],
+        _ => [],
       }
       if is_some(tget(last, k)) { return Err(terr(p, "重复的键 {k}")) }
       root = tset(root, cur, TArr(set(xs, len(xs) - 1, TTab(push(last, (k, v))))))
     } else {
       let t = match tget(root, cur) {
         Some(TTab(x)) => x,
-        _             => [],
+        _ => [],
       }
       if is_some(tget(t, k)) { return Err(terr(p, "重复的键 {k}")) }
       root = tset(root, cur, TTab(push(t, (k, v))))
@@ -411,14 +486,14 @@ fn toml_parse(src: Str) -> Result<List<(Str, Tv)>, Str> {
 fn tstr(v: Tv?) -> Str? {
   match v {
     Some(TStr(s)) => Some(s),
-    _             => None,
+    _ => None,
   }
 }
 
 fn ttab(v: Tv?) -> List<(Str, Tv)> {
   match v {
     Some(TTab(t)) => t,
-    _             => [],
+    _ => [],
   }
 }
 
@@ -427,7 +502,29 @@ fn toml_str(s: Str) -> Str {
   var out = "\""
   for c in chars(s) {
     let o = __ord(c)
-    out = out + (if c == "\"" { "\\\"" } else if c == "\\" { "\\\\" } else if o == 10 { "\\n" } else if o == 13 { "\\r" } else if o == 9 { "\\t" } else if o == 8 { "\\b" } else if o == 12 { "\\f" } else if o < 32 { "\\u00" + (if o < 16 { "0" } else { "1" }) + __str_slice("0123456789abcdef", o % 16, o % 16 + 1) } else { c })
+    out = out + (if c == "\"" {
+      "\\\""
+    } else if c == "\\" {
+      "\\\\"
+    } else if o == 10 {
+      "\\n"
+    } else if o == 13 {
+      "\\r"
+    } else if o == 9 {
+      "\\t"
+    } else if o == 8 {
+      "\\b"
+    } else if o == 12 {
+      "\\f"
+    } else if o < 32 {
+      "\\u00" + (if o < 16 { "0" } else { "1" }) + __str_slice(
+        "0123456789abcdef",
+        o % 16,
+        o % 16 + 1,
+      )
+    } else {
+      c
+    })
   }
   out + "\""
 }
@@ -443,12 +540,18 @@ fn dget(ds: List<(Str, Dep)>, k: Str) -> Dep? {
 }
 
 fn dset(ds: List<(Str, Dep)>, k: Str, d: Dep) -> List<(Str, Dep)> {
-  if is_some(dget(ds, k)) { map(ds, (x) => if x.0 == k { (k, d) } else { x }) } else { push(ds, (k, d)) }
+  if is_some(dget(ds, k)) {
+    map(ds, (x) => if x.0 == k { (k, d) } else { x })
+  } else {
+    push(ds, (k, d))
+  }
 }
 
 fn sorted_deps(ds: List<(Str, Dep)>) -> List<(Str, Dep)> { sort_by(ds, (x) => x.0) }
 
-fn abspath(p: Str) -> Str { path.clean(if path.is_abs(p) { p } else { path.join([__getcwd(), p]) }) }
+fn abspath(p: Str) -> Str {
+  path.clean(if path.is_abs(p) { p } else { path.join([__getcwd(), p]) })
+}
 
 pub fn find_root(start: Str) -> Str? {
   var d = abspath(start)
@@ -464,21 +567,21 @@ pub fn find_root(start: Str) -> Str? {
 pub fn read_manifest(root: Str) -> Result<Manifest, Str> {
   let p = path.join([root, MANIFEST])
   let src = match fs.read(p) {
-    Ok(s)  => s,
+    Ok(s) => s,
     Err(e) => { return Err("{p}: {e}") },
   }
   let data = match toml_parse(src) {
-    Ok(d)  => d,
+    Ok(d) => d,
     Err(e) => { return Err("{p}: TOML 格式错误: {e}") },
   }
   let pk = ttab(tget(data, "package"))
   let name = match tstr(tget(pk, "name")) {
     Some(n) => n,
-    None    => "",
+    None => "",
   }
   let ver = match tstr(tget(pk, "version")) {
     Some(v) => v,
-    None    => "0.1.0",
+    None => "0.1.0",
   }
   if !valid_name(name) { return Err("{p}: [package] name 必须是小写字母开头的标识符") }
   let _ = parse_version(ver)?
@@ -486,26 +589,33 @@ pub fn read_manifest(root: Str) -> Result<Manifest, Str> {
   for (dn, spec) in ttab(tget(data, "dependencies")) {
     if !valid_name(dn) { return Err("{p}: 无效的依赖名 {rpr(dn)}") }
     match spec {
-      TStr(s)  => {
+      TStr(s) => {
         let _ = parse_constraint(s)?
         deps = push(deps, (dn, Dep { path: "", version: s }))
       },
-      TTab(t)  => {
+      TTab(t) => {
         let pv = tstr(tget(t, "path"))
         let vv = tstr(tget(t, "version"))
-        if is_none(pv) && is_none(vv) { return Err("{p}: 依赖 {dn} 的写法不对（应为 \"^1.0\" 或 \{ path = \"...\" \}）") }
+        if is_none(pv) && is_none(vv) {
+          return Err("{p}: 依赖 {dn} 的写法不对（应为 \"^1.0\" 或 \{ path = \"...\" \}）")
+        }
         if let Some(v) = vv { let _ = parse_constraint(v)? }
         deps = push(deps, (dn, Dep { path: unwrap_or(pv, ""), version: unwrap_or(vv, "") }))
       },
-      _        => { return Err("{p}: 依赖 {dn} 的写法不对（应为 \"^1.0\" 或 \{ path = \"...\" \}）") },
+      _ => { return Err("{p}: 依赖 {dn} 的写法不对（应为 \"^1.0\" 或 \{ path = \"...\" \}）") },
     }
   }
-  Ok(Manifest { name: name, version: ver, deps: deps, desc: unwrap_or(tstr(tget(pk, "description")), "") })
+  Ok(Manifest {
+    name: name,
+    version: ver,
+    deps: deps,
+    desc: unwrap_or(tstr(tget(pk, "description")), ""),
+  })
 }
 
 fn write_text(p: Str, s: Str) -> Result<(), Str> {
   match fs.write(p, s) {
-    Ok(_)  => Ok(()),
+    Ok(_) => Ok(()),
     Err(e) => Err("写入 {p} 失败: {e}"),
   }
 }
@@ -528,32 +638,38 @@ fn read_lock(root: Str) -> Result<Map<Str, Entry>?, Str> {
   let p = path.join([root, LOCK_NAME])
   if !fs.exists(p) { return Ok(None) }
   let src = match fs.read(p) {
-    Ok(s)  => s,
+    Ok(s) => s,
     Err(e) => { return Err("{p}: {e}") },
   }
   let data = match toml_parse(src) {
-    Ok(d)  => d,
+    Ok(d) => d,
     Err(e) => { return Err("{p}: TOML 格式错误: {e}") },
   }
   var out: Map<Str, Entry> = Map()
   let pkgs = match tget(data, "package") {
     Some(TArr(xs)) => xs,
-    _              => [],
+    _ => [],
   }
   for x in pkgs {
     let t = match x {
       TTab(t) => t,
-      _       => [],
+      _ => [],
     }
     let deps = match tget(t, "dependencies") {
       Some(TArr(ds)) => map(ds, (d) => match d {
         TStr(s) => s,
-        _       => "",
+        _ => "",
       }),
-      _              => [],
+      _ => [],
     }
     let name = unwrap_or(tstr(tget(t, "name")), "")
-    out = set(out, name, Entry { version: unwrap_or(tstr(tget(t, "version")), ""), source: unwrap_or(tstr(tget(t, "source")), ""), checksum: unwrap_or(tstr(tget(t, "checksum")), ""), deps: deps, dir: "" })
+    out = set(out, name, Entry {
+      version: unwrap_or(tstr(tget(t, "version")), ""),
+      source: unwrap_or(tstr(tget(t, "source")), ""),
+      checksum: unwrap_or(tstr(tget(t, "checksum")), ""),
+      deps: deps,
+      dir: "",
+    })
   }
   Ok(Some(out))
 }
@@ -562,7 +678,13 @@ fn write_lock(root: Str, pkgs: Map<Str, Entry>) -> Result<(), Str> {
   var lines = ["# 由 kite get 自动生成，请勿手改；提交到版本库以保证可复现构建", "version = 1"]
   for name in sort(keys(pkgs)) {
     let p = unwrap(get(pkgs, name))
-    lines = lines + ["", "[[package]]", "name = {toml_str(name)}", "version = {toml_str(p.version)}", "source = {toml_str(p.source)}"]
+    lines = lines + [
+      "",
+      "[[package]]",
+      "name = {toml_str(name)}",
+      "version = {toml_str(p.version)}",
+      "source = {toml_str(p.source)}",
+    ]
     if p.checksum != "" { lines = push(lines, "checksum = {toml_str(p.checksum)}") }
     lines = push(lines, "dependencies = [" + join(map(sort(p.deps), toml_str), ", ") + "]")
   }
@@ -582,23 +704,26 @@ fn registry_index(name: Str) -> Result<List<(Str, VInfo)>?, Str> {
   let p = path.join([registry_dir(), "index", name + ".json"])
   if !fs.exists(p) { return Ok(None) }
   let src = match fs.read(p) {
-    Ok(s)  => s,
+    Ok(s) => s,
     Err(e) => { return Err("{p}: {e}") },
   }
   let j = match json.parse(src) {
-    Ok(x)  => x,
+    Ok(x) => x,
     Err(e) => { return Err("{p}: {e}") },
   }
   let vs = match json.field(j, "versions") {
     Some(JObj(m)) => m,
-    _                  => Map(),
+    _ => Map(),
   }
   var out: List<(Str, VInfo)> = []
   for v in sort_vers(keys(vs)) {
     let info = unwrap(get(vs, v))
     let ds = match json.field(info, "deps") {
-      Some(JObj(m)) => map(sort(keys(m)), (k) => (k, unwrap_or(json.as_str(unwrap(get(m, k))), ""))),
-      _                  => [],
+      Some(JObj(m)) => map(
+        sort(keys(m)),
+        (k) => (k, unwrap_or(json.as_str(unwrap(get(m, k))), "")),
+      ),
+      _ => [],
     }
     out = push(out, (v, VInfo { sha256: jstr(info, "sha256"), file: jstr(info, "file"), deps: ds }))
   }
@@ -608,7 +733,7 @@ fn registry_index(name: Str) -> Result<List<(Str, VInfo)>?, Str> {
 fn jstr(j: json.Json, k: Str) -> Str {
   match json.field(j, k) {
     Some(x) => unwrap_or(json.as_str(x), ""),
-    None    => "",
+    None => "",
   }
 }
 
@@ -619,21 +744,21 @@ fn vget(idx: List<(Str, VInfo)>, v: Str) -> VInfo? {
 
 fn read_bin(p: Str) -> Result<List<Int>, Str> {
   match os.read_bytes(p) {
-    Ok(b)  => Ok(b),
+    Ok(b) => Ok(b),
     Err(e) => Err("读取 {p} 失败: {e}"),
   }
 }
 
 fn write_bin(p: Str, bs: List<Int>) -> Result<(), Str> {
   match os.write_bytes(p, bs) {
-    Ok(_)  => Ok(()),
+    Ok(_) => Ok(()),
     Err(e) => Err("写入 {p} 失败: {e}"),
   }
 }
 
 fn mkdirs(p: Str) -> Result<(), Str> {
   match os.mkdir_all(p) {
-    Ok(_)  => Ok(()),
+    Ok(_) => Ok(()),
     Err(e) => Err("创建目录 {p} 失败: {e}"),
   }
 }
@@ -647,7 +772,11 @@ fn walk_kite(dir: Str, rel: Str) -> List<Str> {
   var dirs: List<Str> = []
   for n in names {
     let full = path.join([dir, n])
-    if fs.is_dir(full) { dirs = push(dirs, n) } else if ends_with(n, ".kite") { files = push(files, rel + "/" + n) }
+    if fs.is_dir(full) {
+      dirs = push(dirs, n)
+    } else if ends_with(n, ".kite") {
+      files = push(files, rel + "/" + n)
+    }
   }
   for d in dirs { files = files + walk_kite(path.join([dir, d]), rel + "/" + d) }
   files
@@ -659,7 +788,15 @@ pub fn pack(root: Str) -> Result<(List<Int>, List<Str>), Str> {
   var w = tar.new_writer()
   for rel in files {
     let data = read_bin(path.join([root, rel]))?
-    let h = tar.Header { typeflag: tar.TYPE_REG, name: rel, size: len(data), mode: 420, mod_time: tar.unix(0, 0), format: tar.FORMAT_USTAR, ..tar.header() }
+    let h = tar.Header {
+      typeflag: tar.TYPE_REG,
+      name: rel,
+      size: len(data),
+      mode: 420,
+      mod_time: tar.unix(0, 0),
+      format: tar.FORMAT_USTAR,
+      ..tar.header()
+    }
     let (w1, r1) = w.write_header(h)
     if let Err(e) = r1 { return Err("打包失败: {e}") }
     let (w2, _, e2) = w1.write(data)
@@ -678,14 +815,20 @@ fn json_obj(kv: List<(Str, json.Json)>) -> json.Json {
 }
 
 fn index_json(name: Str, idx: List<(Str, VInfo)>) -> Str {
-  let vs = map(idx, (x) => (x.0, json_obj([("deps", json_obj(map(x.1.deps, (d) => (d.0, JStr(d.1))))), ("file", JStr(x.1.file)), ("sha256", JStr(x.1.sha256))])))
+  let vs = map(idx, (x) => (x.0, json_obj([
+    ("deps", json_obj(map(x.1.deps, (d) => (d.0, JStr(d.1))))),
+    ("file", JStr(x.1.file)),
+    ("sha256", JStr(x.1.sha256)),
+  ])))
   json.pretty(json_obj([("name", JStr(name)), ("versions", json_obj(vs))]))
 }
 
 pub fn publish(root: Str) -> Result<(Manifest, Int, Str), Str> {
   let m = read_manifest(root)?
   for (dn, spec) in m.deps {
-    if spec.path != "" { return Err("发布前请把路径依赖 {dn} 换成仓库版本（仓库里的包不能依赖本地路径）") }
+    if spec.path != "" {
+      return Err("发布前请把路径依赖 {dn} 换成仓库版本（仓库里的包不能依赖本地路径）")
+    }
   }
   let lib = path.join([root, "src", "lib.kite"])
   if !fs.is_file(lib) { return Err("库包需要 src/lib.kite") }
@@ -693,32 +836,45 @@ pub fn publish(root: Str) -> Result<(Manifest, Int, Str), Str> {
   let _ = ensure_installed(root, true)?
   let pre = match driver.prelude_path() {
     Some(p) => p,
-    None    => { return Err("找不到 Kite 安装目录") },
+    None => { return Err("找不到 Kite 安装目录") },
   }
   let ((items, srcs), pits) = driver.load(lib, pre)?
   let (errs, _, _, _) = check.check_c(pits, items)
   if len(errs) > 0 {
-    return Err(join(map(take(errs, 20), (e) => driver.locs(srcs, lib, e.0, modules.strip_lm(e.1))), "\n"))
+    return Err(
+      join(map(take(errs, 20), (e) => driver.locs(srcs, lib, e.0, modules.strip_lm(e.1))), "\n"),
+    )
   }
   let (data, files) = pack(root)?
   let reg = registry_dir()
   mkdirs(path.join([reg, "index"]))?
   mkdirs(path.join([reg, "pkgs"]))?
   let idx = unwrap_or(registry_index(m.name)?, [])
-  if is_some(vget(idx, m.version)) { return Err("{m.name} {m.version} 已经发布过，版本不可覆盖（请提升版本号）") }
+  if is_some(vget(idx, m.version)) {
+    return Err("{m.name} {m.version} 已经发布过，版本不可覆盖（请提升版本号）")
+  }
   let rel = "pkgs/{m.name}-{m.version}.tar.gz"
   write_bin(path.join([reg, rel]), data)?
   let sha = sha256.sum_bytes(data)
   let info = VInfo { sha256: sha, file: rel, deps: map(m.deps, (d) => (d.0, d.1.version)) }
-  write_text(path.join([reg, "index", m.name + ".json"]), index_json(m.name, push(idx, (m.version, info))))?
+  write_text(
+    path.join([reg, "index", m.name + ".json"]),
+    index_json(m.name, push(idx, (m.version, info))),
+  )?
   Ok((m, len(files), sha))
 }
 
 // ───────────────────────── 解析 ─────────────────────────
 type Rs = { cons: List<(Str, List<(Str, Str)>)>, result: Map<Str, Entry>, seen: Set<Str> }
 
-fn add_con(cs: List<(Str, List<(Str, Str)>)>, dn: Str, c: (Str, Str)) -> List<(Str, List<(Str, Str)>)> {
-  if any(cs, (x) => x.0 == dn) { map(cs, (x) => if x.0 == dn { (dn, push(x.1, c)) } else { x }) } else { push(cs, (dn, [c])) }
+fn add_con(cs: List<(Str, List<(Str, Str)>)>, dn: Str, c: (Str, Str)) -> List<(
+  Str, List<(Str, Str)>
+)> {
+  if any(cs, (x) => x.0 == dn) {
+    map(cs, (x) => if x.0 == dn { (dn, push(x.1, c)) } else { x })
+  } else {
+    push(cs, (dn, [c]))
+  }
 }
 
 fn rel_path(target: Str, base: Str) -> Str {
@@ -733,18 +889,38 @@ fn rel_path(target: Str, base: Str) -> Str {
   if len(all_parts) == 0 { "." } else { join(all_parts, "/") }
 }
 
-fn visit(root: Str, selected: Map<Str, Str>, st0: Rs, owner: Str, deps: List<(Str, Dep)>, base_dir: Str) -> Result<Rs, Str> {
+fn visit(
+  root: Str,
+  selected: Map<Str, Str>,
+  st0: Rs,
+  owner: Str,
+  deps: List<(Str, Dep)>,
+  base_dir: Str,
+) -> Result<Rs, Str> {
   var st = st0
   for (dn, spec) in sorted_deps(deps) {
     if spec.path != "" {
       let pdir = path.clean(path.join([base_dir, spec.path]))
-      if !fs.is_file(path.join([pdir, MANIFEST])) { return Err("{owner} 的路径依赖 {dn} 不存在: {pdir}") }
+      if !fs.is_file(path.join([pdir, MANIFEST])) {
+        return Err("{owner} 的路径依赖 {dn} 不存在: {pdir}")
+      }
       let pm = read_manifest(pdir)?
       if pm.name != dn { return Err("路径依赖 {dn} 的 kite.toml 里名字是 {pm.name}") }
       if let Some(prev) = get(st.result, dn) {
-        if prev.dir != pdir && prev.source != "registry" { return Err("依赖 {dn} 指向了两个不同的路径") }
+        if prev.dir != pdir && prev.source != "registry" {
+          return Err("依赖 {dn} 指向了两个不同的路径")
+        }
       }
-      st = Rs { result: set(st.result, dn, Entry { version: pm.version, source: "path+" + rel_path(pdir, root), checksum: "", deps: sort(map(pm.deps, (d) => d.0)), dir: pdir }), ..st }
+      st = Rs {
+        result: set(st.result, dn, Entry {
+          version: pm.version,
+          source: "path+" + rel_path(pdir, root),
+          checksum: "",
+          deps: sort(map(pm.deps, (d) => d.0)),
+          dir: pdir,
+        }),
+        ..st
+      }
       if !contains(st.seen, "path\x00" + dn) {
         st = Rs { seen: insert(st.seen, "path\x00" + dn), ..st }
         st = visit(root, selected, st, dn, pm.deps, pdir)?
@@ -754,10 +930,26 @@ fn visit(root: Str, selected: Map<Str, Str>, st0: Rs, owner: Str, deps: List<(St
       if let Some(ver) = get(selected, dn) {
         let idx = unwrap_or(registry_index(dn)?, [])
         let info = unwrap(vget(idx, ver))
-        st = Rs { result: set(st.result, dn, Entry { version: ver, source: "registry", checksum: "sha256:" + info.sha256, deps: sort(map(info.deps, (d) => d.0)), dir: "" }), ..st }
+        st = Rs {
+          result: set(st.result, dn, Entry {
+            version: ver,
+            source: "registry",
+            checksum: "sha256:" + info.sha256,
+            deps: sort(map(info.deps, (d) => d.0)),
+            dir: "",
+          }),
+          ..st
+        }
         if !contains(st.seen, dn + "\x00" + ver) {
           st = Rs { seen: insert(st.seen, dn + "\x00" + ver), ..st }
-          st = visit(root, selected, st, "{dn} {ver}", map(info.deps, (d) => (d.0, Dep { path: "", version: d.1 })), "")?
+          st = visit(
+            root,
+            selected,
+            st,
+            "{dn} {ver}",
+            map(info.deps, (d) => (d.0, Dep { path: "", version: d.1 })),
+            "",
+          )?
         }
       }
     }
@@ -770,27 +962,39 @@ pub fn resolve(root: Str, prefer_lock: Bool) -> Result<Map<Str, Entry>, Str> {
   let lock: Map<Str, Entry> = if prefer_lock { unwrap_or(read_lock(root)?, Map()) } else { Map() }
   var selected: Map<Str, Str> = Map()
   for _ in 0..100 {
-    let st = visit(root, selected, Rs { cons: [], result: Map(), seen: Set() }, m.name, m.deps, root)?
+    let st = visit(
+      root,
+      selected,
+      Rs { cons: [], result: Map(), seen: Set() },
+      m.name,
+      m.deps,
+      root,
+    )?
     var changed = false
     var failure = ""
     for (dn, cs) in st.cons {
       let idx = match registry_index(dn)? {
         Some(x) => x,
-        None    => { return Err("仓库里找不到包 {dn}（仓库: {registry_dir()}）") },
+        None => { return Err("仓库里找不到包 {dn}（仓库: {registry_dir()}）") },
       }
       var parsed: List<List<(Str, Ver)>> = []
       for c in cs { parsed = push(parsed, parse_constraint(c.0)?) }
-      let ok = filter(map(idx, (x) => x.0), (v) => all(parsed, (p) => satisfies(unwrap(parse_version(v)), p)))
+      let ok = filter(
+        map(idx, (x) => x.0),
+        (v) => all(parsed, (p) => satisfies(unwrap(parse_version(v)), p)),
+      )
       if len(ok) == 0 {
         let detail = join(map(cs, (c) => "{c.1} 要求 {c.0}"), "；")
         let have = join(sort_vers(map(idx, (x) => x.0)), ", ")
-        if failure == "" { failure = "无法为 {dn} 选出满足所有约束的版本：{detail}（现有版本: {have}）" }
+        if failure == "" {
+          failure = "无法为 {dn} 选出满足所有约束的版本：{detail}（现有版本: {have}）"
+        }
         continue
       }
       let le = get(lock, dn)
       let locked = match le {
         Some(e) => if e.source == "registry" && contains(ok, e.version) { e.version } else { "" },
-        None    => "",
+        None => "",
       }
       let best = if locked != "" { locked } else { max_ver(ok) }
       if get(selected, dn) != Some(best) {
@@ -816,13 +1020,13 @@ pub fn resolve(root: Str, prefer_lock: Bool) -> Result<Map<Str, Entry>, Str> {
 fn lock_stale(root: Str) -> Result<Bool, Str> {
   let lock = match read_lock(root)? {
     Some(l) => l,
-    None    => { return Ok(true) },
+    None => { return Ok(true) },
   }
   let m = read_manifest(root)?
   for (dn, spec) in m.deps {
     let e = match get(lock, dn) {
       Some(x) => x,
-      None    => { return Ok(true) },
+      None => { return Ok(true) },
     }
     if spec.path != "" {
       if !starts_with(e.source, "path+") { return Ok(true) }
@@ -835,7 +1039,9 @@ fn lock_stale(root: Str) -> Result<Bool, Str> {
 }
 
 fn dep_dir(root: Str, name: Str, e: Entry) -> Str {
-  if starts_with(e.source, "path+") { return path.clean(path.join([root, __str_slice(e.source, 5, len(e.source))])) }
+  if starts_with(e.source, "path+") {
+    return path.clean(path.join([root, __str_slice(e.source, 5, len(e.source))]))
+  }
   path.join([root, ".kite", "deps", "{name}-{e.version}"])
 }
 
@@ -853,7 +1059,7 @@ fn install(root: Str, pkgs: Map<Str, Entry>, quiet: Bool) -> Result<(), Str> {
     let idx = unwrap_or(registry_index(name)?, [])
     let info = match vget(idx, e.version) {
       Some(i) => i,
-      None    => { return Err("仓库里找不到 {name} {e.version}（锁文件指向的版本被删除了？）") },
+      None => { return Err("仓库里找不到 {name} {e.version}（锁文件指向的版本被删除了？）") },
     }
     let data = read_bin(path.join([registry_dir(), info.file]))?
     let got = "sha256:" + sha256.sum_bytes(data)
@@ -861,7 +1067,7 @@ fn install(root: Str, pkgs: Map<Str, Entry>, quiet: Bool) -> Result<(), Str> {
       return Err("{name} {e.version} 校验和不匹配，包可能被篡改：期望 {e.checksum}，实际 {got}")
     }
     let raw = match gzip.decompress(data) {
-      Ok(b)  => b,
+      Ok(b) => b,
       Err(x) => { return Err("{name} {e.version} 解压失败: {x}") },
     }
     // 先检查全部成员，再解开
@@ -870,8 +1076,10 @@ fn install(root: Str, pkgs: Map<Str, Entry>, quiet: Bool) -> Result<(), Str> {
     while true {
       let (t1, res) = tr.next()
       match res {
-        Ok(h)  => {
-          if bad_member(h.name) || !(h.typeflag == tar.TYPE_REG || h.typeflag == tar.TYPE_REGA) { return Err("{name} 的包里有非法路径 {h.name}") }
+        Ok(h) => {
+          if bad_member(h.name) || !(h.typeflag == tar.TYPE_REG || h.typeflag == tar.TYPE_REGA) {
+            return Err("{name} 的包里有非法路径 {h.name}")
+          }
           let (t2, d, er) = t1.read_all()
           if er != "" && er != "EOF" { return Err("{name} {e.version} 解包失败: {er}") }
           files = push(files, (h.name, d))
@@ -932,7 +1140,10 @@ fn cmd_new(args: List<Str>) -> Result<Int, Str> {
   mkdirs(path.join([name, "src"]))?
   write_manifest(name, Manifest { name: name, version: "0.1.0", deps: [], desc: "" })?
   let (body, f) = if lib {
-    ("// 库的公开接口：只有 pub 项能被使用者访问\npub fn hello(who: Str) -> Str \{\n  \"你好，\{who\}！\"\n\}\n", "lib.kite")
+    (
+      "// 库的公开接口：只有 pub 项能被使用者访问\npub fn hello(who: Str) -> Str \{\n  \"你好，\{who\}！\"\n\}\n",
+      "lib.kite",
+    )
   } else {
     ("fn main() \{\n  print(\"你好，Kite！\")\n\}\n", "main.kite")
   }
@@ -945,7 +1156,7 @@ fn cmd_new(args: List<Str>) -> Result<Int, Str> {
 fn need_root() -> Result<Str, Str> {
   match find_root(__getcwd()) {
     Some(r) => Ok(r),
-    None    => Err("当前目录不在 Kite 包里（找不到 kite.toml，可以用 kite new 创建）"),
+    None => Err("当前目录不在 Kite 包里（找不到 kite.toml，可以用 kite new 创建）"),
   }
 }
 
@@ -975,7 +1186,7 @@ fn cmd_add(args: List<Str>) -> Result<Int, Str> {
     }
     let idx = match registry_index(name)? {
       Some(x) => x,
-      None    => { return Err("仓库里找不到包 {name}") },
+      None => { return Err("仓库里找不到包 {name}") },
     }
     if cons == "" {
       let all_v = map(idx, (x) => x.0)
@@ -994,14 +1205,18 @@ fn cmd_add(args: List<Str>) -> Result<Int, Str> {
 fn cmd_get(update: Bool) -> Result<Int, Str> {
   let root = need_root()?
   let pkgs = get_deps(root, update, false)?
-  print((if update { "已更新" } else { "已安装" }) + " {len(pkgs)} 个依赖，锁文件 {LOCK_NAME} 已写入")
+  print(
+    (if update { "已更新" } else { "已安装" }) + " {len(pkgs)} 个依赖，锁文件 {LOCK_NAME} 已写入",
+  )
   Ok(0)
 }
 
 fn cmd_publish() -> Result<Int, Str> {
   let root = need_root()?
   let (m, n, sha) = publish(root)?
-  print("已发布 {m.name} {m.version}（{n} 个文件，sha256 {__str_slice(sha, 0, 16)}…）到 {registry_dir()}")
+  print(
+    "已发布 {m.name} {m.version}（{n} 个文件，sha256 {__str_slice(sha, 0, 16)}…）到 {registry_dir()}",
+  )
   Ok(0)
 }
 
@@ -1011,10 +1226,16 @@ fn show_tree(lock: Map<Str, Entry>, names0: List<Str>, prefix: Str, seen: Set<St
     let dn = names[i]
     let e = unwrap(get(lock, dn))
     let last = i == len(names) - 1
-    let src = if e.source == "registry" { "" } else { " (" + __str_slice(e.source, 5, len(e.source)) + ")" }
+    let src = if e.source == "registry" {
+      ""
+    } else {
+      " (" + __str_slice(e.source, 5, len(e.source)) + ")"
+    }
     let cyc = if contains(seen, dn) { " (循环)" } else { "" }
     print(prefix + (if last { "└── " } else { "├── " }) + "{dn} {e.version}{src}{cyc}")
-    if cyc == "" { show_tree(lock, e.deps, prefix + (if last { "    " } else { "│   " }), insert(seen, dn)) }
+    if cyc == "" {
+      show_tree(lock, e.deps, prefix + (if last { "    " } else { "│   " }), insert(seen, dn))
+    }
   }
 }
 
@@ -1027,7 +1248,9 @@ fn cmd_tree() -> Result<Int, Str> {
   Ok(0)
 }
 
-pub fn is_cmd(c: Str) -> Bool { contains(["new", "add", "get", "update", "publish", "tree", "satisfies"], c) }
+pub fn is_cmd(c: Str) -> Bool {
+  contains(["new", "add", "get", "update", "publish", "tree", "satisfies"], c)
+}
 
 // kitec satisfies 版本 约束：打印 true / false（测试语义化版本用）
 fn cmd_satisfies(args: List<Str>) -> Result<Int, Str> {
@@ -1042,12 +1265,32 @@ fn cmd_satisfies(args: List<Str>) -> Result<Int, Str> {
 }
 
 pub fn main(cmd: Str, args: List<Str>) -> Int {
-  let r = if cmd == "new" { cmd_new(args) } else if cmd == "add" { cmd_add(args) } else if cmd == "get" { cmd_get(false) } else if cmd == "update" { cmd_get(true) } else if cmd == "publish" { cmd_publish() } else if cmd == "tree" { cmd_tree() } else if cmd == "satisfies" { cmd_satisfies(args) } else { Ok(2) }
+  let r = if cmd == "new" {
+    cmd_new(args)
+  } else if cmd == "add" {
+    cmd_add(args)
+  } else if cmd == "get" {
+    cmd_get(false)
+  } else if cmd == "update" {
+    cmd_get(true)
+  } else if cmd == "publish" {
+    cmd_publish()
+  } else if cmd == "tree" {
+    cmd_tree()
+  } else if cmd == "satisfies" {
+    cmd_satisfies(args)
+  } else {
+    Ok(2)
+  }
   match r {
-    Ok(c)  => c,
+    Ok(c) => c,
     Err(e) => {
       // 类型检查失败时是多行 FILE:行: 信息，原样输出；其他错误加“错误: ”
-      if contains(e, "\n") || starts_with(e, "/") && contains(e, ".kite:") { say(e) } else { say("错误: " + e) }
+      if contains(e, "\n") || starts_with(e, "/") && contains(e, ".kite:") {
+        say(e)
+      } else {
+        say("错误: " + e)
+      }
       1
     },
   }
@@ -1060,7 +1303,7 @@ pub fn prepare(file: Str) -> Result<(), Str> {
       let _ = ensure_installed(root, true)?
       Ok(())
     },
-    None       => Ok(()),
+    None => Ok(()),
   }
 }
 
@@ -1068,7 +1311,7 @@ pub fn prepare(file: Str) -> Result<(), Str> {
 pub fn entry() -> Result<(Str, Str), Str> {
   let root = match find_root(__getcwd()) {
     Some(r) => r,
-    None    => { return Err("没有指定文件，当前目录也不在 Kite 包里（找不到 kite.toml）") },
+    None => { return Err("没有指定文件，当前目录也不在 Kite 包里（找不到 kite.toml）") },
   }
   let main = path.join([root, "src", "main.kite"])
   let relm = rel_path(main, abspath(__getcwd()))

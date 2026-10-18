@@ -10,8 +10,8 @@ fn main() {
   for input in ["42", "-3", "abc"] {
     match parse_age(input) {
       Ok(age) if age >= 18 => print("{input}: 成年人")
-      Ok(age)              => print("{input}: 未成年")
-      Err(e)               => print("{input}: 错误 -> {e}")
+      Ok(age) => print("{input}: 未成年")
+      Err(e) => print("{input}: 错误 -> {e}")
     }
   }
 

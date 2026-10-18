@@ -3,9 +3,13 @@ use std.fmt
 use std.math
 use std.strconv
 
-fn row(i: Int, f: Str, a: List<fmt.Arg>) { print("{i}: " + strconv.quote_go(f) + " [" + fmt.sprintf(f, a) + "]") }
+fn row(i: Int, f: Str, a: List<fmt.Arg>) {
+  print("{i}: " + strconv.quote_go(f) + " [" + fmt.sprintf(f, a) + "]")
+}
 
-fn sp(i: Int, a: List<fmt.Arg>) { print("sprint {i}: [" + fmt.sprint(a) + "] [" + fmt.sprintln(a) + "]") }
+fn sp(i: Int, a: List<fmt.Arg>) {
+  print("sprint {i}: [" + fmt.sprint(a) + "] [" + fmt.sprintln(a) + "]")
+}
 
 fn ef(i: Int, f: Str, a: List<fmt.Arg>) { print("errorf {i}: [" + fmt.errorf(f, a) + "]") }
 
@@ -155,31 +159,53 @@ fn part2() {
   row(142, "%05s", [VStr("abc")])
   row(143, "%05s", [VBytes([97, 98, 99])])
   row(144, "%5s", [VStr("abcdefghijklmnopqrstuvwxyz")])
-  row(145, "%5s", [VBytes([97, 98, 99, 100, 101, 102, 103, 104, 105, 106, 107, 108, 109, 110, 111, 112, 113, 114, 115, 116, 117, 118, 119, 120, 121, 122])])
+  row(145, "%5s", [VBytes([
+    97, 98, 99, 100, 101, 102, 103, 104, 105, 106, 107, 108, 109, 110, 111, 112, 113, 114, 115, 116,
+    117, 118, 119, 120, 121, 122,
+  ])])
   row(146, "%.5s", [VStr("abcdefghijklmnopqrstuvwxyz")])
-  row(147, "%.5s", [VBytes([97, 98, 99, 100, 101, 102, 103, 104, 105, 106, 107, 108, 109, 110, 111, 112, 113, 114, 115, 116, 117, 118, 119, 120, 121, 122])])
+  row(147, "%.5s", [VBytes([
+    97, 98, 99, 100, 101, 102, 103, 104, 105, 106, 107, 108, 109, 110, 111, 112, 113, 114, 115, 116,
+    117, 118, 119, 120, 121, 122,
+  ])])
   row(148, "%.0s", [VStr("\u{65e5}\u{672c}\u{8a9e}\u{65e5}\u{672c}\u{8a9e}")])
-  row(149, "%.0s", [VBytes([230, 151, 165, 230, 156, 172, 232, 170, 158, 230, 151, 165, 230, 156, 172, 232, 170, 158])])
+  row(149, "%.0s", [VBytes([
+    230, 151, 165, 230, 156, 172, 232, 170, 158, 230, 151, 165, 230, 156, 172, 232, 170, 158,
+  ])])
   row(150, "%.5s", [VStr("\u{65e5}\u{672c}\u{8a9e}\u{65e5}\u{672c}\u{8a9e}")])
-  row(151, "%.5s", [VBytes([230, 151, 165, 230, 156, 172, 232, 170, 158, 230, 151, 165, 230, 156, 172, 232, 170, 158])])
+  row(151, "%.5s", [VBytes([
+    230, 151, 165, 230, 156, 172, 232, 170, 158, 230, 151, 165, 230, 156, 172, 232, 170, 158,
+  ])])
   row(152, "%.10s", [VStr("\u{65e5}\u{672c}\u{8a9e}\u{65e5}\u{672c}\u{8a9e}")])
-  row(153, "%.10s", [VBytes([230, 151, 165, 230, 156, 172, 232, 170, 158, 230, 151, 165, 230, 156, 172, 232, 170, 158])])
+  row(153, "%.10s", [VBytes([
+    230, 151, 165, 230, 156, 172, 232, 170, 158, 230, 151, 165, 230, 156, 172, 232, 170, 158,
+  ])])
   row(154, "%08q", [VStr("abc")])
   row(155, "%08q", [VBytes([97, 98, 99])])
   row(156, "%-8q", [VStr("abc")])
   row(157, "%-8q", [VBytes([97, 98, 99])])
   row(158, "%.5q", [VStr("abcdefghijklmnopqrstuvwxyz")])
-  row(159, "%.5q", [VBytes([97, 98, 99, 100, 101, 102, 103, 104, 105, 106, 107, 108, 109, 110, 111, 112, 113, 114, 115, 116, 117, 118, 119, 120, 121, 122])])
+  row(159, "%.5q", [VBytes([
+    97, 98, 99, 100, 101, 102, 103, 104, 105, 106, 107, 108, 109, 110, 111, 112, 113, 114, 115, 116,
+    117, 118, 119, 120, 121, 122,
+  ])])
   row(160, "%.5x", [VStr("abcdefghijklmnopqrstuvwxyz")])
-  row(161, "%.5x", [VBytes([97, 98, 99, 100, 101, 102, 103, 104, 105, 106, 107, 108, 109, 110, 111, 112, 113, 114, 115, 116, 117, 118, 119, 120, 121, 122])])
+  row(161, "%.5x", [VBytes([
+    97, 98, 99, 100, 101, 102, 103, 104, 105, 106, 107, 108, 109, 110, 111, 112, 113, 114, 115, 116,
+    117, 118, 119, 120, 121, 122,
+  ])])
   row(162, "%.3q", [VStr("\u{65e5}\u{672c}\u{8a9e}\u{65e5}\u{672c}\u{8a9e}")])
-  row(163, "%.3q", [VBytes([230, 151, 165, 230, 156, 172, 232, 170, 158, 230, 151, 165, 230, 156, 172, 232, 170, 158])])
+  row(163, "%.3q", [VBytes([
+    230, 151, 165, 230, 156, 172, 232, 170, 158, 230, 151, 165, 230, 156, 172, 232, 170, 158,
+  ])])
   row(164, "%.1q", [VStr("\u{65e5}\u{672c}\u{8a9e}")])
   row(165, "%.1q", [VBytes([230, 151, 165, 230, 156, 172, 232, 170, 158])])
   row(166, "%.1x", [VStr("\u{65e5}\u{672c}\u{8a9e}")])
   row(167, "%.1X", [VBytes([230, 151, 165, 230, 156, 172, 232, 170, 158])])
   row(168, "%10.1q", [VStr("\u{65e5}\u{672c}\u{8a9e}\u{65e5}\u{672c}\u{8a9e}")])
-  row(169, "%10.1q", [VBytes([230, 151, 165, 230, 156, 172, 232, 170, 158, 230, 151, 165, 230, 156, 172, 232, 170, 158])])
+  row(169, "%10.1q", [VBytes([
+    230, 151, 165, 230, 156, 172, 232, 170, 158, 230, 151, 165, 230, 156, 172, 232, 170, 158,
+  ])])
   row(170, "%10v", [VNil])
   row(171, "%-10v", [VNil])
   row(172, "%d", [VTyped("uint", VUint(12345))])
@@ -480,16 +506,50 @@ fn part7() {
   row(452, "%g", [VFloat(1.23456789e+20)])
   row(453, "%v", [VTyped("[5]int", VArray([VInt(1), VInt(2), VInt(3), VInt(4), VInt(5)]))])
   row(454, "%v", [VTyped("[4]interface \{}", VArray([VInt(1), VStr("hello"), VFloat(2.5), VNil]))])
-  row(455, "%v", [VTyped("[5]main.renamedUint8", VArray([VTyped("main.renamedUint8", VByte(1)), VTyped("main.renamedUint8", VByte(2)), VTyped("main.renamedUint8", VByte(3)), VTyped("main.renamedUint8", VByte(4)), VTyped("main.renamedUint8", VByte(5))]))])
+  row(455, "%v", [VTyped("[5]main.renamedUint8", VArray([
+    VTyped("main.renamedUint8", VByte(1)),
+    VTyped("main.renamedUint8", VByte(2)),
+    VTyped("main.renamedUint8", VByte(3)),
+    VTyped("main.renamedUint8", VByte(4)),
+    VTyped("main.renamedUint8", VByte(5)),
+  ]))])
   row(456, "%v", [VPtr(VTyped("[5]int", VArray([VInt(1), VInt(2), VInt(3), VInt(4), VInt(5)])))])
-  row(457, "%v", [VPtr(VTyped("[4]interface \{}", VArray([VInt(1), VStr("hello"), VFloat(2.5), VNil])))])
-  row(458, "%v", [VPtr(VTyped("[5]main.renamedUint8", VArray([VTyped("main.renamedUint8", VByte(1)), VTyped("main.renamedUint8", VByte(2)), VTyped("main.renamedUint8", VByte(3)), VTyped("main.renamedUint8", VByte(4)), VTyped("main.renamedUint8", VByte(5))])))])
+  row(457, "%v", [VPtr(VTyped("[4]interface \{}", VArray([
+    VInt(1),
+    VStr("hello"),
+    VFloat(2.5),
+    VNil,
+  ])))])
+  row(458, "%v", [VPtr(VTyped("[5]main.renamedUint8", VArray([
+    VTyped("main.renamedUint8", VByte(1)),
+    VTyped("main.renamedUint8", VByte(2)),
+    VTyped("main.renamedUint8", VByte(3)),
+    VTyped("main.renamedUint8", VByte(4)),
+    VTyped("main.renamedUint8", VByte(5)),
+  ])))])
   row(459, "%v", [VTyped("[]int", VList([VInt(1), VInt(2), VInt(3), VInt(4), VInt(5)]))])
   row(460, "%v", [VTyped("[]interface \{}", VList([VInt(1), VStr("hello"), VFloat(2.5), VNil]))])
-  row(461, "%v", [VTyped("[]main.renamedUint8", VList([VTyped("main.renamedUint8", VByte(1)), VTyped("main.renamedUint8", VByte(2)), VTyped("main.renamedUint8", VByte(3)), VTyped("main.renamedUint8", VByte(4)), VTyped("main.renamedUint8", VByte(5))]))])
+  row(461, "%v", [VTyped("[]main.renamedUint8", VList([
+    VTyped("main.renamedUint8", VByte(1)),
+    VTyped("main.renamedUint8", VByte(2)),
+    VTyped("main.renamedUint8", VByte(3)),
+    VTyped("main.renamedUint8", VByte(4)),
+    VTyped("main.renamedUint8", VByte(5)),
+  ]))])
   row(462, "%v", [VPtr(VTyped("[]int", VList([VInt(1), VInt(2), VInt(3), VInt(4), VInt(5)])))])
-  row(463, "%v", [VPtr(VTyped("[]interface \{}", VList([VInt(1), VStr("hello"), VFloat(2.5), VNil])))])
-  row(464, "%v", [VPtr(VTyped("[]main.renamedUint8", VList([VTyped("main.renamedUint8", VByte(1)), VTyped("main.renamedUint8", VByte(2)), VTyped("main.renamedUint8", VByte(3)), VTyped("main.renamedUint8", VByte(4)), VTyped("main.renamedUint8", VByte(5))])))])
+  row(463, "%v", [VPtr(VTyped("[]interface \{}", VList([
+    VInt(1),
+    VStr("hello"),
+    VFloat(2.5),
+    VNil,
+  ])))])
+  row(464, "%v", [VPtr(VTyped("[]main.renamedUint8", VList([
+    VTyped("main.renamedUint8", VByte(1)),
+    VTyped("main.renamedUint8", VByte(2)),
+    VTyped("main.renamedUint8", VByte(3)),
+    VTyped("main.renamedUint8", VByte(4)),
+    VTyped("main.renamedUint8", VByte(5)),
+  ])))])
   row(465, "%b", [VTyped("[3]uint8", VArray([VByte(65), VByte(66), VByte(67)]))])
   row(466, "%c", [VTyped("[3]uint8", VArray([VByte(65), VByte(66), VByte(67)]))])
   row(467, "%d", [VTyped("[3]uint8", VArray([VByte(65), VByte(66), VByte(67)]))])
@@ -523,9 +583,24 @@ fn part8() {
   row(492, "%v", [VF32(strconv.round_float32(1.2345677614212036))])
   row(493, "%v", [VComplex(1.0, 2.0)])
   row(494, "%v", [VC64(strconv.round_float32(1.0), strconv.round_float32(2.0))])
-  row(495, "%v", [VStruct("main.A", [("i", VInt(1)), ("j", VTyped("uint", VUint(2))), ("s", VStr("a")), ("x", VTyped("[]int", VList([VInt(1), VInt(2)])))])])
-  row(496, "%+v", [VStruct("main.A", [("i", VInt(1)), ("j", VTyped("uint", VUint(2))), ("s", VStr("a")), ("x", VTyped("[]int", VList([VInt(1), VInt(2)])))])])
-  row(505, "%#v", [VStruct("main.A", [("i", VInt(1)), ("j", VTyped("uint", VUint(2))), ("s", VStr("a")), ("x", VTyped("[]int", VList([VInt(1), VInt(2)])))])])
+  row(495, "%v", [VStruct("main.A", [
+    ("i", VInt(1)),
+    ("j", VTyped("uint", VUint(2))),
+    ("s", VStr("a")),
+    ("x", VTyped("[]int", VList([VInt(1), VInt(2)]))),
+  ])])
+  row(496, "%+v", [VStruct("main.A", [
+    ("i", VInt(1)),
+    ("j", VTyped("uint", VUint(2))),
+    ("s", VStr("a")),
+    ("x", VTyped("[]int", VList([VInt(1), VInt(2)]))),
+  ])])
+  row(505, "%#v", [VStruct("main.A", [
+    ("i", VInt(1)),
+    ("j", VTyped("uint", VUint(2))),
+    ("s", VStr("a")),
+    ("x", VTyped("[]int", VList([VInt(1), VInt(2)]))),
+  ])])
   row(506, "%#v", [VUint(-1)])
   row(507, "%#v", [VInt(1000000000)])
   row(508, "%#v", [VTyped("map[string]int", VMap([(VStr("a"), VInt(1))]))])
@@ -535,11 +610,28 @@ fn part8() {
   row(514, "%#v", [VTyped("[5]int", VArray([VInt(1), VInt(2), VInt(3), VInt(4), VInt(5)]))])
   row(515, "%#v", [VPtr(VTyped("[5]int", VArray([VInt(1), VInt(2), VInt(3), VInt(4), VInt(5)])))])
   row(516, "%#v", [VTyped("[4]interface \{}", VArray([VInt(1), VStr("hello"), VFloat(2.5), VNil]))])
-  row(517, "%#v", [VPtr(VTyped("[4]interface \{}", VArray([VInt(1), VStr("hello"), VFloat(2.5), VNil])))])
+  row(517, "%#v", [VPtr(VTyped("[4]interface \{}", VArray([
+    VInt(1),
+    VStr("hello"),
+    VFloat(2.5),
+    VNil,
+  ])))])
   row(519, "%#v", [VTyped("map[int]uint8", VMap([]))])
   row(520, "%#v", [VStr("foo")])
-  row(521, "%#v", [VTyped("[5]main.renamedUint8", VArray([VTyped("main.renamedUint8", VByte(1)), VTyped("main.renamedUint8", VByte(2)), VTyped("main.renamedUint8", VByte(3)), VTyped("main.renamedUint8", VByte(4)), VTyped("main.renamedUint8", VByte(5))]))])
-  row(522, "%#v", [VTyped("[]main.renamedUint8", VList([VTyped("main.renamedUint8", VByte(1)), VTyped("main.renamedUint8", VByte(2)), VTyped("main.renamedUint8", VByte(3)), VTyped("main.renamedUint8", VByte(4)), VTyped("main.renamedUint8", VByte(5))]))])
+  row(521, "%#v", [VTyped("[5]main.renamedUint8", VArray([
+    VTyped("main.renamedUint8", VByte(1)),
+    VTyped("main.renamedUint8", VByte(2)),
+    VTyped("main.renamedUint8", VByte(3)),
+    VTyped("main.renamedUint8", VByte(4)),
+    VTyped("main.renamedUint8", VByte(5)),
+  ]))])
+  row(522, "%#v", [VTyped("[]main.renamedUint8", VList([
+    VTyped("main.renamedUint8", VByte(1)),
+    VTyped("main.renamedUint8", VByte(2)),
+    VTyped("main.renamedUint8", VByte(3)),
+    VTyped("main.renamedUint8", VByte(4)),
+    VTyped("main.renamedUint8", VByte(5)),
+  ]))])
   row(524, "%#v", [VFloat(1.2345678)])
   row(525, "%#v", [VF32(strconv.round_float32(1.2345677614212036))])
   row(526, "%#v", [VFloat(1.0)])
@@ -609,14 +701,46 @@ fn part9() {
   row(609, "%o", [VTyped("main.renamedUintptr", VUint(18))])
   row(610, "%x", [VTyped("main.renamedString", VStr("thing"))])
   row(611, "%d", [VTyped("main.renamedBytes", VList([VByte(1), VByte(2), VByte(15)]))])
-  row(612, "%q", [VTyped("main.renamedBytes", VList([VByte(104), VByte(101), VByte(108), VByte(108), VByte(111)]))])
-  row(613, "%x", [VTyped("[]main.renamedUint8", VList([VTyped("main.renamedUint8", VByte(104)), VTyped("main.renamedUint8", VByte(101)), VTyped("main.renamedUint8", VByte(108)), VTyped("main.renamedUint8", VByte(108)), VTyped("main.renamedUint8", VByte(111))]))])
-  row(614, "%X", [VTyped("[]main.renamedUint8", VList([VTyped("main.renamedUint8", VByte(104)), VTyped("main.renamedUint8", VByte(101)), VTyped("main.renamedUint8", VByte(108)), VTyped("main.renamedUint8", VByte(108)), VTyped("main.renamedUint8", VByte(111))]))])
-  row(615, "%s", [VTyped("[]main.renamedUint8", VList([VTyped("main.renamedUint8", VByte(104)), VTyped("main.renamedUint8", VByte(101)), VTyped("main.renamedUint8", VByte(108)), VTyped("main.renamedUint8", VByte(108)), VTyped("main.renamedUint8", VByte(111))]))])
-  row(616, "%q", [VTyped("[]main.renamedUint8", VList([VTyped("main.renamedUint8", VByte(104)), VTyped("main.renamedUint8", VByte(101)), VTyped("main.renamedUint8", VByte(108)), VTyped("main.renamedUint8", VByte(108)), VTyped("main.renamedUint8", VByte(111))]))])
+  row(612, "%q", [VTyped("main.renamedBytes", VList([
+    VByte(104),
+    VByte(101),
+    VByte(108),
+    VByte(108),
+    VByte(111),
+  ]))])
+  row(613, "%x", [VTyped("[]main.renamedUint8", VList([
+    VTyped("main.renamedUint8", VByte(104)),
+    VTyped("main.renamedUint8", VByte(101)),
+    VTyped("main.renamedUint8", VByte(108)),
+    VTyped("main.renamedUint8", VByte(108)),
+    VTyped("main.renamedUint8", VByte(111)),
+  ]))])
+  row(614, "%X", [VTyped("[]main.renamedUint8", VList([
+    VTyped("main.renamedUint8", VByte(104)),
+    VTyped("main.renamedUint8", VByte(101)),
+    VTyped("main.renamedUint8", VByte(108)),
+    VTyped("main.renamedUint8", VByte(108)),
+    VTyped("main.renamedUint8", VByte(111)),
+  ]))])
+  row(615, "%s", [VTyped("[]main.renamedUint8", VList([
+    VTyped("main.renamedUint8", VByte(104)),
+    VTyped("main.renamedUint8", VByte(101)),
+    VTyped("main.renamedUint8", VByte(108)),
+    VTyped("main.renamedUint8", VByte(108)),
+    VTyped("main.renamedUint8", VByte(111)),
+  ]))])
+  row(616, "%q", [VTyped("[]main.renamedUint8", VList([
+    VTyped("main.renamedUint8", VByte(104)),
+    VTyped("main.renamedUint8", VByte(101)),
+    VTyped("main.renamedUint8", VByte(108)),
+    VTyped("main.renamedUint8", VByte(108)),
+    VTyped("main.renamedUint8", VByte(111)),
+  ]))])
   row(617, "%v", [VTyped("main.renamedFloat32", VF32(strconv.round_float32(22.0)))])
   row(618, "%v", [VTyped("main.renamedFloat64", VFloat(33.0))])
-  row(619, "%v", [VTyped("main.renamedComplex64", VC64(strconv.round_float32(3.0), strconv.round_float32(4.0)))])
+  row(619, "%v", [
+    VTyped("main.renamedComplex64", VC64(strconv.round_float32(3.0), strconv.round_float32(4.0))),
+  ])
   row(620, "%v", [VTyped("main.renamedComplex128", VComplex(4.0, -3.0))])
   row(626, "%T", [VByte(0)])
   row(627, "%T", [VComplex(4.0, -3.0)])
@@ -640,7 +764,10 @@ fn part9() {
 }
 
 fn part10() {
-  row(668, "%v", [VTyped("map[float64]int", VMap([(VFloat(math.nan), VInt(1)), (VFloat(math.nan), VInt(1))]))])
+  row(668, "%v", [VTyped("map[float64]int", VMap([
+    (VFloat(math.nan), VInt(1)),
+    (VFloat(math.nan), VInt(1)),
+  ]))])
   row(669, "%.2f", [VFloat(1.0)])
   row(670, "%.2f", [VFloat(-1.0)])
   row(671, "% .2f", [VFloat(1.0)])
@@ -673,8 +800,16 @@ fn part10() {
   row(698, "%06v", [VTyped("[]interface \{}", VList([VComplex(-10.0, 10.0), VInt(10)]))])
   row(699, "%03.6v", [VTyped("[]interface \{}", VList([VInt(1), VFloat(2.0), VStr("x")]))])
   row(700, "%03.0v", [VTyped("[]interface \{}", VList([VInt(0), VFloat(2.0), VStr("x")]))])
-  row(701, "%v", [VTyped("[]complex64", VList([VC64(strconv.round_float32(1.0), strconv.round_float32(0.0)), VC64(strconv.round_float32(2.0), strconv.round_float32(0.0)), VC64(strconv.round_float32(3.0), strconv.round_float32(0.0))]))])
-  row(702, "%v", [VTyped("[]complex128", VList([VComplex(1.0, 0.0), VComplex(2.0, 0.0), VComplex(3.0, 0.0)]))])
+  row(701, "%v", [VTyped("[]complex64", VList([
+    VC64(strconv.round_float32(1.0), strconv.round_float32(0.0)),
+    VC64(strconv.round_float32(2.0), strconv.round_float32(0.0)),
+    VC64(strconv.round_float32(3.0), strconv.round_float32(0.0)),
+  ]))])
+  row(702, "%v", [VTyped("[]complex128", VList([
+    VComplex(1.0, 0.0),
+    VComplex(2.0, 0.0),
+    VComplex(3.0, 0.0),
+  ]))])
   row(703, "%.", [VInt(3)])
   row(704, "%+10.2f", [VComplex(104.66, 440.51)])
   row(705, "%+10.2f", [VComplex(-104.66, 440.51)])
@@ -696,7 +831,9 @@ fn part10() {
   row(736, "%\u{2620}", [VFloat(1.2345678)])
   row(737, "%\u{2620}", [VF32(strconv.round_float32(1.2345677614212036))])
   row(738, "%\u{2620}", [VComplex(1.2345678, 1.2345678)])
-  row(739, "%\u{2620}", [VC64(strconv.round_float32(1.2345677614212036), strconv.round_float32(1.2345677614212036))])
+  row(739, "%\u{2620}", [
+    VC64(strconv.round_float32(1.2345677614212036), strconv.round_float32(1.2345677614212036)),
+  ])
   row(741, "%\u{2620}", [VStruct("main.SI", [("I", VTyped("main.renamedInt", VInt(0)))])])
   row(744, "%\u{2620}", [VTyped("map[float64]int", VMap([(VFloat(math.nan), VInt(1))]))])
   row(1000, "%[1]d", [VInt(1)])
@@ -734,81 +871,491 @@ fn part11() {
   row(1029, "%2147483648d", [VInt(42)])
   row(1030, "%-2147483648d", [VInt(42)])
   row(1031, "%.2147483648d", [VInt(42)])
-  row(2000, "%v|%+v|%#v|%T", [VStruct("main.T", [("A", VInt(1)), ("B", VStr("x"))]), VStruct("main.T", [("A", VInt(1)), ("B", VStr("x"))]), VStruct("main.T", [("A", VInt(1)), ("B", VStr("x"))]), VStruct("main.T", [("A", VInt(1)), ("B", VStr("x"))])])
-  row(2001, "%v|%+v|%#v|%T", [VPtr(VStruct("main.T", [("A", VInt(2)), ("B", VStr("y"))])), VPtr(VStruct("main.T", [("A", VInt(2)), ("B", VStr("y"))])), VPtr(VStruct("main.T", [("A", VInt(2)), ("B", VStr("y"))])), VPtr(VStruct("main.T", [("A", VInt(2)), ("B", VStr("y"))]))])
-  row(2002, "%d|%s|%x|%q", [VStruct("main.T", [("A", VInt(3)), ("B", VStr("z"))]), VStruct("main.T", [("A", VInt(3)), ("B", VStr("z"))]), VStruct("main.T", [("A", VInt(3)), ("B", VStr("z"))]), VStruct("main.T", [("A", VInt(3)), ("B", VStr("z"))])])
-  row(2003, "%v", [VStruct("main.Nested", [("Name", VStr("n")), ("Tags", VTyped("[]string", VList([VStr("a"), VStr("b")]))), ("M", VTyped("map[string]int", VMap([(VStr("y"), VInt(2)), (VStr("x"), VInt(1))]))), ("P", VStruct("main.Pt", [("X", VFloat(1.5)), ("Y", VFloat(-2.0))])), ("Any", VInt(7)), ("Err", VErr("boom"))])])
-  row(2004, "%+v", [VStruct("main.Nested", [("Name", VStr("n")), ("Tags", VTyped("[]string", VList([VStr("a"), VStr("b")]))), ("M", VTyped("map[string]int", VMap([(VStr("y"), VInt(2)), (VStr("x"), VInt(1))]))), ("P", VStruct("main.Pt", [("X", VFloat(1.5)), ("Y", VFloat(-2.0))])), ("Any", VStr("s")), ("Err", VTyped("error", VNil))])])
-  row(2005, "%#v", [VStruct("main.Nested", [("Name", VStr("n")), ("Tags", VTyped("[]string", VList([VStr("a"), VStr("b")]))), ("M", VTyped("map[string]int", VMap([(VStr("y"), VInt(2)), (VStr("x"), VInt(1))]))), ("P", VStruct("main.Pt", [("X", VFloat(1.5)), ("Y", VFloat(-2.0))])), ("Any", VNil), ("Err", VTyped("error", VNil))])])
-  row(2006, "%#v", [VStruct("main.Nested", [("Name", VStr("n")), ("Tags", VTyped("[]string", VList([]))), ("M", VTyped("map[string]int", VMap([]))), ("P", VStruct("main.Pt", [("X", VFloat(0.0)), ("Y", VFloat(0.0))])), ("Any", VTyped("[]interface \{}", VList([VInt(1), VStr("a"), VNil]))), ("Err", VTyped("error", VNil))])])
-  row(2007, "%T|%v", [VStruct("main.Nested", [("Name", VStr("")), ("Tags", VTyped("[]string", VList([]))), ("M", VTyped("map[string]int", VMap([]))), ("P", VStruct("main.Pt", [("X", VFloat(0.0)), ("Y", VFloat(0.0))])), ("Any", VNil), ("Err", VTyped("error", VNil))]), VStruct("main.Nested", [("Name", VStr("")), ("Tags", VTyped("[]string", VList([]))), ("M", VTyped("map[string]int", VMap([]))), ("P", VStruct("main.Pt", [("X", VFloat(0.0)), ("Y", VFloat(0.0))])), ("Any", VNil), ("Err", VTyped("error", VNil))])])
-  row(2008, "%v|%s|%q|%x|%X|%10v|%-10s|%#v|%T", [VErr("boom"), VErr("boom"), VErr("boom"), VErr("boom"), VErr("boom"), VErr("boom"), VErr("boom"), VErr("boom"), VErr("boom")])
+  row(2000, "%v|%+v|%#v|%T", [
+    VStruct("main.T", [("A", VInt(1)), ("B", VStr("x"))]),
+    VStruct("main.T", [("A", VInt(1)), ("B", VStr("x"))]),
+    VStruct("main.T", [("A", VInt(1)), ("B", VStr("x"))]),
+    VStruct("main.T", [("A", VInt(1)), ("B", VStr("x"))]),
+  ])
+  row(2001, "%v|%+v|%#v|%T", [
+    VPtr(VStruct("main.T", [("A", VInt(2)), ("B", VStr("y"))])),
+    VPtr(VStruct("main.T", [("A", VInt(2)), ("B", VStr("y"))])),
+    VPtr(VStruct("main.T", [("A", VInt(2)), ("B", VStr("y"))])),
+    VPtr(VStruct("main.T", [("A", VInt(2)), ("B", VStr("y"))])),
+  ])
+  row(2002, "%d|%s|%x|%q", [
+    VStruct("main.T", [("A", VInt(3)), ("B", VStr("z"))]),
+    VStruct("main.T", [("A", VInt(3)), ("B", VStr("z"))]),
+    VStruct("main.T", [("A", VInt(3)), ("B", VStr("z"))]),
+    VStruct("main.T", [("A", VInt(3)), ("B", VStr("z"))]),
+  ])
+  row(2003, "%v", [VStruct("main.Nested", [
+    ("Name", VStr("n")),
+    ("Tags", VTyped("[]string", VList([VStr("a"), VStr("b")]))),
+    ("M", VTyped("map[string]int", VMap([(VStr("y"), VInt(2)), (VStr("x"), VInt(1))]))),
+    ("P", VStruct("main.Pt", [("X", VFloat(1.5)), ("Y", VFloat(-2.0))])),
+    ("Any", VInt(7)),
+    ("Err", VErr("boom")),
+  ])])
+  row(2004, "%+v", [VStruct("main.Nested", [
+    ("Name", VStr("n")),
+    ("Tags", VTyped("[]string", VList([VStr("a"), VStr("b")]))),
+    ("M", VTyped("map[string]int", VMap([(VStr("y"), VInt(2)), (VStr("x"), VInt(1))]))),
+    ("P", VStruct("main.Pt", [("X", VFloat(1.5)), ("Y", VFloat(-2.0))])),
+    ("Any", VStr("s")),
+    ("Err", VTyped("error", VNil)),
+  ])])
+  row(2005, "%#v", [VStruct("main.Nested", [
+    ("Name", VStr("n")),
+    ("Tags", VTyped("[]string", VList([VStr("a"), VStr("b")]))),
+    ("M", VTyped("map[string]int", VMap([(VStr("y"), VInt(2)), (VStr("x"), VInt(1))]))),
+    ("P", VStruct("main.Pt", [("X", VFloat(1.5)), ("Y", VFloat(-2.0))])),
+    ("Any", VNil),
+    ("Err", VTyped("error", VNil)),
+  ])])
+  row(2006, "%#v", [VStruct("main.Nested", [
+    ("Name", VStr("n")),
+    ("Tags", VTyped("[]string", VList([]))),
+    ("M", VTyped("map[string]int", VMap([]))),
+    ("P", VStruct("main.Pt", [("X", VFloat(0.0)), ("Y", VFloat(0.0))])),
+    ("Any", VTyped("[]interface \{}", VList([VInt(1), VStr("a"), VNil]))),
+    ("Err", VTyped("error", VNil)),
+  ])])
+  row(2007, "%T|%v", [
+    VStruct("main.Nested", [
+      ("Name", VStr("")),
+      ("Tags", VTyped("[]string", VList([]))),
+      ("M", VTyped("map[string]int", VMap([]))),
+      ("P", VStruct("main.Pt", [("X", VFloat(0.0)), ("Y", VFloat(0.0))])),
+      ("Any", VNil),
+      ("Err", VTyped("error", VNil)),
+    ]),
+    VStruct("main.Nested", [
+      ("Name", VStr("")),
+      ("Tags", VTyped("[]string", VList([]))),
+      ("M", VTyped("map[string]int", VMap([]))),
+      ("P", VStruct("main.Pt", [("X", VFloat(0.0)), ("Y", VFloat(0.0))])),
+      ("Any", VNil),
+      ("Err", VTyped("error", VNil)),
+    ]),
+  ])
+  row(2008, "%v|%s|%q|%x|%X|%10v|%-10s|%#v|%T", [
+    VErr("boom"),
+    VErr("boom"),
+    VErr("boom"),
+    VErr("boom"),
+    VErr("boom"),
+    VErr("boom"),
+    VErr("boom"),
+    VErr("boom"),
+    VErr("boom"),
+  ])
   row(2009, "%d", [VErr("boom")])
   row(2010, "%w", [VErr("boom")])
   row(2011, "%v", [VTyped("[]error", VList([VErr("boom"), VTyped("error", VNil)]))])
   row(2012, "%#v", [VTyped("[]error", VList([VTyped("error", VNil), VTyped("error", VNil)]))])
-  row(2013, "%v|%#v|%T", [VTyped("map[string]int", VMap([(VStr("c"), VInt(3)), (VStr("b"), VInt(2)), (VStr("a"), VInt(1))])), VTyped("map[string]int", VMap([(VStr("c"), VInt(3)), (VStr("b"), VInt(2)), (VStr("a"), VInt(1))])), VTyped("map[string]int", VMap([]))])
-  row(2014, "%v|%#v", [VTyped("map[int]string", VMap([(VInt(3), VStr("c")), (VInt(10), VStr("t")), (VInt(-1), VStr("z"))])), VTyped("map[int]string", VMap([(VInt(3), VStr("c")), (VInt(10), VStr("t")), (VInt(-1), VStr("z"))]))])
-  row(2015, "%v|%#v", [VTyped("map[float64]string", VMap([(VFloat(math.nan), VStr("n")), (VFloat(math.inf), VStr("i")), (VFloat(2.5), VStr("x")), (VFloat(0.0 - math.inf), VStr("j")), (VFloat(-1.0), VStr("m"))])), VTyped("map[float64]string", VMap([(VFloat(2.5), VStr("x"))]))])
-  row(2016, "%v|%#v", [VTyped("map[bool]int", VMap([(VBool(true), VInt(1)), (VBool(false), VInt(0))])), VTyped("map[bool]int", VMap([(VBool(true), VInt(1)), (VBool(false), VInt(0))]))])
-  row(2017, "%v|%#v", [VTyped("map[string][]int", VMap([(VStr("k"), VTyped("[]int", VList([VInt(1), VInt(2)]))), (VStr("a"), VTyped("[]int", VList([])))])), VTyped("map[string][]int", VMap([(VStr("k"), VTyped("[]int", VList([VInt(1), VInt(2)])))]))])
-  row(2018, "%v|%+v|%#v", [VTyped("map[main.T]int", VMap([(VStruct("main.T", [("A", VInt(2)), ("B", VStr("a"))]), VInt(1)), (VStruct("main.T", [("A", VInt(1)), ("B", VStr("b"))]), VInt(2)), (VStruct("main.T", [("A", VInt(1)), ("B", VStr("a"))]), VInt(3))])), VTyped("map[main.T]int", VMap([(VStruct("main.T", [("A", VInt(2)), ("B", VStr("a"))]), VInt(1)), (VStruct("main.T", [("A", VInt(1)), ("B", VStr("b"))]), VInt(2))])), VTyped("map[main.T]int", VMap([(VStruct("main.T", [("A", VInt(1)), ("B", VStr("a"))]), VInt(3))]))])
-  row(2019, "%v|%#v", [VTyped("map[interface \{}]int", VMap([(VStr("b"), VInt(1)), (VStr("a"), VInt(2))])), VTyped("map[interface \{}]int", VMap([(VStr("b"), VInt(1)), (VStr("a"), VInt(2))]))])
-  row(2020, "%v|%d|%c|%q|%U|%#v", [VTyped("map[int32]bool", VMap([(VRune(98), VBool(true)), (VRune(97), VBool(false))])), VTyped("map[int32]bool", VMap([(VRune(98), VBool(true))])), VTyped("[]int32", VList([VRune(104), VRune(233), VRune(108), VRune(108), VRune(111)])), VTyped("[]int32", VList([VRune(104), VRune(233), VRune(108), VRune(108), VRune(111)])), VTyped("[]int32", VList([VRune(104), VRune(233)])), VTyped("[]int32", VList([VRune(104), VRune(233)]))])
-  row(2021, "%v|%q|%x|% x|%X|%#v|%5s|%-3s|", [VTyped("[]string", VList([VStr("a"), VStr("b c")])), VTyped("[]string", VList([VStr("a"), VStr("b c")])), VTyped("[]string", VList([VStr("a"), VStr("b c")])), VTyped("[]string", VList([VStr("a"), VStr("b c")])), VTyped("[]string", VList([VStr("hi"), VStr("yo")])), VTyped("[]string", VList([VStr("a"), VStr("b c")])), VTyped("[]string", VList([VStr("a"), VStr("b")])), VTyped("[]string", VList([VStr("a"), VStr("b")]))])
-  row(2022, "%v|%#v|%d", [VTyped("[][]int", VList([VTyped("[]int", VList([VInt(1), VInt(2)])), VTyped("[]int", VList([VInt(3)])), VTyped("[]int", VList([]))])), VTyped("[][]int", VList([VTyped("[]int", VList([VInt(1), VInt(2)])), VTyped("[]int", VList([VInt(3)]))])), VTyped("[][]int", VList([VTyped("[]int", VList([VInt(1), VInt(2)])), VTyped("[]int", VList([VInt(3)]))]))])
-  row(2023, "%v|%#v|%.2f|%6.1e", [VTyped("[]float64", VList([VFloat(1.0), VFloat(2.5), VFloat(1e+21), VFloat(0.0)])), VTyped("[]float64", VList([VFloat(1.0), VFloat(2.5)])), VTyped("[]float64", VList([VFloat(1.0), VFloat(2.5)])), VTyped("[]float64", VList([VFloat(1.0), VFloat(2.5)]))])
-  row(2024, "%v|%t|%#v|%d", [VTyped("[]bool", VList([VBool(true), VBool(false)])), VTyped("[]bool", VList([VBool(true)])), VTyped("[]bool", VList([VBool(false)])), VTyped("[]bool", VList([VBool(true)]))])
-  row(2025, "%v|%#v", [VTyped("[]interface \{}", VList([VInt(1), VStr("a"), VNil, VFloat(2.5), VBool(true), VErr("boom"), VByte(7), VRune(120)])), VTyped("[]interface \{}", VList([VInt(1), VStr("a"), VNil, VFloat(2.5), VBool(true), VByte(7), VRune(120)]))])
-  row(2026, "%v|%#v|%T", [VStruct("struct \{ A int; B string }", [("A", VInt(1)), ("B", VStr("x"))]), VStruct("struct \{ A int; B string }", [("A", VInt(1)), ("B", VStr("x"))]), VStruct("struct \{ A int; B []uint8 }", [("A", VInt(0)), ("B", VBytes([]))])])
-  row(2027, "%v|%+v|%#v|%T", [VStruct("struct \{}", []), VStruct("struct \{}", []), VStruct("struct \{}", []), VStruct("struct \{}", [])])
-  row(2028, "%v|%.1f|%T|%#v|%e", [VTyped("main.Celsius", VFloat(36.6)), VTyped("main.Celsius", VFloat(36.6)), VTyped("main.Celsius", VFloat(36.6)), VTyped("main.Celsius", VFloat(36.6)), VTyped("main.Celsius", VFloat(36.6))])
+  row(2013, "%v|%#v|%T", [
+    VTyped("map[string]int", VMap([
+      (VStr("c"), VInt(3)),
+      (VStr("b"), VInt(2)),
+      (VStr("a"), VInt(1)),
+    ])),
+    VTyped("map[string]int", VMap([
+      (VStr("c"), VInt(3)),
+      (VStr("b"), VInt(2)),
+      (VStr("a"), VInt(1)),
+    ])),
+    VTyped("map[string]int", VMap([])),
+  ])
+  row(2014, "%v|%#v", [
+    VTyped("map[int]string", VMap([
+      (VInt(3), VStr("c")),
+      (VInt(10), VStr("t")),
+      (VInt(-1), VStr("z")),
+    ])),
+    VTyped("map[int]string", VMap([
+      (VInt(3), VStr("c")),
+      (VInt(10), VStr("t")),
+      (VInt(-1), VStr("z")),
+    ])),
+  ])
+  row(2015, "%v|%#v", [
+    VTyped("map[float64]string", VMap([
+      (VFloat(math.nan), VStr("n")),
+      (VFloat(math.inf), VStr("i")),
+      (VFloat(2.5), VStr("x")),
+      (VFloat(0.0 - math.inf), VStr("j")),
+      (VFloat(-1.0), VStr("m")),
+    ])),
+    VTyped("map[float64]string", VMap([(VFloat(2.5), VStr("x"))])),
+  ])
+  row(2016, "%v|%#v", [
+    VTyped("map[bool]int", VMap([(VBool(true), VInt(1)), (VBool(false), VInt(0))])),
+    VTyped("map[bool]int", VMap([(VBool(true), VInt(1)), (VBool(false), VInt(0))])),
+  ])
+  row(2017, "%v|%#v", [
+    VTyped("map[string][]int", VMap([
+      (VStr("k"), VTyped("[]int", VList([VInt(1), VInt(2)]))),
+      (VStr("a"), VTyped("[]int", VList([]))),
+    ])),
+    VTyped("map[string][]int", VMap([(VStr("k"), VTyped("[]int", VList([VInt(1), VInt(2)])))])),
+  ])
+  row(2018, "%v|%+v|%#v", [
+    VTyped("map[main.T]int", VMap([
+      (VStruct("main.T", [("A", VInt(2)), ("B", VStr("a"))]), VInt(1)),
+      (VStruct("main.T", [("A", VInt(1)), ("B", VStr("b"))]), VInt(2)),
+      (VStruct("main.T", [("A", VInt(1)), ("B", VStr("a"))]), VInt(3)),
+    ])),
+    VTyped("map[main.T]int", VMap([
+      (VStruct("main.T", [("A", VInt(2)), ("B", VStr("a"))]), VInt(1)),
+      (VStruct("main.T", [("A", VInt(1)), ("B", VStr("b"))]), VInt(2)),
+    ])),
+    VTyped("map[main.T]int", VMap([
+      (VStruct("main.T", [("A", VInt(1)), ("B", VStr("a"))]), VInt(3)),
+    ])),
+  ])
+  row(2019, "%v|%#v", [
+    VTyped("map[interface \{}]int", VMap([(VStr("b"), VInt(1)), (VStr("a"), VInt(2))])),
+    VTyped("map[interface \{}]int", VMap([(VStr("b"), VInt(1)), (VStr("a"), VInt(2))])),
+  ])
+  row(2020, "%v|%d|%c|%q|%U|%#v", [
+    VTyped("map[int32]bool", VMap([(VRune(98), VBool(true)), (VRune(97), VBool(false))])),
+    VTyped("map[int32]bool", VMap([(VRune(98), VBool(true))])),
+    VTyped("[]int32", VList([VRune(104), VRune(233), VRune(108), VRune(108), VRune(111)])),
+    VTyped("[]int32", VList([VRune(104), VRune(233), VRune(108), VRune(108), VRune(111)])),
+    VTyped("[]int32", VList([VRune(104), VRune(233)])),
+    VTyped("[]int32", VList([VRune(104), VRune(233)])),
+  ])
+  row(2021, "%v|%q|%x|% x|%X|%#v|%5s|%-3s|", [
+    VTyped("[]string", VList([VStr("a"), VStr("b c")])),
+    VTyped("[]string", VList([VStr("a"), VStr("b c")])),
+    VTyped("[]string", VList([VStr("a"), VStr("b c")])),
+    VTyped("[]string", VList([VStr("a"), VStr("b c")])),
+    VTyped("[]string", VList([VStr("hi"), VStr("yo")])),
+    VTyped("[]string", VList([VStr("a"), VStr("b c")])),
+    VTyped("[]string", VList([VStr("a"), VStr("b")])),
+    VTyped("[]string", VList([VStr("a"), VStr("b")])),
+  ])
+  row(2022, "%v|%#v|%d", [
+    VTyped("[][]int", VList([
+      VTyped("[]int", VList([VInt(1), VInt(2)])),
+      VTyped("[]int", VList([VInt(3)])),
+      VTyped("[]int", VList([])),
+    ])),
+    VTyped("[][]int", VList([VTyped("[]int", VList([VInt(1), VInt(2)])), VTyped("[]int", VList([
+      VInt(3),
+    ]))])),
+    VTyped("[][]int", VList([VTyped("[]int", VList([VInt(1), VInt(2)])), VTyped("[]int", VList([
+      VInt(3),
+    ]))])),
+  ])
+  row(2023, "%v|%#v|%.2f|%6.1e", [
+    VTyped("[]float64", VList([VFloat(1.0), VFloat(2.5), VFloat(1e+21), VFloat(0.0)])),
+    VTyped("[]float64", VList([VFloat(1.0), VFloat(2.5)])),
+    VTyped("[]float64", VList([VFloat(1.0), VFloat(2.5)])),
+    VTyped("[]float64", VList([VFloat(1.0), VFloat(2.5)])),
+  ])
+  row(2024, "%v|%t|%#v|%d", [
+    VTyped("[]bool", VList([VBool(true), VBool(false)])),
+    VTyped("[]bool", VList([VBool(true)])),
+    VTyped("[]bool", VList([VBool(false)])),
+    VTyped("[]bool", VList([VBool(true)])),
+  ])
+  row(2025, "%v|%#v", [
+    VTyped("[]interface \{}", VList([
+      VInt(1),
+      VStr("a"),
+      VNil,
+      VFloat(2.5),
+      VBool(true),
+      VErr("boom"),
+      VByte(7),
+      VRune(120),
+    ])),
+    VTyped("[]interface \{}", VList([
+      VInt(1),
+      VStr("a"),
+      VNil,
+      VFloat(2.5),
+      VBool(true),
+      VByte(7),
+      VRune(120),
+    ])),
+  ])
+  row(2026, "%v|%#v|%T", [
+    VStruct("struct \{ A int; B string }", [("A", VInt(1)), ("B", VStr("x"))]),
+    VStruct("struct \{ A int; B string }", [("A", VInt(1)), ("B", VStr("x"))]),
+    VStruct("struct \{ A int; B []uint8 }", [("A", VInt(0)), ("B", VBytes([]))]),
+  ])
+  row(2027, "%v|%+v|%#v|%T", [
+    VStruct("struct \{}", []),
+    VStruct("struct \{}", []),
+    VStruct("struct \{}", []),
+    VStruct("struct \{}", []),
+  ])
+  row(2028, "%v|%.1f|%T|%#v|%e", [
+    VTyped("main.Celsius", VFloat(36.6)),
+    VTyped("main.Celsius", VFloat(36.6)),
+    VTyped("main.Celsius", VFloat(36.6)),
+    VTyped("main.Celsius", VFloat(36.6)),
+    VTyped("main.Celsius", VFloat(36.6)),
+  ])
 }
 
 fn part12() {
-  row(2029, "%v|%d|%x|%#v|%T|%s", [VTyped("main.Color", VInt(2)), VTyped("main.Color", VInt(2)), VTyped("main.Color", VInt(255)), VTyped("main.Color", VInt(2)), VTyped("main.Color", VInt(2)), VTyped("main.Color", VInt(2))])
-  row(2030, "%v|%q|%T|%x|%#v|%d", [VTyped("main.MyStr", VStr("hi")), VTyped("main.MyStr", VStr("hi")), VTyped("main.MyStr", VStr("hi")), VTyped("main.MyStr", VStr("hi")), VTyped("main.MyStr", VStr("hi")), VTyped("main.MyStr", VStr("hi"))])
-  row(2031, "%v %v|%t %t|%t|%5t|%-6t|%q", [VBool(true), VBool(false), VBool(true), VBool(false), VInt(1), VBool(true), VBool(false), VBool(true)])
-  row(2032, "%e|%d|%s|%x|%X|%b|%o", [VInt(1), VFloat(1.5), VInt(1), VFloat(3.5), VFloat(-3.5), VInt(7), VInt(-8)])
-  row(2033, "%d|%x|%#v|%b|%o|%v|%X", [VUint(-9223372036854775807 - 1), VUint(-9223372036854775807 - 1), VUint(-9223372036854775807 - 1), VUint(-9223372036854775807 - 1), VUint(-9223372036854775807 - 1), VUint(-1), VUint(-1)])
-  row(2034, "%d|%x|%X|%o|%b|%#x|%+d|% d", [VInt(-9223372036854775807 - 1), VInt(-9223372036854775807 - 1), VInt(-9223372036854775807 - 1), VInt(-9223372036854775807 - 1), VInt(-9223372036854775807 - 1), VInt(-9223372036854775807 - 1), VInt(9223372036854775807), VInt(9223372036854775807)])
-  row(2035, "%v|%v|%v|%v|%v|%v|%v|%v", [VFloat(0.1), VFloat(1e-07), VFloat(1.23456789e+08), VFloat(1e+20), VFloat(1e+21), VF32(strconv.round_float32(0.10000000149011612)), VFloat(5e-324), VFloat(1.7976931348623157e+308)])
-  row(2036, "%.3g|%.10g|%8.3f|%-8.3e|%+g|%G|%x|%X|%#x", [VFloat(1.234567e+06), VFloat(0.3333333333333333), VFloat(-3.14159), VFloat(2718.28), VFloat(1.5), VFloat(1e-10), VFloat(1.0), VFloat(0.1), VFloat(255.5)])
-  row(2037, "%.0f|%.0f|%.0f|%.0f|%.1f|%.2f", [VFloat(0.5), VFloat(1.5), VFloat(2.5), VFloat(-0.5), VFloat(0.05), VFloat(1.005)])
-  row(2038, "%v|%f|%g|%e|%F|%x", [VFloat(5e-324), VFloat(1e+100), VF32(strconv.round_float32(9.99994610111476e-41)), VF32(strconv.round_float32(3.3999999521443642e+38)), VFloat(1e+06), VF32(strconv.round_float32(1.0))])
-  row(2039, "%U|%#U|%#U|%U|%c|%q", [VInt(1114112), VInt(128512), VInt(127), VRune(97), VInt(128512), VInt(127)])
-  row(2040, "%-6s|%6q|%.1s|%3c|%-4q|%x", [VStr("\u{65e5}\u{672c}"), VStr("\u{65e5}\u{672c}"), VStr("\u{65e5}\u{672c}"), VRune(26085), VRune(26085), VStr("\u{65e5}\u{672c}")])
+  row(2029, "%v|%d|%x|%#v|%T|%s", [
+    VTyped("main.Color", VInt(2)),
+    VTyped("main.Color", VInt(2)),
+    VTyped("main.Color", VInt(255)),
+    VTyped("main.Color", VInt(2)),
+    VTyped("main.Color", VInt(2)),
+    VTyped("main.Color", VInt(2)),
+  ])
+  row(2030, "%v|%q|%T|%x|%#v|%d", [
+    VTyped("main.MyStr", VStr("hi")),
+    VTyped("main.MyStr", VStr("hi")),
+    VTyped("main.MyStr", VStr("hi")),
+    VTyped("main.MyStr", VStr("hi")),
+    VTyped("main.MyStr", VStr("hi")),
+    VTyped("main.MyStr", VStr("hi")),
+  ])
+  row(2031, "%v %v|%t %t|%t|%5t|%-6t|%q", [
+    VBool(true),
+    VBool(false),
+    VBool(true),
+    VBool(false),
+    VInt(1),
+    VBool(true),
+    VBool(false),
+    VBool(true),
+  ])
+  row(2032, "%e|%d|%s|%x|%X|%b|%o", [
+    VInt(1),
+    VFloat(1.5),
+    VInt(1),
+    VFloat(3.5),
+    VFloat(-3.5),
+    VInt(7),
+    VInt(-8),
+  ])
+  row(2033, "%d|%x|%#v|%b|%o|%v|%X", [
+    VUint(-9223372036854775807 - 1),
+    VUint(-9223372036854775807 - 1),
+    VUint(-9223372036854775807 - 1),
+    VUint(-9223372036854775807 - 1),
+    VUint(-9223372036854775807 - 1),
+    VUint(-1),
+    VUint(-1),
+  ])
+  row(2034, "%d|%x|%X|%o|%b|%#x|%+d|% d", [
+    VInt(-9223372036854775807 - 1),
+    VInt(-9223372036854775807 - 1),
+    VInt(-9223372036854775807 - 1),
+    VInt(-9223372036854775807 - 1),
+    VInt(-9223372036854775807 - 1),
+    VInt(-9223372036854775807 - 1),
+    VInt(9223372036854775807),
+    VInt(9223372036854775807),
+  ])
+  row(2035, "%v|%v|%v|%v|%v|%v|%v|%v", [
+    VFloat(0.1),
+    VFloat(1e-07),
+    VFloat(1.23456789e+08),
+    VFloat(1e+20),
+    VFloat(1e+21),
+    VF32(strconv.round_float32(0.10000000149011612)),
+    VFloat(5e-324),
+    VFloat(1.7976931348623157e+308),
+  ])
+  row(2036, "%.3g|%.10g|%8.3f|%-8.3e|%+g|%G|%x|%X|%#x", [
+    VFloat(1.234567e+06),
+    VFloat(0.3333333333333333),
+    VFloat(-3.14159),
+    VFloat(2718.28),
+    VFloat(1.5),
+    VFloat(1e-10),
+    VFloat(1.0),
+    VFloat(0.1),
+    VFloat(255.5),
+  ])
+  row(2037, "%.0f|%.0f|%.0f|%.0f|%.1f|%.2f", [
+    VFloat(0.5),
+    VFloat(1.5),
+    VFloat(2.5),
+    VFloat(-0.5),
+    VFloat(0.05),
+    VFloat(1.005),
+  ])
+  row(2038, "%v|%f|%g|%e|%F|%x", [
+    VFloat(5e-324),
+    VFloat(1e+100),
+    VF32(strconv.round_float32(9.99994610111476e-41)),
+    VF32(strconv.round_float32(3.3999999521443642e+38)),
+    VFloat(1e+06),
+    VF32(strconv.round_float32(1.0)),
+  ])
+  row(2039, "%U|%#U|%#U|%U|%c|%q", [
+    VInt(1114112),
+    VInt(128512),
+    VInt(127),
+    VRune(97),
+    VInt(128512),
+    VInt(127),
+  ])
+  row(2040, "%-6s|%6q|%.1s|%3c|%-4q|%x", [
+    VStr("\u{65e5}\u{672c}"),
+    VStr("\u{65e5}\u{672c}"),
+    VStr("\u{65e5}\u{672c}"),
+    VRune(26085),
+    VRune(26085),
+    VStr("\u{65e5}\u{672c}"),
+  ])
   row(2041, "\u{4ef7}\u{683c}\u{ff1a}%d \u{5143}\u{ff0c}%s", [VInt(5), VStr("\u{597d}")])
-  row(2042, "%*d|%-*d|%*d|%.*f|%*.*f|", [VInt(5), VInt(42), VInt(5), VInt(42), VInt(-5), VInt(42), VInt(2), VFloat(3.14159), VInt(8), VInt(3), VFloat(3.14159)])
-  row(2043, "%*d|%.*d|%.*d|%*d|", [VStr("x"), VInt(42), VStr("y"), VInt(42), VInt(-1), VInt(42), VInt(10000000), VInt(1)])
-  row(2044, "%*d|%*d|%*d|%.*d", [VTyped("uint", VUint(3)), VInt(7), VTyped("int8", VInt(3)), VInt(7), VUint(-9223372036854775807 - 1), VInt(7), VRune(4), VInt(9)])
+  row(2042, "%*d|%-*d|%*d|%.*f|%*.*f|", [
+    VInt(5),
+    VInt(42),
+    VInt(5),
+    VInt(42),
+    VInt(-5),
+    VInt(42),
+    VInt(2),
+    VFloat(3.14159),
+    VInt(8),
+    VInt(3),
+    VFloat(3.14159),
+  ])
+  row(2043, "%*d|%.*d|%.*d|%*d|", [
+    VStr("x"),
+    VInt(42),
+    VStr("y"),
+    VInt(42),
+    VInt(-1),
+    VInt(42),
+    VInt(10000000),
+    VInt(1),
+  ])
+  row(2044, "%*d|%*d|%*d|%.*d", [
+    VTyped("uint", VUint(3)),
+    VInt(7),
+    VTyped("int8", VInt(3)),
+    VInt(7),
+    VUint(-9223372036854775807 - 1),
+    VInt(7),
+    VRune(4),
+    VInt(9),
+  ])
   row(2045, "%d %d", [VInt(1)])
   row(2046, "%z|%!|%d|%s|%d", [VInt(1), VNil, VNil])
-  row(2047, "%d", [VInt(1), VStr("a"), VNil, VFloat(2.5), VTyped("[]int", VList([VInt(1)])), VErr("boom")])
+  row(2047, "%d", [
+    VInt(1),
+    VStr("a"),
+    VNil,
+    VFloat(2.5),
+    VTyped("[]int", VList([VInt(1)])),
+    VErr("boom"),
+  ])
   row(2048, "%", [])
   row(2049, "%d", [])
-  row(2050, "%5v|%-4d|%04d|%x|%X|% x", [VTyped("[]int", VList([VInt(1), VInt(22)])), VTyped("[]int", VList([VInt(1), VInt(22)])), VTyped("[]int", VList([VInt(1), VInt(-2)])), VStr("hello"), VTyped("[]string", VList([VStr("hi"), VStr("yo")])), VTyped("[]string", VList([VStr("hi"), VStr("yo")]))])
-  row(2051, "%v|%d|%s|%q|%x|%#v|%T", [VBytes([104, 105]), VBytes([104, 105]), VBytes([104, 105]), VBytes([104, 105]), VBytes([104, 105]), VBytes([104, 105]), VBytes([104, 105])])
-  row(2052, "%q|%#q|%+q|%x|%s", [VBytes([97, 255, 98]), VBytes([97, 96, 98]), VBytes([195, 169, 1]), VBytes([0, 255]), VBytes([195, 169])])
-  row(2053, "%v|%#v|%T|%v", [VTyped("[3]int", VArray([VInt(1), VInt(2), VInt(3)])), VTyped("[2]string", VArray([VStr("a"), VStr("b")])), VTyped("[0]int", VArray([])), VTyped("[2][2]int", VArray([VTyped("[2]int", VArray([VInt(1), VInt(2)])), VTyped("[2]int", VArray([VInt(3), VInt(4)]))]))])
-  row(2054, "%v|%+v|%#v", [VPtr(VTyped("[]int", VList([VInt(1), VInt(2)]))), VPtr(VTyped("map[string]int", VMap([(VStr("a"), VInt(1))]))), VPtr(VTyped("[2]bool", VArray([VBool(true), VBool(false)])))])
-  row(2055, "%v|%#v|%T|%x", [VComplex(1.0, -2.0), VComplex(1.5, 0.0), VComplex(1.0, 2.0), VComplex(1.0, 2.0)])
+  row(2050, "%5v|%-4d|%04d|%x|%X|% x", [
+    VTyped("[]int", VList([VInt(1), VInt(22)])),
+    VTyped("[]int", VList([VInt(1), VInt(22)])),
+    VTyped("[]int", VList([VInt(1), VInt(-2)])),
+    VStr("hello"),
+    VTyped("[]string", VList([VStr("hi"), VStr("yo")])),
+    VTyped("[]string", VList([VStr("hi"), VStr("yo")])),
+  ])
+  row(2051, "%v|%d|%s|%q|%x|%#v|%T", [
+    VBytes([104, 105]),
+    VBytes([104, 105]),
+    VBytes([104, 105]),
+    VBytes([104, 105]),
+    VBytes([104, 105]),
+    VBytes([104, 105]),
+    VBytes([104, 105]),
+  ])
+  row(2052, "%q|%#q|%+q|%x|%s", [
+    VBytes([97, 255, 98]),
+    VBytes([97, 96, 98]),
+    VBytes([195, 169, 1]),
+    VBytes([0, 255]),
+    VBytes([195, 169]),
+  ])
+  row(2053, "%v|%#v|%T|%v", [
+    VTyped("[3]int", VArray([VInt(1), VInt(2), VInt(3)])),
+    VTyped("[2]string", VArray([VStr("a"), VStr("b")])),
+    VTyped("[0]int", VArray([])),
+    VTyped("[2][2]int", VArray([VTyped("[2]int", VArray([VInt(1), VInt(2)])), VTyped(
+      "[2]int",
+      VArray([VInt(3), VInt(4)]),
+    )])),
+  ])
+  row(2054, "%v|%+v|%#v", [
+    VPtr(VTyped("[]int", VList([VInt(1), VInt(2)]))),
+    VPtr(VTyped("map[string]int", VMap([(VStr("a"), VInt(1))]))),
+    VPtr(VTyped("[2]bool", VArray([VBool(true), VBool(false)]))),
+  ])
+  row(2055, "%v|%#v|%T|%x", [
+    VComplex(1.0, -2.0),
+    VComplex(1.5, 0.0),
+    VComplex(1.0, 2.0),
+    VComplex(1.0, 2.0),
+  ])
   row(2056, "%[2]v %[1]v %v|%[1]T", [VStr("a"), VFloat(1.5)])
   row(2057, "%[2]*[1]d|%-[2]*[1]d|", [VInt(7), VInt(4)])
-  row(2058, "%v %v", [VStruct("main.SI", [("I", VNil)]), VStruct("main.SI", [("I", VStruct("main.T", [("A", VInt(1)), ("B", VStr("x"))]))])])
-  row(2059, "%+v|%#v", [VStruct("main.SI", [("I", VErr("boom"))]), VStruct("main.SI", [("I", VNil)])])
-  row(2060, "%s|%v|%d", [VNil, VTyped("[]interface \{}", VList([VNil])), VTyped("[]interface \{}", VList([VNil, VInt(1)]))])
-  row(2061, "%#v|%#v|%#v", [VTyped("int8", VInt(-3)), VTyped("uint16", VUint(65535)), VTyped("uintptr", VUint(255))])
-  row(2062, "%x|%X|%o|%O|%#o|%#O|%#b", [VInt(-255), VInt(-255), VInt(-8), VInt(-8), VInt(0), VInt(8), VInt(0)])
-  row(2063, "%08.3f|%-08.3f|%+08.3f|% 08.3f|%08.3e|%08g", [VFloat(-3.14159), VFloat(3.14159), VFloat(3.14159), VFloat(3.14159), VFloat(3.14159), VFloat(1e-05)])
-  row(2064, "%6.2v|%.3v|%10.4v|%-10v|", [VFloat(3.14159), VStr("abcdef"), VFloat(123.456789), VFloat(1.5)])
+  row(2058, "%v %v", [VStruct("main.SI", [("I", VNil)]), VStruct("main.SI", [("I", VStruct(
+    "main.T",
+    [("A", VInt(1)), ("B", VStr("x"))],
+  ))])])
+  row(2059, "%+v|%#v", [VStruct("main.SI", [("I", VErr("boom"))]), VStruct("main.SI", [
+    ("I", VNil),
+  ])])
+  row(2060, "%s|%v|%d", [VNil, VTyped("[]interface \{}", VList([VNil])), VTyped(
+    "[]interface \{}",
+    VList([VNil, VInt(1)]),
+  )])
+  row(2061, "%#v|%#v|%#v", [
+    VTyped("int8", VInt(-3)),
+    VTyped("uint16", VUint(65535)),
+    VTyped("uintptr", VUint(255)),
+  ])
+  row(2062, "%x|%X|%o|%O|%#o|%#O|%#b", [
+    VInt(-255),
+    VInt(-255),
+    VInt(-8),
+    VInt(-8),
+    VInt(0),
+    VInt(8),
+    VInt(0),
+  ])
+  row(2063, "%08.3f|%-08.3f|%+08.3f|% 08.3f|%08.3e|%08g", [
+    VFloat(-3.14159),
+    VFloat(3.14159),
+    VFloat(3.14159),
+    VFloat(3.14159),
+    VFloat(3.14159),
+    VFloat(1e-05),
+  ])
+  row(2064, "%6.2v|%.3v|%10.4v|%-10v|", [
+    VFloat(3.14159),
+    VStr("abcdef"),
+    VFloat(123.456789),
+    VFloat(1.5),
+  ])
   sp(0, [VInt(1), VInt(2), VStr("a"), VStr("b"), VInt(3), VFloat(4.5), VNil, VBool(true)])
   sp(1, [VStr("a"), VInt(1), VStr("b")])
   sp(2, [VTyped("main.MyStr", VStr("x")), VInt(1), VTyped("main.MyStr", VStr("y"))])
-  sp(3, [VErr("boom"), VErr("boom"), VStr("s"), VTyped("[]int", VList([VInt(1)])), VTyped("map[string]int", VMap([(VStr("a"), VInt(1))]))])
+  sp(3, [VErr("boom"), VErr("boom"), VStr("s"), VTyped("[]int", VList([VInt(1)])), VTyped(
+    "map[string]int",
+    VMap([(VStr("a"), VInt(1))]),
+  )])
   sp(4, [])
   sp(5, [VNil, VNil])
-  sp(6, [VStruct("main.T", [("A", VInt(1)), ("B", VStr("x"))]), VPtr(VStruct("main.T", [("A", VInt(2)), ("B", VStr("y"))])), VTyped("main.Color", VInt(3)), VTyped("main.Celsius", VFloat(1.0))])
+  sp(6, [
+    VStruct("main.T", [("A", VInt(1)), ("B", VStr("x"))]),
+    VPtr(VStruct("main.T", [("A", VInt(2)), ("B", VStr("y"))])),
+    VTyped("main.Color", VInt(3)),
+    VTyped("main.Celsius", VFloat(1.0)),
+  ])
   ef(0, "wrap: %w", [VErr("boom")])
   ef(1, "%w and %w", [VErr("boom"), VErr("x")])
   ef(2, "%w", [VInt(1)])
@@ -831,6 +1378,9 @@ fn main() {
   part11()
   part12()
   fmt.printf("printf %d|%s|%v\n", [VInt(1), VStr("x"), VTyped("[]int", VList([VInt(1), VInt(2)]))])
-  fmt.println_([VStr("println"), VInt(1), VFloat(2.5), VStr("a"), VNil, VStruct("main.T", [("A", VInt(1)), ("B", VStr("x"))])])
+  fmt.println_([VStr("println"), VInt(1), VFloat(2.5), VStr("a"), VNil, VStruct("main.T", [
+    ("A", VInt(1)),
+    ("B", VStr("x")),
+  ])])
   fmt.print_([VStr("print"), VInt(1), VInt(2), VStr("a"), VStr("b"), VInt(3), VStr("\n")])
 }

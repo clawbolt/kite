@@ -13,7 +13,9 @@ use kir
 
 // ───────── 找 prelude.kite 和 runtime/：$KITE_HOME，然后可执行文件所在目录往上，最后当前目录往上 ─────────
 
-pub fn is_home(d: Str) -> Bool { fs.exists(path.join([d, "prelude.kite"])) && fs.exists(path.join([d, "runtime", "kite_rt.c"])) }
+pub fn is_home(d: Str) -> Bool {
+  fs.exists(path.join([d, "prelude.kite"])) && fs.exists(path.join([d, "runtime", "kite_rt.c"]))
+}
 
 pub fn up_find(d0: Str) -> Str? {
   var d = d0
@@ -40,7 +42,7 @@ pub fn kite_home() -> Str? {
 pub fn prelude_path() -> Str? {
   match kite_home() {
     Some(h) => Some(path.join([h, "prelude.kite"])),
-    None    => {
+    None => {
       eprint("找不到 Kite 安装目录（prelude.kite 和 runtime/）：请设置环境变量 KITE_HOME")
       None
     },
@@ -48,20 +50,24 @@ pub fn prelude_path() -> Str? {
 }
 
 // 读入程序和 prelude
-pub fn load(file: Str, pre_path: Str) -> Result<((List<ast.Node>, List<Str>), List<ast.Node>), Str> {
+pub fn load(file: Str, pre_path: Str) -> Result<(
+  (List<ast.Node>, List<Str>), List<ast.Node>
+), Str> {
   let cwd = __getcwd()
   let kdir = path.dir(if path.is_abs(pre_path) { pre_path } else { path.join([cwd, pre_path]) })
   let r = match modules.load_main_src(modules.new_l(cwd, file, kdir), file) {
-    Ok(x)  => x,
-    Err(e) => { return Err(if e.ln == -2 { e.msg } else { loc(file, e.ln, modules.strip_lm(e.msg)) }) },
+    Ok(x) => x,
+    Err(e) => {
+      return Err(if e.ln == -2 { e.msg } else { loc(file, e.ln, modules.strip_lm(e.msg)) })
+    },
   }
   let pre = match fs.read(pre_path) {
-    Ok(x)  => x,
+    Ok(x) => x,
     Err(e) => { return Err("读取失败: {e}") },
   }
   let pits = match parser.parse(pre) {
     Ok(its) => its,
-    Err(e)  => { return Err("prelude: " + e) },
+    Err(e) => { return Err("prelude: " + e) },
   }
   Ok((r, pits))
 }
@@ -83,7 +89,11 @@ pub fn find_cc() -> Str? {
 // 编码过的行号（文件序号 * LINE_BASE + 行）还原成 文件:行（kite.py 的 locate）
 pub fn locs(srcs: List<Str>, file: Str, ln: Int, msg: Str) -> Str {
   let i = ln / modules.LINE_BASE
-  if ln > 0 && i > 0 && i < len(srcs) { srcs[i] + ":{ln % modules.LINE_BASE}: " + msg } else { loc(file, ln, msg) }
+  if ln > 0 && i > 0 && i < len(srcs) {
+    srcs[i] + ":{ln % modules.LINE_BASE}: " + msg
+  } else {
+    loc(file, ln, msg)
+  }
 }
 
 // 检查器的警告（@deprecated、没有 .await 的 Future），按行号输出到 stderr
@@ -91,12 +101,14 @@ pub fn print_warns(c: check.C, srcs: List<Str>, file: Str) {
   for (ln, msg) in sort(c.warns) { eprint(locs(srcs, file, ln, msg)) }
 }
 
-pub fn loc(file: Str, ln: Int, msg: Str) -> Str { if ln > 0 && ln < 1000000 { file + ":{ln}: " + msg } else { file + ": " + msg } }
+pub fn loc(file: Str, ln: Int, msg: Str) -> Str {
+  if ln > 0 && ln < 1000000 { file + ":{ln}: " + msg } else { file + ": " + msg }
+}
 
 // 类型检查 → 字节码 → KIR → C（cgen.generate_k）→ C 编译器
 pub fn compile(file: Str, pre_path: Str, out: Str, emit: Str, use_kir: Bool, quiet: Bool) -> Int {
   let ((items, srcs), pits) = match load(file, pre_path) {
-    Ok(r)  => r,
+    Ok(r) => r,
     Err(m) => {
       eprint(m)
       return 1
@@ -106,8 +118,22 @@ pub fn compile(file: Str, pre_path: Str, out: Str, emit: Str, use_kir: Bool, qui
 }
 
 // 已经读入的程序 → 可执行文件（kitec test 给程序补上分派测试的 main 后也走这里）
-pub fn compile_items(file: Str, pre_path: Str, items: List<ast.Node>, srcs: List<Str>, pits: List<ast.Node>, out: Str, emit: Str, use_kir: Bool, quiet: Bool) -> Int {
-  let kdir = path.dir(if path.is_abs(pre_path) { pre_path } else { path.join([__getcwd(), pre_path]) })
+pub fn compile_items(
+  file: Str,
+  pre_path: Str,
+  items: List<ast.Node>,
+  srcs: List<Str>,
+  pits: List<ast.Node>,
+  out: Str,
+  emit: Str,
+  use_kir: Bool,
+  quiet: Bool,
+) -> Int {
+  let kdir = path.dir(if path.is_abs(pre_path) {
+    pre_path
+  } else {
+    path.join([__getcwd(), pre_path])
+  })
   let (errs, _, low, cst) = check.check_c(pits, items)
   print_warns(cst, srcs, file)
   if len(errs) > 0 {
@@ -120,14 +146,14 @@ pub fn compile_items(file: Str, pre_path: Str, items: List<ast.Node>, srcs: List
     return 1
   }
   let rt = match fs.read(path.join([kdir, "runtime", "kite_rt.c"])) {
-    Ok(x)  => x,
+    Ok(x) => x,
     Err(e) => {
       eprint("找不到运行时 runtime/kite_rt.c: {e}")
       return 1
     },
   }
   let case_h = match fs.read(path.join([kdir, "runtime", "kite_case.h"])) {
-    Ok(x)  => x,
+    Ok(x) => x,
     Err(_) => "",
   }
   let rt2 = cgen.first_replace(rt, "#include \"kite_case.h\"\n", case_h)
@@ -139,7 +165,7 @@ pub fn compile_items(file: Str, pre_path: Str, items: List<ast.Node>, srcs: List
   }
   let cpath = if emit != "" { emit } else { out + ".c" }
   match fs.write(cpath, csrc) {
-    Ok(_)  => (),
+    Ok(_) => (),
     Err(e) => {
       eprint("写入失败: {e}")
       return 1
@@ -147,14 +173,16 @@ pub fn compile_items(file: Str, pre_path: Str, items: List<ast.Node>, srcs: List
   }
   let cc = match find_cc() {
     Some(x) => x,
-    None    => {
+    None => {
       eprint("找不到 C 编译器：请安装 clang / gcc / zig；也可设置环境变量 CC")
       return 1
     },
   }
   var libs = ""
   for l in cgen.ext_libs(st) { libs = libs + " -l" + sq(l) }
-  let (code, _) = process.run(cc + " -O2 -w -o " + sq(out) + " " + sq(cpath) + " -lm -lpthread" + libs)
+  let (code, _) = process.run(
+    cc + " -O2 -w -o " + sq(out) + " " + sq(cpath) + " -lm -lpthread" + libs,
+  )
   if emit == "" { let _ = fs.remove(cpath) }
   if code != 0 {
     eprint("C 编译失败（原生后端内部错误），退出码 {code}")

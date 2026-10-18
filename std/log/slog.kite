@@ -19,10 +19,15 @@ pub const MESSAGE_KEY: Str = "msg"
 pub const SOURCE_KEY: Str = "source"
 
 pub fn level_string(l: Int) -> Str {
-  let (base, d) = if l < LEVEL_INFO { ("DEBUG", l - LEVEL_DEBUG) }
-    else if l < LEVEL_WARN { ("INFO", l - LEVEL_INFO) }
-    else if l < LEVEL_ERROR { ("WARN", l - LEVEL_WARN) }
-    else { ("ERROR", l - LEVEL_ERROR) }
+  let (base, d) = if l < LEVEL_INFO {
+    ("DEBUG", l - LEVEL_DEBUG)
+  } else if l < LEVEL_WARN {
+    ("INFO", l - LEVEL_INFO)
+  } else if l < LEVEL_ERROR {
+    ("WARN", l - LEVEL_WARN)
+  } else {
+    ("ERROR", l - LEVEL_ERROR)
+  }
   if d == 0 { base } else if d > 0 { "{base}+{d}" } else { "{base}{d}" }
 }
 
@@ -36,7 +41,11 @@ pub fn parse_level(s: Str) -> Result<Int, Str> {
     name = __str_slice(s, 0, i)
     match strconv.atoi(__str_slice(s, i, len(s))) {
       Ok(n) => { off = n },
-      Err(_) => { return Err("slog: level string \"{s}\": strconv.Atoi: parsing \"{__str_slice(s, i, len(s))}\": invalid syntax") },
+      Err(_) => {
+        return Err(
+          "slog: level string \"{s}\": strconv.Atoi: parsing \"{__str_slice(s, i, len(s))}\": invalid syntax",
+        )
+      },
     }
   }
   let base = match upper(name) {
@@ -99,8 +108,14 @@ pub fn nil_attr(k: Str) -> Attr { Attr { key: k, value: VNil } }
 
 pub fn kind_string(v: Value) -> Str {
   match v {
-    VStr(_) => "String", VInt(_) => "Int64", VUint(_) => "Uint64", VFloat(_) => "Float64",
-    VBool(_) => "Bool", VDuration(_) => "Duration", VGroup(_) => "Group", _ => "Any",
+    VStr(_) => "String",
+    VInt(_) => "Int64",
+    VUint(_) => "Uint64",
+    VFloat(_) => "Float64",
+    VBool(_) => "Bool",
+    VDuration(_) => "Duration",
+    VGroup(_) => "Group",
+    _ => "Any",
   }
 }
 
@@ -183,15 +198,30 @@ fn json_escape(s: Str) -> Str {
   for c in s {
     let o = __ord(c)
     if o < 128 {
-      if json_safe(o) { out = out + c }
-      else if o == 92 || o == 34 { out = out + "\\" + c }
-      else if o == 10 { out = out + "\\n" }
-      else if o == 13 { out = out + "\\r" }
-      else if o == 9 { out = out + "\\t" }
-      else { out = out + "\\u00" + __str_slice(HEXD, o / 16, o / 16 + 1) + __str_slice(HEXD, o % 16, o % 16 + 1) }
-    } else if o == 8232 { out = out + "\\u2028" }
-    else if o == 8233 { out = out + "\\u2029" }
-    else { out = out + c }
+      if json_safe(o) {
+        out = out + c
+      } else if o == 92 || o == 34 {
+        out = out + "\\" + c
+      } else if o == 10 {
+        out = out + "\\n"
+      } else if o == 13 {
+        out = out + "\\r"
+      } else if o == 9 {
+        out = out + "\\t"
+      } else {
+        out = out + "\\u00" + __str_slice(HEXD, o / 16, o / 16 + 1) + __str_slice(
+          HEXD,
+          o % 16,
+          o % 16 + 1,
+        )
+      }
+    } else if o == 8232 {
+      out = out + "\\u2028"
+    } else if o == 8233 {
+      out = out + "\\u2029"
+    } else {
+      out = out + c
+    }
   }
   out
 }
@@ -202,14 +232,18 @@ pub fn needs_quoting(s: Str) -> Bool {
     let o = __ord(c)
     if o < 128 {
       if o != 92 && (o == 32 || o == 61 || o == 34 || o < 32) { return true }
-    } else if o == 65533 || unicode.is_space(c) || !unicode.is_print(c) { return true }
+    } else if o == 65533 || unicode.is_space(c) || !unicode.is_print(c) {
+      return true
+    }
   }
   false
 }
 
 pub type HandlerOptions = { level: Int, replace_attr: Option<fn(List<Str>, Attr) -> Attr> }
 
-pub fn default_options() -> HandlerOptions { HandlerOptions { level: LEVEL_INFO, replace_attr: None } }
+pub fn default_options() -> HandlerOptions {
+  HandlerOptions { level: LEVEL_INFO, replace_attr: None }
+}
 
 pub type Handler = {
   json: Bool,
@@ -230,7 +264,9 @@ pub fn new_json_handler(opts: HandlerOptions) -> Handler {
 
 pub type Record = { time: Option<Int>, level: Int, message: Str, attrs: List<Attr> }
 
-pub fn new_record(level: Int, msg: Str) -> Record { Record { time: None, level: level, message: msg, attrs: [] } }
+pub fn new_record(level: Int, msg: Str) -> Record {
+  Record { time: None, level: level, message: msg, attrs: [] }
+}
 
 impl Record {
   pub fn add_attrs(self, more: List<Attr>) -> Record {
@@ -252,18 +288,28 @@ fn new_state(h: Handler, buf: Str, sep: Str) -> St {
 }
 
 fn st_string(s: St, str: Str) -> St {
-  if s.h.json { St { buf: s.buf + "\"" + json_escape(str) + "\"", ..s } }
-  else if needs_quoting(str) { St { buf: s.buf + strconv.quote_go(str), ..s } }
-  else { St { buf: s.buf + str, ..s } }
+  if s.h.json {
+    St { buf: s.buf + "\"" + json_escape(str) + "\"", ..s }
+  } else if needs_quoting(str) {
+    St { buf: s.buf + strconv.quote_go(str), ..s }
+  } else {
+    St { buf: s.buf + str, ..s }
+  }
 }
 
 fn st_key(s0: St, key: Str) -> St {
   var s = St { buf: s0.buf + s0.sep, ..s0 }
   if s.prefix != "" {
-    if s.h.json { s = St { buf: s.buf + "\"" + json_escape(s.prefix) + json_escape(key) + "\"", ..s } }
-    else if !needs_quoting(s.prefix) && !needs_quoting(key) { s = St { buf: s.buf + s.prefix + key, ..s } }
-    else { s = St { buf: s.buf + strconv.quote_go(s.prefix + key), ..s } }
-  } else { s = st_string(s, key) }
+    if s.h.json {
+      s = St { buf: s.buf + "\"" + json_escape(s.prefix) + json_escape(key) + "\"", ..s }
+    } else if !needs_quoting(s.prefix) && !needs_quoting(key) {
+      s = St { buf: s.buf + s.prefix + key, ..s }
+    } else {
+      s = St { buf: s.buf + strconv.quote_go(s.prefix + key), ..s }
+    }
+  } else {
+    s = st_string(s, key)
+  }
   St { buf: s.buf + if s.h.json { ":" } else { "=" }, sep: attr_sep(s.h), ..s }
 }
 
@@ -274,15 +320,28 @@ fn st_value(s: St, v: Value) -> St {
     VUint(u) => St { buf: s.buf + strconv.format_uint(u, 10), ..s },
     VFloat(f) => {
       if s.h.json {
-        if f != f { st_string(s, "!ERROR:json: unsupported value: NaN") }
-        else if f > 1.7976931348623157e308 || f < -1.7976931348623157e308 {
+        if f != f {
+          st_string(s, "!ERROR:json: unsupported value: NaN")
+        } else if f > 1.7976931348623157e308 || f < -1.7976931348623157e308 {
           st_string(s, "!ERROR:json: unsupported value: " + strconv.format_float_go(f, "g", -1, 64))
-        } else { St { buf: s.buf + json_float(f), ..s } }
-      } else { St { buf: s.buf + strconv.format_float_go(f, "g", -1, 64), ..s } }
+        } else {
+          St { buf: s.buf + json_float(f), ..s }
+        }
+      } else {
+        St { buf: s.buf + strconv.format_float_go(f, "g", -1, 64), ..s }
+      }
     },
     VBool(b) => St { buf: s.buf + if b { "true" } else { "false" }, ..s },
-    VDuration(ns) => if s.h.json { St { buf: s.buf + "{ns}", ..s } } else { St { buf: s.buf + duration_string(ns), ..s } },
-    VLevel(l) => if s.h.json { St { buf: s.buf + "\"" + level_string(l) + "\"", ..s } } else { st_string(s, level_string(l)) },
+    VDuration(ns) => if s.h.json {
+      St { buf: s.buf + "{ns}", ..s }
+    } else {
+      St { buf: s.buf + duration_string(ns), ..s }
+    },
+    VLevel(l) => if s.h.json {
+      St { buf: s.buf + "\"" + level_string(l) + "\"", ..s }
+    } else {
+      st_string(s, level_string(l))
+    },
     VErr(m) => st_string(s, m),
     VAny(t, j) => if s.h.json { St { buf: s.buf + j, ..s } } else { st_string(s, t) },
     VNil => if s.h.json { St { buf: s.buf + "null", ..s } } else { st_string(s, "<nil>") },
@@ -302,10 +361,17 @@ fn st_value(s: St, v: Value) -> St {
 
 fn value_text(v: Value) -> Str {
   match v {
-    VStr(x) => x, VInt(i) => "{i}", VUint(u) => strconv.format_uint(u, 10),
-    VFloat(f) => strconv.format_float_go(f, "g", -1, 64), VBool(b) => if b { "true" } else { "false" },
-    VDuration(ns) => duration_string(ns), VLevel(l) => level_string(l), VErr(m) => m, VAny(t, _) => t,
-    VNil => "<nil>", VGroup(_) => "[...]",
+    VStr(x) => x,
+    VInt(i) => "{i}",
+    VUint(u) => strconv.format_uint(u, 10),
+    VFloat(f) => strconv.format_float_go(f, "g", -1, 64),
+    VBool(b) => if b { "true" } else { "false" },
+    VDuration(ns) => duration_string(ns),
+    VLevel(l) => level_string(l),
+    VErr(m) => m,
+    VAny(t, _) => t,
+    VNil => "<nil>",
+    VGroup(_) => "[...]",
   }
 }
 
@@ -314,14 +380,19 @@ fn open_group(s0: St, name: Str) -> St {
   if s.h.json {
     s = st_key(s, name)
     s = St { buf: s.buf + "{{", sep: "", ..s }
-  } else { s = St { prefix: s.prefix + name + ".", ..s } }
+  } else {
+    s = St { prefix: s.prefix + name + ".", ..s }
+  }
   match s.groups { Some(gs) => St { groups: Some(push(gs, name)), ..s }, None => s }
 }
 
 fn close_group(s0: St, name: Str) -> St {
   var s = s0
-  if s.h.json { s = St { buf: s.buf + "}}", ..s } }
-  else { s = St { prefix: __str_slice(s.prefix, 0, len(s.prefix) - len(name) - 1), ..s } }
+  if s.h.json {
+    s = St { buf: s.buf + "}}", ..s }
+  } else {
+    s = St { prefix: __str_slice(s.prefix, 0, len(s.prefix) - len(name) - 1), ..s }
+  }
   s = St { sep: attr_sep(s.h), ..s }
   match s.groups { Some(gs) => St { groups: Some(gs[0..len(gs) - 1]), ..s }, None => s }
 }
@@ -394,7 +465,9 @@ fn st_time(s: St, ns: Int) -> St {
       while __str_slice(f, len(f) - 1, len(f)) == "0" { f = __str_slice(f, 0, len(f) - 1) }
     }
     St { buf: s.buf + "\"" + base + f + "Z\"", ..s }
-  } else { st_string(s, base + "." + pad(sub / 1000000, 3) + "Z") }
+  } else {
+    st_string(s, base + "." + pad(sub / 1000000, 3) + "Z")
+  }
 }
 
 fn fdiv(a: Int, b: Int) -> Int { if a >= 0 { a / b } else { 0 - ((0 - a + b - 1) / b) } }
@@ -427,7 +500,9 @@ impl Handler {
     s = St { prefix: self.group_prefix, ..s }
     if self.pre != "" {
       s = St { sep: attr_sep(self), ..s }
-      if self.json && __str_slice(self.pre, len(self.pre) - 1, len(self.pre)) == "{{" { s = St { sep: "", ..s } }
+      if self.json && __str_slice(self.pre, len(self.pre) - 1, len(self.pre)) == "{{" {
+        s = St { sep: "", ..s }
+      }
     }
     let pos = s.buf
     s = open_groups(s)
@@ -448,8 +523,9 @@ impl Handler {
     let has_rep = match self.opts.replace_attr { Some(_) => true, None => false }
     match r.time {
       Some(t) => {
-        if !has_rep { s = st_key(s, TIME_KEY); s = st_time(s, t) }
-        else {
+        if !has_rep {
+          s = st_key(s, TIME_KEY); s = st_time(s, t)
+        } else {
           // ReplaceAttr 看到的是 Any 形式的时间；这里给出与输出一致的文本 / JSON
           let tt = st_time(St { buf: "", ..s }, t).buf
           let tj = st_time(St { buf: "", h: Handler { json: true, ..self }, ..s }, t).buf
@@ -459,15 +535,23 @@ impl Handler {
       },
       None => {},
     }
-    if !has_rep { s = st_key(s, LEVEL_KEY); s = st_string(s, level_string(r.level)) }
-    else { let (s2, _) = append_attr(s, level(LEVEL_KEY, r.level)); s = s2 }
-    if !has_rep { s = st_key(s, MESSAGE_KEY); s = st_string(s, r.message) }
-    else { let (s2, _) = append_attr(s, string(MESSAGE_KEY, r.message)); s = s2 }
+    if !has_rep {
+      s = st_key(s, LEVEL_KEY); s = st_string(s, level_string(r.level))
+    } else {
+      let (s2, _) = append_attr(s, level(LEVEL_KEY, r.level)); s = s2
+    }
+    if !has_rep {
+      s = st_key(s, MESSAGE_KEY); s = st_string(s, r.message)
+    } else {
+      let (s2, _) = append_attr(s, string(MESSAGE_KEY, r.message)); s = s2
+    }
     s = St { groups: saved, ..s }
     // appendNonBuiltIns
     if self.pre != "" {
       s = St { buf: s.buf + s.sep + self.pre, sep: attr_sep(self), ..s }
-      if self.json && __str_slice(self.pre, len(self.pre) - 1, len(self.pre)) == "{{" { s = St { sep: "", ..s } }
+      if self.json && __str_slice(self.pre, len(self.pre) - 1, len(self.pre)) == "{{" {
+        s = St { sep: "", ..s }
+      }
     }
     var nopen = self.n_open
     if len(r.attrs) > 0 {

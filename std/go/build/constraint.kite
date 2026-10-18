@@ -57,7 +57,9 @@ pub fn eval(x: Expr, ok: fn(Str) -> Bool) -> Bool {
   }
 }
 
-fn trim_nl(line: Str) -> Str { if ends_with(line, "\n") { __str_slice(line, 0, len(line) - 1) } else { line } }
+fn trim_nl(line: Str) -> Str {
+  if ends_with(line, "\n") { __str_slice(line, 0, len(line) - 1) } else { line }
+}
 
 fn split_go_build(line0: Str) -> Option<Str> {
   var line = trim_nl(line0)
@@ -89,9 +91,13 @@ pub fn is_plus_build(line: Str) -> Bool { is_some(split_plus_build(line)) }
 // 解析器状态
 type P = { s: List<Int>, i: Int, tok: Str, is_tag: Bool, pos: Int, size: Int, err: Str, eoff: Int }
 
-fn fail(p: P, off: Int, msg: Str) -> P { if p.err != "" { p } else { P { err: msg, eoff: off, ..p } } }
+fn fail(p: P, off: Int, msg: Str) -> P {
+  if p.err != "" { p } else { P { err: msg, eoff: off, ..p } }
+}
 
-fn is_tag_rune(c: Int) -> Bool { unicode.is_letter(__chr(c)) || unicode.is_digit(__chr(c)) || c == 95 || c == 46 }
+fn is_tag_rune(c: Int) -> Bool {
+  unicode.is_letter(__chr(c)) || unicode.is_digit(__chr(c)) || c == 95 || c == 46
+}
 
 fn lex(p0: P) -> P {
   var p = P { is_tag: false, ..p0 }
@@ -100,9 +106,13 @@ fn lex(p0: P) -> P {
   while i < len(s) && (s[i] == 32 || s[i] == 9) { i += 1 }
   if i >= len(s) { return P { i: i, tok: "", pos: i, ..p } }
   let c = s[i]
-  if c == 40 || c == 41 || c == 33 { return P { pos: i, i: i + 1, tok: unwrap(__from_bytes([c])), ..p } }
+  if c == 40 || c == 41 || c == 33 {
+    return P { pos: i, i: i + 1, tok: unwrap(__from_bytes([c])), ..p }
+  }
   if c == 38 || c == 124 {
-    if i + 1 >= len(s) || s[i + 1] != c { return fail(P { i: i, ..p }, i, "invalid syntax at " + unwrap(__from_bytes([c]))) }
+    if i + 1 >= len(s) || s[i + 1] != c {
+      return fail(P { i: i, ..p }, i, "invalid syntax at " + unwrap(__from_bytes([c])))
+    }
     return P { pos: i, i: i + 2, tok: unwrap(__from_bytes([c, c])), ..p }
   }
   var j = i
@@ -260,8 +270,12 @@ fn push_not(x: Expr, n: Bool) -> Expr {
   }
 }
 
-fn split_and(x: Expr) -> List<Expr> { match x { And(xs) => split_and(xs[0]) + split_and(xs[1]), _ => [x] } }
-fn split_or(x: Expr) -> List<Expr> { match x { Or(xs) => split_or(xs[0]) + split_or(xs[1]), _ => [x] } }
+fn split_and(x: Expr) -> List<Expr> {
+  match x { And(xs) => split_and(xs[0]) + split_and(xs[1]), _ => [x] }
+}
+fn split_or(x: Expr) -> List<Expr> {
+  match x { Or(xs) => split_or(xs[0]) + split_or(xs[1]), _ => [x] }
+}
 
 pub fn plus_build_lines(x0: Expr) -> Result<List<Str>, Str> {
   let x = push_not(x0, false)

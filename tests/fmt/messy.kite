@@ -18,3 +18,22 @@ Some(v)=>print(v,ok,1..=3)
 None=>print("空")
 }
 }
+fn rules(items: List<Int>, name: Str) -> Int {
+  let total = compute_something_long(items, name, first_option_value, second_option_value, third_value)
+  let r = map(items, (x) => { let y = x * 2
+    y + 1 })
+  let s = items.map((x) => x + 1).filter((x) => x > 2).take(10).fold(0, (a, b) => a + b).to_string()
+  if total > 100 && name != "nothing" && items_are_valid(items) && another_condition(name, total) { return 1 }
+  let keep = [
+    1, 2, 3,
+  ]
+  let table: List<Str> = ["alpha", "beta", "gamma", "delta", "epsilon", "zeta", "eta", "theta", "iota", "kappa"]
+  let msg = "a fairly long string literal that will not fit " + name + " together with this other one"
+  let v = if total > 0 { "positive value here" } else if total < 0 { "negative value there" } else { "zero" }
+  match total {
+    0 => { print("zero") }
+      1 => 1,
+      _ => total +
+        1,
+  }
+}

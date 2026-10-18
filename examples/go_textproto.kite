@@ -7,7 +7,9 @@ fn q(s: Str) -> Str { strconv.quote_go(s) }
 fn qb(b: List<Int>) -> Str { strconv.quote_bytes_with(b, 34, false, false) }
 fn es(e: Str) -> Str { if e == "" { "<nil>" } else { e } }
 
-fn hdr(m: MIMEHeader) -> Str { join(map(m.sorted(), (kv) => kv.0 + "=" + join(map(kv.1, q), ",")), " ") }
+fn hdr(m: MIMEHeader) -> Str {
+  join(map(m.sorted(), (kv) => kv.0 + "=" + join(map(kv.1, q), ",")), " ")
+}
 
 fn rd(s: List<Int>) -> textproto.Reader { textproto.new_reader(s) }
 
@@ -21,7 +23,9 @@ fn main() {
     __bytes("Foo: bar\r\n"),
     __bytes("Foo: bar") + [1] + __bytes("baz\r\n\r\n"),
     __bytes("Foo: café\r\n\r\n"),
-    __bytes("Content-type: x\r\nCONTENT-LENGTH: 5\r\naccept-encoding: gzip\r\nx-imforwards: a\r\nUser-agent: k\r\n\r\n"),
+    __bytes(
+      "Content-type: x\r\nCONTENT-LENGTH: 5\r\naccept-encoding: gzip\r\nx-imforwards: a\r\nUser-agent: k\r\n\r\n",
+    ),
     [],
     __bytes("\r\n"),
     __bytes(": empty key\r\n\r\n"),
@@ -52,14 +56,34 @@ fn main() {
       Err(e) => print("C \"\" " + e),
     }
   }
-  for s in ["220 ready\r\n", "220-multi\r\n220-line\r\n220 end\r\n", "250 ok\r\n", "2x0 bad\r\n", "22\r\n", "099 low\r\n", "500 fail\r\n", "220-a\r\nnot code\r\n221 other\r\n220 done\r\n", "220-a\r\n"] {
+  for s in [
+    "220 ready\r\n",
+    "220-multi\r\n220-line\r\n220 end\r\n",
+    "250 ok\r\n",
+    "2x0 bad\r\n",
+    "22\r\n",
+    "099 low\r\n",
+    "500 fail\r\n",
+    "220-a\r\nnot code\r\n221 other\r\n220 done\r\n",
+    "220-a\r\n",
+  ] {
     for exp in [0, 2, 22, 220] {
       let (_, a) = rd(__bytes(s)).read_response(exp)
       let (_, b) = rd(__bytes(s)).read_code_line(exp)
-      print("R " + q(s) + " {exp} {a.code} " + q(a.message) + " " + es(a.err) + " | {b.code} " + q(b.message) + " " + es(b.err))
+      print(
+        "R " + q(s) + " {exp} {a.code} " + q(a.message) + " " + es(a.err) + " | {b.code} " + q(
+          b.message,
+        ) + " " + es(b.err),
+      )
     }
   }
-  for s in ["dotlines\r\n..dot\r\n.\r\nafter", "a\r\nb\n.\nrest", "no end\r\n", ".\r\n", "x\r\n..\r\n.\r\n"] {
+  for s in [
+    "dotlines\r\n..dot\r\n.\r\nafter",
+    "a\r\nb\n.\nrest",
+    "no end\r\n",
+    ".\r\n",
+    "x\r\n..\r\n.\r\n",
+  ] {
     let (_, v, err) = rd(__bytes(s)).read_dot_lines()
     let (_, b, err2) = rd(__bytes(s)).read_dot_bytes()
     let vs = if len(v) == 0 { "[]" } else { "[" + join(map(v, q), " ") + "]" }
@@ -69,10 +93,35 @@ fn main() {
   for s in ["", "hello", "line\n.dot\r\nend\r", "a\r\n", "\n\n", ".\n", "x\ry", "end\r\n."] {
     print("W " + q(s) + " " + qb(textproto.dot_encode(__bytes(s))))
   }
-  for k in ["content-type", "CONTENT-TYPE", "Content-Type", "x-a-b-c", "foo bar", "foo_bar", "é", "", "-a", "a--b", "Accept-encoding", "ü-key", "MIME-version"] {
+  for k in [
+    "content-type",
+    "CONTENT-TYPE",
+    "Content-Type",
+    "x-a-b-c",
+    "foo bar",
+    "foo_bar",
+    "é",
+    "",
+    "-a",
+    "a--b",
+    "Accept-encoding",
+    "ü-key",
+    "MIME-version",
+  ] {
     print("K " + q(k) + " " + q(textproto.canonical_mime_header_key(k)))
   }
-  for s in ["  x \r\n", "\t\n", "a b", ""] { print("T " + q(s) + " " + q(textproto.trim_string(s))) }
-  let h = textproto.new_header().add("x-a", "1").add("X-A", "2").set("y-b", "3").set("Y-B", "4").add("z", "5").del("Z")
-  print("M " + hdr(h) + " " + h.get("x-a") + " [" + join(h.values("X-a"), " ") + "] " + h.get("nope"))
+  for s in ["  x \r\n", "\t\n", "a b", ""] {
+    print("T " + q(s) + " " + q(textproto.trim_string(s)))
+  }
+  let h = textproto
+    .new_header()
+    .add("x-a", "1")
+    .add("X-A", "2")
+    .set("y-b", "3")
+    .set("Y-B", "4")
+    .add("z", "5")
+    .del("Z")
+  print(
+    "M " + hdr(h) + " " + h.get("x-a") + " [" + join(h.values("X-a"), " ") + "] " + h.get("nope"),
+  )
 }

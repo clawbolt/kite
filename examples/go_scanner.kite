@@ -17,7 +17,14 @@ fn run(name: Str, src: List<Int>, setup: fn(Scanner) -> Scanner) {
       print("  ERR " + e.pos.string() + " {e.pos.offset} " + e.tok.string() + " " + e.msg)
       shown += 1
     }
-    print("  " + scanner.token_string(tok) + " " + strconv.quote_bytes_with(s.token_bytes(), 34, false, false) + " " + s.position.string() + " {s.position.offset} " + s.pos().string())
+    print(
+      "  " + scanner
+        .token_string(tok) + " " + strconv
+        .quote_bytes_with(s.token_bytes(), 34, false, false) + " " + s.position
+        .string() + " {s.position.offset} " + s
+        .pos()
+        .string(),
+    )
     if tok == scanner.EOF { break }
   }
   print("  count {s.error_count}")
@@ -26,15 +33,46 @@ fn run(name: Str, src: List<Int>, setup: fn(Scanner) -> Scanner) {
 fn id(s: Scanner) -> Scanner { s }
 
 fn main() {
-  let go_src = __bytes("// comment\npackage main\n\nimport \"fmt\"\n\nfunc main() \{\n\tx := 0x1F + 0o17 + 0b101 + 1_000 + 3.14e-2 + .5 + 0x1p-2 + 'a' + '\\n'\n\ts := `raw\nstring` + \"esc\\t\\u00e9\\\"\"\n\t/* block\n comment */ fmt.Println(x, s) // trailing\n}\n")
+  let go_src = __bytes(
+    "// comment\npackage main\n\nimport \"fmt\"\n\nfunc main() \{\n\tx := 0x1F + 0o17 + 0b101 + 1_000 + 3.14e-2 + .5 + 0x1p-2 + 'a' + '\\n'\n\ts := `raw\nstring` + \"esc\\t\\u00e9\\\"\"\n\t/* block\n comment */ fmt.Println(x, s) // trailing\n}\n",
+  )
   run("go", go_src, id)
-  run("comments", go_src, (s) => s.with_mode(scanner.SCAN_IDENTS | scanner.SCAN_INTS | scanner.SCAN_COMMENTS))
+  run(
+    "comments",
+    go_src,
+    (s) => s.with_mode(scanner.SCAN_IDENTS | scanner.SCAN_INTS | scanner.SCAN_COMMENTS),
+  )
   run("idents", go_src, (s) => s.with_mode(scanner.SCAN_IDENTS | scanner.SCAN_INTS))
-  run("bad", __bytes("0x 0b2 0o9 08 1__0 _1 0x1.8 0b1.0 1e 1p3 0x1e+ 'ab' '' 'x \"unterminated\n `raw /* open"), id)
-  run("escapes", __bytes("\"\\q\" \"\\x4\" \"\\u12\" \"\\777\" \"\\U0010FFFF\" '\\'' \"\\0\" '\\400'"), id)
-  run("unicode", __bytes(__chr(0xfeff) + "héllo 世界 x₁ ٣٤ αβγ ") + [0xff, 0xfe] + __bytes(" abc") + [0] + __bytes("def"), id)
+  run(
+    "bad",
+    __bytes(
+      "0x 0b2 0o9 08 1__0 _1 0x1.8 0b1.0 1e 1p3 0x1e+ 'ab' '' 'x \"unterminated\n `raw /* open",
+    ),
+    id,
+  )
+  run(
+    "escapes",
+    __bytes("\"\\q\" \"\\x4\" \"\\u12\" \"\\777\" \"\\U0010FFFF\" '\\'' \"\\0\" '\\400'"),
+    id,
+  )
+  run(
+    "unicode",
+    __bytes(__chr(0xfeff) + "héllo 世界 x₁ ٣٤ αβγ ") + [0xff, 0xfe] + __bytes(" abc") + [
+      0,
+    ] + __bytes("def"),
+    id,
+  )
   run("ws", __bytes("a\nb\tc  d\r\ne"), (s) => s.with_whitespace((1 << 32) | (1 << 9)))
-  run("ident-rune", __bytes("foo-bar $x a.b 9z"), (s) => s.with_ident_rune((ch, i) => (ch == 45 && i > 0) || (ch == 36 && i == 0) || (ch >= 97 && ch <= 122) || (ch >= 48 && ch <= 57 && i > 0)))
+  run(
+    "ident-rune",
+    __bytes("foo-bar $x a.b 9z"),
+    (s) => s.with_ident_rune(
+      (ch, i) => (ch == 45 && i > 0)
+        || (ch == 36 && i == 0)
+        || (ch >= 97 && ch <= 122)
+        || (ch >= 48 && ch <= 57 && i > 0),
+    ),
+  )
   run("empty", [], id)
   run("only-ws", __bytes("  \n\n  "), id)
   run("nums", __bytes("1 12 012 0X_1 1.e5 1.5E+10 0.e-1_0 00 0_7 9.9.9"), id)

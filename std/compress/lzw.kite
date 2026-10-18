@@ -208,9 +208,28 @@ fn put(s: St, c: Int, msb: Bool) -> St {
 }
 
 impl Writer {
-  fn st(self) -> St { St { n_bits: self.n_bits, width: self.width, bits: self.bits, hi: self.hi, overflow: self.overflow, out: self.out } }
+  fn st(self) -> St {
+    St {
+      n_bits: self.n_bits,
+      width: self.width,
+      bits: self.bits,
+      hi: self.hi,
+      overflow: self.overflow,
+      out: self.out,
+    }
+  }
 
-  fn with_st(self, s: St) -> Writer { Writer { n_bits: s.n_bits, width: s.width, bits: s.bits, hi: s.hi, overflow: s.overflow, out: s.out, ..self } }
+  fn with_st(self, s: St) -> Writer {
+    Writer {
+      n_bits: s.n_bits,
+      width: s.width,
+      bits: s.bits,
+      hi: s.hi,
+      overflow: s.overflow,
+      out: s.out,
+      ..self
+    }
+  }
 
   fn bytes(self) -> List<Int> { self.out }
 
@@ -322,11 +341,11 @@ pub fn compress(src: List<Int>, order: Int, lit_width: Int) -> Result<List<Int>,
   let (w, r) = new_writer(order, lit_width).write(src)
   match r {
     Err(e) => { return Err(e) },
-    Ok(_)  => {},
+    Ok(_) => {},
   }
   let (w2, e2) = w.close()
   match e2 {
     Some(e) => Err(e),
-    None    => Ok(w2.bytes()),
+    None => Ok(w2.bytes()),
   }
 }

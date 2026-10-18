@@ -4,17 +4,24 @@ use std.encoding.json
 
 fn handler(req: http.Request) -> http.Response {
   match req.path {
-    "/hello" => http.text(200, "你好，{unwrap_or(get(http.parse_query(req.query), "name"), "世界")}"),
-    "/echo"  => http.json(201, json.stringify(JObj(Map([("method", JStr(req.method)), ("body", JStr(req.body)), ("ua", JStr(unwrap_or(req.header("User-Agent"), "-")))])))),
-    "/boom"  => panic("炸了"),
-    _        => http.text(404, "没有 {req.path}"),
+    "/hello" => http.text(
+      200,
+      "你好，{unwrap_or(get(http.parse_query(req.query), "name"), "世界")}",
+    ),
+    "/echo" => http.json(201, json.stringify(JObj(Map([
+      ("method", JStr(req.method)),
+      ("body", JStr(req.body)),
+      ("ua", JStr(unwrap_or(req.header("User-Agent"), "-"))),
+    ])))),
+    "/boom" => panic("炸了"),
+    _ => http.text(404, "没有 {req.path}"),
   }
 }
 
 fn show(r: Result<http.Response, Str>) -> Str {
   match r {
     Ok(resp) => "{resp.status} {unwrap_or(resp.header("Content-Type"), "-")} {resp.body}",
-    Err(e)   => "错误 {e}",
+    Err(e) => "错误 {e}",
   }
 }
 

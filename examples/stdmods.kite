@@ -6,7 +6,9 @@ use std.env
 use std.process
 
 fn main() {
-  let r = json.parse("\{\"name\": \"小明\", \"age\": 30, \"tags\": [\"a\", \"b\\n\", 1.5e2, -0.25, true, null], \"u\": \"\\u4e2d\\ud83d\\ude00\"\}")
+  let r = json.parse(
+    "\{\"name\": \"小明\", \"age\": 30, \"tags\": [\"a\", \"b\\n\", 1.5e2, -0.25, true, null], \"u\": \"\\u4e2d\\ud83d\\ude00\"\}",
+  )
   match r {
     Ok(v) => {
       print(json.stringify(v))
@@ -18,8 +20,18 @@ fn main() {
   print(json.parse("[1, 2,]"))
   print(json.parse("\{\"a\" 1\}"))
   print(json.stringify(JObj(Map([("z", JInt(1)), ("a", JArr([JNum(2.5), JStr("q\"\t")]))]))))
-  print(strings.find("héllo wörld", "wö"), strings.slice("héllo", 1, 3), strings.lines("a\nb\r\nc\n"), json.stringify(JStr("x\ry")))
-  print(strings.pad_left("7", 3, "0"), strings.repeat("ab", 3), strings.count("aaaa", "aa"), strings.strip_prefix("v1.2", "v"))
+  print(
+    strings.find("héllo wörld", "wö"),
+    strings.slice("héllo", 1, 3),
+    strings.lines("a\nb\r\nc\n"),
+    json.stringify(JStr("x\ry")),
+  )
+  print(
+    strings.pad_left("7", 3, "0"),
+    strings.repeat("ab", 3),
+    strings.count("aaaa", "aa"),
+    strings.strip_prefix("v1.2", "v"),
+  )
   print(strings.ord("中"), strings.chr(20013), strings.is_digit("5"), strings.is_alpha("x"))
   print(time.format_utc(0), time.format_utc(1791436800123), time.format_utc(951782400000))
   let t = time.mono_ms()

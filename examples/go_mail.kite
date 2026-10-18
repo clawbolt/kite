@@ -17,7 +17,7 @@ fn show_list(label: Str, r: Result<List<mail.Address>, Str>) {
 
 fn show_date(label: Str, r: Result<mail.Time, Str>) {
   match r {
-    Ok(t)  => print(label + " {t.unix} {t.nsec} " + q(t.zone) + " {t.offset}"),
+    Ok(t) => print(label + " {t.unix} {t.nsec} " + q(t.zone) + " {t.offset}"),
     Err(e) => print(label + " err " + e),
   }
 }
@@ -305,7 +305,7 @@ fn main() {
   for s in addrs {
     print("A " + q(s))
     match mail.parse_address(s) {
-      Ok(a)  => print(" single " + fa(a)),
+      Ok(a) => print(" single " + fa(a)),
       Err(e) => print(" single err " + e),
     }
     show_list(" list", mail.parse_address_list(s))
@@ -388,7 +388,10 @@ fn main() {
     ("é.éééééééééééééééééééééééééééééééééééééééé", "x@y"),
     ("AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAé", "x@y"),
     ("xxxxxxxxxxxxxxxxxxxxxxxxxxxxxx ü yyyyyyyyyyyyyyyyyyyyyyyyyyyyyy", "x@y"),
-    ("中文名字很长中文名字很长中文名字很长中文名字很长中文名字很长中文名字很长中文名字很长中文名字很长", "x@y"),
+    (
+      "中文名字很长中文名字很长中文名字很长中文名字很长中文名字很长中文名字很长中文名字很长中文名字很长",
+      "x@y",
+    ),
     ("中文.名字中文.名字中文.名字中文.名字中文.名字中文.名字", "x@y"),
     ("=?utf-8?q?x?=", "a@b"),
     ("a?b_c=d é", "a@b"),
@@ -403,7 +406,7 @@ fn main() {
     let a = mail.Address { name: n, address: ad }
     print("S " + fa(a))
     match mail.parse_address(a.string()) {
-      Ok(b)  => print(" reparse " + fa(b)),
+      Ok(b) => print(" reparse " + fa(b)),
       Err(e) => print(" reparse err " + e),
     }
   }

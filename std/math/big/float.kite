@@ -54,7 +54,15 @@ pub enum Accuracy {
   Above
 }
 
-pub type BigFloat = { prec: Int, mode: RoundingMode, acc: Accuracy, form: Int, neg: Bool, mant: BigInt, exp: Int }
+pub type BigFloat = {
+  prec: Int,
+  mode: RoundingMode,
+  acc: Accuracy,
+  form: Int,
+  neg: Bool,
+  mant: BigInt,
+  exp: Int,
+}
 
 fn make_acc(above: Bool) -> Accuracy { if above { Accuracy.Above } else { Accuracy.Below } }
 
@@ -69,7 +77,15 @@ fn strip(m: BigInt) -> BigInt {
 
 // new(Float)
 pub fn zero() -> BigFloat {
-  BigFloat { prec: 0, mode: RoundingMode.ToNearestEven, acc: Accuracy.Exact, form: FZERO, neg: false, mant: big.zero(), exp: 0 }
+  BigFloat {
+    prec: 0,
+    mode: RoundingMode.ToNearestEven,
+    acc: Accuracy.Exact,
+    form: FZERO,
+    neg: false,
+    mant: big.zero(),
+    exp: 0,
+  }
 }
 
 // NewFloat
@@ -79,7 +95,9 @@ pub fn new_float(x: Float) -> BigFloat {
 }
 
 // ParseFloat
-pub fn parse_float(s: Str, base: Int, prec: Int, mode: RoundingMode) -> Result<(BigFloat, Int), Str> {
+pub fn parse_float(s: Str, base: Int, prec: Int, mode: RoundingMode) -> Result<(
+  BigFloat, Int
+), Str> {
   zero().set_prec(prec).set_mode(mode).parse(s, base)
 }
 
@@ -99,10 +117,10 @@ fn round_f(z: BigFloat, sbit0: Int) -> BigFloat {
   if (rbit | sbit) != 0 {
     let inc = match z.mode {
       RoundingMode.ToNegativeInf => z.neg,
-      RoundingMode.ToZero        => false,
+      RoundingMode.ToZero => false,
       RoundingMode.ToNearestEven => rbit != 0 && (sbit != 0 || q.bit(0) == 1),
       RoundingMode.ToNearestAway => rbit != 0,
-      RoundingMode.AwayFromZero  => true,
+      RoundingMode.AwayFromZero => true,
       RoundingMode.ToPositiveInf => !z.neg,
     }
     acc = make_acc(inc != z.neg)
@@ -168,7 +186,9 @@ fn floor_mag(x: BigFloat) -> BigInt {
   if x.exp >= bl { x.mant.lsh(x.exp - bl) } else { x.mant.rsh(bl - x.exp) }
 }
 
-fn pow5_int(n: Int) -> BigInt { big.new_int(5).exp(big.new_int(n), big.zero()).unwrap_or(big.one()) }
+fn pow5_int(n: Int) -> BigInt {
+  big.new_int(5).exp(big.new_int(n), big.zero()).unwrap_or(big.one())
+}
 
 // pow5tab
 fn pow5_small(n: Int) -> Int {
@@ -211,7 +231,7 @@ fn dec_init_p(m0: BigInt, shift0: Int, p5: Option<BigInt>) -> Dec {
   if shift < 0 {
     let p = match p5 {
       Some(v) => { if shift == shift0 { v } else { pow5_int(-shift) } },
-      None    => pow5_int(-shift),
+      None => pow5_int(-shift),
     }
     m = m.mul(p)
   }
@@ -256,7 +276,7 @@ fn round_shortest(d: Dec, x: BigFloat, p5d: Option<BigInt>) -> Dec {
   if exp < 0 {
     p5 = match p5d {
       Some(q) => Some(if s < 0 { q.mul(pow5_int(-s)) } else { pow5_int(-exp) }),
-      None    => Some(pow5_int(-exp)),
+      None => Some(pow5_int(-exp)),
     }
   }
   let lower = dec_init_p(mant.sub(big.one()), exp, p5)
@@ -326,7 +346,11 @@ fn dec_approx(m0: BigInt, e20: Int, need: Int) -> DecA {
           if ds[i] != 48 { complete = false }
           i += 1
         }
-        return DecA { d: dec_trim(Dec { mant: ds[..need], exp: len(ds) - t }), complete: complete, need: need }
+        return DecA {
+          d: dec_trim(Dec { mant: ds[..need], exp: len(ds) - t }),
+          complete: complete,
+          need: need,
+        }
       }
     }
   }
@@ -346,9 +370,13 @@ fn round_a(da: DecA, n: Int) -> Dec {
   dec_round_down(da.d, n)
 }
 
-fn round_up_a(da: DecA, n: Int) -> Dec { if da.complete { dec_round_up(da.d, n) } else { dec_round_up(dec_pad(da.d, n + 1), n) } }
+fn round_up_a(da: DecA, n: Int) -> Dec {
+  if da.complete { dec_round_up(da.d, n) } else { dec_round_up(dec_pad(da.d, n + 1), n) }
+}
 
-fn round_down_a(da: DecA, n: Int) -> Dec { if da.complete { dec_round_down(da.d, n) } else { dec_round_down(dec_pad(da.d, n + 1), n) } }
+fn round_down_a(da: DecA, n: Int) -> Dec {
+  if da.complete { dec_round_down(da.d, n) } else { dec_round_down(dec_pad(da.d, n + 1), n) }
+}
 
 // roundShortest 的快速版本；需要更多位时返回 None
 fn shortest_try(x: BigFloat, need: Int) -> Option<Dec> {
@@ -383,7 +411,7 @@ fn shortest_try(x: BigFloat, need: Int) -> Option<Dec> {
 fn shortest_dec(x: BigFloat) -> Dec {
   match shortest_try(x, (x.prec + 1) * 30103 / 100000 + 6) {
     Some(d) => d,
-    None    => round_shortest(dec_init(x.mant, e2_of(x)), x, None),
+    None => round_shortest(dec_init(x.mant, e2_of(x)), x, None),
   }
 }
 
@@ -439,7 +467,9 @@ fn fmt_f(prec: Int, d: Dec) -> Str {
   buf
 }
 
-fn shift_to(m: BigInt, from: Int, to: Int) -> BigInt { if from < to { m.lsh(to - from) } else if from > to { m.rsh(from - to) } else { m } }
+fn shift_to(m: BigInt, from: Int, to: Int) -> BigInt {
+  if from < to { m.lsh(to - from) } else if from > to { m.rsh(from - to) } else { m }
+}
 
 fn exp_str(e: Int) -> Str { if e >= 0 { "+{e}" } else { "{e}" } }
 
@@ -534,11 +564,15 @@ impl BigFloat {
     z
   }
 
-  fn set_mode(self, mode: RoundingMode) -> BigFloat { BigFloat { mode: mode, acc: Accuracy.Exact, ..self } }
+  fn set_mode(self, mode: RoundingMode) -> BigFloat {
+    BigFloat { mode: mode, acc: Accuracy.Exact, ..self }
+  }
 
   fn prec(self) -> Int { self.prec }
 
-  fn min_prec(self) -> Int { if self.form != FFIN { 0 } else { self.mant.bit_len() - self.mant.trailing_zero_bits() } }
+  fn min_prec(self) -> Int {
+    if self.form != FFIN { 0 } else { self.mant.bit_len() - self.mant.trailing_zero_bits() }
+  }
 
   fn mode(self) -> RoundingMode { self.mode }
 
@@ -610,10 +644,19 @@ impl BigFloat {
     z.quo(a, b)
   }
 
-  fn set_inf(self, signbit: Bool) -> BigFloat { BigFloat { acc: Accuracy.Exact, form: FINF, neg: signbit, ..self } }
+  fn set_inf(self, signbit: Bool) -> BigFloat {
+    BigFloat { acc: Accuracy.Exact, form: FINF, neg: signbit, ..self }
+  }
 
   fn set(self, x: BigFloat) -> BigFloat {
-    var z = BigFloat { acc: Accuracy.Exact, form: x.form, neg: x.neg, mant: x.mant, exp: x.exp, ..self }
+    var z = BigFloat {
+      acc: Accuracy.Exact,
+      form: x.form,
+      neg: x.neg,
+      mant: x.mant,
+      exp: x.exp,
+      ..self
+    }
     if z.prec == 0 {
       z = BigFloat { prec: x.prec, ..z }
     } else if z.prec < x.prec {
@@ -644,11 +687,17 @@ impl BigFloat {
       } else {
         r = usub(z, !x.neg, y, x)
       }
-      if r.form == FZERO && r.mode == RoundingMode.ToNegativeInf && r.acc == Accuracy.Exact { r = BigFloat { neg: true, ..r } }
+      if r.form == FZERO && r.mode == RoundingMode.ToNegativeInf && r.acc == Accuracy.Exact {
+        r = BigFloat { neg: true, ..r }
+      }
       return r
     }
-    if x.form == FINF && y.form == FINF && x.neg != y.neg { panic("addition of infinities with opposite signs") }
-    if x.form == FZERO && y.form == FZERO { return BigFloat { acc: Accuracy.Exact, form: FZERO, neg: x.neg && y.neg, ..z } }
+    if x.form == FINF && y.form == FINF && x.neg != y.neg {
+      panic("addition of infinities with opposite signs")
+    }
+    if x.form == FZERO && y.form == FZERO {
+      return BigFloat { acc: Accuracy.Exact, form: FZERO, neg: x.neg && y.neg, ..z }
+    }
     if x.form == FINF || y.form == FZERO { return z.set(x) }
     z.set(y)
   }
@@ -665,11 +714,17 @@ impl BigFloat {
       } else {
         r = usub(z, !x.neg, y, x)
       }
-      if r.form == FZERO && r.mode == RoundingMode.ToNegativeInf && r.acc == Accuracy.Exact { r = BigFloat { neg: true, ..r } }
+      if r.form == FZERO && r.mode == RoundingMode.ToNegativeInf && r.acc == Accuracy.Exact {
+        r = BigFloat { neg: true, ..r }
+      }
       return r
     }
-    if x.form == FINF && y.form == FINF && x.neg == y.neg { panic("subtraction of infinities with equal signs") }
-    if x.form == FZERO && y.form == FZERO { return BigFloat { acc: Accuracy.Exact, form: FZERO, neg: x.neg && !y.neg, ..z } }
+    if x.form == FINF && y.form == FINF && x.neg == y.neg {
+      panic("subtraction of infinities with equal signs")
+    }
+    if x.form == FZERO && y.form == FZERO {
+      return BigFloat { acc: Accuracy.Exact, form: FZERO, neg: x.neg && !y.neg, ..z }
+    }
     if x.form == FINF || y.form == FZERO { return z.set(x) }
     z.neg(y)
   }
@@ -678,9 +733,15 @@ impl BigFloat {
     var z = self
     if z.prec == 0 { z = BigFloat { prec: imax(x.prec, y.prec), ..z } }
     let neg = x.neg != y.neg
-    if x.form == FFIN && y.form == FFIN { return with_int(z, neg, x.mant.mul(y.mant), e2_of(x) + e2_of(y), 0) }
-    if (x.form == FZERO && y.form == FINF) || (x.form == FINF && y.form == FZERO) { panic("multiplication of zero with infinity") }
-    if x.form == FINF || y.form == FINF { return BigFloat { acc: Accuracy.Exact, form: FINF, neg: neg, ..z } }
+    if x.form == FFIN && y.form == FFIN {
+      return with_int(z, neg, x.mant.mul(y.mant), e2_of(x) + e2_of(y), 0)
+    }
+    if (x.form == FZERO && y.form == FINF) || (x.form == FINF && y.form == FZERO) {
+      panic("multiplication of zero with infinity")
+    }
+    if x.form == FINF || y.form == FINF {
+      return BigFloat { acc: Accuracy.Exact, form: FINF, neg: neg, ..z }
+    }
     BigFloat { acc: Accuracy.Exact, form: FZERO, neg: neg, ..z }
   }
 
@@ -693,8 +754,12 @@ impl BigFloat {
       let (q, r) = x.mant.lsh(k).quo_rem(y.mant)
       return with_int(z, neg, q, e2_of(x) - k - e2_of(y), if r.sign() != 0 { 1 } else { 0 })
     }
-    if (x.form == FZERO && y.form == FZERO) || (x.form == FINF && y.form == FINF) { panic("division of zero by zero or infinity by infinity") }
-    if x.form == FZERO || y.form == FINF { return BigFloat { acc: Accuracy.Exact, form: FZERO, neg: neg, ..z } }
+    if (x.form == FZERO && y.form == FZERO) || (x.form == FINF && y.form == FINF) {
+      panic("division of zero by zero or infinity by infinity")
+    }
+    if x.form == FZERO || y.form == FINF {
+      return BigFloat { acc: Accuracy.Exact, form: FZERO, neg: neg, ..z }
+    }
     BigFloat { acc: Accuracy.Exact, form: FINF, neg: neg, ..z }
   }
 
@@ -713,7 +778,9 @@ impl BigFloat {
     var prec = self.prec
     if prec == 0 { prec = x.prec }
     if x.sign() == -1 { panic("square root of negative operand") }
-    if x.form != FFIN { return BigFloat { prec: prec, acc: Accuracy.Exact, form: x.form, neg: x.neg, ..self } }
+    if x.form != FFIN {
+      return BigFloat { prec: prec, acc: Accuracy.Exact, form: x.form, neg: x.neg, ..self }
+    }
     let b = x.exp
     var z = BigFloat { prec: prec, exp: 0, ..x }
     let r = b % 2
@@ -728,7 +795,13 @@ impl BigFloat {
 
   fn int64(self) -> (Int, Accuracy) {
     if self.form == FZERO { return (0, Accuracy.Exact) }
-    if self.form == FINF { return if self.neg { (-9223372036854775807 - 1, Accuracy.Above) } else { (9223372036854775807, Accuracy.Below) } }
+    if self.form == FINF {
+      return if self.neg {
+        (-9223372036854775807 - 1, Accuracy.Above)
+      } else {
+        (9223372036854775807, Accuracy.Below)
+      }
+    }
     var acc = make_acc(self.neg)
     if self.exp <= 0 { return (0, acc) }
     if self.exp <= 63 {
@@ -747,7 +820,9 @@ impl BigFloat {
   // 结果是 uint64 的位模式
   fn uint64(self) -> (Int, Accuracy) {
     if self.form == FZERO { return (0, Accuracy.Exact) }
-    if self.form == FINF { return if self.neg { (0, Accuracy.Above) } else { (-1, Accuracy.Below) } }
+    if self.form == FINF {
+      return if self.neg { (0, Accuracy.Above) } else { (-1, Accuracy.Below) }
+    }
     if self.neg { return (0, Accuracy.Above) }
     if self.exp <= 0 { return (0, Accuracy.Below) }
     if self.exp <= 64 {
@@ -838,14 +913,14 @@ impl BigFloat {
   fn unmarshal_text(self, s: Str) -> Result<BigFloat, Str> {
     match self.parse(s, 0) {
       Ok((f, _)) => Ok(f),
-      Err(e)     => Err("math/big: cannot unmarshal {strconv.quote_go(s)} into a *big.Float ({e})"),
+      Err(e) => Err("math/big: cannot unmarshal {strconv.quote_go(s)} into a *big.Float ({e})"),
     }
   }
 
   fn set_string(self, s: Str) -> Option<BigFloat> {
     match self.parse(s, 0) {
       Ok((f, _)) => Some(f),
-      Err(_)     => None,
+      Err(_) => None,
     }
   }
 
@@ -875,7 +950,9 @@ impl BigFloat {
     let (exp, ebase, eerr, epos) = rat.scan_exponent(bs, r.pos, true, base == 0)
     if eerr != "" { return Err(eerr) }
     var z = BigFloat { neg: neg, ..self }
-    if r.mag.sign() == 0 { return Ok((BigFloat { prec: prec, acc: Accuracy.Exact, form: FZERO, ..z }, r.base, epos)) }
+    if r.mag.sign() == 0 {
+      return Ok((BigFloat { prec: prec, acc: Accuracy.Exact, form: FZERO, ..z }, r.base, epos))
+    }
     var exp2 = r.mag.bit_len()
     var exp5 = 0
     if r.count < 0 {

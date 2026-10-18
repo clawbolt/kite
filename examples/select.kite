@@ -25,11 +25,11 @@ fn main() {
           // 守卫为假的分支本轮不参与：已关闭的通道不再被选中
           recv(evens) as v if e_open => match v {
             Some(x) => { a += x },
-            None    => { e_open = false },
+            None => { e_open = false },
           },
           recv(odds) as v if o_open => match v {
             Some(x) => { b += x },
-            None    => { o_open = false },
+            None => { o_open = false },
           },
         }
       }

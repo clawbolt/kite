@@ -6,15 +6,52 @@ fn q(s: Str) -> Str { strconv.quote_go(s) }
 
 fn main() {
   let lines = [
-    "//go:build linux && amd64", "//go:build linux || !cgo", "//go:build !(linux && amd64) || darwin", "//go:build (a || b) && (c || d)",
-    "//go:build go1.20", "//go:build go1.21 && !go1.22", "//go:build !go1.5 || go1.18", "//go:build go1", "//go:build gox1.3",
-    "//go:build", "//go:build ", "//go:buildlinux", "//go:build linux\n", "//go:build a\nb", "  //go:build x",
-    "//go:build !!a", "//go:build a &", "//go:build a | b", "//go:build (a", "//go:build a)", "//go:build ((a) || (b && !c))",
-    "//go:build a && ", "//go:build $x", "//go:build héllo && 世界", "//go:build a b", "//go:build !", "//go:build ()",
-    "//go:build a.b_c9", "//go:build (a || b", "//go:build (a ||", "//go:build ((a)", "//go:build a && (b || c) && !d",
-    "// +build linux darwin", "// +build linux,amd64 !cgo", "// +build", "// +build ", "//+build x", "// +buildx",
-    "// +build !!a b", "// +build ! a", "// +build a,!b,c d,e", "// +build $bad ok", "// +build go1.18,!go1.20",
-    "// hello", "package main", "",
+    "//go:build linux && amd64",
+    "//go:build linux || !cgo",
+    "//go:build !(linux && amd64) || darwin",
+    "//go:build (a || b) && (c || d)",
+    "//go:build go1.20",
+    "//go:build go1.21 && !go1.22",
+    "//go:build !go1.5 || go1.18",
+    "//go:build go1",
+    "//go:build gox1.3",
+    "//go:build",
+    "//go:build ",
+    "//go:buildlinux",
+    "//go:build linux\n",
+    "//go:build a\nb",
+    "  //go:build x",
+    "//go:build !!a",
+    "//go:build a &",
+    "//go:build a | b",
+    "//go:build (a",
+    "//go:build a)",
+    "//go:build ((a) || (b && !c))",
+    "//go:build a && ",
+    "//go:build $x",
+    "//go:build héllo && 世界",
+    "//go:build a b",
+    "//go:build !",
+    "//go:build ()",
+    "//go:build a.b_c9",
+    "//go:build (a || b",
+    "//go:build (a ||",
+    "//go:build ((a)",
+    "//go:build a && (b || c) && !d",
+    "// +build linux darwin",
+    "// +build linux,amd64 !cgo",
+    "// +build",
+    "// +build ",
+    "//+build x",
+    "// +buildx",
+    "// +build !!a b",
+    "// +build ! a",
+    "// +build a,!b,c d,e",
+    "// +build $bad ok",
+    "// +build go1.18,!go1.20",
+    "// hello",
+    "package main",
+    "",
   ]
   let tags = ["linux", "amd64", "cgo", "go1.20", "a", "d"]
   for l in lines {
@@ -22,7 +59,11 @@ fn main() {
     match constraint.parse(l) {
       Err(e) => print("  err {e.offset} " + e.err),
       Ok(x) => {
-        print("  expr " + constraint.string(x) + " {constraint.eval(x, (t) => contains(tags, t))} " + q(constraint.go_version(x)))
+        print(
+          "  expr " + constraint.string(x) + " {constraint.eval(x, (t) => contains(tags, t))} " + q(
+            constraint.go_version(x),
+          ),
+        )
         match constraint.plus_build_lines(x) {
           Ok(pl) => print("  plus [" + join(map(pl, q), " ") + "] <nil>"),
           Err(e) => print("  plus [] " + e),

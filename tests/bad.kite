@@ -6,7 +6,7 @@ enum Shape {
 
 fn area(s: Shape) -> Float {
   match s {
-    Circle(r)  => 3.14 * r * r
+    Circle(r) => 3.14 * r * r
     Rect(w, h) => w * h
   }
 }

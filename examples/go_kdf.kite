@@ -20,7 +20,9 @@ fn main() {
   var big: List<Int> = []
   for i in 0..500 { big = push(big, (i * 7) & 255) }
   for m in [[], __bytes("abc"), __bytes("The quick brown fox jumps over the lazy dog"), big] {
-    print("{len(m)} {h(sha3.sum224(m))} {h(sha3.sum256(m))} {h(sha3.sum384(m))} {h(sha3.sum512(m))}")
+    print(
+      "{len(m)} {h(sha3.sum224(m))} {h(sha3.sum256(m))} {h(sha3.sum384(m))} {h(sha3.sum512(m))}",
+    )
     print("{h(sha3.sum_shake128(m, 17))} {h(sha3.sum_shake256(m, 200))}")
   }
   let s1 = sha3.new256().write(__bytes("ab")).write(__bytes("c"))
@@ -37,7 +39,15 @@ fn main() {
   let ikm = unwrap(hex.decode("0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b"))
   let salt = unwrap(hex.decode("000102030405060708090a0b0c"))
   let prk = unwrap(hkdf.extract(sha256.digest, sha256.BLOCK_SIZE, ikm, salt))
-  let okm = unwrap(hkdf.expand_bytes(sha256.digest, sha256.BLOCK_SIZE, prk, [0xf0, 0xf1, 0xf2, 0xf3, 0xf4, 0xf5, 0xf6, 0xf7, 0xf8, 0xf9], 42))
+  let okm = unwrap(
+    hkdf.expand_bytes(
+      sha256.digest,
+      sha256.BLOCK_SIZE,
+      prk,
+      [0xf0, 0xf1, 0xf2, 0xf3, 0xf4, 0xf5, 0xf6, 0xf7, 0xf8, 0xf9],
+      42,
+    ),
+  )
   print("{h(prk)} {h(okm)}")
   let prk2 = unwrap(hkdf.extract(sha1.digest, sha1.BLOCK_SIZE, ikm, []))
   let k2 = unwrap(hkdf.key(sha512.digest, sha512.BLOCK_SIZE, ikm, [], "", 100))
@@ -47,9 +57,37 @@ fn main() {
   print("{e1} {len(k3)} <nil>")
   print(err_str(hkdf.expand(sha1.digest, sha1.BLOCK_SIZE, prk2, "", 255 * 20 + 1)))
   for it in [1, 2, 4096] {
-    print("{it} {h(unwrap(pbkdf2.key(sha1.digest, sha1.BLOCK_SIZE, "password", __bytes("salt"), it, 20)))}")
+    print(
+      "{it} {h(unwrap(pbkdf2.key(sha1.digest, sha1.BLOCK_SIZE, "password", __bytes("salt"), it, 20)))}",
+    )
   }
-  print(h(unwrap(pbkdf2.key(sha1.digest, sha1.BLOCK_SIZE, "passwordPASSWORDpassword", __bytes("saltSALTsaltSALTsaltSALTsaltSALTsalt"), 50, 25))))
-  print(h(unwrap(pbkdf2.key(sha256.digest, sha256.BLOCK_SIZE, "pass\u{0}word", [115, 97, 0, 108, 116], 100, 70))))
+  print(
+    h(
+      unwrap(
+        pbkdf2.key(
+          sha1.digest,
+          sha1.BLOCK_SIZE,
+          "passwordPASSWORDpassword",
+          __bytes("saltSALTsaltSALTsaltSALTsaltSALTsalt"),
+          50,
+          25,
+        ),
+      ),
+    ),
+  )
+  print(
+    h(
+      unwrap(
+        pbkdf2.key(
+          sha256.digest,
+          sha256.BLOCK_SIZE,
+          "pass\u{0}word",
+          [115, 97, 0, 108, 116],
+          100,
+          70,
+        ),
+      ),
+    ),
+  )
   print(err_str(pbkdf2.key(sha256.digest, sha256.BLOCK_SIZE, "p", [], 1, 0)))
 }

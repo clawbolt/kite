@@ -63,7 +63,13 @@ pub type KF = {
   lams: List<KF>,
 }
 
-type G = { sigs: Map<Str, (List<Str>, Str)>, user: Map<Str, Bool>, sub: Map<Int, Ty>, fsigs: Map<Str, Ty>, ck: check.C }
+type G = {
+  sigs: Map<Str, (List<Str>, Str)>,
+  user: Map<Str, Bool>,
+  sub: Map<Int, Ty>,
+  fsigs: Map<Str, Ty>,
+  ck: check.C,
+}
 
 type Lp = { cont: Int, brk: Int, nd: Int, label: Str?, has_res: Bool, res: A? }
 
@@ -82,9 +88,16 @@ type L = {
   err: Str,
 }
 
-const FOLDABLE: List<Str> = ["copy", "add.i64", "sub.i64", "mul.i64", "div.i64", "rem.i64", "add.f64", "sub.f64", "mul.f64", "div.f64", "neg.i64", "neg.f64", "not", "lt", "gt", "le", "ge", "eq", "ne", "i2f"]
+const FOLDABLE: List<Str> = [
+  "copy", "add.i64", "sub.i64", "mul.i64", "div.i64", "rem.i64", "add.f64", "sub.f64", "mul.f64",
+  "div.f64", "neg.i64", "neg.f64", "not", "lt", "gt", "le", "ge", "eq", "ne", "i2f",
+]
 
-const NO_FAIL: List<Str> = ["copy", "add.f64", "sub.f64", "mul.f64", "neg.f64", "not", "lt", "gt", "le", "ge", "eq", "ne", "i2f", "abs.f64", "min", "max", "box", "unbox", "list", "tuple", "pbget", "payload", "b2i", "cget", "bit.band", "bit.bor", "bit.bxor", "bit.bnot"]
+const NO_FAIL: List<Str> = [
+  "copy", "add.f64", "sub.f64", "mul.f64", "neg.f64", "not", "lt", "gt", "le", "ge", "eq", "ne",
+  "i2f", "abs.f64", "min", "max", "box", "unbox", "list", "tuple", "pbget", "payload", "b2i",
+  "cget", "bit.band", "bit.bor", "bit.bxor", "bit.bnot",
+]
 
 const IMAX: Int = 9223372036854775807
 
@@ -95,30 +108,44 @@ fn lset<T>(xs: List<T>, i: Int, v: T) -> List<T> { take(xs, i) + [v] + skip(xs, 
 pub fn aty(a: A) -> Str {
   match a {
     R(_, t) => t,
-    CI(_)   => "i64",
-    CF(_)   => "f64",
-    CB(_)   => "b1",
-    _       => "val",
+    CI(_) => "i64",
+    CF(_) => "f64",
+    CB(_) => "b1",
+    _ => "val",
   }
 }
 
 pub fn is_reg(a: A) -> Bool {
   match a {
     R(_, _) => true,
-    _       => false,
+    _ => false,
   }
 }
 
 pub fn rid(a: A) -> Int {
   match a {
     R(i, _) => i,
-    _       => -1,
+    _ => -1,
   }
 }
 
-
 fn new_kf(name: Str, ret: Str) -> KF {
-  KF { name: name, ret: ret, params: [], blocks: [], nreg: 0, line: 0, npb: 0, pats: [], ndefer: 0, closure: false, caps: [], label: "", rn: Map(), lams: [] }
+  KF {
+    name: name,
+    ret: ret,
+    params: [],
+    blocks: [],
+    nreg: 0,
+    line: 0,
+    npb: 0,
+    pats: [],
+    ndefer: 0,
+    closure: false,
+    caps: [],
+    label: "",
+    rn: Map(),
+    lams: [],
+  }
 }
 
 // ───────── 类型 ─────────
@@ -151,11 +178,11 @@ fn kty(ck: check.C, t0: Ty) -> Str {
 fn ty_of(l: L, e: Node) -> Str {
   match e.t {
     Some(t) => kty(l.g.ck, t),
-    None    => match e.k {
+    None => match e.k {
       NLit(LBool(_)) => "b1",
-      NLit(LInt(_))  => "i64",
-      NLit(LFlt(_))  => "f64",
-      _              => "val",
+      NLit(LInt(_)) => "i64",
+      NLit(LFlt(_)) => "f64",
+      _ => "val",
     },
   }
 }
@@ -163,14 +190,14 @@ fn ty_of(l: L, e: Node) -> Str {
 fn ty_of_o(l: L, e: Node?) -> Str {
   match e {
     Some(x) => ty_of(l, x),
-    None    => "val",
+    None => "val",
   }
 }
 
 fn node_t(l: L, e: Node) -> Ty? {
   match e.t {
     Some(t) => Some(check.prn(l.g.ck, t)),
-    None    => None,
+    None => None,
   }
 }
 
@@ -188,7 +215,7 @@ fn fn_tys(ck: check.C, t: Ty?, n: Int) -> (List<Str>, Str)? {
       }
       None
     },
-    None    => None,
+    None => None,
   }
 }
 
@@ -202,19 +229,19 @@ fn walk_nodes(x: Node, out0: List<Node>) -> List<Node> {
 
 fn pat_names(p: Pat) -> List<Str> {
   match p {
-    PBind(n)               => [ast.nm_str(n)],
-    PVar(n)                => [ast.nm_str(n)],
-    PTuple(xs)             => flat_names(xs),
+    PBind(n) => [ast.nm_str(n)],
+    PVar(n) => [ast.nm_str(n)],
+    PTuple(xs) => flat_names(xs),
     PList(pre, rest, post) => {
       var out = flat_names(pre)
       if let Some(r) = rest { if r != "_" { out = push(out, r) } }
       out + flat_names(post)
     },
-    PVariant(_, Some(xs))  => flat_names(xs),
-    PStruct(_, fs)         => flat_names(map(fs, (f) => f.1)),
-    POr(xs)                => pat_names(xs[0]),
-    PAt(a, b)              => pat_names(a) + pat_names(b),
-    _                      => [],
+    PVariant(_, Some(xs)) => flat_names(xs),
+    PStruct(_, fs) => flat_names(map(fs, (f) => f.1)),
+    POr(xs) => pat_names(xs[0]),
+    PAt(a, b) => pat_names(a) + pat_names(b),
+    _ => [],
   }
 }
 
@@ -228,9 +255,9 @@ fn assigned_names(body: Node) -> Map<Str, Bool> {
   var out: Map<Str, Bool> = Map()
   for n in walk_nodes(body, []) {
     match n.k {
-      NAssign(t, _, _)         => { if let NName(x) = t.k { out = set(out, x, true) } },
-      NLet(p, true, _, _, _)   => { for x in pat_names(p) { out = set(out, x, true) } },
-      _                        => (),
+      NAssign(t, _, _) => { if let NName(x) = t.k { out = set(out, x, true) } },
+      NLet(p, true, _, _, _) => { for x in pat_names(p) { out = set(out, x, true) } },
+      _ => (),
     }
   }
   out
@@ -241,14 +268,14 @@ fn captured_names(body: Node) -> Map<Str, Bool> {
   for n in walk_nodes(body, []) {
     let inner: List<Node> = match n.k {
       NLambda(_, b, _) => [b],
-      NFn(f)           => match f.body {
+      NFn(f) => match f.body {
         Some(b) => [b],
-        None    => [],
+        None => [],
       },
-      NDefer(b)        => [b],
-      NSpawn(xs)       => xs,
-      NRace(xs)        => xs,
-      _                => [],
+      NDefer(b) => [b],
+      NSpawn(xs) => xs,
+      NRace(xs) => xs,
+      _ => [],
     }
     for y in inner {
       for x in walk_nodes(y, []) {
@@ -270,7 +297,9 @@ fn new_reg(l: L, ty: Str, name: Str) -> (L, A) {
   (L { f: KF { nreg: f.nreg + 1, rn: rn, ..f }, ..l }, r)
 }
 
-fn set_name(l: L, r: A, name: Str) -> L { L { f: KF { rn: set(l.f.rn, rid(r), name), ..l.f }, ..l } }
+fn set_name(l: L, r: A, name: Str) -> L {
+  L { f: KF { rn: set(l.f.rn, rid(r), name), ..l.f }, ..l }
+}
 
 fn new_block(l: L) -> (L, Int) {
   let f = l.f
@@ -345,10 +374,10 @@ fn maybe_cell(l: L, name: Str, ln: Int) -> L {
       let (l2, c) = emit(l1, "mkcell", [unwrap_or(v, CU)], "cell", ln, XN)
       match c {
         Some(cr) => bind(set_name(l2, cr, name), name, cr),
-        None     => l2,
+        None => l2,
       }
     },
-    None    => l,
+    None => l,
   }
 }
 
@@ -384,7 +413,7 @@ fn emit_copy(l0: L, dst: A, v: A?, ln: Int) -> L {
   if l1.err != "" { return l1 }
   match c {
     Some(x) => append(l1, In { d: Some(dst), op: "copy", args: [x], ln: ln, x: XN }),
-    None    => l1,
+    None => l1,
   }
 }
 
@@ -395,8 +424,8 @@ fn cpat(l0: L, p: Pat, binds0: List<(Str, Int)>) -> (L, V, List<(Str, Int)>) {
   var binds = binds0
   match p {
     PBind(n) => { return cbind(l, ast.nm_str(n), binds) },
-    PVar(n)  => { return cbind(l, ast.nm_str(n), binds) },
-    POr(xs)  => {
+    PVar(n) => { return cbind(l, ast.nm_str(n), binds) },
+    POr(xs) => {
       l = L { in_or: l.in_or + 1, ..l }
       var out: List<V> = []
       for x in xs {
@@ -422,7 +451,9 @@ fn cpat(l0: L, p: Pat, binds0: List<(Str, Int)>) -> (L, V, List<(Str, Int)>) {
       binds = b2
       var r = VNil
       if let Some(rn) = rest {
-        if rn == "_" { r = VT([VS("wild")]) } else {
+        if rn == "_" {
+          r = VT([VS("wild")])
+        } else {
           let (l3, rc, b3) = cbind(l, rn, binds)
           l = l3
           binds = b3
@@ -437,7 +468,7 @@ fn cpat(l0: L, p: Pat, binds0: List<(Str, Int)>) -> (L, V, List<(Str, Int)>) {
     },
     PVariant(n, subs) => {
       match subs {
-        None     => { return (l, VT([VS("variant"), ast.nm_v(n), VNil]), binds) },
+        None => { return (l, VT([VS("variant"), ast.nm_v(n), VNil]), binds) },
         Some(xs) => {
           let (l2, out, b2) = cpats(l, xs, binds)
           return (l2, VT([VS("variant"), ast.nm_v(n), VL(out)]), b2)
@@ -494,7 +525,11 @@ fn bind_pat(l0: L, binds: List<(Str, Int)>, ln: Int) -> L {
   var l = l0
   for (name, slot) in binds {
     let (l1, r) = new_reg(l, "val", name)
-    l = maybe_cell(bind(append(l1, In { d: Some(r), op: "pbget", args: [], ln: ln, x: XI(slot) }), name, r), name, ln)
+    l = maybe_cell(
+      bind(append(l1, In { d: Some(r), op: "pbget", args: [], ln: ln, x: XI(slot) }), name, r),
+      name,
+      ln,
+    )
   }
   l
 }
@@ -503,15 +538,15 @@ fn bind_pat(l0: L, binds: List<(Str, Int)>, ln: Int) -> L {
 fn bind_name(p: Pat) -> Str? {
   match p {
     PBind(n) => Some(ast.nm_str(n)),
-    PVar(n)  => Some(ast.nm_str(n)),
-    _        => None,
+    PVar(n) => Some(ast.nm_str(n)),
+    _ => None,
   }
 }
 
 fn is_wild(p: Pat) -> Bool {
   match p {
     PWild => true,
-    _     => false,
+    _ => false,
   }
 }
 
@@ -519,7 +554,7 @@ fn destructure(l0: L, pat: Pat, v0: A?, ln: Int, msg: Str) -> L {
   if let Some(name) = bind_name(pat) {
     let ty = match v0 {
       Some(x) => aty(x),
-      None    => "val",
+      None => "val",
     }
     let (l1, r) = new_reg(l0, ty, name)
     return maybe_cell(bind(emit_copy(l1, r, v0, ln), name, r), name, ln)
@@ -539,15 +574,26 @@ fn destructure(l0: L, pat: Pat, v0: A?, ln: Int, msg: Str) -> L {
 fn stmts_of(b: Node) -> List<Node> {
   match b.k {
     NBlock(ss, _) => ss,
-    _             => [],
+    _ => [],
   }
 }
 
 fn fnd(n: Node) -> FnD {
   match n.k {
     NFn(f) => f,
-    _      => FnD { name: "", params: [], ret: None, body: None, gen: ast.no_gen(), is_async: false, is_unsafe: false, varargs: false, ext: None,
-      cname: None, x: ast.no_fnx() },
+    _ => FnD {
+      name: "",
+      params: [],
+      ret: None,
+      body: None,
+      gen: ast.no_gen(),
+      is_async: false,
+      is_unsafe: false,
+      varargs: false,
+      ext: None,
+      cname: None,
+      x: ast.no_fnx(),
+    },
   }
 }
 
@@ -563,7 +609,15 @@ fn block(l0: L, b: Node, want: Bool) -> (L, A?) {
     let k = kname(s)
     let last = i == len(stmts) - 1
     i += 1
-    if k == "Fn" || k == "Struct" || k == "Enum" || k == "Trait" || k == "Impl" || k == "Alias" || k == "Use" { continue }
+    if k == "Fn"
+      || k == "Struct"
+      || k == "Enum"
+      || k == "Trait"
+      || k == "Impl"
+      || k == "Alias"
+      || k == "Use" {
+      continue
+    }
     if k == "Mod" {
       l = bad(l, "局部 mod")
       break
@@ -620,7 +674,11 @@ fn stmt(l0: L, s: Node) -> L {
     NExprStmt(e) => {
       let ek = kname(e)
       let t = ty_of(l, e)
-      let (l2, _) = expr(l, e, ek != "If" && ek != "Match" && ek != "Block" && t != "unit" && t != "never")
+      let (l2, _) = expr(
+        l,
+        e,
+        ek != "If" && ek != "Match" && ek != "Block" && t != "unit" && t != "never",
+      )
       return l2
     },
     NLet(pat, _, _, value, _) => {
@@ -637,11 +695,11 @@ fn stmt(l0: L, s: Node) -> L {
     NAssign(t, op, value) => {
       let tn = match t.k {
         NName(x) => x,
-        _        => { return assign_path(l, s) },
+        _ => { return assign_path(l, s) },
       }
       let r = match lookup(l, tn) {
         Some(x) => x,
-        None    => { return bad(l, "赋值给全局变量") },
+        None => { return bad(l, "赋值给全局变量") },
       }
       let tv = ty_of(l, value)
       if aty(r) == "cell" {
@@ -682,7 +740,18 @@ fn stmt(l0: L, s: Node) -> L {
       } else {
         l = goto(l, bb)
       }
-      l = L { cur: bb, loops: push(l.loops, Lp { cont: head, brk: done, nd: l.nd, label: s.label, has_res: false, res: None }), ..l }
+      l = L {
+        cur: bb,
+        loops: push(l.loops, Lp {
+          cont: head,
+          brk: done,
+          nd: l.nd,
+          label: s.label,
+          has_res: false,
+          res: None,
+        }),
+        ..l
+      }
       let (l6, _) = block(l, body, false)
       l = L { loops: take(l6.loops, len(l6.loops) - 1), ..l6 }
       l = goto(l, head)
@@ -692,7 +761,7 @@ fn stmt(l0: L, s: Node) -> L {
     NBreak(lab, val, _) => {
       let lp = match loop_target(l, lab) {
         Some(x) => x,
-        None    => { return bad(l, "循环外的 break") },
+        None => { return bad(l, "循环外的 break") },
       }
       if is_some(val) || lp.has_res {
         if !lp.has_res { return bad(l, "while / for 的 break 带值") }
@@ -706,7 +775,7 @@ fn stmt(l0: L, s: Node) -> L {
           if l.cur >= 0 {
             l = emit_copy(l, rr, match v {
               Some(_) => v,
-              None    => Some(CU),
+              None => Some(CU),
             }, ln)
           }
         }
@@ -717,7 +786,7 @@ fn stmt(l0: L, s: Node) -> L {
     NContinue(lab) => {
       let lp = match loop_target(l, lab) {
         Some(x) => x,
-        None    => { return bad(l, "循环外的 continue") },
+        None => { return bad(l, "循环外的 continue") },
       }
       return goto(unwind_defers(l, lp.nd, ln), lp.cont)
     },
@@ -748,7 +817,7 @@ fn assign_path(l0: L, s: Node) -> L {
   var l = l0
   let (t, op, value) = match s.k {
     NAssign(a, b, c) => (a, b, c),
-    _                => { return bad(l, "赋值目标") },
+    _ => { return bad(l, "赋值目标") },
   }
   let ln = s.line
   var root = t
@@ -764,16 +833,16 @@ fn assign_path(l0: L, s: Node) -> L {
         chain = [root] + chain
         root = o
       },
-      _            => { go = false },
+      _ => { go = false },
     }
   }
   let rn = match root.k {
     NName(x) => x,
-    _        => { return bad(l, "赋值目标") },
+    _ => { return bad(l, "赋值目标") },
   }
   let r = match lookup(l, rn) {
     Some(x) => x,
-    None    => { return bad(l, "赋值给全局变量") },
+    None => { return bad(l, "赋值给全局变量") },
   }
   if contains(l.captured, rid(r)) && aty(r) != "cell" { return bad(l, "闭包修改捕获的变量") }
   // 从根往外：先求每一层的对象（和下标），再求叶子的值，最后从里往外生成新值写回
@@ -782,7 +851,7 @@ fn assign_path(l0: L, s: Node) -> L {
     let (obj, idx) = match node.k {
       NField(o, _) => (o, None),
       NIndex(o, i) => (o, Some(i)),
-      _            => (node, None),
+      _ => (node, None),
     }
     let (l1, ov) = expr(l, obj, true)
     let (l2, o) = coerce_a(l1, ov, "val", ln)
@@ -804,7 +873,16 @@ fn assign_path(l0: L, s: Node) -> L {
   } else {
     let (l6, a) = expr(l, t, true)
     let (l7, b) = expr(l6, value, true)
-    let (l8, x) = binop(l7, __str_slice(op, 0, 1), a, b, ty_of(l7, t), ty_of(l7, value), ty_of(l7, t), ln)
+    let (l8, x) = binop(
+      l7,
+      __str_slice(op, 0, 1),
+      a,
+      b,
+      ty_of(l7, t),
+      ty_of(l7, value),
+      ty_of(l7, t),
+      ln,
+    )
     l = l8
     v = x
   }
@@ -854,14 +932,16 @@ fn for_(l0: L, s: Node) -> L {
   var l = l0
   let (pat, it, body) = match s.k {
     NFor(a, b, c) => (a, b, c),
-    _             => { return bad(l, "语句 For") },
+    _ => { return bad(l, "语句 For") },
   }
   let ln = s.line
   let bn = bind_name(pat)
   let simple = is_some(bn) || is_wild(pat)
   var rng: (Str, Node, Node)? = None
   if let NBin(iop, lo0, Some(hi0)) = it.k {
-    if (iop == ".." || iop == "..=") && ty_of(l, lo0) == "i64" && ty_of(l, hi0) == "i64" && simple { rng = Some((iop, lo0, hi0)) }
+    if (iop == ".." || iop == "..=") && ty_of(l, lo0) == "i64" && ty_of(l, hi0) == "i64" && simple {
+      rng = Some((iop, lo0, hi0))
+    }
   }
   if let Some((iop, lo0, hi0)) = rng {
     let (l1, lv) = expr(l, lo0, true)
@@ -884,7 +964,17 @@ fn for_(l0: L, s: Node) -> L {
       let (l13, x) = new_reg(l, "i64", name)
       l = maybe_cell(bind(emit_copy(l13, x, Some(i), ln), name, x), name, ln)
     }
-    l = L { loops: push(l.loops, Lp { cont: step, brk: done, nd: l.nd, label: s.label, has_res: false, res: None }), ..l }
+    l = L {
+      loops: push(l.loops, Lp {
+        cont: step,
+        brk: done,
+        nd: l.nd,
+        label: s.label,
+        has_res: false,
+        res: None,
+      }),
+      ..l
+    }
     let (l14, _) = block(l, body, false)
     l = pop_scope(L { loops: take(l14.loops, len(l14.loops) - 1), ..l14 })
     l = L { cur: step, ..goto(l, step) }
@@ -917,7 +1007,17 @@ fn for_(l0: L, s: Node) -> L {
   } else {
     l = destructure(l, pat, Some(item), ln, "解构失败: %s")
   }
-  l = L { loops: push(l.loops, Lp { cont: head, brk: done, nd: l.nd, label: s.label, has_res: false, res: None }), ..l }
+  l = L {
+    loops: push(l.loops, Lp {
+      cont: head,
+      brk: done,
+      nd: l.nd,
+      label: s.label,
+      has_res: false,
+      res: None,
+    }),
+    ..l
+  }
   let (l10, _) = block(l, body, false)
   l = pop_scope(L { loops: take(l10.loops, len(l10.loops) - 1), ..l10 })
   l = goto(l, head)
@@ -950,7 +1050,7 @@ fn expr(l0: L, e: Node, want: Bool) -> (L, A?) {
 fn expr_o(l: L, e: Node?, want: Bool) -> (L, A?) {
   match e {
     Some(x) => expr(l, x, want),
-    None    => if l.err != "" { (l, None) } else { (bad(l, "表达式 "), None) },
+    None => if l.err != "" { (l, None) } else { (bad(l, "表达式 "), None) },
   }
 }
 
@@ -972,14 +1072,14 @@ fn expr_(l0: L, e: Node, want: Bool) -> (L, A?) {
   match e.k {
     NLit(lit) => match lit {
       LBool(b) => (l, Some(CB(b))),
-      LInt(i)  => (l, Some(CI(i))),
-      LBig(_)  => (bad(l, "整数常量超出 64 位"), None),
-      LFlt(x)  => (l, Some(CF(x))),
-      LStr(s)  => (l, Some(CS(s))),
+      LInt(i) => (l, Some(CI(i))),
+      LBig(_) => (bad(l, "整数常量超出 64 位"), None),
+      LFlt(x) => (l, Some(CF(x))),
+      LStr(s) => (l, Some(CS(s))),
     },
     NName(n) => match lookup(l, n) {
       Some(r) => if aty(r) == "cell" { emit(l, "cget", [r], "val", ln, XN) } else { (l, Some(r)) },
-      None    => emit(l, "gload", [], "val", ln, XS(n)),
+      None => emit(l, "gload", [], "val", ln, XS(n)),
     },
     NBlock(..) => block(l, e, want),
     NBin(op, lft, rgt) => {
@@ -1006,7 +1106,17 @@ fn expr_(l0: L, e: Node, want: Bool) -> (L, A?) {
       let (l2, head) = new_block(l1)
       let (l3, done) = new_block(l2)
       l = L { cur: head, ..goto(l3, head) }
-      l = L { loops: push(l.loops, Lp { cont: head, brk: done, nd: l.nd, label: lab, has_res: true, res: r }), ..l }
+      l = L {
+        loops: push(l.loops, Lp {
+          cont: head,
+          brk: done,
+          nd: l.nd,
+          label: lab,
+          has_res: true,
+          res: r,
+        }),
+        ..l
+      }
       let (l4, _) = block(l, body, false)
       l = L { loops: take(l4.loops, len(l4.loops) - 1), ..l4 }
       if l.cur >= 0 { l = goto(l, head) }
@@ -1024,7 +1134,7 @@ fn expr_(l0: L, e: Node, want: Bool) -> (L, A?) {
       let (l1, x) = expr(l, lft, true)
       match r.k {
         NCall(rf, ra) => call(l1, rf, ra, x, ln, ty_of(l1, e)),
-        _             => call(l1, r, [], x, ln, ty_of(l1, e)),
+        _ => call(l1, r, [], x, ln, ty_of(l1, e)),
       }
     },
     NTuple(xs) => {
@@ -1045,7 +1155,7 @@ fn expr_(l0: L, e: Node, want: Bool) -> (L, A?) {
       var vs: List<A> = []
       for p in ps {
         match p {
-          IStr(s)  => { parts = push(parts, (true, s)) },
+          IStr(s) => { parts = push(parts, (true, s)) },
           IExpr(x) => {
             parts = push(parts, (false, ""))
             let (l1, v) = expr(l, x, true)
@@ -1067,7 +1177,7 @@ fn expr_(l0: L, e: Node, want: Bool) -> (L, A?) {
       let (l2, o) = coerce_a(l1, v, "val", ln)
       emit(l2, "tidx", [o], "val", ln, XI(match il {
         LInt(i) => i,
-        _       => 0,
+        _ => 0,
       }))
     },
     NIndex(o0, i0) => {
@@ -1118,16 +1228,24 @@ fn expr_(l0: L, e: Node, want: Bool) -> (L, A?) {
 fn lambda_(l: L, e: Node) -> (L, A?) {
   let (ps, body) = match e.k {
     NLambda(a, b, _) => (a, b),
-    _                => { return (bad(l, "表达式 Lambda"), None) },
+    _ => { return (bad(l, "表达式 Lambda"), None) },
   }
   let (l2, c) = match fn_tys(l.g.ck, node_t(l, e), len(ps)) {
     Some((ptys, ret)) => make_closure(l, ps, ptys, body, ret, e.line, "<lambda>"),
-    None              => make_closure(l, ps, map(ps, (_) => "val"), body, "val", e.line, "<lambda>"),
+    None => make_closure(l, ps, map(ps, (_) => "val"), body, "val", e.line, "<lambda>"),
   }
   (l2, Some(c))
 }
 
-fn make_closure(l0: L, params: List<(Str, TyX?)>, ptys: List<Str>, body: Node, ret: Str, ln: Int, label: Str) -> (L, A) {
+fn make_closure(
+  l0: L,
+  params: List<(Str, TyX?)>,
+  ptys: List<Str>,
+  body: Node,
+  ret: Str,
+  ln: Int,
+  label: Str,
+) -> (L, A) {
   if l0.err != "" { return (l0, CU) }
   var l = l0
   var pn: Map<Str, Bool> = Map()
@@ -1143,15 +1261,36 @@ fn make_closure(l0: L, params: List<(Str, TyX?)>, ptys: List<Str>, body: Node, r
         if contains(l.mut_names, n) && aty(r) != "cell" { return (bad(l, "闭包捕获可变变量"), CU) }
         caps = push(caps, (n, r))
       },
-      None    => (),
+      None => (),
     }
   }
   let lname = __str_slice(label, 0, len(label) - 1) + "@" + "{ln}>"
   var f = KF { closure: true, line: ln, label: label, ..new_kf(lname, ret) }
-  var lw = L { g: l.g, f: f, cur: -1, scopes: [Map()], loops: [], nd: 0, captured: Map(), mut_names: l.mut_names, cell_names: l.cell_names, in_or: 0, lams: l.lams, err: "" }
+  var lw = L {
+    g: l.g,
+    f: f,
+    cur: -1,
+    scopes: [Map()],
+    loops: [],
+    nd: 0,
+    captured: Map(),
+    mut_names: l.mut_names,
+    cell_names: l.cell_names,
+    in_or: 0,
+    lams: l.lams,
+    err: "",
+  }
   for (n, r) in caps {
     let (lw1, cr) = new_reg(lw, aty(r), n)
-    lw = bind(L { f: KF { caps: push(lw1.f.caps, cr), ..lw1.f }, captured: set(lw1.captured, rid(cr), true), ..lw1 }, n, cr)
+    lw = bind(
+      L {
+        f: KF { caps: push(lw1.f.caps, cr), ..lw1.f },
+        captured: set(lw1.captured, rid(cr), true),
+        ..lw1
+      },
+      n,
+      cr,
+    )
   }
   lw = push_scope(lw)
   var i = 0
@@ -1180,7 +1319,9 @@ fn make_closure(l0: L, params: List<(Str, TyX?)>, ptys: List<Str>, body: Node, r
   l = L { lams: push(lw.lams, lw.f), ..l }
   var args: List<A> = []
   for (_, r) in caps {
-    if aty(r) == "cell" { args = push(args, r) } else {
+    if aty(r) == "cell" {
+      args = push(args, r)
+    } else {
       let (l1, c) = coerce_a(l, Some(r), "val", ln)
       l = l1
       args = push(args, c)
@@ -1190,14 +1331,41 @@ fn make_closure(l0: L, params: List<(Str, TyX?)>, ptys: List<Str>, body: Node, r
 }
 
 fn binop(l: L, op: Str, a: A?, b: A?, ta: Str, tb: Str, tr: Str, ln: Int) -> (L, A?) {
-  if (op == "+" || op == "-" || op == "*" || op == "/" || op == "%") && ta == tb && (ta == "i64" || ta == "f64") && tr == ta {
-    let name = if op == "+" { "add" } else if op == "-" { "sub" } else if op == "*" { "mul" } else if op == "/" { "div" } else { "rem" }
+  if (op == "+" || op == "-" || op == "*" || op == "/" || op == "%")
+    && ta == tb
+    && (ta == "i64" || ta == "f64")
+    && tr == ta {
+    let name = if op == "+" {
+      "add"
+    } else if op == "-" {
+      "sub"
+    } else if op == "*" {
+      "mul"
+    } else if op == "/" {
+      "div"
+    } else {
+      "rem"
+    }
     let (l1, x) = coerce_a(l, a, ta, ln)
     let (l2, y) = coerce_a(l1, b, ta, ln)
     return emit(l2, name + "." + ta, [x, y], ta, ln, XN)
   }
-  if (op == "<" || op == ">" || op == "<=" || op == ">=" || op == "==" || op == "!=") && ta == tb && (ta == "i64" || ta == "f64" || ta == "b1") {
-    let name = if op == "<" { "lt" } else if op == ">" { "gt" } else if op == "<=" { "le" } else if op == ">=" { "ge" } else if op == "==" { "eq" } else { "ne" }
+  if (op == "<" || op == ">" || op == "<=" || op == ">=" || op == "==" || op == "!=")
+    && ta == tb
+    && (ta == "i64" || ta == "f64" || ta == "b1") {
+    let name = if op == "<" {
+      "lt"
+    } else if op == ">" {
+      "gt"
+    } else if op == "<=" {
+      "le"
+    } else if op == ">=" {
+      "ge"
+    } else if op == "==" {
+      "eq"
+    } else {
+      "ne"
+    }
     let (l1, x) = coerce_a(l, a, ta, ln)
     let (l2, y) = coerce_a(l1, b, ta, ln)
     return emit(l2, name, [x, y], "b1", ln, XN)
@@ -1233,7 +1401,7 @@ fn if_(l0: L, e: Node, want: Bool) -> (L, A?) {
   let ln = e.line
   let (cond, thn, els) = match e.k {
     NIf(a, b, c) => (a, b, c),
-    _            => { return (bad(l0, "表达式 If"), None) },
+    _ => { return (bad(l0, "表达式 If"), None) },
   }
   let (l1, r) = result(l0, e, want)
   let (l2, cv) = expr(l1, cond, true)
@@ -1284,7 +1452,7 @@ fn match_(l0: L, e: Node, m: MatchD, want: Bool) -> (L, A?) {
       PLit(lit) => {
         let lit_str = match lit {
           LStr(_) => true,
-          _       => false,
+          _ => false,
         }
         if (st == "i64" || st == "f64" || st == "b1") && !lit_str {
           let c = lit_const(Some(lit), st)
@@ -1302,7 +1470,14 @@ fn match_(l0: L, e: Node, m: MatchD, want: Bool) -> (L, A?) {
             l = L { cur: ok1, ..term(l6, TCbr(t1, ok1, nxt)) }
           }
           if is_some(hi) {
-            let (l7, t2) = emit_r(l, if inc { "le" } else { "lt" }, [subj, lit_const(hi, st)], "b1", ln, XN)
+            let (l7, t2) = emit_r(
+              l,
+              if inc { "le" } else { "lt" },
+              [subj, lit_const(hi, st)],
+              "b1",
+              ln,
+              XN,
+            )
             let (l8, ok) = new_block(l7)
             l = L { cur: ok, ..term(l8, TCbr(t2, ok, nxt)) }
           }
@@ -1347,14 +1522,14 @@ fn lit_const(v: Lit?, st: Str) -> A {
     return match v {
       Some(LInt(i)) => CF(float(i)),
       Some(LFlt(x)) => CF(x),
-      _             => CF(0.0),
+      _ => CF(0.0),
     }
   }
   match v {
     Some(LBool(b)) => CB(b),
-    Some(LInt(i))  => CI(i),
-    Some(LFlt(x))  => CF(x),
-    _              => CU,
+    Some(LInt(i)) => CI(i),
+    Some(LFlt(x)) => CF(x),
+    _ => CU,
   }
 }
 
@@ -1406,18 +1581,36 @@ fn call(l0: L, fnode: Node, args: List<Node>, pre: A?, ln: Int, rty: Str) -> (L,
     }
     var tys_: List<Str> = map(raw, (v) => match v {
       Some(x) => aty(x),
-      None    => "unit",
+      None => "unit",
     })
     if contains(l.g.user, name) { tys_ = map(raw, (_) => "user") }
     let n = len(raw)
     let alli = all(tys_, (t) => t == "i64")
-    let bits = name == "__band" || name == "__bor" || name == "__bxor" || name == "__shl" || name == "__shr"
+    let bits = name == "__band"
+      || name == "__bor"
+      || name == "__bxor"
+      || name == "__shl"
+      || name == "__shr"
     if ((bits && n == 2) || (name == "__bnot" && n == 1)) && alli {
-      return emit(l, "bit." + __str_slice(name, 2, len(name)), map(raw, (v) => unwrap_or(v, CU)), "i64", ln, XN)
+      return emit(
+        l,
+        "bit." + __str_slice(name, 2, len(name)),
+        map(raw, (v) => unwrap_or(v, CU)),
+        "i64",
+        ln,
+        XN,
+      )
     }
     let rv = map(raw, (v) => unwrap_or(v, CU))
-    if name == "abs" && n == 1 && (tys_[0] == "i64" || tys_[0] == "f64") { return emit(l, "abs." + tys_[0], rv, tys_[0], ln, XN) }
-    if (name == "min" || name == "max") && n == 2 && tys_[0] == tys_[1] && (tys_[0] == "i64" || tys_[0] == "f64") { return emit(l, name, rv, tys_[0], ln, XN) }
+    if name == "abs" && n == 1 && (tys_[0] == "i64" || tys_[0] == "f64") {
+      return emit(l, "abs." + tys_[0], rv, tys_[0], ln, XN)
+    }
+    if (name == "min" || name == "max")
+      && n == 2
+      && tys_[0] == tys_[1]
+      && (tys_[0] == "i64" || tys_[0] == "f64") {
+      return emit(l, name, rv, tys_[0], ln, XN)
+    }
     if name == "float" && n == 1 && (tys_[0] == "i64" || tys_[0] == "f64") {
       if tys_[0] == "f64" { return (l, raw[0]) }
       return emit(l, "i2f", rv, "f64", ln, XN)
@@ -1458,7 +1651,20 @@ fn after_call(l: L, r: A?, rty: Str) -> (L, A?) {
 // ───────── 一个函数 ─────────
 
 fn lower_fn(g: G, fnode: Node, key: Str, ptys: List<Str>, ret: Str) -> (KF, List<KF>, Str) {
-  var l = L { g: g, f: KF { line: fnode.line, ..new_kf(key, ret) }, cur: -1, scopes: [Map()], loops: [], nd: 0, captured: Map(), mut_names: Map(), cell_names: Map(), in_or: 0, lams: [], err: "" }
+  var l = L {
+    g: g,
+    f: KF { line: fnode.line, ..new_kf(key, ret) },
+    cur: -1,
+    scopes: [Map()],
+    loops: [],
+    nd: 0,
+    captured: Map(),
+    mut_names: Map(),
+    cell_names: Map(),
+    in_or: 0,
+    lams: [],
+    err: "",
+  }
   let fd = fnd(fnode)
   let ps = fd.params
   var i = 0
@@ -1540,7 +1746,7 @@ pub fn collect(low: List<Node>, c: check.C) -> (Map<Str, KF>, Map<Str, Str>) {
         sigs = set(sigs, n, sig_tys(c, sig, fnd(it).params))
         sord = push(sord, n)
       },
-      None      => { why = set(why, n, "没有签名") },
+      None => { why = set(why, n, "没有签名") },
     }
   }
   // impl 里的方法（顶层 impl 加上函数体里的局部 impl）
@@ -1549,7 +1755,9 @@ pub fn collect(low: List<Node>, c: check.C) -> (Map<Str, KF>, Map<Str, Str>) {
   for it in impls { top = set(top, it.id, true) }
   for it in low {
     if (kname(it) == "Fn" || kname(it) == "Impl") && !it.pre {
-      for n in walk_nodes(it, []) { if kname(n) == "Impl" && !contains(top, n.id) { impls = push(impls, n) } }
+      for n in walk_nodes(it, []) {
+        if kname(n) == "Impl" && !contains(top, n.id) { impls = push(impls, n) }
+      }
     }
   }
   var seen: Map<Str, Int> = Map()
@@ -1559,23 +1767,25 @@ pub fn collect(low: List<Node>, c: check.C) -> (Map<Str, KF>, Map<Str, Str>) {
     let own = d.methods
     let all_ms = match get(c.impl_info, target + "@" + "{it.line}") {
       Some((_, ms)) => ms,
-      None          => own,
+      None => own,
     }
     for m0 in all_ms {
       var m = m0
       let ownm = filter(own, (x) => fkey(x) == fkey(m0))
       let key = target + "." + fnd(m0).name + "#m"
-      if len(ownm) > 0 { m = ownm[0] } else {
+      if len(ownm) > 0 {
+        m = ownm[0]
+      } else {
         match get(c.dflt, target + "." + fkey(m0)) {
           Some(dm) => { m = dm },
-          None     => { continue },
+          None => { continue },
         }
       }
       seen = set(seen, key, unwrap_or(get(seen, key), 0) + 1)
       if is_none(fnd(m).body) { continue }
       let sig = match get(c.msigs, target + "|" + fkey(m0)) {
         Some(x) => x,
-        None    => { continue },
+        None => { continue },
       }
       fns = set(fns, key, m)
       let ps = fnd(m).params
@@ -1638,7 +1848,7 @@ fn ival(a: A) -> Int {
   match a {
     CI(i) => i,
     CB(b) => if b { 1 } else { 0 },
-    _     => 0,
+    _ => 0,
   }
 }
 
@@ -1646,7 +1856,7 @@ fn fval(a: A) -> Float {
   match a {
     CF(x) => x,
     CI(i) => float(i),
-    _     => 0.0,
+    _ => 0.0,
   }
 }
 
@@ -1655,7 +1865,7 @@ fn bval(a: A) -> Bool {
     CB(b) => b,
     CI(i) => i != 0,
     CF(x) => x != 0.0,
-    _     => false,
+    _ => false,
   }
 }
 
@@ -1678,12 +1888,36 @@ fn cmpv(op: Str, a: A, b: A) -> Bool {
     CF(_) => {
       let x = fval(a)
       let y = fval(b)
-      if op == "lt" { x < y } else if op == "gt" { x > y } else if op == "le" { x <= y } else if op == "ge" { x >= y } else if op == "eq" { x == y } else { x != y }
+      if op == "lt" {
+        x < y
+      } else if op == "gt" {
+        x > y
+      } else if op == "le" {
+        x <= y
+      } else if op == "ge" {
+        x >= y
+      } else if op == "eq" {
+        x == y
+      } else {
+        x != y
+      }
     },
     _ => {
       let x = ival(a)
       let y = ival(b)
-      if op == "lt" { x < y } else if op == "gt" { x > y } else if op == "le" { x <= y } else if op == "ge" { x >= y } else if op == "eq" { x == y } else { x != y }
+      if op == "lt" {
+        x < y
+      } else if op == "gt" {
+        x > y
+      } else if op == "le" {
+        x <= y
+      } else if op == "ge" {
+        x >= y
+      } else if op == "eq" {
+        x == y
+      } else {
+        x != y
+      }
     },
   }
 }
@@ -1694,9 +1928,15 @@ fn fold(op: Str, vs: List<A>) -> A? {
   let a = vs[0]
   if op == "copy" { return Some(a) }
   let b = if len(vs) > 1 { vs[1] } else { CU }
-  if op == "add.i64" { return if add_ok(ival(a), ival(b)) { Some(CI(ival(a) + ival(b))) } else { None } }
-  if op == "sub.i64" { return if sub_ok(ival(a), ival(b)) { Some(CI(ival(a) - ival(b))) } else { None } }
-  if op == "mul.i64" { return if mul_ok(ival(a), ival(b)) { Some(CI(ival(a) * ival(b))) } else { None } }
+  if op == "add.i64" {
+    return if add_ok(ival(a), ival(b)) { Some(CI(ival(a) + ival(b))) } else { None }
+  }
+  if op == "sub.i64" {
+    return if sub_ok(ival(a), ival(b)) { Some(CI(ival(a) - ival(b))) } else { None }
+  }
+  if op == "mul.i64" {
+    return if mul_ok(ival(a), ival(b)) { Some(CI(ival(a) * ival(b))) } else { None }
+  }
   if op == "div.i64" {
     if ival(b) == 0 || (ival(a) == IMIN && ival(b) == -1) { return None }
     return Some(CI(ival(a) / ival(b)))
@@ -1713,7 +1953,9 @@ fn fold(op: Str, vs: List<A>) -> A? {
   if op == "neg.i64" { return if ival(a) == IMIN { None } else { Some(CI(0 - ival(a))) } }
   if op == "neg.f64" { return Some(CF(-fval(a))) }
   if op == "not" { return Some(CB(!bval(a))) }
-  if op == "lt" || op == "gt" || op == "le" || op == "ge" || op == "eq" || op == "ne" { return Some(CB(cmpv(op, a, b))) }
+  if op == "lt" || op == "gt" || op == "le" || op == "ge" || op == "eq" || op == "ne" {
+    return Some(CB(cmpv(op, a, b)))
+  }
   if op == "i2f" { return Some(CF(float(ival(a)))) }
   None
 }
@@ -1735,14 +1977,14 @@ pub fn optimize(f0: KF) -> KF {
 fn subk(known: Map<Int, A>, a: A) -> A {
   match a {
     R(i, _) => unwrap_or(get(known, i), a),
-    _       => a,
+    _ => a,
   }
 }
 
 fn replaced(known: Map<Int, A>, a: A) -> Bool {
   match a {
     R(i, _) => contains(known, i),
-    _       => false,
+    _ => false,
   }
 }
 
@@ -1763,7 +2005,9 @@ fn const_prop(f0: KF) -> (KF, Bool) {
           changed = true
         }
         if let Some(d) = ins.d {
-          if unwrap_or(get(df, rid(d)), 0) == 1 && len(ins.args) > 0 && all(ins.args, (a) => !is_reg(a)) {
+          if unwrap_or(get(df, rid(d)), 0) == 1
+            && len(ins.args) > 0
+            && all(ins.args, (a) => !is_reg(a)) {
             if let Some(c) = fold(ins.op, ins.args) {
               if aty(c) == aty(d) && !contains(known, rid(d)) {
                 known = set(known, rid(d), c)
@@ -1792,7 +2036,9 @@ fn const_prop(f0: KF) -> (KF, Bool) {
             changed = true
           }
         },
-        TPanic(m, Some(x), ln) => { if replaced(known, x) { t = TPanic(m, Some(subk(known, x)), ln) } },
+        TPanic(m, Some(x), ln) => {
+          if replaced(known, x) { t = TPanic(m, Some(subk(known, x)), ln) }
+        },
         _ => (),
       }
       nb = push(nb, Bk { ins: ni, t: t, ..b })
@@ -1805,9 +2051,9 @@ fn const_prop(f0: KF) -> (KF, Bool) {
 
 fn succ(t: T) -> List<Int> {
   match t {
-    TBr(x)         => [x],
-    TCbr(_, a, b)  => [a, b],
-    _              => [],
+    TBr(x) => [x],
+    TCbr(_, a, b) => [a, b],
+    _ => [],
   }
 }
 
@@ -1908,10 +2154,10 @@ fn dce(f0: KF) -> (KF, Bool) {
     for b in f.blocks {
       for ins in b.ins { for a in ins.args { if is_reg(a) { used = set(used, rid(a), true) } } }
       match b.t {
-        TCbr(c, _, _)       => { if is_reg(c) { used = set(used, rid(c), true) } },
-        TRet(Some(x))       => { if is_reg(x) { used = set(used, rid(x), true) } },
+        TCbr(c, _, _) => { if is_reg(c) { used = set(used, rid(c), true) } },
+        TRet(Some(x)) => { if is_reg(x) { used = set(used, rid(x), true) } },
         TPanic(_, Some(x), _) => { if is_reg(x) { used = set(used, rid(x), true) } },
-        _                   => (),
+        _ => (),
       }
     }
     var removed = false

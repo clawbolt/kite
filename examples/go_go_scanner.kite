@@ -8,7 +8,13 @@ fn q(s: Str) -> Str { strconv.quote_go(s) }
 fn b(x: Bool) -> Str { if x { "true" } else { "false" } }
 fn ints(xs: List<Int>) -> Str { "[" + join(map(xs, (x) => "{x}"), " ") + "]" }
 
-fn scan_all(fs0: token.FileSet, name: Str, src: List<Int>, mode: Int, verbose: Bool) -> token.FileSet {
+fn scan_all(
+  fs0: token.FileSet,
+  name: Str,
+  src: List<Int>,
+  mode: Int,
+  verbose: Bool,
+) -> token.FileSet {
   let (fs1, file) = unwrap(fs0.add_file(name, fs0.base, len(src)))
   var s = unwrap(scanner.init(file, src, mode))
   var fs = fs1
@@ -19,8 +25,14 @@ fn scan_all(fs0: token.FileSet, name: Str, src: List<Int>, mode: Int, verbose: B
     s = s2
     n += 1
     let p = s.file.position(pos)
-    let line = "{s.file.offset(pos)} " + p.to_string() + " " + token.token_string(tok) + " " + q(lit) + " end={s.end()}"
-    if verbose { print("  " + line) } else { for c in __bytes(line) { h = (h * 31 + c) % 1000000007 } }
+    let line = "{s.file.offset(pos)} " + p
+      .to_string() + " " + token
+      .token_string(tok) + " " + q(lit) + " end={s.end()}"
+    if verbose {
+      print("  " + line)
+    } else {
+      for c in __bytes(line) { h = (h * 31 + c) % 1000000007 }
+    }
     if tok == token.EOF { break }
   }
   fs = fs.set_file(s.file)
@@ -28,7 +40,9 @@ fn scan_all(fs0: token.FileSet, name: Str, src: List<Int>, mode: Int, verbose: B
   for e in s.errors { print("  E " + q(scanner.error_string(e))) }
   print("  list: " + q(scanner.list_string(scanner.remove_multiples(s.errors))))
   let endp = s.file.pos(len(src))
-  print("  unadj: " + fs.position_for(endp, false).to_string() + " " + fs.position(endp).to_string())
+  print(
+    "  unadj: " + fs.position_for(endp, false).to_string() + " " + fs.position(endp).to_string(),
+  )
   fs
 }
 
@@ -36,14 +50,18 @@ fn main() {
   var out = ""
   var t = 0
   while t < 92 {
-    out = out + token.token_string(t) + " {token.precedence(t)} " + b(token.is_literal(t)) + " " + b(token.is_operator(t)) + " " +
+    out = out + token.token_string(t) + " {token.precedence(t)} " + b(
+      token.is_literal(t),
+    ) + " " + b(token.is_operator(t)) + " " +
       b(token.is_keyword(t)) + " " + b(token.lookup(token.token_string(t)) == t) + "|"
     t += 1
   }
   print(out)
   out = ""
   for s in ["", "x", "_", "x1", "1x", "αβ", "ä١", "func", "Foo", "foo", "Ünü", "a b", "_9"] {
-    out = out + b(token.is_identifier(s)) + " " + b(token.is_keyword_name(s)) + " " + b(token.is_exported(s)) + " "
+    out = out + b(token.is_identifier(s)) + " " + b(token.is_keyword_name(s)) + " " + b(
+      token.is_exported(s),
+    ) + " "
   }
   print(out)
   let fs0 = token.new_file_set()
@@ -53,12 +71,22 @@ fn main() {
   let f2 = f2a.add_line(4).add_line(2).add_line(8)
   f1 = f1.add_line_column_info(8, "x.go", 50, 3).add_line_info(14, "", 7)
   var fs = fsb.set_file(f1).set_file(f2)
-  print(f1.to_string() + " " + f2.to_string() + " {fs.base} {f1.line_count()} " + ints(f1.lines) + " " + ints(f2.lines))
+  print(
+    f1
+      .to_string() + " " + f2
+      .to_string() + " {fs.base} {f1.line_count()} " + ints(f1.lines) + " " + ints(f2.lines),
+  )
   out = ""
   var p = 0
   while p <= fs.base {
     match fs.file(p) {
-      Some(f) => { out = out + "{p}=" + f.name + ":" + fs.position(p).to_string() + "/" + fs.position_for(p, false).to_string() + " " },
+      Some(f) => {
+        out = out + "{p}=" + f.name + ":" + fs
+          .position(p)
+          .to_string() + "/" + fs
+          .position_for(p, false)
+          .to_string() + " "
+      },
       None => { out = out + "{p}=nil " },
     }
     p += 1
@@ -70,7 +98,11 @@ fn main() {
   f1 = f1b
   print(b(ok1) + " " + b(ok2) + " " + b(ok3) + " " + ints(f1.lines) + " {unwrap(f1.line_start(3))}")
   f1 = unwrap(f1.merge_line(1))
-  print(ints(f1.lines) + " " + f1.position(f1.pos(7)).to_string() + " {f1.pos(100)} {f1.offset(0)} " + token.no_position().to_string() + " " +
+  print(ints(f1.lines) + " " + f1
+    .position(f1.pos(7))
+    .to_string() + " {f1.pos(100)} {f1.offset(0)} " + token
+    .no_position()
+    .to_string() + " " +
     token.Position { filename: "z", ..token.no_position() }.to_string())
 
   var fs2 = token.new_file_set()

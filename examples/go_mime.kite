@@ -15,22 +15,32 @@ fn ebt(t: mime.TypeTable, typ: Str) -> Str {
   }
 }
 
-fn tbe(t: mime.TypeTable, e: Str) { print("TypeByExtension [" + e + "] = [" + t.type_by_extension(e) + "]") }
+fn tbe(t: mime.TypeTable, e: Str) {
+  print("TypeByExtension [" + e + "] = [" + t.type_by_extension(e) + "]")
+}
 
 fn ext(t: mime.TypeTable, e: Str) { print("ExtensionsByType [" + e + "] = " + ebt(t, e)) }
 
 fn add(t: mime.TypeTable, e: Str, typ: Str) -> mime.TypeTable {
   let (nt, err) = match t.add_extension_type(e, typ) {
-    Ok(x)  => (x, ""),
+    Ok(x) => (x, ""),
     Err(m) => (t, m),
   }
   let (just, _, perr) = mime.parse_media_type(typ)
   let x = if perr == "" { ebt(nt, just) } else { "-" }
-  print("AddExtensionType [" + e + "] [" + typ + "] err=[" + err + "] | [" + nt.type_by_extension(e) + "] [" + nt.type_by_extension(strings.to_lower(e)) + "] " + x)
+  print(
+    "AddExtensionType [" + e + "] [" + typ + "] err=[" + err + "] | [" + nt
+      .type_by_extension(e) + "] [" + nt
+      .type_by_extension(strings.to_lower(e)) + "] " + x,
+  )
   nt
 }
 
-fn fm(t: Str, p: Map<Str, Str>) { print("FormatMediaType [" + t + "] " + show_params(p) + " = [" + mime.format_media_type(t, p) + "]") }
+fn fm(t: Str, p: Map<Str, Str>) {
+  print(
+    "FormatMediaType [" + t + "] " + show_params(p) + " = [" + mime.format_media_type(t, p) + "]",
+  )
+}
 
 fn parse(s: Str) {
   let (m, p, err) = mime.parse_media_type(s)
@@ -38,11 +48,13 @@ fn parse(s: Str) {
   if err == "" { print("  -> [" + mime.format_media_type(m, p) + "]") }
 }
 
-fn enc(e: mime.WordEncoder, name: Str, cs: Str, s: Str) { print("Encode " + name + " " + cs + " [" + s + "] = [" + e.encode(cs, s) + "]") }
+fn enc(e: mime.WordEncoder, name: Str, cs: Str, s: Str) {
+  print("Encode " + name + " " + cs + " [" + s + "] = [" + e.encode(cs, s) + "]")
+}
 
 fn res(r: Result<Str, Str>) -> Str {
   match r {
-    Ok(s)  => { return "[" + s + "] err=[]" }
+    Ok(s) => { return "[" + s + "] err=[]" }
     Err(e) => { return "[] err=[" + e + "]" }
   }
 }
@@ -160,7 +172,10 @@ fn main() {
   fm("foo", Map([("bar", "")]))
   fm("foo", Map([("bar", "a;b"), ("baz", "(x)"), ("q", "a'b*c%d")]))
   fm("foo", Map([("x", "ä'%*; ()<>@,:\\\"/[]?=")]))
-  fm("message/external-body", Map([("access-type", "URL"), ("URL", "ftp://cs.utk.edu/pub/moore/bulk-mailer/bulk-mailer.tar")]))
+  fm("message/external-body", Map([
+    ("access-type", "URL"),
+    ("URL", "ftp://cs.utk.edu/pub/moore/bulk-mailer/bulk-mailer.tar"),
+  ]))
   fm("text/plain", Map([("format", "flowed"), ("charset", "us-ascii")]))
   fm("a/b", Map([("", "x")]))
   fm("a/b", Map([("k", "日本語 テキスト")]))
@@ -175,8 +190,12 @@ fn main() {
   parse("form-data; key=value;  blah=\"value\";name=\"foo\" ")
   parse("foo; key=val1; key=the-key-appears-again-which-is-bogus")
   parse("application/x-stuff; title*=us-ascii'en-us'This%20is%20%2A%2A%2Afun%2A%2A%2A")
-  parse("message/external-body; access-type=URL; URL*0=\"ftp://\";URL*1=\"cs.utk.edu/pub/moore/bulk-mailer/bulk-mailer.tar\"")
-  parse("application/x-stuff; title*0*=us-ascii'en'This%20is%20even%20more%20; title*1*=%2A%2A%2Afun%2A%2A%2A%20; title*2=\"isn't it!\"")
+  parse(
+    "message/external-body; access-type=URL; URL*0=\"ftp://\";URL*1=\"cs.utk.edu/pub/moore/bulk-mailer/bulk-mailer.tar\"",
+  )
+  parse(
+    "application/x-stuff; title*0*=us-ascii'en'This%20is%20even%20more%20; title*1*=%2A%2A%2Afun%2A%2A%2A%20; title*2=\"isn't it!\"",
+  )
   parse("attachment")
   parse("ATTACHMENT")
   parse("attachment; filename=\"foo.html\"")
@@ -237,7 +256,9 @@ fn main() {
   parse("attachment; filename*1=\"bar\"; filename*0=\"foo\"")
   parse("attachment; filename=\"foo-ae.html\"; filename*=UTF-8''foo-%c3%a4.html")
   parse("attachment; filename*=UTF-8''foo-%c3%a4.html; filename=\"foo-ae.html\"")
-  parse("attachment; filename*0*=ISO-8859-15''euro-sign%3d%a4; filename*=ISO-8859-1''currency-sign%3d%a4")
+  parse(
+    "attachment; filename*0*=ISO-8859-15''euro-sign%3d%a4; filename*=ISO-8859-1''currency-sign%3d%a4",
+  )
   parse("attachment; foobar=x; filename=\"foo.html\"")
   parse("form-data; firstname=\"Брэд\"; lastname=\"Фицпатрик\"")
   parse("foo; bar=\"\"")
@@ -300,18 +321,43 @@ fn main() {
   enc(mime.q_encoding(), "q", "utf-8", "éééééééééé")
   enc(mime.q_encoding(), "q", "utf-8", "ééééééééééé")
   enc(mime.q_encoding(), "q", "utf-8", "àààààààààààààààààààààààààààààà")
-  enc(mime.q_encoding(), "q", "utf-8", "éééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé")
+  enc(
+    mime.q_encoding(),
+    "q",
+    "utf-8",
+    "éééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé",
+  )
   enc(mime.q_encoding(), "q", "utf-8", "ïïïïïïïïïïïïïïïïïïïïïïïïï")
   enc(mime.q_encoding(), "q", "utf-8", "ôôôôôôôôôôôôôôôôôôôôôôôôôôôôôôôôôôôôô")
-  enc(mime.q_encoding(), "q", "utf-8", "\{$firstname} Bienvendio a Apostolica, aquà inicia el camino de tu")
+  enc(
+    mime.q_encoding(),
+    "q",
+    "utf-8",
+    "\{$firstname} Bienvendio a Apostolica, aquà inicia el camino de tu",
+  )
   enc(mime.q_encoding(), "q", "utf-8", "ctrl\u{1}char")
   enc(mime.q_encoding(), "q", "utf-8", "del\u{7f}")
   enc(mime.q_encoding(), "q", "utf-8", "new\nline")
-  enc(mime.q_encoding(), "q", "utf-8", "日本語のテキストをエンコードします。長い文字列も分割されるはずです")
+  enc(
+    mime.q_encoding(),
+    "q",
+    "utf-8",
+    "日本語のテキストをエンコードします。長い文字列も分割されるはずです",
+  )
   enc(mime.q_encoding(), "q", "utf-8", "😀🎉😀🎉😀🎉😀🎉😀🎉😀🎉😀🎉😀🎉😀🎉😀🎉😀🎉😀🎉")
   enc(mime.q_encoding(), "q", "utf-8", "a_b=c?d é")
-  enc(mime.q_encoding(), "q", "utf-8", "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxé")
-  enc(mime.q_encoding(), "q", "utf-8", "plain ascii that is very long but needs no encoding at all because it is all printable characters")
+  enc(
+    mime.q_encoding(),
+    "q",
+    "utf-8",
+    "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxé",
+  )
+  enc(
+    mime.q_encoding(),
+    "q",
+    "utf-8",
+    "plain ascii that is very long but needs no encoding at all because it is all printable characters",
+  )
   enc(mime.q_encoding(), "q", "UTF-8", "")
   enc(mime.q_encoding(), "q", "UTF-8", "A")
   enc(mime.q_encoding(), "q", "UTF-8", "a")
@@ -323,18 +369,43 @@ fn main() {
   enc(mime.q_encoding(), "q", "UTF-8", "éééééééééé")
   enc(mime.q_encoding(), "q", "UTF-8", "ééééééééééé")
   enc(mime.q_encoding(), "q", "UTF-8", "àààààààààààààààààààààààààààààà")
-  enc(mime.q_encoding(), "q", "UTF-8", "éééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé")
+  enc(
+    mime.q_encoding(),
+    "q",
+    "UTF-8",
+    "éééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé",
+  )
   enc(mime.q_encoding(), "q", "UTF-8", "ïïïïïïïïïïïïïïïïïïïïïïïïï")
   enc(mime.q_encoding(), "q", "UTF-8", "ôôôôôôôôôôôôôôôôôôôôôôôôôôôôôôôôôôôôô")
-  enc(mime.q_encoding(), "q", "UTF-8", "\{$firstname} Bienvendio a Apostolica, aquà inicia el camino de tu")
+  enc(
+    mime.q_encoding(),
+    "q",
+    "UTF-8",
+    "\{$firstname} Bienvendio a Apostolica, aquà inicia el camino de tu",
+  )
   enc(mime.q_encoding(), "q", "UTF-8", "ctrl\u{1}char")
   enc(mime.q_encoding(), "q", "UTF-8", "del\u{7f}")
   enc(mime.q_encoding(), "q", "UTF-8", "new\nline")
-  enc(mime.q_encoding(), "q", "UTF-8", "日本語のテキストをエンコードします。長い文字列も分割されるはずです")
+  enc(
+    mime.q_encoding(),
+    "q",
+    "UTF-8",
+    "日本語のテキストをエンコードします。長い文字列も分割されるはずです",
+  )
   enc(mime.q_encoding(), "q", "UTF-8", "😀🎉😀🎉😀🎉😀🎉😀🎉😀🎉😀🎉😀🎉😀🎉😀🎉😀🎉😀🎉")
   enc(mime.q_encoding(), "q", "UTF-8", "a_b=c?d é")
-  enc(mime.q_encoding(), "q", "UTF-8", "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxé")
-  enc(mime.q_encoding(), "q", "UTF-8", "plain ascii that is very long but needs no encoding at all because it is all printable characters")
+  enc(
+    mime.q_encoding(),
+    "q",
+    "UTF-8",
+    "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxé",
+  )
+  enc(
+    mime.q_encoding(),
+    "q",
+    "UTF-8",
+    "plain ascii that is very long but needs no encoding at all because it is all printable characters",
+  )
   enc(mime.q_encoding(), "q", "iso-8859-1", "")
   enc(mime.q_encoding(), "q", "iso-8859-1", "A")
   enc(mime.q_encoding(), "q", "iso-8859-1", "a")
@@ -346,18 +417,43 @@ fn main() {
   enc(mime.q_encoding(), "q", "iso-8859-1", "éééééééééé")
   enc(mime.q_encoding(), "q", "iso-8859-1", "ééééééééééé")
   enc(mime.q_encoding(), "q", "iso-8859-1", "àààààààààààààààààààààààààààààà")
-  enc(mime.q_encoding(), "q", "iso-8859-1", "éééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé")
+  enc(
+    mime.q_encoding(),
+    "q",
+    "iso-8859-1",
+    "éééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé",
+  )
   enc(mime.q_encoding(), "q", "iso-8859-1", "ïïïïïïïïïïïïïïïïïïïïïïïïï")
   enc(mime.q_encoding(), "q", "iso-8859-1", "ôôôôôôôôôôôôôôôôôôôôôôôôôôôôôôôôôôôôô")
-  enc(mime.q_encoding(), "q", "iso-8859-1", "\{$firstname} Bienvendio a Apostolica, aquà inicia el camino de tu")
+  enc(
+    mime.q_encoding(),
+    "q",
+    "iso-8859-1",
+    "\{$firstname} Bienvendio a Apostolica, aquà inicia el camino de tu",
+  )
   enc(mime.q_encoding(), "q", "iso-8859-1", "ctrl\u{1}char")
   enc(mime.q_encoding(), "q", "iso-8859-1", "del\u{7f}")
   enc(mime.q_encoding(), "q", "iso-8859-1", "new\nline")
-  enc(mime.q_encoding(), "q", "iso-8859-1", "日本語のテキストをエンコードします。長い文字列も分割されるはずです")
+  enc(
+    mime.q_encoding(),
+    "q",
+    "iso-8859-1",
+    "日本語のテキストをエンコードします。長い文字列も分割されるはずです",
+  )
   enc(mime.q_encoding(), "q", "iso-8859-1", "😀🎉😀🎉😀🎉😀🎉😀🎉😀🎉😀🎉😀🎉😀🎉😀🎉😀🎉😀🎉")
   enc(mime.q_encoding(), "q", "iso-8859-1", "a_b=c?d é")
-  enc(mime.q_encoding(), "q", "iso-8859-1", "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxé")
-  enc(mime.q_encoding(), "q", "iso-8859-1", "plain ascii that is very long but needs no encoding at all because it is all printable characters")
+  enc(
+    mime.q_encoding(),
+    "q",
+    "iso-8859-1",
+    "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxé",
+  )
+  enc(
+    mime.q_encoding(),
+    "q",
+    "iso-8859-1",
+    "plain ascii that is very long but needs no encoding at all because it is all printable characters",
+  )
   enc(mime.q_encoding(), "q", "Utf-8", "")
   enc(mime.q_encoding(), "q", "Utf-8", "A")
   enc(mime.q_encoding(), "q", "Utf-8", "a")
@@ -369,18 +465,43 @@ fn main() {
   enc(mime.q_encoding(), "q", "Utf-8", "éééééééééé")
   enc(mime.q_encoding(), "q", "Utf-8", "ééééééééééé")
   enc(mime.q_encoding(), "q", "Utf-8", "àààààààààààààààààààààààààààààà")
-  enc(mime.q_encoding(), "q", "Utf-8", "éééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé")
+  enc(
+    mime.q_encoding(),
+    "q",
+    "Utf-8",
+    "éééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé",
+  )
   enc(mime.q_encoding(), "q", "Utf-8", "ïïïïïïïïïïïïïïïïïïïïïïïïï")
   enc(mime.q_encoding(), "q", "Utf-8", "ôôôôôôôôôôôôôôôôôôôôôôôôôôôôôôôôôôôôô")
-  enc(mime.q_encoding(), "q", "Utf-8", "\{$firstname} Bienvendio a Apostolica, aquà inicia el camino de tu")
+  enc(
+    mime.q_encoding(),
+    "q",
+    "Utf-8",
+    "\{$firstname} Bienvendio a Apostolica, aquà inicia el camino de tu",
+  )
   enc(mime.q_encoding(), "q", "Utf-8", "ctrl\u{1}char")
   enc(mime.q_encoding(), "q", "Utf-8", "del\u{7f}")
   enc(mime.q_encoding(), "q", "Utf-8", "new\nline")
-  enc(mime.q_encoding(), "q", "Utf-8", "日本語のテキストをエンコードします。長い文字列も分割されるはずです")
+  enc(
+    mime.q_encoding(),
+    "q",
+    "Utf-8",
+    "日本語のテキストをエンコードします。長い文字列も分割されるはずです",
+  )
   enc(mime.q_encoding(), "q", "Utf-8", "😀🎉😀🎉😀🎉😀🎉😀🎉😀🎉😀🎉😀🎉😀🎉😀🎉😀🎉😀🎉")
   enc(mime.q_encoding(), "q", "Utf-8", "a_b=c?d é")
-  enc(mime.q_encoding(), "q", "Utf-8", "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxé")
-  enc(mime.q_encoding(), "q", "Utf-8", "plain ascii that is very long but needs no encoding at all because it is all printable characters")
+  enc(
+    mime.q_encoding(),
+    "q",
+    "Utf-8",
+    "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxé",
+  )
+  enc(
+    mime.q_encoding(),
+    "q",
+    "Utf-8",
+    "plain ascii that is very long but needs no encoding at all because it is all printable characters",
+  )
   enc(mime.b_encoding(), "b", "utf-8", "")
   enc(mime.b_encoding(), "b", "utf-8", "A")
   enc(mime.b_encoding(), "b", "utf-8", "a")
@@ -392,18 +513,43 @@ fn main() {
   enc(mime.b_encoding(), "b", "utf-8", "éééééééééé")
   enc(mime.b_encoding(), "b", "utf-8", "ééééééééééé")
   enc(mime.b_encoding(), "b", "utf-8", "àààààààààààààààààààààààààààààà")
-  enc(mime.b_encoding(), "b", "utf-8", "éééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé")
+  enc(
+    mime.b_encoding(),
+    "b",
+    "utf-8",
+    "éééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé",
+  )
   enc(mime.b_encoding(), "b", "utf-8", "ïïïïïïïïïïïïïïïïïïïïïïïïï")
   enc(mime.b_encoding(), "b", "utf-8", "ôôôôôôôôôôôôôôôôôôôôôôôôôôôôôôôôôôôôô")
-  enc(mime.b_encoding(), "b", "utf-8", "\{$firstname} Bienvendio a Apostolica, aquà inicia el camino de tu")
+  enc(
+    mime.b_encoding(),
+    "b",
+    "utf-8",
+    "\{$firstname} Bienvendio a Apostolica, aquà inicia el camino de tu",
+  )
   enc(mime.b_encoding(), "b", "utf-8", "ctrl\u{1}char")
   enc(mime.b_encoding(), "b", "utf-8", "del\u{7f}")
   enc(mime.b_encoding(), "b", "utf-8", "new\nline")
-  enc(mime.b_encoding(), "b", "utf-8", "日本語のテキストをエンコードします。長い文字列も分割されるはずです")
+  enc(
+    mime.b_encoding(),
+    "b",
+    "utf-8",
+    "日本語のテキストをエンコードします。長い文字列も分割されるはずです",
+  )
   enc(mime.b_encoding(), "b", "utf-8", "😀🎉😀🎉😀🎉😀🎉😀🎉😀🎉😀🎉😀🎉😀🎉😀🎉😀🎉😀🎉")
   enc(mime.b_encoding(), "b", "utf-8", "a_b=c?d é")
-  enc(mime.b_encoding(), "b", "utf-8", "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxé")
-  enc(mime.b_encoding(), "b", "utf-8", "plain ascii that is very long but needs no encoding at all because it is all printable characters")
+  enc(
+    mime.b_encoding(),
+    "b",
+    "utf-8",
+    "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxé",
+  )
+  enc(
+    mime.b_encoding(),
+    "b",
+    "utf-8",
+    "plain ascii that is very long but needs no encoding at all because it is all printable characters",
+  )
   enc(mime.b_encoding(), "b", "UTF-8", "")
   enc(mime.b_encoding(), "b", "UTF-8", "A")
   enc(mime.b_encoding(), "b", "UTF-8", "a")
@@ -415,18 +561,43 @@ fn main() {
   enc(mime.b_encoding(), "b", "UTF-8", "éééééééééé")
   enc(mime.b_encoding(), "b", "UTF-8", "ééééééééééé")
   enc(mime.b_encoding(), "b", "UTF-8", "àààààààààààààààààààààààààààààà")
-  enc(mime.b_encoding(), "b", "UTF-8", "éééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé")
+  enc(
+    mime.b_encoding(),
+    "b",
+    "UTF-8",
+    "éééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé",
+  )
   enc(mime.b_encoding(), "b", "UTF-8", "ïïïïïïïïïïïïïïïïïïïïïïïïï")
   enc(mime.b_encoding(), "b", "UTF-8", "ôôôôôôôôôôôôôôôôôôôôôôôôôôôôôôôôôôôôô")
-  enc(mime.b_encoding(), "b", "UTF-8", "\{$firstname} Bienvendio a Apostolica, aquà inicia el camino de tu")
+  enc(
+    mime.b_encoding(),
+    "b",
+    "UTF-8",
+    "\{$firstname} Bienvendio a Apostolica, aquà inicia el camino de tu",
+  )
   enc(mime.b_encoding(), "b", "UTF-8", "ctrl\u{1}char")
   enc(mime.b_encoding(), "b", "UTF-8", "del\u{7f}")
   enc(mime.b_encoding(), "b", "UTF-8", "new\nline")
-  enc(mime.b_encoding(), "b", "UTF-8", "日本語のテキストをエンコードします。長い文字列も分割されるはずです")
+  enc(
+    mime.b_encoding(),
+    "b",
+    "UTF-8",
+    "日本語のテキストをエンコードします。長い文字列も分割されるはずです",
+  )
   enc(mime.b_encoding(), "b", "UTF-8", "😀🎉😀🎉😀🎉😀🎉😀🎉😀🎉😀🎉😀🎉😀🎉😀🎉😀🎉😀🎉")
   enc(mime.b_encoding(), "b", "UTF-8", "a_b=c?d é")
-  enc(mime.b_encoding(), "b", "UTF-8", "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxé")
-  enc(mime.b_encoding(), "b", "UTF-8", "plain ascii that is very long but needs no encoding at all because it is all printable characters")
+  enc(
+    mime.b_encoding(),
+    "b",
+    "UTF-8",
+    "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxé",
+  )
+  enc(
+    mime.b_encoding(),
+    "b",
+    "UTF-8",
+    "plain ascii that is very long but needs no encoding at all because it is all printable characters",
+  )
   enc(mime.b_encoding(), "b", "iso-8859-1", "")
   enc(mime.b_encoding(), "b", "iso-8859-1", "A")
   enc(mime.b_encoding(), "b", "iso-8859-1", "a")
@@ -438,18 +609,43 @@ fn main() {
   enc(mime.b_encoding(), "b", "iso-8859-1", "éééééééééé")
   enc(mime.b_encoding(), "b", "iso-8859-1", "ééééééééééé")
   enc(mime.b_encoding(), "b", "iso-8859-1", "àààààààààààààààààààààààààààààà")
-  enc(mime.b_encoding(), "b", "iso-8859-1", "éééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé")
+  enc(
+    mime.b_encoding(),
+    "b",
+    "iso-8859-1",
+    "éééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé",
+  )
   enc(mime.b_encoding(), "b", "iso-8859-1", "ïïïïïïïïïïïïïïïïïïïïïïïïï")
   enc(mime.b_encoding(), "b", "iso-8859-1", "ôôôôôôôôôôôôôôôôôôôôôôôôôôôôôôôôôôôôô")
-  enc(mime.b_encoding(), "b", "iso-8859-1", "\{$firstname} Bienvendio a Apostolica, aquà inicia el camino de tu")
+  enc(
+    mime.b_encoding(),
+    "b",
+    "iso-8859-1",
+    "\{$firstname} Bienvendio a Apostolica, aquà inicia el camino de tu",
+  )
   enc(mime.b_encoding(), "b", "iso-8859-1", "ctrl\u{1}char")
   enc(mime.b_encoding(), "b", "iso-8859-1", "del\u{7f}")
   enc(mime.b_encoding(), "b", "iso-8859-1", "new\nline")
-  enc(mime.b_encoding(), "b", "iso-8859-1", "日本語のテキストをエンコードします。長い文字列も分割されるはずです")
+  enc(
+    mime.b_encoding(),
+    "b",
+    "iso-8859-1",
+    "日本語のテキストをエンコードします。長い文字列も分割されるはずです",
+  )
   enc(mime.b_encoding(), "b", "iso-8859-1", "😀🎉😀🎉😀🎉😀🎉😀🎉😀🎉😀🎉😀🎉😀🎉😀🎉😀🎉😀🎉")
   enc(mime.b_encoding(), "b", "iso-8859-1", "a_b=c?d é")
-  enc(mime.b_encoding(), "b", "iso-8859-1", "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxé")
-  enc(mime.b_encoding(), "b", "iso-8859-1", "plain ascii that is very long but needs no encoding at all because it is all printable characters")
+  enc(
+    mime.b_encoding(),
+    "b",
+    "iso-8859-1",
+    "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxé",
+  )
+  enc(
+    mime.b_encoding(),
+    "b",
+    "iso-8859-1",
+    "plain ascii that is very long but needs no encoding at all because it is all printable characters",
+  )
   enc(mime.b_encoding(), "b", "Utf-8", "")
   enc(mime.b_encoding(), "b", "Utf-8", "A")
   enc(mime.b_encoding(), "b", "Utf-8", "a")
@@ -461,18 +657,43 @@ fn main() {
   enc(mime.b_encoding(), "b", "Utf-8", "éééééééééé")
   enc(mime.b_encoding(), "b", "Utf-8", "ééééééééééé")
   enc(mime.b_encoding(), "b", "Utf-8", "àààààààààààààààààààààààààààààà")
-  enc(mime.b_encoding(), "b", "Utf-8", "éééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé")
+  enc(
+    mime.b_encoding(),
+    "b",
+    "Utf-8",
+    "éééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé",
+  )
   enc(mime.b_encoding(), "b", "Utf-8", "ïïïïïïïïïïïïïïïïïïïïïïïïï")
   enc(mime.b_encoding(), "b", "Utf-8", "ôôôôôôôôôôôôôôôôôôôôôôôôôôôôôôôôôôôôô")
-  enc(mime.b_encoding(), "b", "Utf-8", "\{$firstname} Bienvendio a Apostolica, aquà inicia el camino de tu")
+  enc(
+    mime.b_encoding(),
+    "b",
+    "Utf-8",
+    "\{$firstname} Bienvendio a Apostolica, aquà inicia el camino de tu",
+  )
   enc(mime.b_encoding(), "b", "Utf-8", "ctrl\u{1}char")
   enc(mime.b_encoding(), "b", "Utf-8", "del\u{7f}")
   enc(mime.b_encoding(), "b", "Utf-8", "new\nline")
-  enc(mime.b_encoding(), "b", "Utf-8", "日本語のテキストをエンコードします。長い文字列も分割されるはずです")
+  enc(
+    mime.b_encoding(),
+    "b",
+    "Utf-8",
+    "日本語のテキストをエンコードします。長い文字列も分割されるはずです",
+  )
   enc(mime.b_encoding(), "b", "Utf-8", "😀🎉😀🎉😀🎉😀🎉😀🎉😀🎉😀🎉😀🎉😀🎉😀🎉😀🎉😀🎉")
   enc(mime.b_encoding(), "b", "Utf-8", "a_b=c?d é")
-  enc(mime.b_encoding(), "b", "Utf-8", "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxé")
-  enc(mime.b_encoding(), "b", "Utf-8", "plain ascii that is very long but needs no encoding at all because it is all printable characters")
+  enc(
+    mime.b_encoding(),
+    "b",
+    "Utf-8",
+    "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxé",
+  )
+  enc(
+    mime.b_encoding(),
+    "b",
+    "Utf-8",
+    "plain ascii that is very long but needs no encoding at all because it is all printable characters",
+  )
   dec("=?UTF-8?Q?=C2=A1Hola,_se=C3=B1or!?=")
   dec("=?UTF-8?Q?Fran=C3=A7ois-J=C3=A9r=C3=B4me?=")
   dec("=?UTF-8?q?ascii?=")

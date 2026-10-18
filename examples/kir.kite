@@ -12,10 +12,10 @@ fn gcd(a: Int, b: Int) -> Int {
 
 fn classify(n: Int) -> Int {
   match n {
-    0          => 0
-    1..=9      => 1
+    0 => 0
+    1..=9 => 1
     x if x < 0 => -1
-    _          => 2
+    _ => 2
   }
 }
 
@@ -40,6 +40,15 @@ fn even(n: Int) -> Bool { n == 0 || odd(n - 1) }
 fn odd(n: Int) -> Bool { n != 0 && even(n - 1) }
 
 fn main() {
-  print(gcd(48, 18), classify(5), classify(-3), classify(100), collatz(27), hyp(3.0, 4.0), even(10), odd(7))
+  print(
+    gcd(48, 18),
+    classify(5),
+    classify(-3),
+    classify(100),
+    collatz(27),
+    hyp(3.0, 4.0),
+    even(10),
+    odd(7),
+  )
   print(abs(-5), int(2.9), [1, 2].len())
 }

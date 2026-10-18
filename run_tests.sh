@@ -177,13 +177,14 @@ printf '@test\nfn checks_add() {\n  assert(1 + 1 == 2)\n}\n\nfn main() {}\n' > "
 "$K" test "$T/attr_test.kite" 2>&1 | grep -q "1 通过，0 失败" && echo "PASS @test 标记的测试函数" || { echo "FAIL @test"; fail=1; }
 "$K" run tests/warn_deprecated.kite 2>&1 >/dev/null | grep -q "warn_deprecated.kite:5: 警告: old_parse 已弃用：改用 parse_int" && echo "PASS @deprecated 警告" || { echo "FAIL @deprecated"; fail=1; }
 if "$K" fmt tests/fmt/messy.kite | diff -q - tests/fmt/want.kite >/dev/null && "$K" fmt tests/fmt/want.kite | diff -q - tests/fmt/want.kite >/dev/null; then
-  echo "PASS kitec fmt 规范化缩进、空格、空行并对齐 match 分支（幂等）"
+  echo "PASS kitec fmt 规范化缩进、空格、空行，按 100 列折行（幂等）"
 else echo "FAIL kitec fmt"; fail=1; fi
 idem=0
 for f in examples/*.kite; do
   "$K" fmt "$f" > "$T/f1.kite" 2>/dev/null && "$K" fmt "$T/f1.kite" | cmp -s - "$T/f1.kite" || { echo "  fmt 不幂等: $f"; idem=1; }
 done
 [ $idem = 0 ] && echo "PASS kitec fmt 对全部示例幂等" || { echo "FAIL kitec fmt 幂等"; fail=1; }
+"$K" fmt --check $(sh tools/fmt_files.sh) > "$T/fmtcheck.out" 2>&1 && echo "PASS 仓库里的 .kite 文件都已格式化" || { echo "FAIL 有文件没格式化"; head -5 "$T/fmtcheck.out"; fail=1; }
 sh tests/packages.sh "$K" || fail=1
 sh tests/lsp.sh "$K" || fail=1
 exit $fail

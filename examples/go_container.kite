@@ -15,7 +15,13 @@ fn main() {
   l = l.move_to_front(e4).move_before(e3, e4).move_after(e2, e3)
   print(l.values())
   let (l5, v) = l.remove(e3)
-  print(l5.values(), v, l5.remove(e3).1, l5.value(unwrap(l5.next(unwrap(l5.front())))), l5.prev(unwrap(l5.front())) == None)
+  print(
+    l5.values(),
+    v,
+    l5.remove(e3).1,
+    l5.value(unwrap(l5.next(unwrap(l5.front())))),
+    l5.prev(unwrap(l5.front())) == None,
+  )
   var cur = l5.back()
   var rev: List<Int> = []
   while is_some(cur) {
@@ -23,7 +29,13 @@ fn main() {
     rev = push(rev, l5.value(e))
     cur = l5.prev(e)
   }
-  print(rev, l5.push_back_list(list.from_list([7, 8])).values(), l5.push_front_list(list.from_list([7, 8])).values(), l5.set_value(e2, 20).values(), l5.init().len())
+  print(
+    rev,
+    l5.push_back_list(list.from_list([7, 8])).values(),
+    l5.push_front_list(list.from_list([7, 8])).values(),
+    l5.set_value(e2, 20).values(),
+    l5.init().len(),
+  )
   let r = ring.new([1, 2, 3, 4, 5])
   print(r.values(), r.move(2).values(), r.move(-1).value(), r.next().next().prev().value(), r.len())
   let s = ring.new([10, 20])

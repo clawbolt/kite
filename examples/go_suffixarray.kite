@@ -20,14 +20,25 @@ fn rep(s: Str, n: Int) -> Str {
 }
 
 fn main() {
-  var texts = ["", "a", "banana", "mississippi", "abracadabra abracadabra", rep("ab", 50) + "x", "the quick brown fox jumps over the lazy dog; the dog sleeps"]
+  var texts = [
+    "",
+    "a",
+    "banana",
+    "mississippi",
+    "abracadabra abracadabra",
+    rep("ab", 50) + "x",
+    "the quick brown fox jumps over the lazy dog; the dog sleeps",
+  ]
   var bin: List<Int> = []
   for i in 0..400 { bin = push(bin, sha256.digest([i])[0] & 3) }
   texts = push(texts, unwrap(__from_bytes(bin)))
   for t in texts {
     let x = suffixarray.new(__bytes(t))
     print("TEXT " + strconv.quote_go(t))
-    for q in map(["", "a", "an", "ana", "s", "ssi", "abra", "the", "dog", "zz", "ab"], (w) => __bytes(w)) + [[1, 2], [0, 0, 0]] {
+    for q in map(
+      ["", "a", "an", "ana", "s", "ssi", "abra", "the", "dog", "zz", "ab"],
+      (w) => __bytes(w),
+    ) + [[1, 2], [0, 0, 0]] {
       var line = ""
       for n in [-1, 0, 1, 3] { line = line + ints(x.lookup(q, n)) + " " }
       print(line)

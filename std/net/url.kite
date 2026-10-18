@@ -3,11 +3,28 @@
 //   query_escape / query_unescape（空格 ↔ +），path_escape / path_unescape
 //   parse_query / encode_query：查询串 ↔ Map<Str, List<Str>>（编码时按键排序）
 
-pub type URL = { scheme: Str, opaque: Str, user: Option<Str>, password: Option<Str>, host: Str, path: Str, raw_query: Str, fragment: Str }
+pub type URL = {
+  scheme: Str,
+  opaque: Str,
+  user: Option<Str>,
+  password: Option<Str>,
+  host: Str,
+  path: Str,
+  raw_query: Str,
+  fragment: Str,
+}
 
 fn hexd(n: Int) -> Str { __str_slice("0123456789ABCDEF", n, n + 1) }
 
-fn unreserved(b: Int) -> Bool { (b >= 65 && b <= 90) || (b >= 97 && b <= 122) || (b >= 48 && b <= 57) || b == 45 || b == 95 || b == 46 || b == 126 }
+fn unreserved(b: Int) -> Bool {
+  (b >= 65 && b <= 90)
+    || (b >= 97 && b <= 122)
+    || (b >= 48 && b <= 57)
+    || b == 45
+    || b == 95
+    || b == 46
+    || b == 126
+}
 
 // mode：0 查询（空格 → +）、1 路径段（/ 也转义）、2 整个路径（保留 /）、3 片段、4 用户信息
 fn should_keep(b: Int, mode: Int) -> Bool {
@@ -23,12 +40,28 @@ fn should_keep(b: Int, mode: Int) -> Bool {
 fn escape(s: Str, mode: Int) -> Str {
   var out = ""
   for b in __bytes(s) {
-    if should_keep(b, mode) { out = out + __chr(b) } else if b == 32 && mode == 0 { out = out + "+" } else { out = out + "%" + hexd(b / 16) + hexd(b % 16) }
+    if should_keep(b, mode) {
+      out = out + __chr(b)
+    } else if b == 32 && mode == 0 {
+      out = out + "+"
+    } else {
+      out = out + "%" + hexd(b / 16) + hexd(b % 16)
+    }
   }
   out
 }
 
-fn hv(c: Int) -> Int { if c >= 48 && c <= 57 { c - 48 } else if c >= 65 && c <= 70 { c - 55 } else if c >= 97 && c <= 102 { c - 87 } else { -1 } }
+fn hv(c: Int) -> Int {
+  if c >= 48 && c <= 57 {
+    c - 48
+  } else if c >= 65 && c <= 70 {
+    c - 55
+  } else if c >= 97 && c <= 102 {
+    c - 87
+  } else {
+    -1
+  }
+}
 
 fn unescape(s: Str, plus: Bool) -> Result<Str, Str> {
   let bs = __bytes(s)
@@ -72,7 +105,11 @@ fn scheme_end(s: Str) -> Int {
     let o = __ord(cs[i])
     let alpha = (o >= 65 && o <= 90) || (o >= 97 && o <= 122)
     if cs[i] == ":" { return if i > 0 { i } else { -1 } }
-    if !(alpha || (i > 0 && ((o >= 48 && o <= 57) || cs[i] == "+" || cs[i] == "-" || cs[i] == "."))) { return -1 }
+    if !(
+      alpha || (i > 0 && ((o >= 48 && o <= 57) || cs[i] == "+" || cs[i] == "-" || cs[i] == "."))
+    ) {
+      return -1
+    }
     i += 1
   }
   -1
@@ -99,7 +136,16 @@ pub fn parse(raw: Str) -> Result<URL, Str> {
     rest = r2
   }
   if scheme != "" && !starts_with(rest, "/") && rest != "" {
-    return Ok(URL { scheme: scheme, opaque: rest, user: None, password: None, host: "", path: "", raw_query: q, fragment: frag })
+    return Ok(URL {
+      scheme: scheme,
+      opaque: rest,
+      user: None,
+      password: None,
+      host: "",
+      path: "",
+      raw_query: q,
+      fragment: frag,
+    })
   }
   var user: Option<Str> = None
   var pass: Option<Str> = None
@@ -122,12 +168,25 @@ pub fn parse(raw: Str) -> Result<URL, Str> {
     if starts_with(hp, "[") && !contains(hp, "]") { return Err("IPv6 主机缺少 ]: {hp}") }
     host = lower(hp)
   }
-  Ok(URL { scheme: scheme, opaque: "", user: user, password: pass, host: host, path: unescape(rest, false)?, raw_query: q, fragment: frag })
+  Ok(URL {
+    scheme: scheme,
+    opaque: "",
+    user: user,
+    password: pass,
+    host: host,
+    path: unescape(rest, false)?,
+    raw_query: q,
+    fragment: frag,
+  })
 }
 
 fn cut1(s: Str, sep: Str) -> (Str, Str, Bool) {
   let i = __str_find(s, sep, 0)
-  if i < 0 { (s, "", false) } else { (__str_slice(s, 0, i), __str_slice(s, i + len(sep), len(s)), true) }
+  if i < 0 {
+    (s, "", false)
+  } else {
+    (__str_slice(s, 0, i), __str_slice(s, i + len(sep), len(s)), true)
+  }
 }
 
 fn rfind(s: Str, sub: Str) -> Int {
@@ -209,7 +268,9 @@ pub fn parse_query(s: Str) -> Result<Map<Str, List<Str>>, Str> {
 pub fn encode_query(m: Map<Str, List<Str>>) -> Str {
   var parts: List<Str> = []
   for k in sort(keys(m)) {
-    for v in unwrap_or(get(m, k), []) { parts = push(parts, query_escape(k) + "=" + query_escape(v)) }
+    for v in unwrap_or(get(m, k), []) {
+      parts = push(parts, query_escape(k) + "=" + query_escape(v))
+    }
   }
   join(parts, "&")
 }
@@ -244,7 +305,9 @@ pub fn remove_dot_segments(p: Str) -> Str {
 // RFC 3986 第 5.2 节：在 base 上解析相对引用 r
 pub fn resolve(base: URL, r: URL) -> URL {
   if r.scheme != "" { return URL { path: remove_dot_segments(r.path), ..r } }
-  if r.host != "" || is_some(r.user) { return URL { scheme: base.scheme, path: remove_dot_segments(r.path), ..r } }
+  if r.host != "" || is_some(r.user) {
+    return URL { scheme: base.scheme, path: remove_dot_segments(r.path), ..r }
+  }
   if r.path == "" {
     let q = if r.raw_query != "" { r.raw_query } else { base.raw_query }
     return URL { raw_query: q, fragment: r.fragment, ..base }

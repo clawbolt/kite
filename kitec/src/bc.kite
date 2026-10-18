@@ -8,7 +8,15 @@ use val.{ V, sv, iv, items, is_nil }
 use ast.{ Node, K, Lit, Nm, Pat, Arm, SArm, MatchD, FnD, kname }
 use modules
 
-type Lp = { breaks: List<Int>, cont: Int, depth: Int, slot: Int, defers: Int, label: Str?, res: Int }
+type Lp = {
+  breaks: List<Int>,
+  cont: Int,
+  depth: Int,
+  slot: Int,
+  defers: Int,
+  label: Str?,
+  res: Int,
+}
 
 type FC = {
   name: Str,
@@ -62,7 +70,8 @@ pub type S = {
 const DECLS: List<Str> = ["Fn", "Struct", "Enum", "Trait", "Impl", "Alias", "Use", "Mod"]
 
 // 虚拟机启动时已有的全局（kite.py 的内建函数表，顺序有意义：重新定义的名字保持原来的位置）
-const INIT_GLOBALS: Str = "print len str __fmt __repeat int float type_of map par_map __race timeout actor tell ask __recover_raw __repanic __restart_log __restart_log_w supervise actor_supervised chan send recv try_recv close __select sleep now_ms filter each reduce fold sum count any all find first last get take skip reverse sort sort_by sort_with zip enumerate push concat contains join split trim upper lower starts_with ends_with replace chars parse_int parse_float remove keys values set Set __set_lit __set_union __set_intersect __set_difference insert union intersect difference is_subset to_list Map min max abs Ok Err Some unwrap unwrap_or is_ok is_err is_some is_none panic assert assert_eq assert_ne __kite_test __env_get __args __exit __run __ord __chr __unix_ms __slice __band __bor __bxor __bnot __shl __shr __str_slice __str_find __tls_server_ctx __tls_accept __tls_client __tls_handshake __tcp_listen __tcp_port __tcp_accept __tcp_connect __tcp_read_line __tcp_read_bytes __tcp_read_all __tcp_write __tcp_flush __tcp_close __byte_len __bytes __from_bytes __eprint __fs_stat __getcwd __chdir __chmod __env_set __env_unset __environ __hostname __getpid __read_bytes __write_bytes __tz_offset __random_bytes __unix_ns None Result Option"
+const INIT_GLOBALS: Str =
+  "print len str __fmt __repeat int float type_of map par_map __race timeout actor tell ask __recover_raw __repanic __restart_log __restart_log_w supervise actor_supervised chan send recv try_recv close __select sleep now_ms filter each reduce fold sum count any all find first last get take skip reverse sort sort_by sort_with zip enumerate push concat contains join split trim upper lower starts_with ends_with replace chars parse_int parse_float remove keys values set Set __set_lit __set_union __set_intersect __set_difference insert union intersect difference is_subset to_list Map min max abs Ok Err Some unwrap unwrap_or is_ok is_err is_some is_none panic assert assert_eq assert_ne __kite_test __env_get __args __exit __run __ord __chr __unix_ms __slice __band __bor __bxor __bnot __shl __shr __str_slice __str_find __tls_server_ctx __tls_accept __tls_client __tls_handshake __tcp_listen __tcp_port __tcp_accept __tcp_connect __tcp_read_line __tcp_read_bytes __tcp_read_all __tcp_write __tcp_flush __tcp_close __byte_len __bytes __from_bytes __eprint __fs_stat __getcwd __chdir __chmod __env_set __env_unset __environ __hostname __getpid __read_bytes __write_bytes __tz_offset __random_bytes __unix_ns None Result Option"
 
 fn new_fc(name: Str, np: Int, chunk: Bool, par: Bool) -> FC {
   FC {
@@ -107,7 +116,9 @@ fn new_s() -> S {
   }
 }
 
-fn fail(s: S, ln: Int, msg: Str) -> S { if s.err == "" { S { err: "C {ln} " + msg, ..s } } else { s } }
+fn fail(s: S, ln: Int, msg: Str) -> S {
+  if s.err == "" { S { err: "C {ln} " + msg, ..s } } else { s }
+}
 
 fn lset<T>(xs: List<T>, i: Int, v: T) -> List<T> { take(xs, i) + [v] + skip(xs, i + 1) }
 
@@ -122,7 +133,10 @@ fn setln(s: S, ln: Int) -> S { S { f: FC { ln: ln, ..s.f }, ..s } }
 
 fn em(s: S, op: Str, arg: V, eff: Int) -> S {
   let f = s.f
-  S { f: FC { code: push(f.code, (op, arg)), lines: push(f.lines, f.ln), depth: f.depth + eff, ..f }, ..s }
+  S {
+    f: FC { code: push(f.code, (op, arg)), lines: push(f.lines, f.ln), depth: f.depth + eff, ..f },
+    ..s
+  }
 }
 
 fn emi(s: S, op: Str, arg: V, eff: Int) -> (S, Int) { (em(s, op, arg, eff), len(s.f.code)) }
@@ -153,7 +167,9 @@ fn pop_scope(s0: S, base: Int, dbase: Int, close: Bool) -> S {
   S { f: FC { ns: base, nd: dbase, ..s.f }, ..s }
 }
 
-fn drop_scope(s: S, base: Int) -> S { S { f: FC { scopes: take(s.f.scopes, len(s.f.scopes) - 1), ns: base, ..s.f }, ..s } }
+fn drop_scope(s: S, base: Int) -> S {
+  S { f: FC { scopes: take(s.f.scopes, len(s.f.scopes) - 1), ns: base, ..s.f }, ..s }
+}
 
 fn alloc(s: S) -> (S, Int) {
   let f = s.f
@@ -182,7 +198,11 @@ fn res_at(all: List<FC>, i: Int, name: Str, gmut: Map<Str, Bool>) -> (List<FC>, 
     if k < 2 {
       let f2 = all2[i]
       let idx = len(f2.upd)
-      let f3 = FC { upd: push(f2.upd, VT([VB(k == 0), VI(slot)])), upn: set(f2.upn, name, (idx, m)), ..f2 }
+      let f3 = FC {
+        upd: push(f2.upd, VT([VB(k == 0), VI(slot)])),
+        upn: set(f2.upn, name, (idx, m)),
+        ..f2
+      }
       return (lset(all2, i, f3), 1, idx, m)
     }
   }
@@ -209,7 +229,9 @@ fn store(s0: S, name: Str, ln: Int) -> S {
 }
 
 fn bind_target(s: S, name: Str, m: Bool) -> (S, V) {
-  if s.f.chunk && len(s.f.scopes) == 0 { return (S { gmut: set(s.gmut, name, m), ..s }, VT([VS("gbind"), VS(name)])) }
+  if s.f.chunk && len(s.f.scopes) == 0 {
+    return (S { gmut: set(s.gmut, name, m), ..s }, VT([VS("gbind"), VS(name)]))
+  }
   let (s2, slot) = declare(s, name, m)
   (s2, VT([VS("bind"), VI(slot)]))
 }
@@ -237,14 +259,14 @@ fn cbind(s0: S, nm: Str, m: Bool) -> (S, V) {
 // 模式编译成 MATCH / TEST_PAT 的操作数（和 Python 版 FnComp.cpat 一样的元组）
 fn cpat(s0: S, p: Pat, mutable: Bool) -> (S, V) {
   match p {
-    PBind(n)               => cbind(s0, ast.nm_str(n), mutable),
-    PVar(n)                => cbind(s0, ast.nm_str(n), true),
-    PAt(a, b)              => {
+    PBind(n) => cbind(s0, ast.nm_str(n), mutable),
+    PVar(n) => cbind(s0, ast.nm_str(n), true),
+    PAt(a, b) => {
       let (s1, x) = cpat(s0, a, mutable)
       let (s2, y) = cpat(s1, b, mutable)
       (s2, VT([VS("at"), x, y]))
     },
-    POr(xs)                => {
+    POr(xs) => {
       let saved = s0.f.orb_on
       var s = s0
       if !saved { s = S { f: FC { orb_on: true, orb: Map(), ..s.f }, ..s } }
@@ -253,7 +275,7 @@ fn cpat(s0: S, p: Pat, mutable: Bool) -> (S, V) {
       if !saved { s2 = S { f: FC { orb_on: false, orb: Map(), ..s2.f }, ..s2 } }
       (s2, VT([VS("or"), VL(alts)]))
     },
-    PTuple(xs)             => {
+    PTuple(xs) => {
       let (s1, ys) = cpats(s0, xs, mutable)
       (s1, VT([VS("tuple"), VL(ys)]))
     },
@@ -261,7 +283,9 @@ fn cpat(s0: S, p: Pat, mutable: Bool) -> (S, V) {
       var s = s0
       var r = VNil
       if let Some(rn) = rest {
-        if rn == "_" { r = VT([VS("wild")]) } else {
+        if rn == "_" {
+          r = VT([VS("wild")])
+        } else {
           let (s1, t) = bind_target(s, rn, mutable)
           s = s1
           r = t
@@ -274,14 +298,14 @@ fn cpat(s0: S, p: Pat, mutable: Bool) -> (S, V) {
       }
       (s2, VT([VS("list"), VL(pre), r]))
     },
-    PVariant(n, subs)      => match subs {
-      None     => (s0, VT([VS("variant"), ast.nm_v(n), VNil])),
+    PVariant(n, subs) => match subs {
+      None => (s0, VT([VS("variant"), ast.nm_v(n), VNil])),
       Some(xs) => {
         let (s1, ys) = cpats(s0, xs, mutable)
         (s1, VT([VS("variant"), ast.nm_v(n), VL(ys)]))
       },
     },
-    PStruct(n, fs)         => {
+    PStruct(n, fs) => {
       var s = s0
       var out: List<V> = []
       for fp in fs {
@@ -291,7 +315,7 @@ fn cpat(s0: S, p: Pat, mutable: Bool) -> (S, V) {
       }
       (s, VT([VS("struct"), ast.nm_v(n), VL(out)]))
     },
-    _                      => (s0, ast.pat_v(p)),
+    _ => (s0, ast.pat_v(p)),
   }
 }
 
@@ -310,14 +334,33 @@ fn compile_fn(s0: S, name: Str, params: List<(Str, ast.TyX?)>, body: Node, par: 
   let f = s.f
   let idx = len(s.protos)
   let pr = PR { name: f.name, np: f.np, nl: f.nl, code: f.code, lines: f.lines, upd: f.upd }
-  (S { f: s.outer[len(s.outer) - 1], outer: take(s.outer, len(s.outer) - 1), protos: push(s.protos, pr), ..s }, idx)
+  (
+    S {
+      f: s.outer[len(s.outer) - 1],
+      outer: take(s.outer, len(s.outer) - 1),
+      protos: push(s.protos, pr),
+      ..s
+    },
+    idx,
+  )
 }
 
 fn fnd(n: Node) -> FnD {
   match n.k {
     NFn(f) => f,
-    _      => FnD { name: "", params: [], ret: None, body: None, gen: ast.no_gen(), is_async: false, is_unsafe: false, varargs: false, ext: None,
-      cname: None, x: ast.no_fnx() },
+    _ => FnD {
+      name: "",
+      params: [],
+      ret: None,
+      body: None,
+      gen: ast.no_gen(),
+      is_async: false,
+      is_unsafe: false,
+      varargs: false,
+      ext: None,
+      cname: None,
+      x: ast.no_fnx(),
+    },
   }
 }
 
@@ -349,7 +392,7 @@ fn hoist(s0: S, stmts: List<Node>) -> S {
 fn stmts_of(b: Node) -> List<Node> {
   match b.k {
     NBlock(ss, _) => ss,
-    _             => [],
+    _ => [],
   }
 }
 
@@ -377,7 +420,15 @@ fn block(s0: S, b: Node, close: Bool) -> S {
 fn unit_v() -> V { VN("U", 0, Map()) }
 
 fn new_loop(s: S, cont: Int, slot: Int, label: Str?, res: Int) -> Lp {
-  Lp { breaks: [], cont: cont, depth: s.f.depth, slot: slot, defers: s.f.nd, label: label, res: res }
+  Lp {
+    breaks: [],
+    cont: cont,
+    depth: s.f.depth,
+    slot: slot,
+    defers: s.f.nd,
+    label: label,
+    res: res,
+  }
 }
 
 fn push_loop(s: S, lp: Lp) -> S { S { f: FC { loops: push(s.f.loops, lp), ..s.f }, ..s } }
@@ -403,12 +454,20 @@ fn stmt(s0: S, st: Node) -> S {
       if let PBind(n) = pat {
         let (s1, t) = bind_target(s, ast.nm_str(n), mt)
         let tx = items(t)
-        return if sv(tx[0]) == "gbind" { em(s1, "DEF_G", tx[1], -1) } else { em(s1, "STORE_L", tx[1], -1) }
+        return if sv(tx[0]) == "gbind" {
+          em(s1, "DEF_G", tx[1], -1)
+        } else {
+          em(s1, "STORE_L", tx[1], -1)
+        }
       }
       if let PVar(n) = pat {
         let (s1, t) = bind_target(s, ast.nm_str(n), mt)
         let tx = items(t)
-        return if sv(tx[0]) == "gbind" { em(s1, "DEF_G", tx[1], -1) } else { em(s1, "STORE_L", tx[1], -1) }
+        return if sv(tx[0]) == "gbind" {
+          em(s1, "DEF_G", tx[1], -1)
+        } else {
+          em(s1, "STORE_L", tx[1], -1)
+        }
       }
       let (s2, cp) = cpat(s, pat, mt)
       return em(s2, "MATCH_OR_FAIL", cp, -1)
@@ -416,7 +475,7 @@ fn stmt(s0: S, st: Node) -> S {
     NAssign(..) => { return assign(s, st) },
     NReturn(v) => {
       s = match v {
-        None    => em(s, "CONST", unit_v(), 1),
+        None => em(s, "CONST", unit_v(), 1),
         Some(x) => expr(s, x),
       }
       return em(s, "RET", VNil, -1)
@@ -473,13 +532,15 @@ fn brk(s0: S, ln: Int, is_break: Bool, lab: Str?, val: Node?) -> S {
   if len(s.f.loops) == 0 { return fail(s, ln, "编译错误: " + k + " 只能出现在循环里") }
   var li = len(s.f.loops) - 1
   if let Some(lb) = lab {
-    while li >= 0 && !(is_some(s.f.loops[li].label) && unwrap(s.f.loops[li].label) == lb) { li -= 1 }
+    while li >= 0 && !(is_some(s.f.loops[li].label) && unwrap(s.f.loops[li].label) == lb) {
+      li -= 1
+    }
     if li < 0 { return fail(s, ln, "编译错误: 找不到循环标签 '{lb}") }
   }
   let lp = s.f.loops[li]
   if is_break && lp.res >= 0 {
     s = match val {
-      None    => em(s, "CONST", unit_v(), 1),
+      None => em(s, "CONST", unit_v(), 1),
       Some(v) => expr(s, v),
     }
     s = em(s, "STORE_L", VI(lp.res), -1)
@@ -493,7 +554,10 @@ fn brk(s0: S, ln: Int, is_break: Bool, lab: Str?, val: Node?) -> S {
   if is_break {
     let (s3, j) = emi(s, "JUMP", VNil, 0)
     let lp2 = s3.f.loops[li]
-    return S { f: FC { loops: lset(s3.f.loops, li, Lp { breaks: push(lp2.breaks, j), ..lp2 }), ..s3.f }, ..s3 }
+    return S {
+      f: FC { loops: lset(s3.f.loops, li, Lp { breaks: push(lp2.breaks, j), ..lp2 }), ..s3.f },
+      ..s3
+    }
   }
   em(s, "JUMP", VI(lp.cont), 0)
 }
@@ -502,7 +566,7 @@ fn assign(s0: S, st: Node) -> S {
   let ln = st.line
   let (t, op, value) = match st.k {
     NAssign(a, b, c) => (a, b, c),
-    _                => { return s0 },
+    _ => { return s0 },
   }
   var root = t
   var go = true
@@ -510,24 +574,28 @@ fn assign(s0: S, st: Node) -> S {
     match root.k {
       NField(o, _) => { root = o },
       NIndex(o, _) => { root = o },
-      _            => { go = false },
+      _ => { go = false },
     }
   }
   let rn = match root.k {
     NName(x) => x,
-    _        => { return fail(s0, ln, "编译错误: 赋值目标无效") },
+    _ => { return fail(s0, ln, "编译错误: 赋值目标无效") },
   }
   let (s, _, _, m) = resolve(s0, rn)
   if !m { return fail(s, ln, "编译错误: 不能修改不可变绑定 `{rn}`（用 var 声明）") }
   let leaf = (x: S) => {
-    if op == "=" { expr(x, value) } else { em(expr(expr(x, t), value), binop(__str_slice(op, 0, 1)), VNil, -1) }
+    if op == "=" {
+      expr(x, value)
+    } else {
+      em(expr(expr(x, t), value), binop(__str_slice(op, 0, 1)), VNil, -1)
+    }
   }
   update(s, t, leaf, ln)
 }
 
 fn update(s: S, node: Node, produce: fn(S) -> S, ln: Int) -> S {
   match node.k {
-    NName(n)     => store(produce(s), n, ln),
+    NName(n) => store(produce(s), n, ln),
     NField(o, f) => {
       let p2 = (x: S) => em(produce(expr(x, o)), "WFIELD", ast.nm_v(f), -1)
       update(s, o, p2, ln)
@@ -536,26 +604,26 @@ fn update(s: S, node: Node, produce: fn(S) -> S, ln: Int) -> S {
       let p3 = (x: S) => em(produce(expr(expr(x, o), i)), "WINDEX", VNil, -2)
       update(s, o, p3, ln)
     },
-    _            => s,
+    _ => s,
   }
 }
 
 fn binop(op: Str) -> Str {
   match op {
-    "+"   => "ADD",
-    "-"   => "SUB",
-    "*"   => "MUL",
-    "/"   => "DIV",
-    "%"   => "MOD",
-    "<"   => "LT",
-    ">"   => "GT",
-    "<="  => "LE",
-    ">="  => "GE",
-    "=="  => "EQ",
-    "!="  => "NE",
-    ".."  => "RANGE",
+    "+" => "ADD",
+    "-" => "SUB",
+    "*" => "MUL",
+    "/" => "DIV",
+    "%" => "MOD",
+    "<" => "LT",
+    ">" => "GT",
+    "<=" => "LE",
+    ">=" => "GE",
+    "==" => "EQ",
+    "!=" => "NE",
+    ".." => "RANGE",
     "..=" => "RANGE_INC",
-    _     => "?" + op,
+    _ => "?" + op,
   }
 }
 
@@ -576,7 +644,7 @@ fn expr(s0: S, e: Node) -> S {
     NInterp(ps) => {
       for p in ps {
         s = match p {
-          IStr(x)  => em(s, "CONST", VS(x), 1),
+          IStr(x) => em(s, "CONST", VS(x), 1),
           IExpr(x) => expr(s, x),
         }
       }
@@ -584,7 +652,12 @@ fn expr(s0: S, e: Node) -> S {
     },
     NBin(op, l, r) => {
       if op == "&&" || op == "||" {
-        let (s1, j) = emi(expr(s, l), if op == "&&" { "JIF_OR_POP" } else { "JIT_OR_POP" }, VNil, -1)
+        let (s1, j) = emi(
+          expr(s, l),
+          if op == "&&" { "JIF_OR_POP" } else { "JIT_OR_POP" },
+          VNil,
+          -1,
+        )
         return patch(expr_o(s1, r), j, -1)
       }
       s = expr_o(expr(s, l), r)
@@ -613,7 +686,7 @@ fn expr(s0: S, e: Node) -> S {
       let (s2, end) = emi(block(s1, thn, true), "JUMP", VNil, 0)
       s = dec_depth(patch(s2, j, -1))
       s = match els {
-        None    => em(s, "CONST", unit_v(), 1),
+        None => em(s, "CONST", unit_v(), 1),
         Some(x) => expr(s, x),
       }
       patch(s, end, -1)
@@ -637,7 +710,7 @@ fn expr(s0: S, e: Node) -> S {
       s = em(expr(s1, l), "STORE_L", VI(tmp), -1)
       s = match r.k {
         NCall(rf, ra) => call(s, rf, ra, tmp, ln),
-        _             => call(s, r, [], tmp, ln),
+        _ => call(s, r, [], tmp, ln),
       }
       if pushed { s = S { f: FC { scopes: [], ..s.f }, ..s } }
       s
@@ -675,7 +748,7 @@ fn expr(s0: S, e: Node) -> S {
 fn expr_o(s: S, x: Node?) -> S {
   match x {
     Some(n) => expr(s, n),
-    None    => fail(s, 0, "编译错误: 未知表达式 "),
+    None => fail(s, 0, "编译错误: 未知表达式 "),
   }
 }
 
@@ -729,7 +802,7 @@ pub fn lower_select(e: Node) -> Node {
   let ln = e.line
   let sarms = match e.k {
     NSelect(a) => a,
-    _          => [],
+    _ => [],
   }
   var ops: List<Node> = []
   var arms: List<Arm> = []
@@ -744,7 +817,11 @@ pub fn lower_select(e: Node) -> Node {
       var kn = ilit(ln, if kd == "recv" { 0 } else { 1 })
       if let Some(g) = ax.guard { kn = mk(ln, NIf(g, blk(kn), Some(blk(ilit(ln, -1))))) }
       ops = push(ops, mk(ln, NTuple([kn, unwrap(ax.a), unwrap_or(ax.b, mk(ln, NTuple([])))])))
-      arms = push(arms, Arm { pat: PTuple([PLit(LInt(ci)), unwrap_or(ax.pat, PWild)]), guard: None, body: ax.body })
+      arms = push(arms, Arm {
+        pat: PTuple([PLit(LInt(ci)), unwrap_or(ax.pat, PWild)]),
+        guard: None,
+        body: ax.body,
+      })
       ci += 1
     } else {
       extra = Some(ax.body)
@@ -752,7 +829,11 @@ pub fn lower_select(e: Node) -> Node {
     }
   }
   if let Some(x) = extra { arms = push(arms, Arm { pat: PWild, guard: None, body: x }) }
-  let callv = mk(ln, NCall(mk(ln, NName("__select")), [mk(ln, NList(ops)), timeout, mk(ln, NLit(LBool(has_default)))]))
+  let callv = mk(ln, NCall(mk(ln, NName("__select")), [
+    mk(ln, NList(ops)),
+    timeout,
+    mk(ln, NLit(LBool(has_default))),
+  ]))
   mk(ln, NMatch(MatchD { subject: callv, arms: arms, is_conj: None, let_else: None }))
 }
 
@@ -761,16 +842,16 @@ pub fn lower_select(e: Node) -> Node {
 fn ev_names(vf: ast.EvF) -> List<(Str, ast.TyX)> {
   match vf {
     EvList(l) => l,
-    EvRec(l)  => l,
-    EvNone    => [],
+    EvRec(l) => l,
+    EvNone => [],
   }
 }
 
 fn ev_v(vf: ast.EvF) -> V {
   match vf {
-    EvNone    => VNil,
+    EvNone => VNil,
     EvList(l) => VL(map(l, (f) => VT([VS(f.0), ast.ty_v(f.1)]))),
-    EvRec(l)  => VR(map(l, (f) => VT([VS(f.0), ast.ty_v(f.1)]))),
+    EvRec(l) => VR(map(l, (f) => VT([VS(f.0), ast.ty_v(f.1)]))),
   }
 }
 
@@ -780,7 +861,7 @@ fn use_bind(e: (Str, Str?)) -> Str { unwrap_or(e.1, e.0) }
 
 fn up_s(u: ast.UseP) -> Str {
   match u {
-    UName(s)  => s,
+    UName(s) => s,
     UGroup(_) => "",
   }
 }
@@ -803,14 +884,18 @@ fn declare_types(s0: S, decls: List<Node>) -> S {
         if len(p) >= 2 && up_s(p[0]) == "std" {
           match p[1] {
             UGroup(es) => { for e2 in es { s = gset(s, use_bind(e2), GMod(use_src(e2))) } },
-            UName(p1)  => {
+            UName(p1) => {
               if len(p) == 2 {
                 s = gset(s, unwrap_or(alias, p1), GMod(p1))
               } else {
                 match p[2] {
-                  UGroup(es) => { for e2 in es { s = gset(s, use_bind(e2), GMember(use_src(e2))) } },
-                  UName(p2)  => {
-                    if p2 == "*" { s = fail(s, it.line, "UNSUP use std.{p1}.*") } else {
+                  UGroup(es) => {
+                    for e2 in es { s = gset(s, use_bind(e2), GMember(use_src(e2))) }
+                  },
+                  UName(p2) => {
+                    if p2 == "*" {
+                      s = fail(s, it.line, "UNSUP use std.{p1}.*")
+                    } else {
                       s = gset(s, unwrap_or(alias, p2), GMember(p2))
                     }
                   },
@@ -840,7 +925,9 @@ fn declare_types(s0: S, decls: List<Node>) -> S {
         var ms = d.methods
         let own = map(ms, (m) => fnd(m).name)
         if let Some(tr) = d.tr {
-          if let Some(tms) = get(s.traits, ast.bound_name(tr)) { ms = ms + filter(tms, (m) => is_some(fnd(m).body) && !contains(own, fnd(m).name)) }
+          if let Some(tms) = get(s.traits, ast.bound_name(tr)) {
+            ms = ms + filter(tms, (m) => is_some(fnd(m).body) && !contains(own, fnd(m).name))
+          }
         }
         for m in ms {
           let mf = fnd(m)
@@ -890,7 +977,20 @@ pub fn compile_chunk(its: List<Node>) -> (S, Int) {
   s = em(s, "RET", VNil, -1)
   let f = s.f
   let idx = len(s.protos)
-  (S { protos: push(s.protos, PR { name: f.name, np: f.np, nl: f.nl, code: f.code, lines: f.lines, upd: f.upd }), ..s }, idx)
+  (
+    S {
+      protos: push(s.protos, PR {
+        name: f.name,
+        np: f.np,
+        nl: f.nl,
+        code: f.code,
+        lines: f.lines,
+        upd: f.upd,
+      }),
+      ..s
+    },
+    idx,
+  )
 }
 
 // ───────── 输出（与 tools/bc_dump.py 相同的格式，按 native.Gen 的 Proto 顺序）─────────
@@ -920,15 +1020,15 @@ pub fn dump(s: S, chunk: Int) -> List<Str> {
   var out: List<Str> = []
   for name in s.gord {
     match unwrap(get(s.gval, name)) {
-      GFn(pi)    => {
+      GFn(pi) => {
         let (o2, s2) = add_p(s, order, seen, pi)
         order = o2
         seen = s2
         out = push(out, "G " + val.dump(VS(name)) + " fn")
       },
       GStruct(f) => { out = push(out, "G " + val.dump(VS(name)) + " struct " + val.dump(f)) },
-      GEnum(v)   => { out = push(out, "G " + val.dump(VS(name)) + " enum " + val.dump(v)) },
-      _          => {},
+      GEnum(v) => { out = push(out, "G " + val.dump(VS(name)) + " enum " + val.dump(v)) },
+      _ => {},
     }
   }
   var pname: Map<Int, Str> = Map()

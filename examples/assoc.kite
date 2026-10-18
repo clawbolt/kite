@@ -2,12 +2,12 @@
 trait Source {
   type Item: Show
   fn next(self) -> Option<Self.Item>
-  fn peek_all(self) -> List<Self.Item> {
-    match self.next() {
-      Some(x) => [x]
-      None    => []
+    fn peek_all(self) -> List<Self.Item> {
+      match self.next() {
+        Some(x) => [x]
+        None => []
+      }
     }
-  }
 }
 type Counter = { n: Int }
 type Words = { ws: List<Str> }
@@ -29,7 +29,7 @@ fn first<S: Source>(s: S) -> S.Item {
 fn show_first<S>(s: S) -> Str where S: Source {
   match s.next() {
     Some(x) => "首个: {x}"
-    None    => "空"
+    None => "空"
   }
 }
 fn main() {

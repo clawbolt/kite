@@ -18,7 +18,17 @@ fn es<T>(r: Result<T, Str>) -> Str {
 }
 
 fn digest(hf: Int, m: List<Int>) -> List<Int> {
-  if hf == 3 { sha1.digest(m) } else if hf == 4 { sha256.digest224(m) } else if hf == 5 { sha256.digest(m) } else if hf == 6 { sha512.digest384(m) } else { sha512.digest(m) }
+  if hf == 3 {
+    sha1.digest(m)
+  } else if hf == 4 {
+    sha256.digest224(m)
+  } else if hf == 5 {
+    sha256.digest(m)
+  } else if hf == 6 {
+    sha512.digest384(m)
+  } else {
+    sha512.digest(m)
+  }
 }
 
 fn parse_rs(sig: List<Int>) -> (BigInt, BigInt) {
@@ -50,7 +60,11 @@ fn fill(x: BigInt, n: Int) -> List<Int> {
 fn main() {
   let names = ["P-256", "P-384", "P-521"]
   let sizes = [32, 48, 66]
-  let ns = ["ffffffff00000000ffffffffffffffffbce6faada7179e84f3b9cac2fc632551", "ffffffffffffffffffffffffffffffffffffffffffffffffc7634d81f4372ddf581a0db248b0a77aecec196accc52973", "01fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffa51868783bf2f966b7fcc0148f709a5d03bb5c9b8899c47aebb6fb71e91386409"]
+  let ns = [
+    "ffffffff00000000ffffffffffffffffbce6faada7179e84f3b9cac2fc632551",
+    "ffffffffffffffffffffffffffffffffffffffffffffffffc7634d81f4372ddf581a0db248b0a77aecec196accc52973",
+    "01fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffa51868783bf2f966b7fcc0148f709a5d03bb5c9b8899c47aebb6fb71e91386409",
+  ]
   let hashes = [[5, 3, 7], [6, 4, 5], [7, 6, 3]]
   for ci in 0..3 {
     let c = ci + 1

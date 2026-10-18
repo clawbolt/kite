@@ -5,27 +5,153 @@ use std.net.url
 use std.encoding.binary
 
 fn main() {
-  print(unicode.VERSION, unicode.is_letter("中"), unicode.is_letter("1"), unicode.is_upper("Ä"), unicode.is_lower("ж"), unicode.is_digit("٣"), unicode.is_number("Ⅻ"), unicode.is_punct("，"), unicode.is_symbol("€"))
-  print(unicode.is_space(" "), unicode.is_space("\u{3000}"), unicode.is_space("x"), unicode.is_control("\n"), unicode.is_mark("\u{301}"), unicode.is_title("ǅ"), unicode.is_print("\u{3000}"), unicode.is_graphic("\u{3000}"))
-  print(unicode.in_class("Han", "字"), unicode.in_class("Han", "か"), unicode.in_class("Hiragana", "か"), unicode.in_class("Katakana", "カ"), unicode.in_class("Greek", "λ"), unicode.in_class("Cyrillic", "Я"), unicode.in_class("Latin", "é"), unicode.in_class("Sc", "$"), unicode.in_class("Nope", "a"))
-  print(unicode.to_upper("é"), unicode.to_lower("Σ"), unicode.to_upper("ā"), unicode.to_lower("Ā"), unicode.to_upper("ß"), unicode.to_title("ǆ"), unicode.to_upper("ǆ"), unicode.upper("hello wörld ж"), unicode.lower("ĀĂĄ ÀÉ ΑΒΓ"))
-  print(unicode.to_upper("ⓐ"), unicode.to_lower("Ꭰ"), unicode.to_upper("ꭰ"), unicode.to_upper("1"), len(unicode.names()))
+  print(
+    unicode.VERSION,
+    unicode.is_letter("中"),
+    unicode.is_letter("1"),
+    unicode.is_upper("Ä"),
+    unicode.is_lower("ж"),
+    unicode.is_digit("٣"),
+    unicode.is_number("Ⅻ"),
+    unicode.is_punct("，"),
+    unicode.is_symbol("€"),
+  )
+  print(
+    unicode.is_space(" "),
+    unicode.is_space("\u{3000}"),
+    unicode.is_space("x"),
+    unicode.is_control("\n"),
+    unicode.is_mark("\u{301}"),
+    unicode.is_title("ǅ"),
+    unicode.is_print("\u{3000}"),
+    unicode.is_graphic("\u{3000}"),
+  )
+  print(
+    unicode.in_class("Han", "字"),
+    unicode.in_class("Han", "か"),
+    unicode.in_class("Hiragana", "か"),
+    unicode.in_class("Katakana", "カ"),
+    unicode.in_class("Greek", "λ"),
+    unicode.in_class("Cyrillic", "Я"),
+    unicode.in_class("Latin", "é"),
+    unicode.in_class("Sc", "$"),
+    unicode.in_class("Nope", "a"),
+  )
+  print(
+    unicode.to_upper("é"),
+    unicode.to_lower("Σ"),
+    unicode.to_upper("ā"),
+    unicode.to_lower("Ā"),
+    unicode.to_upper("ß"),
+    unicode.to_title("ǆ"),
+    unicode.to_upper("ǆ"),
+    unicode.upper("hello wörld ж"),
+    unicode.lower("ĀĂĄ ÀÉ ΑΒΓ"),
+  )
+  print(
+    unicode.to_upper("ⓐ"),
+    unicode.to_lower("Ꭰ"),
+    unicode.to_upper("ꭰ"),
+    unicode.to_upper("1"),
+    len(unicode.names()),
+  )
 
-  print(regexp.find_all(regexp.must_compile("\\p\{Han\}+"), "Go 语言和 Kite 语言", -1), regexp.find_all(regexp.must_compile("\\pL+"), "héllo, мир! 123", -1), regexp.find(regexp.must_compile("[\\p\{Lu\}\\d]+"), "abcÄÖ12x"))
-  print(regexp.find(regexp.must_compile("\\PL+"), "abc123!d"), regexp.find(regexp.must_compile("\\p\{^Greek\}+"), "αβabcγ"), regexp.find(regexp.must_compile("(?i)ÄBC"), "xäbc"), regexp.find(regexp.must_compile("(?i)σ"), "ΣΑ"), regexp.compile("\\p\{Klingon\}"))
+  print(
+    regexp.find_all(regexp.must_compile("\\p\{Han\}+"), "Go 语言和 Kite 语言", -1),
+    regexp.find_all(regexp.must_compile("\\pL+"), "héllo, мир! 123", -1),
+    regexp.find(regexp.must_compile("[\\p\{Lu\}\\d]+"), "abcÄÖ12x"),
+  )
+  print(
+    regexp.find(regexp.must_compile("\\PL+"), "abc123!d"),
+    regexp.find(regexp.must_compile("\\p\{^Greek\}+"), "αβabcγ"),
+    regexp.find(regexp.must_compile("(?i)ÄBC"), "xäbc"),
+    regexp.find(regexp.must_compile("(?i)σ"), "ΣΑ"),
+    regexp.compile("\\p\{Klingon\}"),
+  )
 
-  let u = url.parse("HTTPS://bob:p%40ss@Example.com:8443/a%20b/c?q=go+lang&x=1&q=2#frag%21") |> unwrap
-  print(u.scheme, u.user, u.password, u.host, url.hostname(u), url.port(u), u.path, u.raw_query, u.fragment)
+  let u = url.parse("HTTPS://bob:p%40ss@Example.com:8443/a%20b/c?q=go+lang&x=1&q=2#frag%21")
+    |> unwrap
+  print(
+    u.scheme,
+    u.user,
+    u.password,
+    u.host,
+    url.hostname(u),
+    url.port(u),
+    u.path,
+    u.raw_query,
+    u.fragment,
+  )
   print(url.to_str(u), url.query(u), url.first(url.query(u), "q"))
-  print(url.parse("mailto:a@b.com"), url.to_str(url.parse("http://[::1]:80/x") |> unwrap), url.hostname(url.parse("http://[::1]:80/x") |> unwrap), url.parse("http://x/%zz"))
-  print(url.query_escape("a b&c=d/é"), url.path_escape("a b/c"), url.query_unescape("a+b%26c"), url.path_unescape("a+b%2F"), url.query_unescape("%e4%b8%ad"), url.query_unescape("%"))
+  print(
+    url.parse("mailto:a@b.com"),
+    url.to_str(url.parse("http://[::1]:80/x") |> unwrap),
+    url.hostname(url.parse("http://[::1]:80/x") |> unwrap),
+    url.parse("http://x/%zz"),
+  )
+  print(
+    url.query_escape("a b&c=d/é"),
+    url.path_escape("a b/c"),
+    url.query_unescape("a+b%26c"),
+    url.path_unescape("a+b%2F"),
+    url.query_unescape("%e4%b8%ad"),
+    url.query_unescape("%"),
+  )
   print(url.encode_query(url.parse_query("b=2&a=1&a=x+y&c=") |> unwrap), url.parse_query("a=1;b=2"))
   let base = "http://a/b/c/d;p?q"
-  for r in ["g", "./g", "g/", "/g", "//g", "?y", "g?y", "#s", "g#s", "..", "../g", "../../g", "../../../g", "g;x=1/../y", "http:h"] { print(r, "=>", url.resolve_str(base, r)) }
-  print(url.join_path("https://x.com/api/", ["v1", "../v2", "users/"]), url.to_str(url.parse("/rel/path?x=1") |> unwrap), url.is_abs(url.parse("/p") |> unwrap))
-  print(binary.big_put_u32(0x01020304), binary.little_put_u32(0x01020304), binary.big_put_u16(65535), binary.big_put_u64(-1))
-  print(binary.big_get_u32([1, 2, 3, 4], 0), binary.little_get_u16([1, 2], 0), binary.big_get_i16([255, 254], 0), binary.little_get_i32([255, 255, 255, 255], 0), binary.big_get_u32([1, 2], 0), binary.big_get_u64([255, 255, 255, 255, 255, 255, 255, 255], 0))
-  print(binary.put_uvarint(1), binary.put_uvarint(300), binary.put_uvarint(-1), binary.put_varint(-1), binary.put_varint(63), binary.put_varint(-64), binary.put_varint(-9223372036854775807 - 1))
-  print(binary.read_uvarint([172, 2, 9], 0), binary.read_uvarint(binary.put_uvarint(-1), 0), binary.read_varint(binary.put_varint(-12345), 0), binary.read_varint(binary.put_varint(-9223372036854775807 - 1), 0), binary.read_uvarint([128], 0))
+  for r in [
+    "g",
+    "./g",
+    "g/",
+    "/g",
+    "//g",
+    "?y",
+    "g?y",
+    "#s",
+    "g#s",
+    "..",
+    "../g",
+    "../../g",
+    "../../../g",
+    "g;x=1/../y",
+    "http:h",
+  ] {
+    print(r, "=>", url.resolve_str(base, r))
+  }
+  print(
+    url.join_path("https://x.com/api/", ["v1", "../v2", "users/"]),
+    url.to_str(url.parse("/rel/path?x=1") |> unwrap),
+    url.is_abs(url.parse("/p") |> unwrap),
+  )
+  print(
+    binary.big_put_u32(0x01020304),
+    binary.little_put_u32(0x01020304),
+    binary.big_put_u16(65535),
+    binary.big_put_u64(-1),
+  )
+  print(
+    binary.big_get_u32([1, 2, 3, 4], 0),
+    binary.little_get_u16([1, 2], 0),
+    binary.big_get_i16([255, 254], 0),
+    binary.little_get_i32([255, 255, 255, 255], 0),
+    binary.big_get_u32([1, 2], 0),
+    binary.big_get_u64([255, 255, 255, 255, 255, 255, 255, 255], 0),
+  )
+  print(
+    binary.put_uvarint(1),
+    binary.put_uvarint(300),
+    binary.put_uvarint(-1),
+    binary.put_varint(-1),
+    binary.put_varint(63),
+    binary.put_varint(-64),
+    binary.put_varint(-9223372036854775807 - 1),
+  )
+  print(
+    binary.read_uvarint([172, 2, 9], 0),
+    binary.read_uvarint(binary.put_uvarint(-1), 0),
+    binary.read_varint(binary.put_varint(-12345), 0),
+    binary.read_varint(binary.put_varint(-9223372036854775807 - 1), 0),
+    binary.read_uvarint([128], 0),
+  )
   print(binary.format_u64(-1), binary.format_u64(12), binary.format_u64(-9223372036854775807 - 1))
 }

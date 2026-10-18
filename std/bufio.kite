@@ -57,7 +57,9 @@ pub fn read_word(r: Reader) -> Option<(Str, Reader)> {
 }
 
 // 剩下的全部
-pub fn read_rest(r: Reader) -> (Str, Reader) { (join(r.cs[r.pos..], ""), Reader { pos: len(r.cs), ..r }) }
+pub fn read_rest(r: Reader) -> (Str, Reader) {
+  (join(r.cs[r.pos..], ""), Reader { pos: len(r.cs), ..r })
+}
 
 pub fn scan_lines(text: Str) -> List<Str> {
   var out: List<Str> = []
@@ -84,7 +86,9 @@ pub fn writer() -> Writer { Writer { buf: "", lines: 0 } }
 
 pub fn write(w: Writer, s: Str) -> Writer { Writer { buf: w.buf + s, lines: w.lines } }
 
-pub fn write_line(w: Writer, s: Str) -> Writer { Writer { buf: w.buf + s + "\n", lines: w.lines + 1 } }
+pub fn write_line(w: Writer, s: Str) -> Writer {
+  Writer { buf: w.buf + s + "\n", lines: w.lines + 1 }
+}
 
 pub fn buffered(w: Writer) -> Int { len(w.buf) }
 
@@ -104,6 +108,10 @@ pub fn flush_append(w: Writer, p: Str) -> Result<Writer, Str> {
 
 // 一次性写到标准输出（缓冲区末尾没有换行时会补一个）
 pub fn flush_stdout(w: Writer) -> Writer {
-  if ends_with(w.buf, "\n") { print(__str_slice(w.buf, 0, len(w.buf) - 1)) } else if w.buf != "" { print(w.buf) }
+  if ends_with(w.buf, "\n") {
+    print(__str_slice(w.buf, 0, len(w.buf) - 1))
+  } else if w.buf != "" {
+    print(w.buf)
+  }
   writer()
 }

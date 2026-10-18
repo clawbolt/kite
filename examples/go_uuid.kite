@@ -5,12 +5,26 @@ use std.math.big
 use std.strconv
 
 fn main() {
-  for s in ["f81d4fae-7dec-11d0-a765-00a0c91e6bf6", "F81D4FAE-7DEC-11D0-A765-00A0C91E6BF6", "\{f81d4fae-7dec-11d0-a765-00a0c91e6bf6}",
-            "urn:uuid:f81d4fae-7dec-11d0-a765-00a0c91e6bf6", "URN:UUID:f81d4fae-7dec-11d0-a765-00a0c91e6bf6", "f81d4fae7dec11d0a76500a0c91e6bf6",
-            "f81d4fae-7dec-11d0-a765-00a0c91e6bf", "f81d4fae-7dec-11d0-a765_00a0c91e6bf6", "g81d4fae-7dec-11d0-a765-00a0c91e6bf6",
-            "(f81d4fae-7dec-11d0-a765-00a0c91e6bf6)", "\{f81d4fae-7dec-11d0-a765-00a0c91e6bf6", "", "00000000-0000-0000-0000-000000000000",
-            "ffffffff-ffff-ffff-ffff-ffffffffffff", "f81d4fae7dec11d0a76500a0c91e6bfz", "+81d4fae-7dec-11d0-a765-00a0c91e6bf6",
-            "f81d4fae-7dec-11d0-a765-00a0c91e6bf6 ", "xxxf81d4fae-7dec-11d0-a765-00a0c91e6bf6"] {
+  for s in [
+    "f81d4fae-7dec-11d0-a765-00a0c91e6bf6",
+    "F81D4FAE-7DEC-11D0-A765-00A0C91E6BF6",
+    "\{f81d4fae-7dec-11d0-a765-00a0c91e6bf6}",
+    "urn:uuid:f81d4fae-7dec-11d0-a765-00a0c91e6bf6",
+    "URN:UUID:f81d4fae-7dec-11d0-a765-00a0c91e6bf6",
+    "f81d4fae7dec11d0a76500a0c91e6bf6",
+    "f81d4fae-7dec-11d0-a765-00a0c91e6bf",
+    "f81d4fae-7dec-11d0-a765_00a0c91e6bf6",
+    "g81d4fae-7dec-11d0-a765-00a0c91e6bf6",
+    "(f81d4fae-7dec-11d0-a765-00a0c91e6bf6)",
+    "\{f81d4fae-7dec-11d0-a765-00a0c91e6bf6",
+    "",
+    "00000000-0000-0000-0000-000000000000",
+    "ffffffff-ffff-ffff-ffff-ffffffffffff",
+    "f81d4fae7dec11d0a76500a0c91e6bfz",
+    "+81d4fae-7dec-11d0-a765-00a0c91e6bf6",
+    "f81d4fae-7dec-11d0-a765-00a0c91e6bf6 ",
+    "xxxf81d4fae-7dec-11d0-a765-00a0c91e6bf6",
+  ] {
     match uuid.parse(s) {
       Ok(u) => print("{strconv.quote_go(s)} {u.string()} <nil>"),
       Err(e) => print("{strconv.quote_go(s)} {uuid.nil_uuid().string()} {e}"),
@@ -18,7 +32,9 @@ fn main() {
   }
   let a = uuid.must_parse("00000000-0000-0000-0000-000000000001")
   let b = uuid.must_parse("00000000-0000-0000-0000-000000000002")
-  print("{a.compare(b)} {b.compare(a)} {a.compare(a)} {a == a} {a == b} {uuid.nil_uuid().string()} {uuid.max_uuid().string()} {uuid.nil_uuid().compare(uuid.max_uuid())}")
+  print(
+    "{a.compare(b)} {b.compare(a)} {a.compare(a)} {a == a} {a == b} {uuid.nil_uuid().string()} {uuid.max_uuid().string()} {uuid.nil_uuid().compare(uuid.max_uuid())}",
+  )
   print(unwrap(__from_bytes(a.append_text(__bytes("id=")))))
   let v4 = uuid.new()
   let v7 = uuid.new_v7()

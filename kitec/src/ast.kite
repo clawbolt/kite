@@ -108,7 +108,13 @@ pub type FnD = {
 // bare：lower_consts 生成的 __c_N 方法（没有 is_async / is_unsafe / cgens 字段）
 // static_of：impl 静态方法提升成的顶层函数；const_name：关联常量方法对应的常量名
 // ext_tys：extern 函数参数 / 返回值的 C 类型描述；va：可变参数 extern 的各个变体
-pub type FnX = { bare: Bool, static_of: Str?, const_name: Str?, ext_tys: (List<XD>, XD)?, va: List<(Str, List<Str>)> }
+pub type FnX = {
+  bare: Bool,
+  static_of: Str?,
+  const_name: Str?,
+  ext_tys: (List<XD>, XD)?,
+  va: List<(Str, List<Str>)>,
+}
 
 // extern 类型描述：基本类型名 / 结构体 <"S" 名 <<字段 描述>…>> / 回调 <"F" <参数…> 返回>
 pub enum XD {
@@ -117,7 +123,9 @@ pub enum XD {
   XdF(List<Str>, Str),
 }
 
-pub fn no_fnx() -> FnX { FnX { bare: false, static_of: None, const_name: None, ext_tys: None, va: [] } }
+pub fn no_fnx() -> FnX {
+  FnX { bare: false, static_of: None, const_name: None, ext_tys: None, va: [] }
+}
 
 pub type ImplD = {
   tr: TyX?,
@@ -129,7 +137,13 @@ pub type ImplD = {
   consts: List<AConst>,
 }
 
-pub type TraitD = { name: Str, methods: List<Node>, assoc: List<TAssoc>, supers: List<Str>, consts: List<AConst> }
+pub type TraitD = {
+  name: Str,
+  methods: List<Node>,
+  assoc: List<TAssoc>,
+  supers: List<Str>,
+  consts: List<AConst>,
+}
 
 pub type MatchD = { subject: Node, arms: List<Arm>, is_conj: (Node, Node)?, let_else: Node? }
 
@@ -186,64 +200,75 @@ pub enum K {
 // 节点：编号、行号、种类；vis / label / attrs 是解析器在语句和声明上补的字段（Python 版的 node.pub / node.label / node.attrs）
 // pre：来自 prelude 的项（Python 版的 node.prelude）
 // t：检查后表达式的类型（类型化 IR，Python 版的 e._t）；检查前和检查器合成的无类型节点为 None
-pub type Node = { id: Int, line: Int, k: K, vis: Vis?, label: Str?, attrs: List<Attr>?, pre: Bool, t: Ty? }
+pub type Node = {
+  id: Int,
+  line: Int,
+  k: K,
+  vis: Vis?,
+  label: Str?,
+  attrs: List<Attr>?,
+  pre: Bool,
+  t: Ty?,
+}
 
-pub fn mkn(line: Int, k: K) -> Node { Node { id: -1, line: line, k: k, vis: None, label: None, attrs: None, pre: false, t: None } }
+pub fn mkn(line: Int, k: K) -> Node {
+  Node { id: -1, line: line, k: k, vis: None, label: None, attrs: None, pre: false, t: None }
+}
 
 pub fn no_gen() -> Gen { Gen { names: [], bounds: [], cgens: [] } }
 
 pub fn kname(n: Node) -> Str {
   match n.k {
-    NFn(_)          => "Fn",
-    NStruct(..)     => "Struct",
-    NAlias(..)      => "Alias",
-    NEnum(..)       => "Enum",
-    NTrait(_)       => "Trait",
-    NImpl(_)        => "Impl",
-    NUse(..)        => "Use",
-    NMod(..)        => "Mod",
-    NExtern(_)      => "Extern",
-    NLet(..)        => "Let",
-    NReturn(_)      => "Return",
-    NBreak(..)      => "Break",
-    NContinue(_)    => "Continue",
-    NWhile(..)      => "While",
-    NFor(..)        => "For",
-    NLoop(..)       => "Loop",
-    NDefer(_)       => "Defer",
-    NAssign(..)     => "Assign",
-    NExprStmt(_)    => "ExprStmt",
-    NBlock(..)      => "Block",
-    NIf(..)         => "If",
-    NLit(_)         => "Lit",
-    NName(_)        => "Name",
-    NBin(..)        => "Bin",
-    NUnary(..)      => "Unary",
-    NCast(..)       => "Cast",
-    NPipe(..)       => "Pipe",
-    NIs(..)         => "Is",
-    NCall(..)       => "Call",
-    NAwait(_)       => "Await",
-    NTypeApp(..)    => "TypeApp",
+    NFn(_) => "Fn",
+    NStruct(..) => "Struct",
+    NAlias(..) => "Alias",
+    NEnum(..) => "Enum",
+    NTrait(_) => "Trait",
+    NImpl(_) => "Impl",
+    NUse(..) => "Use",
+    NMod(..) => "Mod",
+    NExtern(_) => "Extern",
+    NLet(..) => "Let",
+    NReturn(_) => "Return",
+    NBreak(..) => "Break",
+    NContinue(_) => "Continue",
+    NWhile(..) => "While",
+    NFor(..) => "For",
+    NLoop(..) => "Loop",
+    NDefer(_) => "Defer",
+    NAssign(..) => "Assign",
+    NExprStmt(_) => "ExprStmt",
+    NBlock(..) => "Block",
+    NIf(..) => "If",
+    NLit(_) => "Lit",
+    NName(_) => "Name",
+    NBin(..) => "Bin",
+    NUnary(..) => "Unary",
+    NCast(..) => "Cast",
+    NPipe(..) => "Pipe",
+    NIs(..) => "Is",
+    NCall(..) => "Call",
+    NAwait(_) => "Await",
+    NTypeApp(..) => "TypeApp",
     NTupleIndex(..) => "TupleIndex",
-    NField(..)      => "Field",
-    NIndex(..)      => "Index",
-    NTry(_)         => "Try",
-    NInterp(_)      => "Interp",
-    NLambda(..)     => "Lambda",
-    NStructLit(..)  => "StructLit",
-    NTuple(_)       => "Tuple",
-    NList(_)        => "List",
-    NSpawn(_)       => "Spawn",
-    NRace(_)        => "Race",
-    NSelect(_)      => "Select",
-    NMatch(_)       => "Match",
+    NField(..) => "Field",
+    NIndex(..) => "Index",
+    NTry(_) => "Try",
+    NInterp(_) => "Interp",
+    NLambda(..) => "Lambda",
+    NStructLit(..) => "StructLit",
+    NTuple(_) => "Tuple",
+    NList(_) => "List",
+    NSpawn(_) => "Spawn",
+    NRace(_) => "Race",
+    NSelect(_) => "Select",
+    NMatch(_) => "Match",
   }
 }
 
 pub fn nm_str(n: Nm) -> Str {
   match n {
-    NmS(s)    => s,
+    NmS(s) => s,
     NmQ(s, _) => s,
   }
 }
@@ -252,10 +277,10 @@ pub fn nm_str(n: Nm) -> Str {
 
 pub fn lit_v(l: Lit) -> V {
   match l {
-    LInt(i)  => VI(i),
-    LBig(t)  => VBig(t),
-    LFlt(f)  => VF(f),
-    LStr(s)  => VS(s),
+    LInt(i) => VI(i),
+    LBig(t) => VBig(t),
+    LFlt(f) => VF(f),
+    LStr(s) => VS(s),
     LBool(b) => VB(b),
   }
 }
@@ -263,63 +288,66 @@ pub fn lit_v(l: Lit) -> V {
 pub fn olit_v(l: Lit?) -> V {
   match l {
     Some(x) => lit_v(x),
-    None    => VNil,
+    None => VNil,
   }
 }
 
 pub fn nm_v(n: Nm) -> V {
   match n {
-    NmS(s)    => VS(s),
+    NmS(s) => VS(s),
     NmQ(s, q) => VQ(s, q),
   }
 }
 
 pub fn ty_v(t: TyX) -> V {
   match t {
-    YCon(n, a, l)  => VT([VS("con"), VS(n), VL(map(a, ty_v)), VI(l)]),
-    YTup(a, l)     => VT([VS("tuple"), VL(map(a, ty_v)), VI(l)]),
-    YDyn(bs, l)    => VT([VS("dyn"), strs(bs), VI(l)]),
-    YImpl(bs, l)   => VT([VS("impl"), strs(bs), VI(l)]),
-    YUnsafe(x, l)  => VT([VS("unsafe"), ty_v(x), VI(l)]),
-    YFn(a, r, l)   => VT([VS("fn"), VL(map(a, ty_v)), ty_v(r), VI(l)]),
+    YCon(n, a, l) => VT([VS("con"), VS(n), VL(map(a, ty_v)), VI(l)]),
+    YTup(a, l) => VT([VS("tuple"), VL(map(a, ty_v)), VI(l)]),
+    YDyn(bs, l) => VT([VS("dyn"), strs(bs), VI(l)]),
+    YImpl(bs, l) => VT([VS("impl"), strs(bs), VI(l)]),
+    YUnsafe(x, l) => VT([VS("unsafe"), ty_v(x), VI(l)]),
+    YFn(a, r, l) => VT([VS("fn"), VL(map(a, ty_v)), ty_v(r), VI(l)]),
   }
 }
 
 pub fn oty_v(t: TyX?) -> V {
   match t {
     Some(x) => ty_v(x),
-    None    => VNil,
+    None => VNil,
   }
 }
 
 pub fn pat_v(p: Pat) -> V {
   match p {
-    PWild              => VT([VS("wild")]),
-    PBind(n)           => VT([VS("bind"), nm_v(n)]),
-    PVar(n)            => VT([VS("bind"), nm_v(n), VB(true)]),
-    PLit(l)            => VT([VS("lit"), lit_v(l)]),
+    PWild => VT([VS("wild")]),
+    PBind(n) => VT([VS("bind"), nm_v(n)]),
+    PVar(n) => VT([VS("bind"), nm_v(n), VB(true)]),
+    PLit(l) => VT([VS("lit"), lit_v(l)]),
     PRange(lo, hi, inc) => VT([VS("range"), olit_v(lo), olit_v(hi), VB(inc)]),
-    PTuple(xs)         => VT([VS("tuple"), VL(map(xs, pat_v))]),
+    PTuple(xs) => VT([VS("tuple"), VL(map(xs, pat_v))]),
     PList(pre, rest, post) => {
       let r = opt(rest)
-      if len(post) > 0 { VT([VS("list"), VL(map(pre, pat_v)), r, VL(map(post, pat_v))]) } else { VT([VS("list"), VL(map(pre,
-        pat_v)), r]) }
+      if len(post) > 0 {
+        VT([VS("list"), VL(map(pre, pat_v)), r, VL(map(post, pat_v))])
+      } else {
+        VT([VS("list"), VL(map(pre, pat_v)), r])
+      }
     },
-    PVariant(n, subs)  => VT([VS("variant"), nm_v(n), match subs {
+    PVariant(n, subs) => VT([VS("variant"), nm_v(n), match subs {
       Some(xs) => VL(map(xs, pat_v)),
-      None     => VNil,
+      None => VNil,
     }]),
-    PStruct(n, fs)     => VT([VS("struct"), nm_v(n), VL(map(fs, (f) => VT([VS(f.0), pat_v(f.1)])))]),
-    POr(xs)            => VT([VS("or"), VL(map(xs, pat_v))]),
-    PAt(a, b)          => VT([VS("at"), pat_v(a), pat_v(b)]),
-    PDots              => VT([VS("dots")]),
+    PStruct(n, fs) => VT([VS("struct"), nm_v(n), VL(map(fs, (f) => VT([VS(f.0), pat_v(f.1)])))]),
+    POr(xs) => VT([VS("or"), VL(map(xs, pat_v))]),
+    PAt(a, b) => VT([VS("at"), pat_v(a), pat_v(b)]),
+    PDots => VT([VS("dots")]),
   }
 }
 
 pub fn opat_v(p: Pat?) -> V {
   match p {
     Some(x) => pat_v(x),
-    None    => VNil,
+    None => VNil,
   }
 }
 
@@ -342,19 +370,28 @@ fn aconst_v(c: AConst) -> V { VT([VS(c.name), ty_v(c.ty), onode_v(c.value), VI(c
 pub fn onode_v(n: Node?) -> V {
   match n {
     Some(x) => to_v(x),
-    None    => VNil,
+    None => VNil,
   }
 }
 
 fn nodes_v(xs: List<Node>) -> V { VL(map(xs, to_v)) }
 
-fn gen_fs(g: Gen) -> List<(Str, V)> { [("generics", strs(g.names)), ("bounds", bounds_v(g.bounds)), ("cgens", strs(g.cgens))] }
+fn gen_fs(g: Gen) -> List<(Str, V)> {
+  [("generics", strs(g.names)), ("bounds", bounds_v(g.bounds)), ("cgens", strs(g.cgens))]
+}
 
 fn kfields(n: Node) -> List<(Str, V)> {
   match n.k {
     NFn(f) => {
-      var fs = [("name", VS(f.name)), ("params", params_v(f.params)), ("ret", oty_v(f.ret)), ("body", onode_v(f.body))]
-      if f.x.bare { fs = fs + [("generics", strs(f.gen.names)), ("bounds", bounds_v(f.gen.bounds))] } else {
+      var fs = [
+        ("name", VS(f.name)),
+        ("params", params_v(f.params)),
+        ("ret", oty_v(f.ret)),
+        ("body", onode_v(f.body)),
+      ]
+      if f.x.bare {
+        fs = fs + [("generics", strs(f.gen.names)), ("bounds", bounds_v(f.gen.bounds))]
+      } else {
         fs = fs + [("is_async", VB(f.is_async)), ("is_unsafe", VB(f.is_unsafe))] + gen_fs(f.gen)
       }
       if f.varargs { fs = push(fs, ("varargs", VB(true))) }
@@ -362,41 +399,64 @@ fn kfields(n: Node) -> List<(Str, V)> {
       if let Some(c) = f.cname { fs = push(fs, ("cname", VS(c))) }
       if let Some(so) = f.x.static_of { fs = push(fs, ("static_of", VS(so))) }
       if let Some(cn) = f.x.const_name { fs = push(fs, ("const_name", VS(cn))) }
-      if let Some((ds, d)) = f.x.ext_tys { fs = push(fs, ("ext_tys", VT([VL(map(ds, xd_v)), xd_v(d)]))) }
-      if len(f.x.va) > 0 { fs = push(fs, ("_va", VL(map(f.x.va, (t) => VT([VS(t.0), strs(t.1)]))))) }
+      if let Some((ds, d)) = f.x.ext_tys {
+        fs = push(fs, ("ext_tys", VT([VL(map(ds, xd_v)), xd_v(d)])))
+      }
+      if len(f.x.va) > 0 {
+        fs = push(fs, ("_va", VL(map(f.x.va, (t) => VT([VS(t.0), strs(t.1)])))))
+      }
       fs
     },
     NStruct(name, fs, g) => [("name", VS(name)), ("fields", params_v(fs))] + gen_fs(g),
     NAlias(name, t, g) => [("name", VS(name)), ("target", ty_v(t))] + gen_fs(g),
     NEnum(name, vs, g) => {
       let vv = map(vs, (v) => VT([VS(v.0), match v.1 {
-        EvNone    => VNil,
+        EvNone => VNil,
         EvList(l) => VL(map(l, (f) => VT([VS(f.0), ty_v(f.1)]))),
-        EvRec(l)  => VR(map(l, (f) => VT([VS(f.0), ty_v(f.1)]))),
+        EvRec(l) => VR(map(l, (f) => VT([VS(f.0), ty_v(f.1)]))),
       }]))
       [("name", VS(name)), ("variants", VL(vv))] + gen_fs(g)
     },
-    NTrait(t) => [("name", VS(t.name)), ("methods", nodes_v(t.methods)), ("assoc", VL(map(t.assoc, (a) => VT([VS(a.name), strs(a.bounds),
-      oty_v(a.dflt)])))), ("supers", strs(t.supers)), ("consts", VL(map(t.consts, aconst_v)))],
-    NImpl(d) => [("trait", match d.tr {
-      Some(t) => ty_head(t),
-      None    => VNil,
-    }), ("target", VS(d.target)), ("target_t", ty_v(d.target_t)), ("methods", nodes_v(d.methods)),
-      ("assoc", VL(map(d.assoc, (a) => VT([VS(a.0), ty_v(a.1)])))), ("consts", VL(map(d.consts, aconst_v)))] + gen_fs(d.gen),
-    NUse(path, alias) => [("path", VL(map(path, (u) => match u {
-      UName(s)  => VS(s),
-      UGroup(g) => VL(map(g, (e) => match e.1 {
-        Some(a) => VT([VS(e.0), VS(a)]),
-        None    => VS(e.0),
-      })),
-    }))), ("alias", opt(alias))],
+    NTrait(t) => [
+      ("name", VS(t.name)),
+      ("methods", nodes_v(t.methods)),
+      ("assoc", VL(map(t.assoc, (a) => VT([VS(a.name), strs(a.bounds), oty_v(a.dflt)])))),
+      ("supers", strs(t.supers)),
+      ("consts", VL(map(t.consts, aconst_v))),
+    ],
+    NImpl(d) => [
+      ("trait", match d.tr {
+        Some(t) => ty_head(t),
+        None => VNil,
+      }),
+      ("target", VS(d.target)),
+      ("target_t", ty_v(d.target_t)),
+      ("methods", nodes_v(d.methods)),
+      ("assoc", VL(map(d.assoc, (a) => VT([VS(a.0), ty_v(a.1)])))),
+      ("consts", VL(map(d.consts, aconst_v))),
+    ] + gen_fs(d.gen),
+    NUse(path, alias) => [
+      ("path", VL(map(path, (u) => match u {
+        UName(s) => VS(s),
+        UGroup(g) => VL(map(g, (e) => match e.1 {
+          Some(a) => VT([VS(e.0), VS(a)]),
+          None => VS(e.0),
+        })),
+      }))),
+      ("alias", opt(alias)),
+    ],
     NMod(name, its) => [("name", opt(name)), ("items", match its {
       Some(xs) => nodes_v(xs),
-      None     => VNil,
+      None => VNil,
     })],
     NExtern(fs) => [("fns", nodes_v(fs))],
     NLet(pat, mutable, t, value, is_const) => {
-      let fs = [("pat", pat_v(pat)), ("mutable", VB(mutable)), ("ty", oty_v(t)), ("value", to_v(value))]
+      let fs = [
+        ("pat", pat_v(pat)),
+        ("mutable", VB(mutable)),
+        ("ty", oty_v(t)),
+        ("value", to_v(value)),
+      ]
       if is_const { push(fs, ("is_const", VB(true))) } else { fs }
     },
     NReturn(v) => [("value", onode_v(v))],
@@ -408,7 +468,11 @@ fn kfields(n: Node) -> List<(Str, V)> {
     NDefer(b) => [("body", to_v(b))],
     NAssign(t, op, v) => [("target", to_v(t)), ("op", VS(op)), ("value", to_v(v))],
     NExprStmt(e) => [("expr", to_v(e))],
-    NBlock(ss, u) => if u { [("stmts", nodes_v(ss)), ("unsafe", VB(true))] } else { [("stmts", nodes_v(ss))] },
+    NBlock(ss, u) => if u {
+      [("stmts", nodes_v(ss)), ("unsafe", VB(true))]
+    } else {
+      [("stmts", nodes_v(ss))]
+    },
     NIf(c, t, e) => [("cond", to_v(c)), ("then", to_v(t)), ("els", onode_v(e))],
     NLit(l) => [("value", lit_v(l))],
     NName(s) => [("name", VS(s))],
@@ -425,24 +489,39 @@ fn kfields(n: Node) -> List<(Str, V)> {
     NIndex(o, i) => [("obj", to_v(o)), ("index", to_v(i))],
     NTry(v) => [("value", to_v(v))],
     NInterp(ps) => [("parts", VL(map(ps, (x) => match x {
-      IStr(s)  => VS(s),
+      IStr(s) => VS(s),
       IExpr(e) => to_v(e),
     })))],
     NLambda(ps, b, ctx) => {
       let fs = [("params", params_v(ps)), ("body", to_v(b))]
       match ctx {
         Some(c) => push(fs, ("ctx", VS(c))),
-        None    => fs,
+        None => fs,
       }
     },
-    NStructLit(name, fs, base) => [("name", nm_v(name)), ("fields", VL(map(fs, (f) => VT([VS(f.0), to_v(f.1)])))), ("base", onode_v(base))],
+    NStructLit(name, fs, base) => [
+      ("name", nm_v(name)),
+      ("fields", VL(map(fs, (f) => VT([VS(f.0), to_v(f.1)])))),
+      ("base", onode_v(base)),
+    ],
     NTuple(xs) => [("items", nodes_v(xs))],
     NList(xs) => [("items", nodes_v(xs))],
     NSpawn(xs) => [("items", nodes_v(xs))],
     NRace(xs) => [("items", nodes_v(xs))],
-    NSelect(arms) => [("arms", VL(map(arms, (a) => VT([VS(a.kind), onode_v(a.a), onode_v(a.b), opat_v(a.pat), onode_v(a.guard), to_v(a.body)]))))],
+    NSelect(arms) => [("arms", VL(map(arms, (a) => VT([
+      VS(a.kind),
+      onode_v(a.a),
+      onode_v(a.b),
+      opat_v(a.pat),
+      onode_v(a.guard),
+      to_v(a.body),
+    ]))))],
     NMatch(m) => {
-      var fs = [("subject", to_v(m.subject)), ("arms", VL(map(m.arms, (a) => VT([pat_v(a.pat), onode_v(a.guard), to_v(a.body)]))))]
+      var fs = [("subject", to_v(m.subject)), ("arms", VL(map(m.arms, (a) => VT([
+        pat_v(a.pat),
+        onode_v(a.guard),
+        to_v(a.body),
+      ]))))]
       if let Some(ic) = m.is_conj { fs = push(fs, ("is_conj", VT([to_v(ic.0), to_v(ic.1)]))) }
       if let Some(le) = m.let_else { fs = push(fs, ("let_else", to_v(le))) }
       fs
@@ -465,7 +544,7 @@ pub fn to_v(n: Node) -> V {
 
 pub fn xd_v(d: XD) -> V {
   match d {
-    XdH(h)     => VS(h),
+    XdH(h) => VS(h),
     XdS(h, fs) => VT([VS("S"), VS(h), VT(map(fs, (f) => VT([VS(f.0), xd_v(f.1)])))]),
     XdF(ps, r) => VT([VS("F"), VT(map(ps, (a) => VS(a))), VS(r)]),
   }
@@ -477,57 +556,57 @@ pub fn xd_v(d: XD) -> V {
 fn on(x: Node?) -> List<Node> {
   match x {
     Some(n) => [n],
-    None    => [],
+    None => [],
   }
 }
 
 pub fn kids(n: Node) -> List<Node> {
   match n.k {
-    NFn(f)              => on(f.body),
-    NTrait(t)           => t.methods + flat(map(t.consts, (c) => on(c.value))),
-    NImpl(d)            => d.methods + flat(map(d.consts, (c) => on(c.value))),
-    NMod(_, its)        => unwrap_or(its, []),
-    NExtern(fs)         => fs,
+    NFn(f) => on(f.body),
+    NTrait(t) => t.methods + flat(map(t.consts, (c) => on(c.value))),
+    NImpl(d) => d.methods + flat(map(d.consts, (c) => on(c.value))),
+    NMod(_, its) => unwrap_or(its, []),
+    NExtern(fs) => fs,
     NLet(_, _, _, v, _) => [v],
-    NReturn(v)          => on(v),
-    NBreak(_, v, _)     => on(v),
-    NWhile(c, b)        => on(c) + [b],
-    NFor(_, it, b)      => [it, b],
-    NLoop(b, _)         => [b],
-    NDefer(b)           => [b],
-    NAssign(t, _, v)    => [t, v],
-    NExprStmt(e)        => [e],
-    NBlock(ss, _)       => ss,
-    NIf(c, t, e)        => [c, t] + on(e),
-    NBin(_, l, r)       => [l] + on(r),
-    NUnary(_, x, _)     => [x],
-    NCast(v, _)         => [v],
-    NPipe(l, r)         => [l, r],
-    NIs(v, _)           => [v],
-    NCall(f, a)         => [f] + a,
-    NAwait(v)           => [v],
-    NTypeApp(f, _)      => [f],
-    NTupleIndex(o, _)   => [o],
-    NField(o, _)        => [o],
-    NIndex(o, i)        => [o, i],
-    NTry(v)             => [v],
-    NInterp(ps)         => flat(map(ps, (p) => match p {
+    NReturn(v) => on(v),
+    NBreak(_, v, _) => on(v),
+    NWhile(c, b) => on(c) + [b],
+    NFor(_, it, b) => [it, b],
+    NLoop(b, _) => [b],
+    NDefer(b) => [b],
+    NAssign(t, _, v) => [t, v],
+    NExprStmt(e) => [e],
+    NBlock(ss, _) => ss,
+    NIf(c, t, e) => [c, t] + on(e),
+    NBin(_, l, r) => [l] + on(r),
+    NUnary(_, x, _) => [x],
+    NCast(v, _) => [v],
+    NPipe(l, r) => [l, r],
+    NIs(v, _) => [v],
+    NCall(f, a) => [f] + a,
+    NAwait(v) => [v],
+    NTypeApp(f, _) => [f],
+    NTupleIndex(o, _) => [o],
+    NField(o, _) => [o],
+    NIndex(o, i) => [o, i],
+    NTry(v) => [v],
+    NInterp(ps) => flat(map(ps, (p) => match p {
       IExpr(e) => [e],
-      IStr(_)  => [],
+      IStr(_) => [],
     })),
-    NLambda(_, b, _)    => [b],
+    NLambda(_, b, _) => [b],
     NStructLit(_, fs, b) => map(fs, (f) => f.1) + on(b),
-    NTuple(xs)          => xs,
-    NList(xs)           => xs,
-    NSpawn(xs)          => xs,
-    NRace(xs)           => xs,
-    NSelect(arms)       => flat(map(arms, (a) => on(a.a) + on(a.b) + on(a.guard) + [a.body])),
-    NMatch(m)           => {
+    NTuple(xs) => xs,
+    NList(xs) => xs,
+    NSpawn(xs) => xs,
+    NRace(xs) => xs,
+    NSelect(arms) => flat(map(arms, (a) => on(a.a) + on(a.b) + on(a.guard) + [a.body])),
+    NMatch(m) => {
       var out = [m.subject] + flat(map(m.arms, (a) => on(a.guard) + [a.body]))
       if let Some(ic) = m.is_conj { out = out + [ic.0, ic.1] }
       out + on(m.let_else)
     },
-    _                   => [],
+    _ => [],
   }
 }
 
@@ -548,7 +627,7 @@ fn nxo(c: Cur, x: Node?) -> (Cur, Node?) {
       let (c1, y) = nx(c)
       (c1, Some(y))
     },
-    None    => (c, None),
+    None => (c, None),
   }
 }
 
@@ -571,47 +650,47 @@ fn nx_consts(c0: Cur, cs: List<AConst>) -> (Cur, List<AConst>) {
 pub fn with_kids(n: Node, ks: List<Node>) -> Node {
   let c = Cur { ks: ks, i: 0 }
   let k2 = match n.k {
-    NFn(f)              => NFn(FnD { body: nxo(c, f.body).1, ..f }),
-    NTrait(t)           => {
+    NFn(f) => NFn(FnD { body: nxo(c, f.body).1, ..f }),
+    NTrait(t) => {
       let (c1, ms) = nxs(c, t.methods)
       NTrait(TraitD { methods: ms, consts: nx_consts(c1, t.consts).1, ..t })
     },
-    NImpl(d)            => {
+    NImpl(d) => {
       let (c1, ms) = nxs(c, d.methods)
       NImpl(ImplD { methods: ms, consts: nx_consts(c1, d.consts).1, ..d })
     },
-    NMod(nm, its)       => NMod(nm, match its {
+    NMod(nm, its) => NMod(nm, match its {
       Some(xs) => Some(nxs(c, xs).1),
-      None     => None,
+      None => None,
     }),
-    NExtern(fs)         => NExtern(nxs(c, fs).1),
+    NExtern(fs) => NExtern(nxs(c, fs).1),
     NLet(p, m, t, _, ic) => NLet(p, m, t, ks[0], ic),
-    NReturn(v)          => NReturn(nxo(c, v).1),
-    NBreak(l, v, b)     => NBreak(l, nxo(c, v).1, b),
-    NWhile(cd, _)       => {
+    NReturn(v) => NReturn(nxo(c, v).1),
+    NBreak(l, v, b) => NBreak(l, nxo(c, v).1, b),
+    NWhile(cd, _) => {
       let (c1, cd2) = nxo(c, cd)
       NWhile(cd2, nx(c1).1)
     },
-    NFor(p, _, _)       => NFor(p, ks[0], ks[1]),
-    NLoop(_, l)         => NLoop(ks[0], l),
-    NDefer(_)           => NDefer(ks[0]),
-    NAssign(_, op, _)   => NAssign(ks[0], op, ks[1]),
-    NExprStmt(_)        => NExprStmt(ks[0]),
-    NBlock(_, u)        => NBlock(ks, u),
-    NIf(_, _, e)        => NIf(ks[0], ks[1], nxo(Cur { i: 2, ..c }, e).1),
-    NBin(op, _, r)      => NBin(op, ks[0], nxo(Cur { i: 1, ..c }, r).1),
-    NUnary(op, _, pos)  => NUnary(op, ks[0], pos),
-    NCast(_, t)         => NCast(ks[0], t),
-    NPipe(_, _)         => NPipe(ks[0], ks[1]),
-    NIs(_, p)           => NIs(ks[0], p),
-    NCall(_, _)         => NCall(ks[0], skip(ks, 1)),
-    NAwait(_)           => NAwait(ks[0]),
-    NTypeApp(_, ts)     => NTypeApp(ks[0], ts),
-    NTupleIndex(_, i)   => NTupleIndex(ks[0], i),
-    NField(_, s)        => NField(ks[0], s),
-    NIndex(_, _)        => NIndex(ks[0], ks[1]),
-    NTry(_)             => NTry(ks[0]),
-    NInterp(ps)         => {
+    NFor(p, _, _) => NFor(p, ks[0], ks[1]),
+    NLoop(_, l) => NLoop(ks[0], l),
+    NDefer(_) => NDefer(ks[0]),
+    NAssign(_, op, _) => NAssign(ks[0], op, ks[1]),
+    NExprStmt(_) => NExprStmt(ks[0]),
+    NBlock(_, u) => NBlock(ks, u),
+    NIf(_, _, e) => NIf(ks[0], ks[1], nxo(Cur { i: 2, ..c }, e).1),
+    NBin(op, _, r) => NBin(op, ks[0], nxo(Cur { i: 1, ..c }, r).1),
+    NUnary(op, _, pos) => NUnary(op, ks[0], pos),
+    NCast(_, t) => NCast(ks[0], t),
+    NPipe(_, _) => NPipe(ks[0], ks[1]),
+    NIs(_, p) => NIs(ks[0], p),
+    NCall(_, _) => NCall(ks[0], skip(ks, 1)),
+    NAwait(_) => NAwait(ks[0]),
+    NTypeApp(_, ts) => NTypeApp(ks[0], ts),
+    NTupleIndex(_, i) => NTupleIndex(ks[0], i),
+    NField(_, s) => NField(ks[0], s),
+    NIndex(_, _) => NIndex(ks[0], ks[1]),
+    NTry(_) => NTry(ks[0]),
+    NInterp(ps) => {
       var cc = c
       var out: List<IPart> = []
       for p in ps {
@@ -621,7 +700,7 @@ pub fn with_kids(n: Node, ks: List<Node>) -> Node {
             cc = c1
             out = push(out, IExpr(e))
           },
-          IStr(_)  => { out = push(out, p) },
+          IStr(_) => { out = push(out, p) },
         }
       }
       NInterp(out)
@@ -637,11 +716,11 @@ pub fn with_kids(n: Node, ks: List<Node>) -> Node {
       }
       NStructLit(nm, out, nxo(cc, b).1)
     },
-    NTuple(_)           => NTuple(ks),
-    NList(_)            => NList(ks),
-    NSpawn(_)           => NSpawn(ks),
-    NRace(_)            => NRace(ks),
-    NSelect(arms)       => {
+    NTuple(_) => NTuple(ks),
+    NList(_) => NList(ks),
+    NSpawn(_) => NSpawn(ks),
+    NRace(_) => NRace(ks),
+    NSelect(arms) => {
       var cc = c
       var out: List<SArm> = []
       for a in arms {
@@ -654,7 +733,7 @@ pub fn with_kids(n: Node, ks: List<Node>) -> Node {
       }
       NSelect(out)
     },
-    NMatch(m)           => {
+    NMatch(m) => {
       let (c0, subj) = nx(c)
       var cc = c0
       var arms: List<Arm> = []
@@ -673,11 +752,10 @@ pub fn with_kids(n: Node, ks: List<Node>) -> Node {
       }
       NMatch(MatchD { subject: subj, arms: arms, is_conj: ic, let_else: nxo(cc, m.let_else).1 })
     },
-    _                   => n.k,
+    _ => n.k,
   }
   Node { k: k2, ..n }
 }
-
 
 // 节点按 tools/ast_dump.py 的格式输出
 pub fn dump(n: Node) -> Str { val.dump(to_v(n)) }

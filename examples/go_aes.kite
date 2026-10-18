@@ -26,7 +26,7 @@ fn zeros(n: Int) -> List<Int> {
 
 fn try_enc(name: Str, f: fn() -> List<Int>) {
   match recover(f) {
-    Ok(_)  => print(name, "ok"),
+    Ok(_) => print(name, "ok"),
     Err(p) => print(name, "panic:", p.message),
   }
 }
@@ -34,7 +34,11 @@ fn try_enc(name: Str, f: fn() -> List<Int>) {
 fn main() {
   print("BlockSize", aes.BLOCK_SIZE)
   let pt = d("00112233445566778899aabbccddeeff")
-  for k in ["000102030405060708090a0b0c0d0e0f", "000102030405060708090a0b0c0d0e0f1011121314151617", "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f"] {
+  for k in [
+    "000102030405060708090a0b0c0d0e0f",
+    "000102030405060708090a0b0c0d0e0f1011121314151617",
+    "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+  ] {
     match aes.new_cipher(d(k)) {
       Ok(c) => {
         let ct = c.encrypt(pt)
@@ -47,7 +51,7 @@ fn main() {
   print("A.1", h(ca.encrypt(d("3243f6a8885a308d313198a2e0370734"))))
   for n in 0..41 {
     match aes.new_cipher(zeros(n)) {
-      Ok(_)  => print(n, "ok"),
+      Ok(_) => print(n, "ok"),
       Err(e) => print(n, e),
     }
   }

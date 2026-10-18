@@ -38,9 +38,13 @@ impl Encoding {
     Encoding { pad: pad, ..self }
   }
 
-  fn encoded_len(self, n: Int) -> Int { if self.pad == NO_PADDING { n / 5 * 8 + (n % 5 * 8 + 4) / 5 } else { (n + 4) / 5 * 8 } }
+  fn encoded_len(self, n: Int) -> Int {
+    if self.pad == NO_PADDING { n / 5 * 8 + (n % 5 * 8 + 4) / 5 } else { (n + 4) / 5 * 8 }
+  }
 
-  fn decoded_len(self, n: Int) -> Int { if self.pad == NO_PADDING { n / 8 * 5 + n % 8 * 5 / 8 } else { n / 8 * 5 } }
+  fn decoded_len(self, n: Int) -> Int {
+    if self.pad == NO_PADDING { n / 8 * 5 + n % 8 * 5 / 8 } else { n / 8 * 5 }
+  }
 
   fn encode(self, src: List<Int>) -> List<Int> {
     var out: List<Int> = []

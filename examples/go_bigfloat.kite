@@ -7,7 +7,16 @@ use std.strconv
 use std.math.big.float as bigfloat
 use std.math.big.float.{ BigFloat, RoundingMode, Accuracy }
 
-fn modes() -> List<RoundingMode> { [RoundingMode.ToNearestEven, RoundingMode.ToNearestAway, RoundingMode.ToZero, RoundingMode.AwayFromZero, RoundingMode.ToNegativeInf, RoundingMode.ToPositiveInf] }
+fn modes() -> List<RoundingMode> {
+  [
+    RoundingMode.ToNearestEven,
+    RoundingMode.ToNearestAway,
+    RoundingMode.ToZero,
+    RoundingMode.AwayFromZero,
+    RoundingMode.ToNegativeInf,
+    RoundingMode.ToPositiveInf,
+  ]
+}
 
 fn g64(f: Float) -> Str { strconv.format_float_go(f, "g", -1, 64) }
 
@@ -19,7 +28,25 @@ fn z0() -> BigFloat { bigfloat.zero() }
 
 fn texts(x: BigFloat) -> Str {
   var parts: List<Str> = []
-  for (c, p) in [("e", -1), ("e", 0), ("e", 5), ("E", 12), ("f", -1), ("f", 0), ("f", 3), ("g", -1), ("g", 0), ("g", 3), ("G", 17), ("b", 0), ("p", 0), ("x", -1), ("x", 0), ("x", 4), ("q", 2)] {
+  for (c, p) in [
+    ("e", -1),
+    ("e", 0),
+    ("e", 5),
+    ("E", 12),
+    ("f", -1),
+    ("f", 0),
+    ("f", 3),
+    ("g", -1),
+    ("g", 0),
+    ("g", 3),
+    ("G", 17),
+    ("b", 0),
+    ("p", 0),
+    ("x", -1),
+    ("x", 0),
+    ("x", 4),
+    ("q", 2),
+  ] {
     parts = push(parts, x.text(c, p))
   }
   join(parts, " ")
@@ -34,12 +61,12 @@ fn props(x: BigFloat) -> Str {
   let (bi, ab) = x.int()
   let bis = match bi {
     Some(v) => v.string(),
-    None    => "nil",
+    None => "nil",
   }
   let (r, ar) = x.rat()
   let rs = match r {
     Some(v) => v.string(),
-    None    => "nil",
+    None => "nil",
   }
   "prec={x.prec()} minprec={x.min_prec()} mode={x.mode()} acc={x.acc()} sign={x.sign()} signbit={x.signbit()} inf={x.is_inf()} int={x.is_int()} mant={m.text("p", 0)} exp={e} f64={g64(f64)} {a64} f32={g32(f32)} {a32} i64={i64} {ai} u64={strconv.format_uint(u64, 10)} {au} int={bis} {ab} rat={rs} {ar} mt={x.marshal_text()} str={x.string()}"
 }
@@ -48,20 +75,50 @@ fn ar(x: BigFloat) -> Str { x.text("g", -1) + "/" + x.text("p", 0) + "/{x.acc()}
 
 fn try(f: fn() -> Str) -> Str {
   match recover(f) {
-    Ok(s)  => s,
+    Ok(s) => s,
     Err(p) => "panic " + p.message,
   }
 }
 
 fn main() {
-  let fs = [0.0, -(0.0), 1.0, -1.0, 0.1, 1.5, -2.75, 1e300, 1e-300, 5e-324, 1.7976931348623157e308, 123456.789, 0.5, 4611686018427387904.0, -9223372036854775808.0, 18446744073709551616.0, 3.0e10, 1e23, math.inf, -math.inf]
+  let fs = [
+    0.0,
+    -(0.0),
+    1.0,
+    -1.0,
+    0.1,
+    1.5,
+    -2.75,
+    1e300,
+    1e-300,
+    5e-324,
+    1.7976931348623157e308,
+    123456.789,
+    0.5,
+    4611686018427387904.0,
+    -9223372036854775808.0,
+    18446744073709551616.0,
+    3.0e10,
+    1e23,
+    math.inf,
+    -math.inf,
+  ]
   for f in fs {
     let x = nf(f)
     print(texts(x))
     print(props(x))
   }
   let third = z0().set_prec(200).quo(nf(1.0), nf(3.0))
-  let vals = [third, z0().neg(third), nf(2.5), nf(-2.5), nf(3.5), nf(1.0e-310), nf(0.1), nf(1023.75)]
+  let vals = [
+    third,
+    z0().neg(third),
+    nf(2.5),
+    nf(-2.5),
+    nf(3.5),
+    nf(1.0e-310),
+    nf(0.1),
+    nf(1023.75),
+  ]
   for v in vals {
     for p in [1, 2, 5, 24, 53] {
       var line = "p{p}"
@@ -75,7 +132,18 @@ fn main() {
     print("p0 {ar(y)} {y.prec()}")
     print(props(v))
   }
-  let ops = [nf(0.0), nf(-(0.0)), nf(1.0), nf(-3.0), nf(0.1), nf(1e20), nf(-7.25e-5), third, nf(math.inf), nf(-math.inf)]
+  let ops = [
+    nf(0.0),
+    nf(-(0.0)),
+    nf(1.0),
+    nf(-3.0),
+    nf(0.1),
+    nf(1e20),
+    nf(-7.25e-5),
+    third,
+    nf(math.inf),
+    nf(-math.inf),
+  ]
   for a in ops {
     for b in ops {
       var line = ""
@@ -96,7 +164,9 @@ fn main() {
         let a = xs[i]
         let b = xs[(i + 1) % len(xs)]
         let z = z0().set_prec(p).set_mode(md)
-        line = line + " " + ar(z.add(a, b)) + " " + ar(z.sub(a, b)) + " " + ar(z.mul(a, b)) + " " + ar(z.quo(a, b))
+        line = line + " " + ar(z.add(a, b)) + " " + ar(z.sub(a, b)) + " " + ar(
+          z.mul(a, b),
+        ) + " " + ar(z.quo(a, b))
         i += 1
       }
       print(line)
@@ -104,11 +174,62 @@ fn main() {
   }
   let ni = z0().set_mode(RoundingMode.ToNegativeInf)
   print(ar(ni.sub(nf(1.0), nf(1.0))), ar(z0().sub(nf(1.0), nf(1.0))), ar(ni.add(nf(1.0), nf(-1.0))))
-  let strs = ["0", "-0", "+0", "1", "-1.5", "0.1", ".5", "5.", "1e10", "1E-10", "-1.25e+3", "123456789012345678901234567890", "3.14159265358979323846264338327950288419716939937510", "1e1000", "-1e-1000", "0x1p-2", "0x1.8p1", "0X.8p+3", "0b101.1", "0o17", "0x_1_0p0", "1_000.5", "Inf", "-Inf", "+inf", "inf", "1p10", "0x10", "0b1e3", "", "-", "abc", "1.2.3", "1e", "1e+", "0x", "1__0", "_1", "1_", "1e99999999999999999999", "1x", "1.5 ", "--1", "1e2147483647", "1p2147483647", "0x1p-2147483700", "1.5p-3", "1e-30", "2.2250738585072011e-308", "4.9406564584124654e-324"]
+  let strs = [
+    "0",
+    "-0",
+    "+0",
+    "1",
+    "-1.5",
+    "0.1",
+    ".5",
+    "5.",
+    "1e10",
+    "1E-10",
+    "-1.25e+3",
+    "123456789012345678901234567890",
+    "3.14159265358979323846264338327950288419716939937510",
+    "1e1000",
+    "-1e-1000",
+    "0x1p-2",
+    "0x1.8p1",
+    "0X.8p+3",
+    "0b101.1",
+    "0o17",
+    "0x_1_0p0",
+    "1_000.5",
+    "Inf",
+    "-Inf",
+    "+inf",
+    "inf",
+    "1p10",
+    "0x10",
+    "0b1e3",
+    "",
+    "-",
+    "abc",
+    "1.2.3",
+    "1e",
+    "1e+",
+    "0x",
+    "1__0",
+    "_1",
+    "1_",
+    "1e99999999999999999999",
+    "1x",
+    "1.5 ",
+    "--1",
+    "1e2147483647",
+    "1p2147483647",
+    "0x1p-2147483700",
+    "1.5p-3",
+    "1e-30",
+    "2.2250738585072011e-308",
+    "4.9406564584124654e-324",
+  ]
   for s in strs {
     match z0().parse(s, 0) {
       Ok((f, b)) => print(s, b, ar(f), f.prec(), f.text("g", 25)),
-      Err(e)     => print(s, "err", e),
+      Err(e) => print(s, "err", e),
     }
   }
   for base in [2, 8, 10, 16] {
@@ -116,7 +237,7 @@ fn main() {
       for p in [0, 10, 100] {
         match bigfloat.parse_float(s, base, p, RoundingMode.ToZero) {
           Ok((f, b)) => print(base, s, p, b, ar(f), f.prec(), f.mode()),
-          Err(e)     => print(base, s, p, "err", e),
+          Err(e) => print(base, s, p, "err", e),
         }
       }
     }
@@ -124,10 +245,10 @@ fn main() {
   for s in ["1.5", "x", "-2e-3"] {
     match z0().set_string(s) {
       Some(f) => print("setstring", s, ar(f)),
-      None    => print("setstring", s, "fail"),
+      None => print("setstring", s, "fail"),
     }
     match z0().unmarshal_text(s) {
-      Ok(f)  => print("unmarshal", s, "<nil>", f.text("g", -1)),
+      Ok(f) => print("unmarshal", s, "<nil>", f.text("g", -1)),
       Err(e) => print("unmarshal", s, e, "0"),
     }
   }
@@ -140,8 +261,21 @@ fn main() {
     }
     print(line)
   }
-  print(z0().set_prec(64).sqrt(z0().set_mode(RoundingMode.ToZero).set_float64(2.0)).mode(), try(() => z0().sqrt(nf(-1.0)).string()))
-  let bigs = ["0", "1", "-1", "12345678901234567890123", "-340282366920938463463374607431768211456", "9223372036854775807", "-9223372036854775808", "18446744073709551615", "18446744073709551616"]
+  print(
+    z0().set_prec(64).sqrt(z0().set_mode(RoundingMode.ToZero).set_float64(2.0)).mode(),
+    try(() => z0().sqrt(nf(-1.0)).string()),
+  )
+  let bigs = [
+    "0",
+    "1",
+    "-1",
+    "12345678901234567890123",
+    "-340282366920938463463374607431768211456",
+    "9223372036854775807",
+    "-9223372036854775808",
+    "18446744073709551615",
+    "18446744073709551616",
+  ]
   for s in bigs {
     let i = unwrap(big.parse(s, 10))
     for p in [0, 8] {
@@ -169,13 +303,47 @@ fn main() {
     let z = z0().set_mant_exp(m, e)
     print("mantexp", e, ar(z), z.prec())
   }
-  print(ar(z0().set_inf(true)), ar(z0().set_inf(false)), z0().set_inf(true).prec(), ar(z0().abs_value(nf(-2.0))), ar(z0().set_prec(2).neg(nf(7.0))))
+  print(
+    ar(z0().set_inf(true)),
+    ar(z0().set_inf(false)),
+    z0().set_inf(true).prec(),
+    ar(z0().abs_value(nf(-2.0))),
+    ar(z0().set_prec(2).neg(nf(7.0))),
+  )
   print(try(() => nf(math.nan).string()), try(() => z0().set_float64(math.nan).string()))
-  for s in ["0x1p-1075", "0x1.0000001p-1075", "0x1p-1076", "0x1.8p-1074", "0x1.fffffffffffff8p1023", "0x1.fffffffffffff7p1023", "0x1p1024", "-0x1p-1075", "0x1p-150", "0x1.000001p-150", "0x1.ffffffp127", "0x1.fffffefp127", "0x1.8p-149", "1e-46"] {
+  for s in [
+    "0x1p-1075",
+    "0x1.0000001p-1075",
+    "0x1p-1076",
+    "0x1.8p-1074",
+    "0x1.fffffffffffff8p1023",
+    "0x1.fffffffffffff7p1023",
+    "0x1p1024",
+    "-0x1p-1075",
+    "0x1p-150",
+    "0x1.000001p-150",
+    "0x1.ffffffp127",
+    "0x1.fffffefp127",
+    "0x1.8p-149",
+    "1e-46",
+  ] {
     let x = unwrap(z0().set_prec(200).set_string(s))
     let (f64, a64) = x.float64()
     let (f32, a32) = x.float32()
     print(s, g64(f64), a64, g32(f32), a32)
   }
-  print(RoundingMode.ToNearestEven, RoundingMode.ToNearestAway, RoundingMode.ToZero, RoundingMode.AwayFromZero, RoundingMode.ToNegativeInf, RoundingMode.ToPositiveInf, Accuracy.Below, Accuracy.Exact, Accuracy.Above, bigfloat.MAX_EXP, bigfloat.MIN_EXP, bigfloat.MAX_PREC)
+  print(
+    RoundingMode.ToNearestEven,
+    RoundingMode.ToNearestAway,
+    RoundingMode.ToZero,
+    RoundingMode.AwayFromZero,
+    RoundingMode.ToNegativeInf,
+    RoundingMode.ToPositiveInf,
+    Accuracy.Below,
+    Accuracy.Exact,
+    Accuracy.Above,
+    bigfloat.MAX_EXP,
+    bigfloat.MIN_EXP,
+    bigfloat.MAX_PREC,
+  )
 }

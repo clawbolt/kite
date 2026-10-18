@@ -56,17 +56,17 @@ fn wr_stdout(s: Str) {
 fn lsp_cmd() -> Int {
   let pre = match driver.prelude_path() {
     Some(p) => p,
-    None    => { return 1 },
+    None => { return 1 },
   }
   let pits = match fs.read(pre) {
     Ok(src) => match parser.parse(src) {
       Ok(its) => its,
-      Err(e)  => {
+      Err(e) => {
         driver.eprint("prelude: " + e)
         return 1
       },
     },
-    Err(e)  => {
+    Err(e) => {
       driver.eprint("读取失败: {e}")
       return 1
     },
@@ -75,21 +75,24 @@ fn lsp_cmd() -> Int {
 }
 
 fn usage() -> Str {
-  join([
-    "用法:",
-    "  kitec run FILE [参数…]          编译成临时可执行文件并运行（也可以写 kitec FILE.kite [参数…]）",
-    "  kitec build [FILE] [-o 输出] [--emit-c C 文件] [--no-kir]",
-    "  kitec check FILE                只做类型检查",
-    "  kitec dis FILE                  查看字节码",
-    "  kitec kir FILE                  查看 KIR（不装箱的中间表示）",
-    "  kitec fmt [-w] [--check] [文件…]  格式化（不给文件时读标准输入）",
-    "  kitec test [过滤词] [文件/目录…] [-v]  运行 test_ 开头 / 标了 @test 的测试函数",
-    "  kitec lsp                       语言服务器（LSP，标准输入输出）",
-    "  kitec new <名字> [--lib] | add <包>[@约束] | add <包> --path <目录> | get | update | publish | tree  包管理",
-    "  （在包目录里，run / build / check 不写文件名时使用 src/main.kite）",
-    "  kitec dump MODE FILE [PRELUDE]  对拍输出（MODE = lex / parse / check / lower / bc / c / kir / ck）",
-    "环境变量: KITE_HOME（prelude.kite 和 runtime/ 所在目录）、CC（C 编译器）、KITE_NO_KIR=1",
-  ], "\n")
+  join(
+    [
+      "用法:",
+      "  kitec run FILE [参数…]          编译成临时可执行文件并运行（也可以写 kitec FILE.kite [参数…]）",
+      "  kitec build [FILE] [-o 输出] [--emit-c C 文件] [--no-kir]",
+      "  kitec check FILE                只做类型检查",
+      "  kitec dis FILE                  查看字节码",
+      "  kitec kir FILE                  查看 KIR（不装箱的中间表示）",
+      "  kitec fmt [-w] [--check] [文件…]  格式化（不给文件时读标准输入）",
+      "  kitec test [过滤词] [文件/目录…] [-v]  运行 test_ 开头 / 标了 @test 的测试函数",
+      "  kitec lsp                       语言服务器（LSP，标准输入输出）",
+      "  kitec new <名字> [--lib] | add <包>[@约束] | add <包> --path <目录> | get | update | publish | tree  包管理",
+      "  （在包目录里，run / build / check 不写文件名时使用 src/main.kite）",
+      "  kitec dump MODE FILE [PRELUDE]  对拍输出（MODE = lex / parse / check / lower / bc / c / kir / ck）",
+      "环境变量: KITE_HOME（prelude.kite 和 runtime/ 所在目录）、CC（C 编译器）、KITE_NO_KIR=1",
+    ],
+    "\n",
+  )
 }
 
 fn dump_modes() -> List<Str> { ["lex", "parse", "check", "lower", "bc", "c", "kir", "ck"] }
@@ -116,12 +119,17 @@ fn main() {
     process.exit(dump_cmd(skip(args, 1)))
   }
   // 旧写法 kitec MODE FILE PRELUDE、kitec parse FILE（tools/ 里的对拍脚本用）
-  if len(args) >= 3 && contains(dump_modes(), cmd) || len(args) == 2 && (cmd == "lex" || cmd == "parse") {
+  if len(args) >= 3 && contains(dump_modes(), cmd)
+    || len(args) == 2 && (cmd == "lex" || cmd == "parse") {
     dump(args)
     return
   }
   if len(args) == 2 && (cmd == "check" || cmd == "dis" || cmd == "kir") {
-    process.exit(if cmd == "check" { check_cmd(args[1]) } else { dump_cmd([if cmd == "dis" { "bc" } else { "kir" }, args[1]]) })
+    process.exit(if cmd == "check" {
+      check_cmd(args[1])
+    } else {
+      dump_cmd([if cmd == "dis" { "bc" } else { "kir" }, args[1]])
+    })
   }
   if ends_with(cmd, ".kite") { process.exit(run_cmd(args)) }
   driver.eprint("未知命令 " + cmd)
@@ -144,7 +152,7 @@ fn dump_cmd(xs: List<Str>) -> Int {
       dump([xs[0], xs[1], p])
       0
     },
-    None    => 1,
+    None => 1,
   }
 }
 
@@ -152,18 +160,18 @@ fn dump_cmd(xs: List<Str>) -> Int {
 fn check_cmd(file0: Str) -> Int {
   let file = match entry_or(file0) {
     Some(f) => f.0,
-    None    => { return 1 },
+    None => { return 1 },
   }
   let pre = match driver.prelude_path() {
     Some(p) => p,
-    None    => { return 1 },
+    None => { return 1 },
   }
   if let Err(e) = pkg.prepare(file) {
     driver.eprint(file + ": " + e)
     return 1
   }
   let (items, pits) = match driver.load(file, pre) {
-    Ok(r)  => r,
+    Ok(r) => r,
     Err(m) => {
       driver.eprint(m)
       return 1
@@ -172,7 +180,9 @@ fn check_cmd(file0: Str) -> Int {
   let (errs, _, _, cst) = check.check_c(pits, items.0)
   driver.print_warns(cst, items.1, file)
   if len(errs) > 0 {
-    for (ln, msg) in take(errs, 20) { driver.eprint(driver.locs(items.1, file, ln, modules.strip_lm(msg))) }
+    for (ln, msg) in take(errs, 20) {
+      driver.eprint(driver.locs(items.1, file, ln, modules.strip_lm(msg)))
+    }
     if len(errs) > 20 { driver.eprint("…共 {len(errs)} 个错误") }
     return 1
   }
@@ -184,7 +194,7 @@ fn check_cmd(file0: Str) -> Int {
 fn entry_or(file: Str) -> (Str, Str)? {
   if file != "" { return Some((file, "")) }
   match pkg.entry() {
-    Ok(r)  => Some(r),
+    Ok(r) => Some(r),
     Err(e) => {
       driver.eprint(e)
       None
@@ -196,11 +206,11 @@ fn entry_or(file: Str) -> (Str, Str)? {
 fn run_cmd(xs: List<Str>) -> Int {
   let file = match entry_or(if len(xs) > 0 { xs[0] } else { "" }) {
     Some(f) => f.0,
-    None    => { return 1 },
+    None => { return 1 },
   }
   let pre = match driver.prelude_path() {
     Some(p) => p,
-    None    => { return 1 },
+    None => { return 1 },
   }
   if let Err(e) = pkg.prepare(file) {
     driver.eprint(file + ": " + e)
@@ -229,7 +239,7 @@ fn run_cmd(xs: List<Str>) -> Int {
 fn dump(args: List<Str>) {
   let mode = args[0]
   let src = match fs.read(args[1]) {
-    Ok(s)  => s,
+    Ok(s) => s,
     Err(e) => {
       print("读取失败: {e}")
       return
@@ -238,22 +248,35 @@ fn dump(args: List<Str>) {
   if mode == "lex" {
     match lexer.lex(src) {
       Ok(ts) => {
-        for t in ts { print(t.kind, lexer.repr_v(t.val), t.line, t.col, if t.nl { "True" } else { "False" }) }
+        for t in ts {
+          print(t.kind, lexer.repr_v(t.val), t.line, t.col, if t.nl { "True" } else { "False" })
+        }
       },
       Err(e) => print(e),
     }
-  } else if mode == "check" || mode == "lower" || mode == "bc" || mode == "c" || mode == "kir" || mode == "ck" {
+  } else if mode == "check"
+    || mode == "lower"
+    || mode == "bc"
+    || mode == "c"
+    || mode == "kir"
+    || mode == "ck" {
     let cwd = __getcwd()
     let kdir = path.dir(if path.is_abs(args[2]) { args[2] } else { path.join([cwd, args[2]]) })
     let (items, srcs) = match modules.load_main_src(modules.new_l(cwd, args[1], kdir), args[1]) {
-      Ok(r)   => r,
-      Err(e)  => {
-        if e.ln == -2 { print("SKIP parse") } else if e.ln == -1 { print("UNSUP kitec 未支持: " + e.msg) } else { print("L {e.ln} " + modules.strip_lm(e.msg)) }
+      Ok(r) => r,
+      Err(e) => {
+        if e.ln == -2 {
+          print("SKIP parse")
+        } else if e.ln == -1 {
+          print("UNSUP kitec 未支持: " + e.msg)
+        } else {
+          print("L {e.ln} " + modules.strip_lm(e.msg))
+        }
         return
       },
     }
     let pre = match fs.read(args[2]) {
-      Ok(s)  => s,
+      Ok(s) => s,
       Err(e) => {
         print("读取失败: {e}")
         return
@@ -261,7 +284,7 @@ fn dump(args: List<Str>) {
     }
     let pits = match parser.parse(pre) {
       Ok(its) => its,
-      Err(e)  => {
+      Err(e) => {
         print(e)
         return
       },
@@ -324,7 +347,7 @@ fn dump(args: List<Str>) {
   } else {
     match parser.parse(src) {
       Ok(items) => { for it in items { print(ast.dump(it)) } },
-      Err(e)    => print(e),
+      Err(e) => print(e),
     }
   }
 }
@@ -360,16 +383,24 @@ fn build(args: List<Str>) -> Int {
   }
   let (file, pkgname) = match entry_or(if len(pos) > 0 { pos[0] } else { "" }) {
     Some(f) => f,
-    None    => { return 1 },
+    None => { return 1 },
   }
   if out == "" {
     let b = path.base(file)
-    out = if pkgname != "" { pkgname } else if ends_with(b, ".kite") { __str_slice(b, 0, len(b) - 5) } else { b }
+    out = if pkgname != "" {
+      pkgname
+    } else if ends_with(b, ".kite") {
+      __str_slice(b, 0, len(b) - 5)
+    } else {
+      b
+    }
   }
-  let pre = if len(pos) > 1 { pos[1] } else {
+  let pre = if len(pos) > 1 {
+    pos[1]
+  } else {
     match driver.prelude_path() {
       Some(p) => p,
-      None    => { return 1 },
+      None => { return 1 },
     }
   }
   if let Err(e) = pkg.prepare(file) {
@@ -378,4 +409,3 @@ fn build(args: List<Str>) -> Int {
   }
   driver.compile(file, pre, out, emit, use_kir, false)
 }
-

@@ -90,7 +90,16 @@ const SIG_DESC: Int = 134695760
 
 // ── 时间 ──
 
-pub type ModTime = { year: Int, month: Int, day: Int, hour: Int, minute: Int, second: Int, offset: Int, zone: Str }
+pub type ModTime = {
+  year: Int,
+  month: Int,
+  day: Int,
+  hour: Int,
+  minute: Int,
+  second: Int,
+  offset: Int,
+  zone: Str,
+}
 
 fn fdiv(a: Int, b: Int) -> Int {
   let q = a / b
@@ -128,14 +137,27 @@ fn from_unix(t: Int, offset: Int, zone: Str) -> ModTime {
   let d = doy - (153 * mp + 2) / 5 + 1
   let m = if mp < 10 { mp + 3 } else { mp - 9 }
   let y = yoe + era * 400 + (if m <= 2 { 1 } else { 0 })
-  ModTime { year: y, month: m, day: d, hour: secs / 3600, minute: secs / 60 % 60, second: secs % 60, offset: offset, zone: zone }
+  ModTime {
+    year: y,
+    month: m,
+    day: d,
+    hour: secs / 3600,
+    minute: secs / 60 % 60,
+    second: secs % 60,
+    offset: offset,
+    zone: zone,
+  }
 }
 
 // UTC 时间（越界的字段会像 Go 的 time.Date 一样进位）
-pub fn date(y: Int, mo: Int, d: Int, h: Int, mi: Int, s: Int) -> ModTime { from_unix(civil_to_unix(y, mo, d, h, mi, s, 0), 0, "UTC") }
+pub fn date(y: Int, mo: Int, d: Int, h: Int, mi: Int, s: Int) -> ModTime {
+  from_unix(civil_to_unix(y, mo, d, h, mi, s, 0), 0, "UTC")
+}
 
 // 固定偏移（秒）的无名时区，相当于 time.FixedZone("", offset)
-pub fn date_in(y: Int, mo: Int, d: Int, h: Int, mi: Int, s: Int, offset: Int) -> ModTime { from_unix(civil_to_unix(y, mo, d, h, mi, s, offset), offset, "") }
+pub fn date_in(y: Int, mo: Int, d: Int, h: Int, mi: Int, s: Int, offset: Int) -> ModTime {
+  from_unix(civil_to_unix(y, mo, d, h, mi, s, offset), offset, "")
+}
 
 // Unix 秒转 UTC 时间（相当于 time.Unix(t, 0).UTC()）
 pub fn unix_time(t: Int) -> ModTime { from_unix(t, 0, "UTC") }
@@ -147,7 +169,9 @@ fn pad(n: Int, w: Int) -> Str {
 }
 
 impl ModTime {
-  fn unix(self) -> Int { civil_to_unix(self.year, self.month, self.day, self.hour, self.minute, self.second, self.offset) }
+  fn unix(self) -> Int {
+    civil_to_unix(self.year, self.month, self.day, self.hour, self.minute, self.second, self.offset)
+  }
 
   fn utc(self) -> ModTime { from_unix(self.unix(), 0, "UTC") }
 
@@ -165,7 +189,9 @@ impl ModTime {
   }
 }
 
-fn ms_dos_time_to_time(dd: Int, dt: Int) -> ModTime { date((dd >> 9) + 1980, (dd >> 5) & 15, dd & 31, dt >> 11, (dt >> 5) & 63, (dt & 31) * 2) }
+fn ms_dos_time_to_time(dd: Int, dt: Int) -> ModTime {
+  date((dd >> 9) + 1980, (dd >> 5) & 15, dd & 31, dt >> 11, (dt >> 5) & 63, (dt & 31) * 2)
+}
 
 // (date, time)
 fn time_to_ms_dos_time(t: ModTime) -> (Int, Int) {
@@ -289,7 +315,11 @@ impl FileHeader {
     var ea = (file_mode_to_unix_mode(mode) << 16) & U32MAX
     if mode & MODE_DIR != 0 { ea = ea | 16 }
     if mode & 128 == 0 { ea = ea | 1 }
-    FileHeader { creator_version: (self.creator_version & 0xff) | (3 << 8), external_attrs: ea, ..self }
+    FileHeader {
+      creator_version: (self.creator_version & 0xff) | (3 << 8),
+      external_attrs: ea,
+      ..self
+    }
   }
 
   fn mod_time(self) -> ModTime { ms_dos_time_to_time(self.modified_date, self.modified_time) }
@@ -300,7 +330,9 @@ impl FileHeader {
     FileHeader { modified: Some(u), modified_date: d, modified_time: tm, ..self }
   }
 
-  fn is_zip64(self) -> Bool { self.compressed_size64 >= U32MAX || self.uncompressed_size64 >= U32MAX }
+  fn is_zip64(self) -> Bool {
+    self.compressed_size64 >= U32MAX || self.uncompressed_size64 >= U32MAX
+  }
 
   fn has_data_descriptor(self) -> Bool { self.flags & 8 != 0 }
 }
@@ -313,7 +345,9 @@ fn le32(x: Int) -> List<Int> { [x & 255, (x >> 8) & 255, (x >> 16) & 255, (x >> 
 
 fn rd16(bs: List<Int>, i: Int) -> Int { bs[i] | (bs[i + 1] << 8) }
 
-fn rd32(bs: List<Int>, i: Int) -> Int { bs[i] | (bs[i + 1] << 8) | (bs[i + 2] << 16) | (bs[i + 3] << 24) }
+fn rd32(bs: List<Int>, i: Int) -> Int {
+  bs[i] | (bs[i + 1] << 8) | (bs[i + 2] << 16) | (bs[i + 3] << 24)
+}
 
 fn rd64(bs: List<Int>, i: Int) -> Int { rd32(bs, i) | (rd32(bs, i + 4) << 32) }
 
@@ -337,7 +371,7 @@ fn detect_utf8(s: Str) -> (Bool, Bool) {
 fn lossy(bs: List<Int>) -> (Str, Bool) {
   match __from_bytes(bs) {
     Some(s) => { return (s, true) },
-    None    => {},
+    None => {},
   }
   var out = ""
   var i = 0
@@ -373,12 +407,23 @@ type Entry = { fh: FileHeader, offset: Int, raw: Bool }
 // kind：0 目录，1 普通（需要压缩），2 原始（create_raw）
 type Cur = { kind: Int, data: List<Int> }
 
-pub type Writer = { out: List<Int>, base: Int, dir: List<Entry>, cur: Option<Cur>, comment: Str, closed: Bool }
+pub type Writer = {
+  out: List<Int>,
+  base: Int,
+  dir: List<Entry>,
+  cur: Option<Cur>,
+  comment: Str,
+  closed: Bool,
+}
 
-pub fn new_writer() -> Writer { Writer { out: [], base: 0, dir: [], cur: None, comment: "", closed: false } }
+pub fn new_writer() -> Writer {
+  Writer { out: [], base: 0, dir: [], cur: None, comment: "", closed: false }
+}
 
 fn local_header(fh: FileHeader, raw: Bool) -> List<Int> {
-  var b = le32(SIG_FILE) + le16(fh.reader_version) + le16(fh.flags) + le16(fh.method) + le16(fh.modified_time) + le16(fh.modified_date)
+  var b = le32(SIG_FILE) + le16(fh.reader_version) + le16(fh.flags) + le16(fh.method) + le16(
+    fh.modified_time,
+  ) + le16(fh.modified_date)
   if raw && !fh.has_data_descriptor() {
     let cs = if fh.compressed_size64 > U32MAX { U32MAX } else { fh.compressed_size64 }
     let us = if fh.uncompressed_size64 > U32MAX { U32MAX } else { fh.uncompressed_size64 }
@@ -390,14 +435,18 @@ fn local_header(fh: FileHeader, raw: Bool) -> List<Int> {
   b + le16(len(name)) + le16(len(fh.extra)) + name + fh.extra
 }
 
-fn descriptor(fh: FileHeader) -> List<Int> { le32(SIG_DESC) + le32(fh.crc32) + le32(fh.compressed_size) + le32(fh.uncompressed_size) }
+fn descriptor(fh: FileHeader) -> List<Int> {
+  le32(SIG_DESC) + le32(fh.crc32) + le32(fh.compressed_size) + le32(fh.uncompressed_size)
+}
 
 impl Writer {
   fn count(self) -> Int { self.base + len(self.out) }
 
   // 相当于 Go 的 SetOffset：必须在写入任何数据之前调用
   fn set_offset(self, n: Int) -> Writer {
-    if len(self.out) != 0 || self.base != 0 { panic("zip: SetOffset called after data was written") }
+    if len(self.out) != 0 || self.base != 0 {
+      panic("zip: SetOffset called after data was written")
+    }
     Writer { base: n, ..self }
   }
 
@@ -433,7 +482,9 @@ impl Writer {
   // 已写入条目的头（包括 Writer 填好的 CRC、大小、标志、版本）
   fn headers(self) -> List<FileHeader> { map(self.finish().dir, (e) => e.fh) }
 
-  fn create(self, name: Str) -> Result<Writer, Str> { self.create_header(FileHeader { method: DEFLATE, ..header(name) }) }
+  fn create(self, name: Str) -> Result<Writer, Str> {
+    self.create_header(FileHeader { method: DEFLATE, ..header(name) })
+  }
 
   fn create_header(self, fh0: FileHeader) -> Result<Writer, Str> {
     if self.closed { return Err("zip: writer closed twice") }
@@ -446,18 +497,35 @@ impl Writer {
     } else if (r1 || r2) && (v1 && v2) {
       fh = FileHeader { flags: fh.flags | 0x800, ..fh }
     }
-    fh = FileHeader { creator_version: (fh.creator_version & 0xff00) | 20, reader_version: 20, ..fh }
+    fh = FileHeader {
+      creator_version: (fh.creator_version & 0xff00) | 20,
+      reader_version: 20,
+      ..fh
+    }
     match fh.modified {
       Some(t) => {
         let (d, tm) = time_to_ms_dos_time(t)
         let mt = t.unix() & U32MAX
-        fh = FileHeader { modified_date: d, modified_time: tm, extra: fh.extra + [0x55, 0x54, 5, 0, 1] + le32(mt), ..fh }
+        fh = FileHeader {
+          modified_date: d,
+          modified_time: tm,
+          extra: fh.extra + [0x55, 0x54, 5, 0, 1] + le32(mt),
+          ..fh
+        }
       },
       None => {},
     }
     var kind = 1
     if ends_with_slash(fh.name) {
-      fh = FileHeader { method: STORE, flags: fh.flags & ~8, compressed_size: 0, compressed_size64: 0, uncompressed_size: 0, uncompressed_size64: 0, ..fh }
+      fh = FileHeader {
+        method: STORE,
+        flags: fh.flags & ~8,
+        compressed_size: 0,
+        compressed_size64: 0,
+        uncompressed_size: 0,
+        uncompressed_size64: 0,
+        ..fh
+      }
       kind = 0
     } else {
       fh = FileHeader { flags: fh.flags | 8, ..fh }
@@ -466,7 +534,12 @@ impl Writer {
     if __byte_len(fh.name) > U16MAX { return Err("zip: FileHeader.Name too long") }
     if len(fh.extra) > U16MAX { return Err("zip: FileHeader.Extra too long") }
     let e = Entry { fh: fh, offset: w.count(), raw: false }
-    Ok(Writer { out: w.out + local_header(fh, false), dir: push(w.dir, e), cur: Some(Cur { kind: kind, data: [] }), ..w })
+    Ok(Writer {
+      out: w.out + local_header(fh, false),
+      dir: push(w.dir, e),
+      cur: Some(Cur { kind: kind, data: [] }),
+      ..w
+    })
   }
 
   // 同 Go 的 CreateRaw：数据不经压缩直接写入，CRC 和大小由调用者在 fh 里给出
@@ -480,7 +553,12 @@ impl Writer {
     if len(fh.extra) > U16MAX { return Err("zip: FileHeader.Extra too long") }
     let e = Entry { fh: fh, offset: w.count(), raw: true }
     let kind = if ends_with_slash(fh.name) { 0 } else { 2 }
-    Ok(Writer { out: w.out + local_header(fh, true), dir: push(w.dir, e), cur: Some(Cur { kind: kind, data: [] }), ..w })
+    Ok(Writer {
+      out: w.out + local_header(fh, true),
+      dir: push(w.dir, e),
+      cur: Some(Cur { kind: kind, data: [] }),
+      ..w
+    })
   }
 
   fn write(self, bs: List<Int>) -> Result<Writer, Str> {
@@ -507,13 +585,21 @@ impl Writer {
       let name = __bytes(h.name)
       let com = __bytes(h.comment)
       let off = if e.offset > U32MAX { U32MAX } else { e.offset }
-      out = out + le32(SIG_DIR) + le16(h.creator_version) + le16(h.reader_version) + le16(h.flags) + le16(h.method) + le16(h.modified_time) + le16(h.modified_date) + le32(h.crc32) + le32(h.compressed_size) + le32(h.uncompressed_size) + le16(len(name)) + le16(len(h.extra)) + le16(len(com)) + [0, 0, 0, 0] + le32(h.external_attrs) + le32(off) + name + h.extra + com
+      out = out + le32(SIG_DIR) + le16(h.creator_version) + le16(h.reader_version) + le16(
+        h.flags,
+      ) + le16(h.method) + le16(h.modified_time) + le16(h.modified_date) + le32(h.crc32) + le32(
+        h.compressed_size,
+      ) + le32(h.uncompressed_size) + le16(len(name)) + le16(len(h.extra)) + le16(len(com)) + [
+        0, 0, 0, 0,
+      ] + le32(h.external_attrs) + le32(off) + name + h.extra + com
     }
     let end = w.base + len(out)
     let records = len(w.dir)
     let size = end - start
     let com = __bytes(w.comment)
-    out = out + le32(SIG_END) + [0, 0, 0, 0] + le16(records) + le16(records) + le32(size) + le32(start) + le16(len(com)) + com
+    out = out + le32(SIG_END) + [0, 0, 0, 0] + le16(records) + le16(records) + le32(size) + le32(
+      start,
+    ) + le16(len(com)) + com
     Ok(out)
   }
 }
@@ -567,7 +653,10 @@ fn read_directory_end(r: List<Int>) -> Result<(DirEnd, Int), Str> {
   if records == 0xffff || dsize == 0xffff || doff == U32MAX {
     // zip64 结尾记录定位器
     let loc = end_off - 20
-    if loc >= 0 && rd32(r, loc) == SIG_DIR64_LOC && rd32(r, loc + 4) == 0 && rd32(r, loc + 16) == 1 {
+    if loc >= 0
+      && rd32(r, loc) == SIG_DIR64_LOC
+      && rd32(r, loc + 4) == 0
+      && rd32(r, loc + 16) == 1 {
       let p = rd64(r, loc + 8)
       if p < 0 || p + 56 > size { return Err("unexpected EOF") }
       if rd32(r, p) != SIG_DIR64_END { return Err(ERR_FORMAT) }
@@ -583,7 +672,7 @@ fn read_directory_end(r: List<Int>) -> Result<(DirEnd, Int), Str> {
   if o < 0 || o >= size { return Err(ERR_FORMAT) }
   if base > 0 {
     match read_directory_header(r, doff) {
-      Ok(_)  => { base = 0 },
+      Ok(_) => { base = 0 },
       Err(_) => {},
     }
   }
@@ -786,7 +875,7 @@ impl File {
     } else if fh.method == DEFLATE {
       match flate.inflate_at(raw, 0) {
         Ok((d, _)) => { out = d },
-        Err(e)     => {
+        Err(e) => {
           return Err(e)
         },
       }

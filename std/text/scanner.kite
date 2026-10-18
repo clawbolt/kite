@@ -44,9 +44,21 @@ impl Position {
 pub type ErrorRec = { pos: Position, tok: Position, msg: Str }
 
 pub type Scanner = {
-  src: List<Int>, p: Int, line: Int, column: Int, last_line_len: Int, last_char_len: Int,
-  tok_pos: Int, tok_end: Int, ch: Int, error_count: Int, errors: List<ErrorRec>,
-  mode: Int, whitespace: Int, ident: Option<fn(Int, Int) -> Bool>, position: Position,
+  src: List<Int>,
+  p: Int,
+  line: Int,
+  column: Int,
+  last_line_len: Int,
+  last_char_len: Int,
+  tok_pos: Int,
+  tok_end: Int,
+  ch: Int,
+  error_count: Int,
+  errors: List<ErrorRec>,
+  mode: Int,
+  whitespace: Int,
+  ident: Option<fn(Int, Int) -> Bool>,
+  position: Position,
 }
 
 pub fn token_string(tok: Int) -> Str {
@@ -68,9 +80,23 @@ fn rune_str(r: Int) -> Str {
 
 // Init
 pub fn new(src: List<Int>) -> Scanner {
-  Scanner { src: src, p: 0, line: 1, column: 0, last_line_len: 0, last_char_len: 0, tok_pos: -1, tok_end: 0, ch: -2,
-    error_count: 0, errors: [], mode: GO_TOKENS, whitespace: GO_WHITESPACE, ident: None,
-    position: Position { filename: "", offset: 0, line: 0, column: 0 } }
+  Scanner {
+    src: src,
+    p: 0,
+    line: 1,
+    column: 0,
+    last_line_len: 0,
+    last_char_len: 0,
+    tok_pos: -1,
+    tok_end: 0,
+    ch: -2,
+    error_count: 0,
+    errors: [],
+    mode: GO_TOKENS,
+    whitespace: GO_WHITESPACE,
+    ident: None,
+    position: Position { filename: "", offset: 0, line: 0, column: 0 },
+  }
 }
 
 pub fn new_str(src: Str) -> Scanner { new(__bytes(src)) }
@@ -78,13 +104,31 @@ pub fn new_str(src: Str) -> Scanner { new(__bytes(src)) }
 impl Scanner {
   pub fn with_mode(self, m: Int) -> Scanner { Scanner { mode: m, ..self } }
   pub fn with_whitespace(self, w: Int) -> Scanner { Scanner { whitespace: w, ..self } }
-  pub fn with_ident_rune(self, f: fn(Int, Int) -> Bool) -> Scanner { Scanner { ident: Some(f), ..self } }
-  pub fn with_filename(self, f: Str) -> Scanner { Scanner { position: Position { filename: f, ..self.position }, ..self } }
+  pub fn with_ident_rune(self, f: fn(Int, Int) -> Bool) -> Scanner {
+    Scanner { ident: Some(f), ..self }
+  }
+  pub fn with_filename(self, f: Str) -> Scanner {
+    Scanner { position: Position { filename: f, ..self.position }, ..self }
+  }
 
   pub fn pos(self) -> Position {
     let off = self.p - self.last_char_len
-    if self.column > 0 { return Position { filename: self.position.filename, offset: off, line: self.line, column: self.column } }
-    if self.last_line_len > 0 { return Position { filename: self.position.filename, offset: off, line: self.line - 1, column: self.last_line_len } }
+    if self.column > 0 {
+      return Position {
+        filename: self.position.filename,
+        offset: off,
+        line: self.line,
+        column: self.column,
+      }
+    }
+    if self.last_line_len > 0 {
+      return Position {
+        filename: self.position.filename,
+        offset: off,
+        line: self.line - 1,
+        column: self.last_line_len,
+      }
+    }
     Position { filename: self.position.filename, offset: off, line: 1, column: 1 }
   }
 
@@ -193,7 +237,12 @@ fn scan_identifier(s0: Scanner) -> (Scanner, Int) {
 }
 
 // (s, ch, digsep, invalid)
-fn digits(s0: Scanner, ch0: Int, base: Int, invalid0: Int, track: Bool) -> (Scanner, Int, Int, Int) {
+fn digits(s0: Scanner, ch0: Int, base: Int, invalid0: Int, track: Bool) -> (
+  Scanner,
+  Int,
+  Int,
+  Int,
+) {
   var s = s0
   var ch = ch0
   var ds = 0
@@ -220,7 +269,15 @@ fn digits(s0: Scanner, ch0: Int, base: Int, invalid0: Int, track: Bool) -> (Scan
 }
 
 fn litname(prefix: Int) -> Str {
-  if prefix == 120 { "hexadecimal literal" } else if prefix == 111 || prefix == 48 { "octal literal" } else if prefix == 98 { "binary literal" } else { "decimal literal" }
+  if prefix == 120 {
+    "hexadecimal literal"
+  } else if prefix == 111 || prefix == 48 {
+    "octal literal"
+  } else if prefix == 98 {
+    "binary literal"
+  } else {
+    "decimal literal"
+  }
 }
 
 fn invalid_sep(x: List<Int>) -> Int {
@@ -325,7 +382,9 @@ fn scan_number(s0: Scanner, ch0: Int, seen_dot0: Bool) -> (Scanner, Int, Int) {
   } else if prefix == 120 && tok == FLOAT {
     s = err(s, "hexadecimal mantissa requires a 'p' exponent")
   }
-  if tok == INT && invalid != 0 { s = err(s, "invalid digit " + strconv.quote_rune(invalid) + " in " + litname(prefix)) }
+  if tok == INT && invalid != 0 {
+    s = err(s, "invalid digit " + strconv.quote_rune(invalid) + " in " + litname(prefix))
+  }
   if (digsep & 2) != 0 {
     s = Scanner { tok_end: s.p - s.last_char_len, ..s }
     if invalid_sep(s.token_bytes()) >= 0 { s = err(s, "'_' must separate successive digits") }
@@ -355,7 +414,17 @@ fn scan_digits(s0: Scanner, ch0: Int, base: Int, n0: Int) -> (Scanner, Int) {
 
 fn scan_escape(s0: Scanner, quote: Int) -> (Scanner, Int) {
   let (s, ch) = next(s0)
-  if ch == 97 || ch == 98 || ch == 102 || ch == 110 || ch == 114 || ch == 116 || ch == 118 || ch == 92 || ch == quote { return next(s) }
+  if ch == 97
+    || ch == 98
+    || ch == 102
+    || ch == 110
+    || ch == 114
+    || ch == 116
+    || ch == 118
+    || ch == 92
+    || ch == quote {
+    return next(s)
+  }
   if ch >= 48 && ch <= 55 { return scan_digits(s, ch, 8, 3) }
   if ch == 120 || ch == 117 || ch == 85 {
     let (s2, c2) = next(s)
@@ -445,7 +514,11 @@ impl Scanner {
       let tp = s.p - s.last_char_len
       let pl = if s.column > 0 { s.line } else { s.line - 1 }
       let pc = if s.column > 0 { s.column } else { s.last_line_len }
-      s = Scanner { tok_pos: tp, position: Position { filename: s.position.filename, offset: tp, line: pl, column: pc }, ..s }
+      s = Scanner {
+        tok_pos: tp,
+        position: Position { filename: s.position.filename, offset: tp, line: pl, column: pc },
+        ..s
+      }
       var tok = ch
       if is_ident_rune(s, ch, 0) {
         if (s.mode & SCAN_IDENTS) != 0 {
@@ -469,9 +542,14 @@ impl Scanner {
           s = s2
           ch = c2
         }
-      } else if ch == EOF {
-      } else if ch == 34 || ch == 39 || ch == 96 {
-        let flag = if ch == 34 { SCAN_STRINGS } else if ch == 39 { SCAN_CHARS } else { SCAN_RAW_STRINGS }
+      } else if ch == EOF {} else if ch == 34 || ch == 39 || ch == 96 {
+        let flag = if ch == 34 {
+          SCAN_STRINGS
+        } else if ch == 39 {
+          SCAN_CHARS
+        } else {
+          SCAN_RAW_STRINGS
+        }
         if (s.mode & flag) != 0 {
           if ch == 34 {
             let (s2, _) = scan_string(s, 34)

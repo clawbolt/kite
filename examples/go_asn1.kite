@@ -8,14 +8,33 @@ use std.strconv
 fn f(t: Ty, p: Str) -> Field { asn1.field(t, p) }
 
 fn s1() -> Ty { TStruct("S1", [f(TInt64, ""), f(TStr, ""), f(TBytes, "")]) }
-fn s2() -> Ty { TStruct("S2", [f(TInt, "optional,default:7"), f(TBool, "optional,explicit,tag:0"), f(TOid, "tag:1,optional"), f(TTime, "generalized")]) }
+fn s2() -> Ty {
+  TStruct("S2", [
+    f(TInt, "optional,default:7"),
+    f(TBool, "optional,explicit,tag:0"),
+    f(TOid, "tag:1,optional"),
+    f(TTime, "generalized"),
+  ])
+}
 fn int_set() -> Ty { TSlice("IntSET", [TInt]) }
 fn s3() -> Ty { TStruct("S3", [f(TRawContent, ""), f(int_set(), ""), f(TRaw, "")]) }
-fn s4() -> Ty { TStruct("S4", [f(TEnum, "explicit,tag:5"), f(TFlag, "optional,explicit,tag:2"), f(TSlice("", [TStr]), "omitempty"), f(TInt32, "application,tag:3,optional"), f(TBig, "private,tag:40")]) }
+fn s4() -> Ty {
+  TStruct("S4", [
+    f(TEnum, "explicit,tag:5"),
+    f(TFlag, "optional,explicit,tag:2"),
+    f(TSlice("", [TStr]), "omitempty"),
+    f(TInt32, "application,tag:3,optional"),
+    f(TBig, "private,tag:40"),
+  ])
+}
 
 fn tm(t: Time) -> Str { "T({t.unix},{t.nsec},{t.offset})" }
 fn bs(b: BitString) -> Str { "B(" + hex.encode_bytes(b.bytes) + "/{b.bit_length})" }
-fn rv(r: RawValue) -> Str { "R({r.class},{r.tag},{r.is_compound}," + hex.encode_bytes(r.bytes) + "," + hex.encode_bytes(r.full_bytes) + ")" }
+fn rv(r: RawValue) -> Str {
+  "R({r.class},{r.tag},{r.is_compound}," + hex
+    .encode_bytes(r.bytes) + "," + hex
+    .encode_bytes(r.full_bytes) + ")"
+}
 
 fn vs(v: Val) -> Str {
   match v {
@@ -53,10 +72,14 @@ fn show1(inp: List<Int>, tag: Str, ty: Ty) {
   match asn1.unmarshal(inp, ty) {
     Err(e) => print(" " + tag + " err " + e),
     Ok((v, rest)) => {
-      let s = if tag == "any" { any_s(v) } else if tag == "s2" {
+      let s = if tag == "any" {
+        any_s(v)
+      } else if tag == "s2" {
         let VStruct(xs) = v else { return }
         vs(xs[0]) + " " + vs(xs[1]) + " " + vs(xs[2]) + " " + vs(xs[3])
-      } else { vs(v) }
+      } else {
+        vs(v)
+      }
       print(" " + tag + " " + s + " " + hex.encode_bytes(rest))
     },
   }
@@ -104,7 +127,9 @@ fn ints(xs: List<Int>) -> Val { VList(map(xs, (x) => VInt(x))) }
 
 fn strs(xs: List<Str>) -> Val { VList(map(xs, (x) => VStr(x))) }
 
-fn raw(c: Int, t: Int, comp: Bool, b: List<Int>) -> Val { VRaw(RawValue { class: c, tag: t, is_compound: comp, bytes: b, full_bytes: [] }) }
+fn raw(c: Int, t: Int, comp: Bool, b: List<Int>) -> Val {
+  VRaw(RawValue { class: c, tag: t, is_compound: comp, bytes: b, full_bytes: [] })
+}
 
 fn s(x: Str) -> List<Int> { __bytes(x) }
 
@@ -191,7 +216,11 @@ fn main() {
   m(asn1.zero_value(s2()), s2(), "")
   m(asn1.zero_value(s4()), s4(), "")
   m(VBig(None), TBig, "")
-  m(VRaw(RawValue { class: 0, tag: 0, is_compound: false, bytes: [], full_bytes: [1, 2, 3] }), TRaw, "")
+  m(
+    VRaw(RawValue { class: 0, tag: 0, is_compound: false, bytes: [], full_bytes: [1, 2, 3] }),
+    TRaw,
+    "",
+  )
   m(VInt(0), TInt64, "optional")
   m(VInt(7), TInt64, "optional,default:7")
   m(VInt(8), TInt64, "optional,default:7")

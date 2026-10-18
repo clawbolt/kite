@@ -31,13 +31,20 @@ fn value(d0: jt.Dec) -> Result<(jt.Dec, Json), Str> {
       dd = dp
       if kk == 125 { break }
       let r2 = jt.read_token(dd)
-    if let Err(e) = r2 { return Err(err_of(dd, e)) }
-    let (d2, tok) = unwrap(r2)
+      if let Err(e) = r2 { return Err(err_of(dd, e)) }
+      let (d2, tok) = unwrap(r2)
       dd = d2
       let name = unwrap(__from_bytes(jt.append_unquote(tok.raw)))
       if is_some(get(m, name)) {
         let p = ptr_str(jt.stack_pointer(dd, -1))
-        let e = jt.SynErr { msg: "duplicate object member name", offset: 0, eof: false, pointer: p, dup: true, ioeof: false }
+        let e = jt.SynErr {
+          msg: "duplicate object member name",
+          offset: 0,
+          eof: false,
+          pointer: p,
+          dup: true,
+          ioeof: false,
+        }
         return Err(syn_msg(e))
       }
       let (d3, v) = value(dd)?
@@ -69,8 +76,8 @@ fn value(d0: jt.Dec) -> Result<(jt.Dec, Json), Str> {
     return Ok((d4, JArr(items)))
   }
   let r6 = jt.read_value_at(d)
-    if let Err(e) = r6 { return Err(err_of(d, e)) }
-    let (d1, raw) = unwrap(r6)
+  if let Err(e) = r6 { return Err(err_of(d, e)) }
+  let (d1, raw) = unwrap(r6)
   let c = raw[0]
   if c == 110 { return Ok((d1, JNull)) }
   if c == 116 { return Ok((d1, JBool(true))) }
@@ -81,8 +88,16 @@ fn value(d0: jt.Dec) -> Result<(jt.Dec, Json), Str> {
   if err != "" {
     let p = ptr_str(jt.stack_pointer(d1, -1))
     var m = "json: cannot unmarshal JSON number " + text + " into Go float64"
-    if p != "" { m = m + " within " + strconv.quote_go(p) } else if d1.prev_start > 0 { m = m + " after offset {d1.prev_start}" }
-    let reason = if __str_find(err, "out of range", 0) >= 0 { "value out of range" } else { "invalid syntax" }
+    if p != "" {
+      m = m + " within " + strconv.quote_go(p)
+    } else if d1.prev_start > 0 {
+      m = m + " after offset {d1.prev_start}"
+    }
+    let reason = if __str_find(err, "out of range", 0) >= 0 {
+      "value out of range"
+    } else {
+      "invalid syntax"
+    }
     return Err(m + ": " + reason)
   }
   Ok((d1, JNum(f)))
@@ -101,7 +116,16 @@ fn enc(v: Json) -> Result<List<Int>, Str> {
     JBool(b) => Ok(__bytes(if b { "true" } else { "false" })),
     JInt(i) => Ok(__bytes("{i}")),
     JNum(f) => {
-      if f != f || f - f != 0.0 { return Err("json: cannot marshal from Go float64: unsupported value: " + strconv.format_float_go(f, "g", -1, 64)) }
+      if f != f || f - f != 0.0 {
+        return Err(
+          "json: cannot marshal from Go float64: unsupported value: " + strconv.format_float_go(
+            f,
+            "g",
+            -1,
+            64,
+          ),
+        )
+      }
       Ok(jt.append_float(f, 64))
     },
     JStr(s) => Ok(jt.append_quote([], __bytes(s), false, false)),

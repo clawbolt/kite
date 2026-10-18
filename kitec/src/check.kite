@@ -3,7 +3,31 @@
 // 检查函数直接返回类型化 IR（改写后的节点，表达式带 Node.t）；只有求解后才能定的改动按 Node.id 记成补丁（Pt），最后套上
 use ast
 use val
-use ast.{ Node, K, Lit, Nm, TyX, Pat, Attr, Vis, EvF, UseP, IPart, AConst, TAssoc, Arm, SArm, Gen, FnD, FnX, XD, ImplD, TraitD, MatchD, kname }
+use ast.{
+  Node,
+  K,
+  Lit,
+  Nm,
+  TyX,
+  Pat,
+  Attr,
+  Vis,
+  EvF,
+  UseP,
+  IPart,
+  AConst,
+  TAssoc,
+  Arm,
+  SArm,
+  Gen,
+  FnD,
+  FnX,
+  XD,
+  ImplD,
+  TraitD,
+  MatchD,
+  kname,
+}
 use tys
 use tys.{ Ty, tcon, fn_t, list_t, tname, targs, is_tv, is_tr, is_tg, is_con }
 use parser
@@ -16,7 +40,17 @@ pub enum FT {
 }
 
 // ext："extern 函数|名字" / "unsafe 函数|名字"（使用处必须在 unsafe 里）；va：可变参数 extern
-pub type Ent = { t: FT, mt: Bool, sch: Bool, bi: Bool, gens: List<Str>, ext: Str, va: Bool, cga: List<Str>, dep: Str }
+pub type Ent = {
+  t: FT,
+  mt: Bool,
+  sch: Bool,
+  bi: Bool,
+  gens: List<Str>,
+  ext: Str,
+  va: Bool,
+  cga: List<Str>,
+  dep: Str,
+}
 
 pub enum Sc {
   STop,
@@ -123,7 +157,9 @@ fn any_t() -> Ty { tcon("Any") }
 fn never_t() -> Ty { tcon("Never") }
 
 fn prim(n: Str) -> Ty? {
-  if contains(["Int", "I8", "I16", "I32", "I64", "U8", "U16", "U32", "U64"], n) { return Some(int_t()) }
+  if contains(["Int", "I8", "I16", "I32", "I64", "U8", "U16", "U32", "U64"], n) {
+    return Some(int_t())
+  }
   if contains(["Float", "F32", "F64"], n) { return Some(float_t()) }
   if n == "Str" || n == "Char" { return Some(str_t()) }
   if contains(["Bool", "Unit", "Bytes", "Ptr", "Any", "Never"], n) { return Some(tcon(n)) }
@@ -141,7 +177,11 @@ fn builtin_traits() -> List<Str> { ["Eq", "Ord", "Show", "Num", "Hash"] }
 fn builtin_impls(tr: Str) -> List<Str> {
   if tr == "Num" { return ["Int", "Float"] }
   if tr == "Ord" { return ["Int", "Float", "Str"] }
-  if tr == "Eq" { return ["Int", "Float", "Str", "Bool", "Unit", "List", "Tuple", "Option", "Result", "Map", "Set"] }
+  if tr == "Eq" {
+    return [
+      "Int", "Float", "Str", "Bool", "Unit", "List", "Tuple", "Option", "Result", "Map", "Set",
+    ]
+  }
   if tr == "Hash" { return ["Int", "Str", "Bool", "Tuple"] }
   []
 }
@@ -174,7 +214,22 @@ fn op_trait(op: Str) -> Str {
 }
 
 fn unsafe_ptr(n: Str) -> Bool {
-  contains(["from_addr", "alloc", "free", "read_int", "write_int", "read_float", "write_float", "read_byte", "write_byte", "to_str", "from_str"], n)
+  contains(
+    [
+      "from_addr",
+      "alloc",
+      "free",
+      "read_int",
+      "write_int",
+      "read_float",
+      "write_float",
+      "read_byte",
+      "write_byte",
+      "to_str",
+      "from_str",
+    ],
+    n,
+  )
 }
 
 fn std_mod(m: Str) -> List<(Str, Str, List<(Str, Str)>)>? {
@@ -188,7 +243,7 @@ fn std_member(m: Str, nm: Str) -> (Str, List<(Str, Str)>)? {
       for (n, k, s) in tbl { if n == nm { return Some((k, s)) } }
       None
     },
-    None      => None,
+    None => None,
   }
 }
 
@@ -261,14 +316,14 @@ fn pr(c: C, t: Ty) -> Ty {
   let p = tys.prune(c.sub, t)
   match p {
     TC(n, a) => if starts(n, "@") && len(a) == 1 { norm_proj(c, p) } else { p },
-    _        => p,
+    _ => p,
   }
 }
 
 fn is_proj(t: Ty) -> Bool {
   match t {
     TC(n, a) => starts(n, "@") && len(a) == 1,
-    _        => false,
+    _ => false,
   }
 }
 
@@ -285,7 +340,7 @@ fn norm_proj(c: C, t: Ty) -> Ty {
   let base = pr(c, targs(t)[0])
   match base {
     TR(bn, bbs) => match assoc_owner(c, bbs, item) {
-      None     => t,
+      None => t,
       Some(tr) => {
         var bs: List<Str> = []
         for (an, abs, _) in unwrap_or(get(c.trait_assoc, tr), []) { if an == item { bs = abs } }
@@ -296,7 +351,7 @@ fn norm_proj(c: C, t: Ty) -> Ty {
       if starts(bn, "@") { return t }
       if bn == "Any" || bn == "Never" { return any_t() }
       match get(c.impl_assoc, bn + "|" + item) {
-        None           => t,
+        None => t,
         Some((it, ta)) => {
           let d = implv(it)
           let gens = d.gen.names
@@ -305,7 +360,9 @@ fn norm_proj(c: C, t: Ty) -> Ty {
             var i = 0
             for a in targs0 {
               if let YCon(an, aa, _) = a {
-                if i < len(bargs) && contains(gens, an) && len(aa) == 0 { gm = set(gm, an, bargs[i]) }
+                if i < len(bargs) && contains(gens, an) && len(aa) == 0 {
+                  gm = set(gm, an, bargs[i])
+                }
               }
               i += 1
             }
@@ -314,7 +371,7 @@ fn norm_proj(c: C, t: Ty) -> Ty {
           gm = set(gm, "Self", base)
           match conv(c, Some(ta), gm, false) {
             Ok((_, r)) => pr(c, r),
-            Err(_)     => t,
+            Err(_) => t,
           }
         },
       }
@@ -328,7 +385,7 @@ fn deepnorm(c: C, t: Ty) -> Ty {
   let p = pr(c, t)
   match p {
     TC(n, a) => TC(n, map(a, (x) => deepnorm(c, x))),
-    _        => p,
+    _ => p,
   }
 }
 
@@ -358,7 +415,7 @@ fn add_con(c: C, t: Ty, k: Kd, ln: Int) -> C { C { cons: push(c.cons, (t, k, ln)
 fn is_dyn(t: Ty) -> Bool {
   match t {
     TR(n, _) => starts(n, "dyn "),
-    _        => false,
+    _ => false,
   }
 }
 
@@ -368,28 +425,30 @@ fn head(c: C, t: Ty) -> Str {
   tname(p)
 }
 
-fn ent(t: Ty, mt: Bool, sch: Bool) -> Ent { Ent { t: FTy(t), mt: mt, sch: sch, bi: false, gens: [], ext: "", va: false, cga: [], dep: "" } }
+fn ent(t: Ty, mt: Bool, sch: Bool) -> Ent {
+  Ent { t: FTy(t), mt: mt, sch: sch, bi: false, gens: [], ext: "", va: false, cga: [], dep: "" }
+}
 
 fn sc_find(c: C, sc: Sc, n: Str) -> Ent? {
   match sc {
-    STop         => get(c.g, n),
+    STop => get(c.g, n),
     SFr(m, _, p) => match get(m, n) {
       Some(e) => Some(e),
-      None    => sc_find(c, p, n),
+      None => sc_find(c, p, n),
     },
   }
 }
 
 fn is_local(sc: Sc, n: Str) -> Bool {
   match sc {
-    STop         => false,
+    STop => false,
     SFr(m, _, p) => contains(m, n) || is_local(p, n),
   }
 }
 
 fn define(c: C, sc: Sc, n: Str, e: Ent) -> (C, Sc) {
   match sc {
-    STop          => (C { g: set(c.g, n, e), ..c }, sc),
+    STop => (C { g: set(c.g, n, e), ..c }, sc),
     SFr(m, tk, p) => (c, SFr(set(m, n, e), tk, p)),
   }
 }
@@ -400,7 +459,7 @@ fn task_frame(sc: Sc) -> Sc { SFr(Map(), true, sc) }
 
 fn task_between(sc: Sc, n: Str) -> Bool {
   match sc {
-    STop          => false,
+    STop => false,
     SFr(m, tk, p) => if contains(m, n) { false } else { tk || task_between(p, n) },
   }
 }
@@ -412,7 +471,7 @@ fn is_spawn(t: Ty) -> Bool { tname(t) == "@spawn" }
 fn frame_vars(sc: Sc) -> Map<Str, Ent> {
   match sc {
     SFr(m, _, _) => m,
-    STop         => Map(),
+    STop => Map(),
   }
 }
 
@@ -422,33 +481,54 @@ fn bget(bs: List<(Str, List<Str>)>, g: Str) -> List<Str> {
 }
 
 // 泛型约束：按名字（Python 版存的是类型元组的第二项）
-fn bounds_of(g: Gen) -> List<(Str, List<Str>)> { map(g.bounds, (kv) => (kv.0, map(kv.1, ast.bound_name))) }
+fn bounds_of(g: Gen) -> List<(Str, List<Str>)> {
+  map(g.bounds, (kv) => (kv.0, map(kv.1, ast.bound_name)))
+}
 
 // ── 节点访问 ──
 
 fn empty_fn() -> FnD {
-  FnD { name: "", params: [], ret: None, body: None, gen: ast.no_gen(), is_async: false, is_unsafe: false, varargs: false, ext: None, cname: None,
-    x: ast.no_fnx() }
+  FnD {
+    name: "",
+    params: [],
+    ret: None,
+    body: None,
+    gen: ast.no_gen(),
+    is_async: false,
+    is_unsafe: false,
+    varargs: false,
+    ext: None,
+    cname: None,
+    x: ast.no_fnx(),
+  }
 }
 
 pub fn fnd(n: Node) -> FnD {
   match n.k {
     NFn(f) => f,
-    _      => empty_fn(),
+    _ => empty_fn(),
   }
 }
 
 pub fn implv(n: Node) -> ImplD {
   match n.k {
     NImpl(d) => d,
-    _        => ImplD { tr: None, target: "", target_t: YTup([], 0), methods: [], gen: ast.no_gen(), assoc: [], consts: [] },
+    _ => ImplD {
+      tr: None,
+      target: "",
+      target_t: YTup([], 0),
+      methods: [],
+      gen: ast.no_gen(),
+      assoc: [],
+      consts: [],
+    },
   }
 }
 
 fn traitv(n: Node) -> TraitD {
   match n.k {
     NTrait(t) => t,
-    _         => TraitD { name: "", methods: [], assoc: [], supers: [], consts: [] },
+    _ => TraitD { name: "", methods: [], assoc: [], supers: [], consts: [] },
   }
 }
 
@@ -457,22 +537,22 @@ fn with_fnd(n: Node, f: FnD) -> Node { Node { k: NFn(f), ..n } }
 // 声明的名字（Python 版的 node.name）
 fn nname(n: Node) -> Str {
   match n.k {
-    NFn(f)           => f.name,
+    NFn(f) => f.name,
     NStruct(m, _, _) => m,
-    NEnum(m, _, _)   => m,
-    NTrait(t)        => t.name,
-    NAlias(m, _, _)  => m,
-    NMod(m, _)       => unwrap_or(m, ""),
-    NName(s)         => s,
-    NField(_, s)     => ast.nm_str(s),
-    _                => "",
+    NEnum(m, _, _) => m,
+    NTrait(t) => t.name,
+    NAlias(m, _, _) => m,
+    NMod(m, _) => unwrap_or(m, ""),
+    NName(s) => s,
+    NField(_, s) => ast.nm_str(s),
+    _ => "",
   }
 }
 
 fn name_of(n: Node) -> Str? {
   match n.k {
     NName(s) => Some(s),
-    _        => None,
+    _ => None,
   }
 }
 
@@ -482,33 +562,33 @@ fn is_k(n: Node, k: Str) -> Bool { kname(n) == k }
 fn trait_name(d: ImplD) -> Str? {
   match d.tr {
     Some(t) => Some(ast.bound_name(t)),
-    None    => None,
+    None => None,
   }
 }
 
 fn gen_of(n: Node) -> Gen {
   match n.k {
-    NFn(f)           => f.gen,
+    NFn(f) => f.gen,
     NStruct(_, _, g) => g,
-    NEnum(_, _, g)   => g,
-    NAlias(_, _, g)  => g,
-    NImpl(d)         => d.gen,
-    _                => ast.no_gen(),
+    NEnum(_, _, g) => g,
+    NAlias(_, _, g) => g,
+    NImpl(d) => d.gen,
+    _ => ast.no_gen(),
   }
 }
 
 fn ev_fields(e: EvF) -> List<(Str, TyX)> {
   match e {
     EvList(l) => l,
-    EvRec(l)  => l,
-    EvNone    => [],
+    EvRec(l) => l,
+    EvNone => [],
   }
 }
 
 fn vf_fields(o: EvF?) -> List<(Str, TyX)> {
   match o {
     Some(e) => ev_fields(e),
-    None    => [],
+    None => [],
   }
 }
 
@@ -516,8 +596,8 @@ fn vf_fields(o: EvF?) -> List<(Str, TyX)> {
 fn vf_nil(o: EvF?) -> Bool {
   match o {
     Some(EvNone) => true,
-    None         => true,
-    _            => false,
+    None => true,
+    _ => false,
   }
 }
 
@@ -541,9 +621,9 @@ fn fkey(fnode: Node) -> Str { fnd(fnode).name + "@" + "{fnode.line}" }
 fn gens_of(c: C, n: Str) -> List<Str> {
   match get(c.structs, n) {
     Some(s) => s.0,
-    None    => match get(c.enums, n) {
+    None => match get(c.enums, n) {
       Some(e) => e.0,
-      None    => [],
+      None => [],
     },
   }
 }
@@ -554,14 +634,14 @@ fn variant_fs(c: C, en: Str, vn: Str) -> EvF? {
       for v in vs { if v.0 == vn { return Some(v.1) } }
       None
     },
-    None          => None,
+    None => None,
   }
 }
 
 fn has_variant(c: C, en: Str, vn: Str) -> Bool {
   match variant_fs(c, en, vn) {
     Some(_) => true,
-    None    => false,
+    None => false,
   }
 }
 
@@ -589,10 +669,10 @@ fn known_trait(c: C, b: Str) -> Bool { contains(builtin_traits(), b) || contains
 fn implements(c: C, t0: Ty, tr: Str) -> Bool {
   let t = pr(c, t0)
   match t {
-    TV(_)     => true,
-    TG(_, _)  => true,
+    TV(_) => true,
+    TG(_, _) => true,
     TR(_, bs) => has_bound(c, bs, tr),
-    TC(n, _)  => {
+    TC(n, _) => {
       if tr == "Show" || n == "Any" || n == "Never" { return true }
       if contains(builtin_impls(tr), n) { return true }
       contains(c.impls, n + "|" + tr)
@@ -610,7 +690,7 @@ fn cg_vals(c0: C, cga: List<Str>, m: Map<Str, Ty>) -> (C, List<CgV>) {
       Some((tn, cn, _)) => {
         let v = match get(m, tn) {
           Some(x) => x,
-          None    => {
+          None => {
             let (c1, x) = fresh(c)
             c = c1
             x
@@ -618,10 +698,10 @@ fn cg_vals(c0: C, cga: List<Str>, m: Map<Str, Ty>) -> (C, List<CgV>) {
         }
         out = push(out, CgTc(v, cn))
       },
-      None              => {
+      None => {
         let v = match get(m, n) {
           Some(x) => x,
-          None    => {
+          None => {
             let (c1, x) = fresh(c)
             c = c1
             x
@@ -689,36 +769,50 @@ fn solve_cg_sites(c0: C) -> C {
           let p = pr(c, tv)
           var a: Node? = None
           match p {
-            TR(pn, _) => { if contains(ctx, "__tc_{pn}_{cn}") { a = Some(name_n(ln, "__tc_{pn}_{cn}")) } },
+            TR(pn, _) => {
+              if contains(ctx, "__tc_{pn}_{cn}") { a = Some(name_n(ln, "__tc_{pn}_{cn}")) }
+            },
             TC(pn, _) => { a = Some(call_n(ln, name_n(ln, pn + "." + cn), [])) },
-            _         => {},
+            _ => {},
           }
           if is_none(a) {
-            c = C { errors: push(c.errors, (ln, "类型错误: 无法确定 {name} 的类型参数，取不到它的关联常量 {cn}")), ..c }
+            c = C {
+              errors: push(
+                c.errors,
+                (ln, "类型错误: 无法确定 {name} 的类型参数，取不到它的关联常量 {cn}"),
+              ),
+              ..c
+            }
             failed = true
             break
           }
           extra = push(extra, unwrap(a))
         },
-        CgT(tv)      => {
+        CgT(tv) => {
           let p = pr(c, tv)
           var msg = ""
           var a: Node? = None
           match p {
             TC(pn, _) => {
-              if !starts(pn, "#") { msg = "{name} 的常量泛型参数必须是整数，实际是 {sh(c, p)}" } else {
+              if !starts(pn, "#") {
+                msg = "{name} 的常量泛型参数必须是整数，实际是 {sh(c, p)}"
+              } else {
                 a = Some(lit_n(ln, LInt(unwrap_or(parse_int(__str_slice(pn, 1, len(pn))), 0))))
               }
             },
             TR(pn, _) => {
-              if !contains(ctx, pn) { msg = "{name} 的常量泛型参数必须是整数，实际是 {sh(c, p)}" } else {
+              if !contains(ctx, pn) {
+                msg = "{name} 的常量泛型参数必须是整数，实际是 {sh(c, p)}"
+              } else {
                 let (cn2, a2) = typed_node(c, name_n(ln, pn), int_t())
                 c = cn2
                 a = Some(a2)
               }
             },
-            TV(_)     => { msg = "无法推断 {name} 的常量泛型参数（标注数组长度，或用 {name}.<…>(…) 显式指定）" },
-            _         => { msg = "{name} 的常量泛型参数必须是整数，实际是 {sh(c, p)}" },
+            TV(_) => {
+              msg = "无法推断 {name} 的常量泛型参数（标注数组长度，或用 {name}.<…>(…) 显式指定）"
+            },
+            _ => { msg = "{name} 的常量泛型参数必须是整数，实际是 {sh(c, p)}" },
           }
           if msg != "" {
             c = C { errors: push(c.errors, (ln, "类型错误: " + msg)), ..c }
@@ -736,7 +830,7 @@ fn solve_cg_sites(c0: C) -> C {
     let (fnode, cga) = unwrap(get(c.cg_fns, i))
     let hid = map(cga, (n) => (n, Some(match get(c.tc_info, n) {
       Some((_, _, cty)) => cty,
-      None              => YCon("Int", [], fnode.line),
+      None => YCon("Int", [], fnode.line),
     })))
     c = add_patch(c, fnode, PtParams(hid))
   }
@@ -778,47 +872,68 @@ fn is_lower1(s: Str) -> Bool {
   o >= 97 && o <= 122
 }
 
-fn conv(c0: C, ta: TyX?, gm: Map<Str, Ty>, sigv: Bool) -> Result<(C, Ty), F> { conv2(c0, ta, gm, sigv, false, false) }
+fn conv(c0: C, ta: TyX?, gm: Map<Str, Ty>, sigv: Bool) -> Result<(C, Ty), F> {
+  conv2(c0, ta, gm, sigv, false, false)
+}
 
-fn cg_rigid_has(c: C, n: Str) -> Bool { len(c.cg_ctx) > 0 && contains(c.cg_ctx[len(c.cg_ctx) - 1], n) }
+fn cg_rigid_has(c: C, n: Str) -> Bool {
+  len(c.cg_ctx) > 0 && contains(c.cg_ctx[len(c.cg_ctx) - 1], n)
+}
 
 fn somes(ts: List<TyX>) -> List<TyX?> { map(ts, (t) => Some(t)) }
 
-fn conv2(c0: C, ta0: TyX?, gm: Map<Str, Ty>, sigv: Bool, const_ok: Bool, want_const: Bool) -> Result<(C, Ty), F> {
+fn conv2(
+  c0: C,
+  ta0: TyX?,
+  gm: Map<Str, Ty>,
+  sigv: Bool,
+  const_ok: Bool,
+  want_const: Bool,
+) -> Result<(C, Ty), F> {
   let ta = match ta0 {
     Some(x) => x,
-    None    => { return Ok(fresh(c0)) },
+    None => { return Ok(fresh(c0)) },
   }
   var name = ""
   var args: List<TyX> = []
   var ln = 0
   match ta {
-    YTup(a, _)     => {
+    YTup(a, _) => {
       let (c, ts) = convs(c0, somes(a), gm, sigv)?
       return Ok((c, TC("Tuple", ts)))
     },
-    YFn(a, r, _)   => {
+    YFn(a, r, _) => {
       let (c1, ps) = convs(c0, somes(a), gm, sigv)?
       let (c2, rt) = conv(c1, Some(r), gm, sigv)?
       return Ok((c2, fn_t(ps, rt)))
     },
-    YUnsafe(x, _)  => {
+    YUnsafe(x, _) => {
       let (c3, t) = conv(c0, Some(x), gm, sigv)?
       return Ok((c3, TC("UnsafeFn", [t])))
     },
-    YImpl(bs, l)   => { return Err(te(c0, l, "impl " + join(bs, " + ") + " 只能写在函数参数或返回类型里")) },
-    YDyn(bs, l)    => {
+    YImpl(bs, l) => {
+      return Err(te(c0, l, "impl " + join(bs, " + ") + " 只能写在函数参数或返回类型里"))
+    },
+    YDyn(bs, l) => {
       for b in bs { if !known_trait(c0, b) { return Err(te(c0, l, "未知 trait {b}")) } }
       return Ok((c0, TR("dyn " + join(bs, " + "), bs)))
     },
-    YCon(n, a, l)  => {
+    YCon(n, a, l) => {
       name = n
       args = a
       ln = l
     },
   }
   if starts(name, "#") {
-    if !const_ok { return Err(te(c0, ln, "这里需要类型，{__str_slice(name, 1, len(name))} 是常量（只能用作常量泛型实参或数组长度）")) }
+    if !const_ok {
+      return Err(
+        te(
+          c0,
+          ln,
+          "这里需要类型，{__str_slice(name, 1, len(name))} 是常量（只能用作常量泛型实参或数组长度）",
+        ),
+      )
+    }
     return Ok((c0, TC(name, [])))
   }
   if name == "Array" && len(args) == 2 {
@@ -833,7 +948,9 @@ fn conv2(c0: C, ta0: TyX?, gm: Map<Str, Ty>, sigv: Bool, const_ok: Bool, want_co
     if want_const && !isc { return Err(te(c0, ln, "数组长度 {name} 必须是整数或常量泛型参数")) }
     return Ok((c0, g))
   }
-  if want_const { return Err(te(c0, ln, "数组长度 {name} 必须是整数或常量泛型参数（const {name}: Int）")) }
+  if want_const {
+    return Err(te(c0, ln, "数组长度 {name} 必须是整数或常量泛型参数（const {name}: Int）"))
+  }
   if name == "_" && len(args) == 0 { return Ok(fresh(c0)) }
   if contains(name, ".") {
     let segs = split(name, ".")
@@ -845,10 +962,12 @@ fn conv2(c0: C, ta0: TyX?, gm: Map<Str, Ty>, sigv: Bool, const_ok: Bool, want_co
       let bs: List<Str>? = match pb {
         TG(_, b) => Some(b),
         TR(_, b) => Some(b),
-        _        => None,
+        _ => None,
       }
       if let Some(b) = bs {
-        if is_none(assoc_owner(c0, b, item)) { return Err(te(c0, ln, "{hd} 的约束里没有关联类型 {item}")) }
+        if is_none(assoc_owner(c0, b, item)) {
+          return Err(te(c0, ln, "{hd} 的约束里没有关联类型 {item}"))
+        }
       }
       return Ok((c0, TC("@" + item, [base])))
     }
@@ -879,8 +998,8 @@ fn conv2(c0: C, ta0: TyX?, gm: Map<Str, Ty>, sigv: Bool, const_ok: Bool, want_co
               return Err(te(c, ln, "{name}<{sh(c, pt)}> 要求 {pn}: {b}（给 {pn} 加上约束 {b}）"))
             }
           },
-          TV(_)       => (),
-          _               => { if len(tys.gen_objs(c.sub, pt)) == 0 { c = add_con(c, pt, KImpl(b), ln) } },
+          TV(_) => (),
+          _ => { if len(tys.gen_objs(c.sub, pt)) == 0 { c = add_con(c, pt, KImpl(b), ln) } },
         }
       }
     }
@@ -894,8 +1013,14 @@ fn conv2(c0: C, ta0: TyX?, gm: Map<Str, Ty>, sigv: Bool, const_ok: Bool, want_co
     let gl = gens_of(c0, name)
     for (g, a) in zip(gl, args) {
       if let YCon(an, _, _) = a {
-        if contains(cg, g) && !starts(an, "#") && !contains(gm, an) { return Err(te(c, ln, "{name} 的常量泛型参数 {g} 需要整数，实际是 {an}")) }
-        if !contains(cg, g) && starts(an, "#") { return Err(te(c, ln, "{name} 的泛型参数 {g} 需要类型，实际是常量 {__str_slice(an, 1, len(an))}")) }
+        if contains(cg, g) && !starts(an, "#") && !contains(gm, an) {
+          return Err(te(c, ln, "{name} 的常量泛型参数 {g} 需要整数，实际是 {an}"))
+        }
+        if !contains(cg, g) && starts(an, "#") {
+          return Err(
+            te(c, ln, "{name} 的泛型参数 {g} 需要类型，实际是常量 {__str_slice(an, 1, len(an))}"),
+          )
+        }
       }
     }
     var i = 0
@@ -913,12 +1038,16 @@ fn conv2(c0: C, ta0: TyX?, gm: Map<Str, Ty>, sigv: Bool, const_ok: Bool, want_co
   }
   let bn = builtin_generic(name)
   if bn >= 0 {
-    if len(cargs) != bn { return Err(te(c, ln, "{name} 需要 {bn} 个类型参数，给了 {len(cargs)} 个")) }
+    if len(cargs) != bn {
+      return Err(te(c, ln, "{name} 需要 {bn} 个类型参数，给了 {len(cargs)} 个"))
+    }
     return Ok((c, TC(name, cargs)))
   }
   if contains(c.structs, name) || contains(c.enums, name) {
     let n = len(gens_of(c, name))
-    if len(cargs) != 0 && len(cargs) != n { return Err(te(c, ln, "{name} 需要 {n} 个类型参数，给了 {len(cargs)} 个")) }
+    if len(cargs) != 0 && len(cargs) != n {
+      return Err(te(c, ln, "{name} 需要 {n} 个类型参数，给了 {len(cargs)} 个"))
+    }
     if len(cargs) == 0 && n > 0 {
       let (c2, vs) = fresh_n(c, n)
       return Ok((c2, TC(name, vs)))
@@ -955,7 +1084,7 @@ fn mismatch(c: C, e: Ty, a: Ty, ln: Int, ctx: Str) -> F {
 fn is_anyn(t: Ty) -> Bool {
   match t {
     TC(n, _) => n == "Any" || n == "Never",
-    _            => false,
+    _ => false,
   }
 }
 
@@ -993,7 +1122,7 @@ fn unify(c: C, e0: Ty, a0: Ty, ln: Int, ctx: Str) -> Result<C, F> {
     if starts(an, "dyn ") {
       let up = match b {
         TR(bn, bbs) => starts(bn, "dyn ") && all(abs, (x) => contains(closure(c, bbs), x)),
-        _           => false,
+        _ => false,
       }
       if up && tname(b) != an { return Ok(c) }   // dyn 向上转换：dyn B → dyn A
       if !up {
@@ -1026,7 +1155,12 @@ fn unify(c: C, e0: Ty, a0: Ty, ln: Int, ctx: Str) -> Result<C, F> {
     let pre = if ctx != "" { ctx + "：" } else { "" }
     return Err(te(c, ln, pre + "期望 {sh(c, a)}，实际是 {sh(c, b)}（unsafe fn 不能当普通函数用）"))
   }
-  if is_con(a) && tname(a) == "List" && len(targs(a)) == 1 && is_con(b) && tname(b) == "Array" && len(targs(b)) == 2 {
+  if is_con(a)
+    && tname(a) == "List"
+    && len(targs(a)) == 1
+    && is_con(b)
+    && tname(b) == "Array"
+    && len(targs(b)) == 2 {
     // 定长数组可以当作列表用；反过来不行，长度未知
     return match unify(c, targs(a)[0], targs(b)[0], ln, ctx) {
       Ok(c1) => Ok(c1),
@@ -1034,7 +1168,15 @@ fn unify(c: C, e0: Ty, a0: Ty, ln: Int, ctx: Str) -> Result<C, F> {
     }
   }
   if is_con(a) && tname(a) == "Array" && is_con(b) && tname(b) == "List" {
-    return Err(te(c, ln, pre(ctx) + "期望 {sh(c, a)}，实际是 {sh(c, b)}（列表的长度编译期未知：直接传数组字面量，或给变量标注 [T; n]）"))
+    return Err(
+      te(
+        c,
+        ln,
+        pre(
+          ctx,
+        ) + "期望 {sh(c, a)}，实际是 {sh(c, b)}（列表的长度编译期未知：直接传数组字面量，或给变量标注 [T; n]）",
+      ),
+    )
   }
   let xa = targs(a)
   let xb = targs(b)
@@ -1070,7 +1212,7 @@ fn builtin_ft(c: C, k: Str, s: List<(Str, Str)>) -> Result<(C, FT), F> {
 fn parse_sig(c: C, s: Str) -> Result<(C, Ty), F> {
   if let Some(t) = get(c.sigs, s) { return Ok((c, t)) }
   let ta = match parser.parse_type(s) {
-    Ok(v)  => v,
+    Ok(v) => v,
     Err(e) => { return Err(F { c: c, ln: 0, msg: e }) },
   }
   let (c1, t) = conv(c, Some(ta), Map(), true)?
@@ -1085,7 +1227,10 @@ fn install(c0: C) -> Result<C, F> {
   let none = ("None", EvNone)
   let ok = ("Ok", EvList([("_0", con_t("T"))]))
   let er = ("Err", EvList([("_0", con_t("E"))]))
-  c = C { enums: set(set(c.enums, "Option", (["T"], [some, none])), "Result", (["T", "E"], [ok, er])), ..c }
+  c = C {
+    enums: set(set(c.enums, "Option", (["T"], [some, none])), "Result", (["T", "E"], [ok, er])),
+    ..c
+  }
   for (en, vn) in [("Option", "Some"), ("Option", "None"), ("Result", "Ok"), ("Result", "Err")] {
     c = C { variant_owner: set(c.variant_owner, vn, en), ..c }
     let (c1, t) = variant_ctor_type(c, en, vn)?
@@ -1093,7 +1238,20 @@ fn install(c0: C) -> Result<C, F> {
   }
   for (n, k, s) in builtins.builtin_sigs() {
     let (c1, ft) = builtin_ft(c, k, s)?
-    c = C { g: set(c1.g, n, Ent { t: ft, mt: false, sch: true, bi: true, gens: [], ext: "", va: false, cga: [], dep: "" }), ..c1 }
+    c = C {
+      g: set(c1.g, n, Ent {
+        t: ft,
+        mt: false,
+        sch: true,
+        bi: true,
+        gens: [],
+        ext: "",
+        va: false,
+        cga: [],
+        dep: "",
+      }),
+      ..c1
+    }
   }
   Ok(c)
 }
@@ -1115,11 +1273,11 @@ fn fn_sig(c0: C, fnode: Node, gm0: Map<Str, Ty>, self_t: Ty?) -> Result<(C, Ty),
 fn mentions_self(t: TyX) -> Bool {
   match t {
     YCon(n, a, _) => n == "Self" || any(a, mentions_self),
-    YTup(a, _)    => any(a, mentions_self),
-    YFn(a, r, _)  => any(a, mentions_self) || mentions_self(r),
+    YTup(a, _) => any(a, mentions_self),
+    YFn(a, r, _) => any(a, mentions_self) || mentions_self(r),
     YUnsafe(x, _) => mentions_self(x),
-    YDyn(_, _)    => false,
-    YImpl(_, _)   => false,
+    YDyn(_, _) => false,
+    YImpl(_, _) => false,
   }
 }
 
@@ -1143,7 +1301,11 @@ fn fn_sig3(c0: C, fnode: Node, gm0: Map<Str, Ty>, self_t: Ty?) -> Result<(C, Ty,
   order = order + fg
   var cga: List<Str> = []
   if !nocg {
-    for n in order { if contains(gm, "#c:" + n) && is_tg(unwrap(get(gm, n))) && !contains(own, n) { cga = push(cga, n) } }
+    for n in order {
+      if contains(gm, "#c:" + n) && is_tg(unwrap(get(gm, n))) && !contains(own, n) {
+        cga = push(cga, n)
+      }
+    }
   }
   cga = cga + own
   if !nocg {
@@ -1184,7 +1346,7 @@ fn fn_sig0(c0: C, fnode: Node, gm0: Map<Str, Ty>, self_t: Ty?) -> Result<(C, Ty)
     if p.0 == "self" && is_none(p.1) {
       match self_t {
         Some(st) => { ps = push(ps, st) },
-        None     => { return Err(te(c, fnode.line, "self 只能出现在 impl 方法里")) },
+        None => { return Err(te(c, fnode.line, "self 只能出现在 impl 方法里")) },
       }
     } else {
       let (c1, t) = conv(c, p.1, gm, false)?
@@ -1208,21 +1370,25 @@ fn declare(c0: C, its: List<Node>, sc0: Sc) -> Result<(C, Sc), F> {
         if len(g.cgens) > 0 { c = C { tcg: set(c.tcg, nm, g.cgens), ..c } }
         c = C { structs: set(c.structs, nm, (g.names, fs)), ..c }
       },
-      NEnum(nm, vs, _)   => {
+      NEnum(nm, vs, _) => {
         if len(g.bounds) > 0 { c = C { type_bounds: set(c.type_bounds, nm, bounds_of(g)), ..c } }
         if len(g.cgens) > 0 { c = C { tcg: set(c.tcg, nm, g.cgens), ..c } }
         c = C { enums: set(c.enums, nm, (g.names, vs)), ..c }
       },
-      NAlias(nm, t, _)   => {
+      NAlias(nm, t, _) => {
         if len(g.bounds) > 0 { c = C { type_bounds: set(c.type_bounds, nm, bounds_of(g)), ..c } }
         c = C { aliases: set(c.aliases, nm, (g.names, t)), ..c }
       },
-      NTrait(t)          => {
+      NTrait(t) => {
         let ta = map(t.assoc, (a) => (a.name, a.bounds, a.dflt))
         c = C { trait_assoc: set(c.trait_assoc, t.name, ta), ..c }
-        c = C { traits: set(c.traits, t.name, t.methods), supers: set(c.supers, t.name, t.supers), ..c }
+        c = C {
+          traits: set(c.traits, t.name, t.methods),
+          supers: set(c.supers, t.name, t.supers),
+          ..c
+        }
       },
-      _                  => (),
+      _ => (),
     }
   }
   for it in its {
@@ -1231,7 +1397,7 @@ fn declare(c0: C, its: List<Node>, sc0: Sc) -> Result<(C, Sc), F> {
         c = c1
         sc = s1
       },
-      Err(f)       => {
+      Err(f) => {
         if is_unsup(f) { return Err(f) }
         c = add_err(c, f)
       },
@@ -1275,7 +1441,11 @@ fn decl_item(c0: C, sc0: Sc, it: Node) -> Result<(C, Sc), F> {
         let alts = unwrap_or(get(c.variant_alts, vn), [])
         c = C {
           variant_owner: set(c.variant_owner, vn, nm),
-          variant_alts: set(c.variant_alts, vn, if contains(alts, nm) { alts } else { push(alts, nm) }),
+          variant_alts: set(c.variant_alts, vn, if contains(alts, nm) {
+            alts
+          } else {
+            push(alts, nm)
+          }),
           ..c
         }
         let (c1, t) = variant_ctor_type(c, nm, vn)?
@@ -1291,7 +1461,17 @@ fn decl_item(c0: C, sc0: Sc, it: Node) -> Result<(C, Sc), F> {
       var ext = ""
       var va = false
       let dep = depr_msg(it, nm)
-      let (c3, s3) = define(c2, sc, nm, Ent { t: FTy(sig), mt: false, sch: true, bi: false, gens: f.gen.names, ext: "", va: false, cga: cga, dep: dep })
+      let (c3, s3) = define(c2, sc, nm, Ent {
+        t: FTy(sig),
+        mt: false,
+        sch: true,
+        bi: false,
+        gens: f.gen.names,
+        ext: "",
+        va: false,
+        cga: cga,
+        dep: dep,
+      })
       if is_some(f.ext) {
         let c4 = match check_extern(c3, it, sig) {
           Ok(cx) => cx,
@@ -1302,14 +1482,34 @@ fn decl_item(c0: C, sc0: Sc, it: Node) -> Result<(C, Sc), F> {
         }
         ext = "extern 函数|" + nm
         va = f.varargs
-        return Ok(define(c4, s3, nm, Ent { t: FTy(sig), mt: false, sch: true, bi: false, gens: f.gen.names, ext: ext, va: va, cga: cga, dep: dep }))
+        return Ok(define(c4, s3, nm, Ent {
+          t: FTy(sig),
+          mt: false,
+          sch: true,
+          bi: false,
+          gens: f.gen.names,
+          ext: ext,
+          va: va,
+          cga: cga,
+          dep: dep,
+        }))
       }
       if f.is_unsafe { ext = "unsafe 函数|" + nm }
       if ext == "" && dep == "" { return Ok((c3, s3)) }
-      return Ok(define(c3, s3, nm, Ent { t: FTy(sig), mt: false, sch: true, bi: false, gens: f.gen.names, ext: ext, va: va, cga: cga, dep: dep }))
+      return Ok(define(c3, s3, nm, Ent {
+        t: FTy(sig),
+        mt: false,
+        sch: true,
+        bi: false,
+        gens: f.gen.names,
+        ext: ext,
+        va: va,
+        cga: cga,
+        dep: dep,
+      }))
     },
     NUse(..) => { return use_item(c, sc, it) },
-    _        => (),
+    _ => (),
   }
   Ok((c, sc))
 }
@@ -1334,15 +1534,19 @@ fn rec(c: C, name: Str, t: Ty, ln: Int, kind: Str) -> C {
 }
 
 // 局部绑定 (行, 名字, 类型文本, 种类)，类型按求解结果显示
-pub fn local_types(c: C) -> List<(Int, Str, Str, Str)> { map(c.locs, (l) => (l.0, l.1, sh(c, l.2), l.3)) }
+pub fn local_types(c: C) -> List<(Int, Str, Str, Str)> {
+  map(c.locs, (l) => (l.0, l.1, sh(c, l.2), l.3))
+}
 
-fn warn(c: C, ln: Int, msg: Str) -> C { if contains(c.warns, (ln, msg)) { c } else { C { warns: push(c.warns, (ln, msg)), ..c } } }
+fn warn(c: C, ln: Int, msg: Str) -> C {
+  if contains(c.warns, (ln, msg)) { c } else { C { warns: push(c.warns, (ln, msg)), ..c } }
+}
 
 fn use_name(e: (Str, Str?)) -> (Str, Str) { (e.0, unwrap_or(e.1, e.0)) }
 
 fn up_s(u: UseP) -> Str {
   match u {
-    UName(s)  => s,
+    UName(s) => s,
     UGroup(_) => "",
   }
 }
@@ -1350,16 +1554,18 @@ fn up_s(u: UseP) -> Str {
 fn use_item(c0: C, sc0: Sc, it: Node) -> Result<(C, Sc), F> {
   let (p, alias) = match it.k {
     NUse(x, a) => (x, a),
-    _          => { return Ok((c0, sc0)) },
+    _ => { return Ok((c0, sc0)) },
   }
   if up_s(p[0]) != "std" || len(p) < 2 { return Ok((c0, sc0)) }
   var es: List<(Str, Str, Str, Str)> = []
   match p[1] {
-    UGroup(xs) => { for e in xs {
-      let (m, b) = use_name(e)
-      es = push(es, ("mod", m, b, ""))
-    } },
-    UName(p1)  => {
+    UGroup(xs) => {
+      for e in xs {
+        let (m, b) = use_name(e)
+        es = push(es, ("mod", m, b, ""))
+      }
+    },
+    UName(p1) => {
       if len(p) == 2 {
         es = push(es, ("mod", p1, unwrap_or(alias, p1), ""))
       } else if up_s(p[2]) == "*" {
@@ -1367,7 +1573,7 @@ fn use_item(c0: C, sc0: Sc, it: Node) -> Result<(C, Sc), F> {
       } else {
         let ms = match p[2] {
           UGroup(xs) => xs,
-          UName(p2)  => [(p2, Some(unwrap_or(alias, p2)))],
+          UName(p2) => [(p2, Some(unwrap_or(alias, p2)))],
         }
         for e in ms {
           let (n, b) = use_name(e)
@@ -1381,7 +1587,7 @@ fn use_item(c0: C, sc0: Sc, it: Node) -> Result<(C, Sc), F> {
   for (k, m, a, b) in es {
     let tbl = match std_mod(m) {
       Some(t) => t,
-      None    => { return Err(te(c, it.line, "未知标准库模块 std.{m}")) },
+      None => { return Err(te(c, it.line, "未知标准库模块 std.{m}")) },
     }
     if k == "mod" {
       let (c1, s1) = define(c, sc, a, ent(TC("Module:" + m, []), false, false))
@@ -1391,7 +1597,17 @@ fn use_item(c0: C, sc0: Sc, it: Node) -> Result<(C, Sc), F> {
       for (n, kk, s) in tbl {
         let (c1, ft) = builtin_ft(c, kk, s)?
         let ex = if m == "ptr" && unsafe_ptr(n) { "unsafe 函数|{m}.{n}" } else { "" }
-        let (c2, s2) = define(c1, sc, n, Ent { t: ft, mt: false, sch: true, bi: false, gens: [], ext: ex, va: false, cga: [], dep: "" })
+        let (c2, s2) = define(c1, sc, n, Ent {
+          t: ft,
+          mt: false,
+          sch: true,
+          bi: false,
+          gens: [],
+          ext: ex,
+          va: false,
+          cga: [],
+          dep: "",
+        })
         c = c2
         sc = s2
       }
@@ -1400,11 +1616,21 @@ fn use_item(c0: C, sc0: Sc, it: Node) -> Result<(C, Sc), F> {
         Some((kk, s)) => {
           let (c1, ft) = builtin_ft(c, kk, s)?
           let ex = if m == "ptr" && unsafe_ptr(a) { "unsafe 函数|{m}.{a}" } else { "" }
-          let (c2, s2) = define(c1, sc, b, Ent { t: ft, mt: false, sch: true, bi: false, gens: [], ext: ex, va: false, cga: [], dep: "" })
+          let (c2, s2) = define(c1, sc, b, Ent {
+            t: ft,
+            mt: false,
+            sch: true,
+            bi: false,
+            gens: [],
+            ext: ex,
+            va: false,
+            cga: [],
+            dep: "",
+          })
           c = c2
           sc = s2
         },
-        None          => { return Err(te(c, it.line, "std.{m} 没有 {a}")) },
+        None => { return Err(te(c, it.line, "std.{m} 没有 {a}")) },
       }
     }
   }
@@ -1419,7 +1645,10 @@ fn check_supers(c0: C, its: List<Node>) -> C {
     let sups = unwrap_or(get(c.supers, nm), [])
     for sb in sups {
       if !contains(c.traits, sb) && !contains(builtin_traits(), sb) {
-        c = C { errors: push(c.errors, (it.line, "类型错误: trait {nm} 的超 trait {sb} 不存在")), ..c }
+        c = C {
+          errors: push(c.errors, (it.line, "类型错误: trait {nm} 的超 trait {sb} 不存在")),
+          ..c
+        }
       }
     }
     var seen: List<Str> = []
@@ -1428,7 +1657,10 @@ fn check_supers(c0: C, its: List<Node>) -> C {
       let b = stack[len(stack) - 1]
       stack = take(stack, len(stack) - 1)
       if b == nm {
-        c = C { errors: push(c.errors, (it.line, "类型错误: trait {nm} 的超 trait 构成了循环")), ..c }
+        c = C {
+          errors: push(c.errors, (it.line, "类型错误: trait {nm} 的超 trait 构成了循环")),
+          ..c
+        }
         break
       }
       if contains(seen, b) { continue }
@@ -1441,13 +1673,21 @@ fn check_supers(c0: C, its: List<Node>) -> C {
     let d = implv(it)
     let tr = match trait_name(d) {
       Some(x) => x,
-      None    => { continue },
+      None => { continue },
     }
     let tg = d.target
     for sb in skip(closure(c, [tr]), 1) {
-      if contains(builtin_traits(), sb) && (sb == "Show" || contains(builtin_impls(sb), tg)) { continue }
+      if contains(builtin_traits(), sb) && (sb == "Show" || contains(builtin_impls(sb), tg)) {
+        continue
+      }
       if !contains(c.impls, tg + "|" + sb) {
-        c = C { errors: push(c.errors, (it.line, "类型错误: impl {tr} for {tg} 要求 {tg} 也实现超 trait {sb}")), ..c }
+        c = C {
+          errors: push(
+            c.errors,
+            (it.line, "类型错误: impl {tr} for {tg} 要求 {tg} 也实现超 trait {sb}"),
+          ),
+          ..c
+        }
       }
     }
   }
@@ -1478,7 +1718,11 @@ fn declare_impl(c0: C, it: Node) -> Result<C, F> {
           if contains(gens, an) && len(aa) == 0 {
             var cur = bget(ib, an)
             for b in bget(tb, tg) { if !contains(cur, b) { cur = push(cur, b) } }
-            ib = if any(ib, (kv) => kv.0 == an) { map(ib, (kv) => if kv.0 == an { (an, cur) } else { kv }) } else { push(ib, (an, cur)) }
+            ib = if any(ib, (kv) => kv.0 == an) {
+              map(ib, (kv) => if kv.0 == an { (an, cur) } else { kv })
+            } else {
+              push(ib, (an, cur))
+            }
           }
         }
       }
@@ -1495,7 +1739,10 @@ fn declare_impl(c0: C, it: Node) -> Result<C, F> {
   let trv = trait_name(d)
   // trait impl 的方法不接收隐藏的常量参数（动态分派时传不了）
   if is_some(trv) && len(icg) > 0 { gm = set(gm, "#nocg", any_t()) }
-  if !contains(c.structs, target) && !contains(c.enums, target) && is_none(prim(target)) && builtin_generic(target) < 0 {
+  if !contains(c.structs, target)
+    && !contains(c.enums, target)
+    && is_none(prim(target))
+    && builtin_generic(target) < 0 {
     return Err(te(c, it.line, "impl 的目标类型 {target} 未定义"))
   }
   let (c1, self_t) = conv(c, Some(d.target_t), gm, false)?
@@ -1508,19 +1755,29 @@ fn declare_impl(c0: C, it: Node) -> Result<C, F> {
   let tr = unwrap_or(trv, "")
   let given = d.assoc
   if len(given) > 0 && is_none(trv) {
-    return Err(te(c, it.line, "关联类型只能写在 impl Trait for 类型 里（" + join(map(given, (g) => g.0), ", ") + "）"))
+    return Err(
+      te(
+        c,
+        it.line,
+        "关联类型只能写在 impl Trait for 类型 里（" + join(map(given, (g) => g.0), ", ") + "）",
+      ),
+    )
   }
   if is_some(trv) {
     let decl = unwrap_or(get(c.trait_assoc, tr), [])
     for (an, _) in given {
-      if !any(decl, (dd) => dd.0 == an) { return Err(te(c, it.line, "trait {tr} 没有关联类型 {an}")) }
+      if !any(decl, (dd) => dd.0 == an) {
+        return Err(te(c, it.line, "trait {tr} 没有关联类型 {an}"))
+      }
     }
     for (an, bs, dflt) in decl {
       var ta = dflt
       for (gn, gt) in given { if gn == an { ta = Some(gt) } }
       let tax = match ta {
         Some(x) => x,
-        None    => { return Err(te(c, it.line, "impl {tr} for {target} 缺少关联类型 {an}（写 type {an} = …）")) },
+        None => {
+          return Err(te(c, it.line, "impl {tr} for {target} 缺少关联类型 {an}（写 type {an} = …）"))
+        },
       }
       c = C { impl_assoc: set(c.impl_assoc, target + "|" + an, (it, tax)), ..c }
       let (ca, at) = conv(c, Some(tax), gm, false)?
@@ -1528,14 +1785,20 @@ fn declare_impl(c0: C, it: Node) -> Result<C, F> {
       for b in bs { c = add_con(c, at, KImpl(b), it.line) }
     }
     c = C { impls: set(c.impls, target + "|" + tr, true), ..c }
-    if !contains(c.traits, tr) && !contains(builtin_traits(), tr) { return Err(te(c, it.line, "未知 trait {tr}")) }
+    if !contains(c.traits, tr) && !contains(builtin_traits(), tr) {
+      return Err(te(c, it.line, "未知 trait {tr}"))
+    }
     let names = map(own, (m) => fnd(m).name)
     for m in unwrap_or(get(c.traits, tr), []) {
       let mf = fnd(m)
       let mn = mf.name
       if !contains(names, mn) {
         if is_none(mf.body) {
-          if let Some(cn) = mf.x.const_name { return Err(te(c, it.line, "impl {tr} for {target} 缺少关联常量 {cn}（写 const {cn}: … = …）")) }
+          if let Some(cn) = mf.x.const_name {
+            return Err(
+              te(c, it.line, "impl {tr} for {target} 缺少关联常量 {cn}（写 const {cn}: … = …）"),
+            )
+          }
           return Err(te(c, it.line, "impl {tr} for {target} 缺少方法 {mn}"))
         }
         ms = push(ms, (m, false))
@@ -1551,7 +1814,7 @@ fn declare_impl(c0: C, it: Node) -> Result<C, F> {
       if let Some(tm) = trait_m(c, tr, mn) {
         match fn_sig(c, tm, gm, Some(self_t)) {
           Ok((c3, tsig)) => { c = guard_c(c3, check_impl_sig(c3, it, m, tm, msig, tsig))? },
-          Err(f)         => {
+          Err(f) => {
             if is_unsup(f) { return Err(f) }
             c = add_err(c, f)
           },
@@ -1559,8 +1822,19 @@ fn declare_impl(c0: C, it: Node) -> Result<C, F> {
       }
     }
     tbl = set(unwrap_or(get(c.methods, target), Map()), mn, (msig, has_self(m)))
-    c = C { methods: set(c.methods, target, tbl), msigs: set(c.msigs, target + "|" + fkey(m), msig), ..c }
-    c = C { umeth: if fnd(m).is_unsafe { set(c.umeth, target + "|" + mn, true) } else { remove(c.umeth, target + "|" + mn) }, ..c }
+    c = C {
+      methods: set(c.methods, target, tbl),
+      msigs: set(c.msigs, target + "|" + fkey(m), msig),
+      ..c
+    }
+    c = C {
+      umeth: if fnd(m).is_unsafe {
+        set(c.umeth, target + "|" + mn, true)
+      } else {
+        remove(c.umeth, target + "|" + mn)
+      },
+      ..c
+    }
   }
   Ok(c)
 }
@@ -1571,15 +1845,23 @@ fn check_impl_sig(c0: C, it: Node, m: Node, tm: Node, isig: Ty, tsig: Ty) -> Res
   let mf = fnd(m)
   let cnm = mf.x.const_name
   let wh = match cnm {
-    None     => "impl {tr} for {d.target} 的方法 {mf.name}",
+    None => "impl {tr} for {d.target} 的方法 {mf.name}",
     Some(cn) => "impl {tr} for {d.target} 的关联常量 {cn}",
   }
   if has_self(m) != has_self(tm) {
-    return Err(te(c0, m.line, "{wh} 和 trait 声明不一致：self 参数" + (if has_self(m) { "多了" } else { "少了" })))
+    return Err(te(c0, m.line, "{wh} 和 trait 声明不一致：self 参数" + (if has_self(m) {
+      "多了"
+    } else {
+      "少了"
+    })))
   }
   let tu = fnd(tm).is_unsafe
   if mf.is_unsafe != tu {
-    return Err(te(c0, m.line, "{wh} 和 trait 声明不一致：" + (if tu { "trait 里是 unsafe fn" } else { "trait 里不是 unsafe fn" })))
+    return Err(te(c0, m.line, "{wh} 和 trait 声明不一致：" + (if tu {
+      "trait 里是 unsafe fn"
+    } else {
+      "trait 里不是 unsafe fn"
+    })))
   }
   let na = len(targs(isig)) - 1
   let nb = len(targs(tsig)) - 1
@@ -1596,31 +1878,73 @@ fn check_impl_sig(c0: C, it: Node, m: Node, tm: Node, isig: Ty, tsig: Ty) -> Res
       if is_some(cnm) {
         let ta = targs(tsig)
         let ia = targs(isig)
-        return Err(te(f.c, m.line, "{wh} 的类型和 trait 声明不一致：期望 {sh(f.c, ta[len(ta) - 1])}，实际是 {sh(f.c, ia[len(ia) - 1])}"))
+        return Err(
+          te(
+            f.c,
+            m.line,
+            "{wh} 的类型和 trait 声明不一致：期望 {sh(f.c, ta[len(ta) - 1])}，实际是 {sh(f.c, ia[len(ia) - 1])}",
+          ),
+        )
       }
-      Err(te(f.c, m.line, "{wh} 的签名和 trait 声明不一致：期望 {sh(f.c, tsig)}，实际是 {sh(f.c, isig)}"))
+      Err(
+        te(
+          f.c,
+          m.line,
+          "{wh} 的签名和 trait 声明不一致：期望 {sh(f.c, tsig)}，实际是 {sh(f.c, isig)}",
+        ),
+      )
     },
   }
 }
 
 // ───────── 函数体 ─────────
 
-type Saved = { ret: List<Ty>, rigid: List<Map<Str, Ty>>, loop_depth: Int, labels: List<(Str?, Ty?, Bool)>, unsafe_d: Int, cg_ctx: List<List<Str>>, in_pre: Bool }
-fn save(c: C) -> Saved { Saved { ret: c.ret, rigid: c.rigid, loop_depth: c.loop_depth, labels: c.labels, unsafe_d: c.unsafe_d, cg_ctx: c.cg_ctx, in_pre: c.in_pre } }
+type Saved = {
+  ret: List<Ty>,
+  rigid: List<Map<Str, Ty>>,
+  loop_depth: Int,
+  labels: List<(Str?, Ty?, Bool)>,
+  unsafe_d: Int,
+  cg_ctx: List<List<Str>>,
+  in_pre: Bool,
+}
+fn save(c: C) -> Saved {
+  Saved {
+    ret: c.ret,
+    rigid: c.rigid,
+    loop_depth: c.loop_depth,
+    labels: c.labels,
+    unsafe_d: c.unsafe_d,
+    cg_ctx: c.cg_ctx,
+    in_pre: c.in_pre,
+  }
+}
 
 // 循环帧在 Python 版里是可变列表：内层设置的 break 标记要保留，所以只截断，不整体换回
 fn restore(c: C, s: Saved) -> C {
-  let lb = if len(c.labels) >= len(s.labels) && s.loop_depth > 0 { take(c.labels, len(s.labels)) } else { s.labels }
-  C { ret: s.ret, rigid: s.rigid, loop_depth: s.loop_depth, labels: lb, unsafe_d: s.unsafe_d, cg_ctx: s.cg_ctx, in_pre: s.in_pre, ..c }
+  let lb = if len(c.labels) >= len(s.labels) && s.loop_depth > 0 {
+    take(c.labels, len(s.labels))
+  } else {
+    s.labels
+  }
+  C {
+    ret: s.ret,
+    rigid: s.rigid,
+    loop_depth: s.loop_depth,
+    labels: lb,
+    unsafe_d: s.unsafe_d,
+    cg_ctx: s.cg_ctx,
+    in_pre: s.in_pre,
+    ..c
+  }
 }
 
 fn rest_r<T>(r: Result<(C, T), F>, s: Saved) -> Result<(C, T), F> {
   match r {
     Ok((c, x)) => Ok((restore(c, s), x)),
-    Err(f)     => Err(F { c: restore(f.c, s), ..f }),
+    Err(f) => Err(F { c: restore(f.c, s), ..f }),
   }
 }
-
 
 // trait 默认方法：每个 impl 各自检查出一份类型化的函数体，按 "类型.方法名@行" 存在 C.dflt（Python 版的 _tsnap）
 fn check_impl_bodies(c0: C, it: Node, sc: Sc) -> Result<(C, Node), F> {
@@ -1635,12 +1959,18 @@ fn check_impl_bodies(c0: C, it: Node, sc: Sc) -> Result<(C, Node), F> {
         match get(c.msigs, target + "|" + fkey(m)) {
           Some(sig) => {
             var m2 = m
-            match check_fn_body2(c, m, sc, Some(sig), unwrap_or(get(c.mcga, target + "|" + fkey(m)), [])) {
+            match check_fn_body2(
+              c,
+              m,
+              sc,
+              Some(sig),
+              unwrap_or(get(c.mcga, target + "|" + fkey(m)), []),
+            ) {
               Ok((c1, x)) => {
                 c = c1
                 m2 = x
               },
-              Err(f)      => {
+              Err(f) => {
                 if is_unsup(f) { return Err(f) }
                 c = add_err(c, f)
               },
@@ -1651,11 +1981,11 @@ fn check_impl_bodies(c0: C, it: Node, sc: Sc) -> Result<(C, Node), F> {
               c = C { dflt: set(c.dflt, target + "." + fnd(m).name + "@" + "{m.line}", m2), ..c }
             }
           },
-          None      => (),
+          None => (),
         }
       }
     },
-    None          => (),
+    None => (),
   }
   Ok((c, Node { k: NImpl(ImplD { methods: own, ..d }), ..it }))
 }
@@ -1663,7 +1993,7 @@ fn check_impl_bodies(c0: C, it: Node, sc: Sc) -> Result<(C, Node), F> {
 fn stmts_of(b: Node) -> List<Node> {
   match b.k {
     NBlock(ss, _) => ss,
-    _             => [],
+    _ => [],
   }
 }
 
@@ -1686,13 +2016,13 @@ fn check_fn_body2(c0: C, fnode: Node, sc: Sc, sig0: Ty?, cga: List<Str>) -> Resu
   let f = fnd(fnode)
   let body = match f.body {
     Some(b) => b,
-    None    => { return Ok((c0, fnode)) },
+    None => { return Ok((c0, fnode)) },
   }
   let sig = match sig0 {
     Some(s) => s,
-    None    => match get(c0.fsigs, fkey(fnode)) {
+    None => match get(c0.fsigs, fkey(fnode)) {
       Some(s) => s,
-      None    => { return Ok((c0, fnode)) },
+      None => { return Ok((c0, fnode)) },
     },
   }
   var rigid: Map<Str, Ty> = Map()
@@ -1715,7 +2045,13 @@ fn check_fn_body2(c0: C, fnode: Node, sc: Sc, sig0: Ty?, cga: List<Str>) -> Resu
     c = cy
     sc2 = sy
   }
-  c = C { rigid: push(c.rigid, rigid), ret: push(c.ret, rt), cg_ctx: push(c.cg_ctx, cga), in_pre: fnode.pre, ..c }
+  c = C {
+    rigid: push(c.rigid, rigid),
+    ret: push(c.ret, rt),
+    cg_ctx: push(c.cg_ctx, cga),
+    in_pre: fnode.pre,
+    ..c
+  }
   var i = 0
   for p in f.params {
     let (c1, s1) = define(c, sc2, p.0, ent(pts[i], false, false))
@@ -1742,9 +2078,9 @@ fn async_lambda(body: Node) -> Node {
   match st.k {
     NExprStmt(e) => match e.k {
       NStructLit(_, fs, _) => fs[0].1,
-      _                    => e,
+      _ => e,
     },
-    _            => st,
+    _ => st,
   }
 }
 
@@ -1754,14 +2090,17 @@ fn async_with(body: Node, lam2: Node) -> Node {
   let st = ss[0]
   let st2 = match st.k {
     NExprStmt(e) => match e.k {
-      NStructLit(n, fs, b) => Node { k: NExprStmt(Node { k: NStructLit(n, [(fs[0].0, lam2)] + skip(fs, 1), b), ..e }), ..st },
-      _                    => st,
+      NStructLit(n, fs, b) => Node {
+        k: NExprStmt(Node { k: NStructLit(n, [(fs[0].0, lam2)] + skip(fs, 1), b), ..e }),
+        ..st
+      },
+      _ => st,
     },
-    _            => st,
+    _ => st,
   }
   match body.k {
     NBlock(_, u) => Node { k: NBlock([st2] + skip(ss, 1), u), ..body },
-    _            => body,
+    _ => body,
   }
 }
 
@@ -1775,7 +2114,7 @@ fn async_body(c: C, lamv: Node, sc: Sc, inner: Ty, ln: Int, name: Str) -> Result
 fn call_parts(e: Node) -> (Node, List<Node>) {
   match e.k {
     NCall(f, a) => (f, a),
-    _           => (e, []),
+    _ => (e, []),
   }
 }
 
@@ -1789,7 +2128,9 @@ fn va_call(c0: C, e: Node, en: Ent, sig: Ty, sc: Sc) -> Result<(C, Ty, Node), F>
   var c = C { va_ok: false, ..c1 }
   let xs = targs(sig)
   let fixed = take(xs, len(xs) - 1)
-  if len(args) < len(fixed) { return Err(te(c, ln, "{nm} 至少需要 {len(fixed)} 个参数，给了 {len(args)} 个")) }
+  if len(args) < len(fixed) {
+    return Err(te(c, ln, "{nm} 至少需要 {len(fixed)} 个参数，给了 {len(args)} 个"))
+  }
   var out: List<Node> = []
   var i = 0
   while i < len(fixed) {
@@ -1805,7 +2146,13 @@ fn va_call(c0: C, e: Node, en: Ent, sig: Ty, sc: Sc) -> Result<(C, Ty, Node), F>
     out = push(out, a3)
     let at = pr(c, at0)
     if !(is_con(at) && contains(["Int", "Float", "Bool", "Str", "Ptr"], tname(at))) {
-      return Err(te(c, args[i].line, "{nm} 的可变参数不能是 {sh(c, at)}（只支持 Int、Float、Bool、Str、Ptr）"))
+      return Err(
+        te(
+          c,
+          args[i].line,
+          "{nm} 的可变参数不能是 {sh(c, at)}（只支持 Int、Float、Bool、Str、Ptr）",
+        ),
+      )
     }
     extra = push(extra, tname(at))
     i += 1
@@ -1818,8 +2165,12 @@ fn va_call(c0: C, e: Node, en: Ent, sig: Ty, sc: Sc) -> Result<(C, Ty, Node), F>
 
 fn narrow_c(ta: TyX?) -> Bool {
   match ta {
-    Some(YCon(n, a, _)) => contains(["I8", "I16", "I32", "I64", "U8", "U16", "U32", "U64", "F32", "F64"], n) && len(a) == 0,
-    _                   => false,
+    Some(YCon(n, a, _)) => contains(
+      ["I8", "I16", "I32", "I64", "U8", "U16", "U32", "U64", "F32", "F64"],
+      n,
+    )
+      && len(a) == 0,
+    _ => false,
   }
 }
 
@@ -1844,12 +2195,20 @@ fn c_struct_ok(c0: C, t: Ty, depth: Int) -> Result<(C, XD?), F> {
     c = c1
     let fh = ext_head(c, fa, ft)
     var d = XdH(fh)
-    if !(contains(["Int", "Float", "Bool", "Ptr", "I8", "I16", "I32", "I64", "U8", "U16", "U32", "U64", "F32", "F64"], fh)) {
+    if !(
+      contains(
+        [
+          "Int", "Float", "Bool", "Ptr", "I8", "I16", "I32", "I64", "U8", "U16", "U32", "U64",
+          "F32", "F64",
+        ],
+        fh,
+      )
+    ) {
       let (c2, sd) = c_struct_ok(c, ft, depth + 1)?
       c = c2
       match sd {
         Some(x) => { d = x },
-        None    => { return Ok((c, None)) },
+        None => { return Ok((c, None)) },
       }
     }
     out = push(out, (f.0, d))
@@ -1864,7 +2223,11 @@ fn c_callback_ok(c: C, t: Ty) -> XD? {
   let cb = ["Int", "Float", "Bool", "Ptr"]
   let ps = map(take(xs, len(xs) - 1), (a) => ext_head(c, None, a))
   let r = ext_head(c, None, xs[len(xs) - 1])
-  if all(ps, (a) => contains(cb, a)) && (contains(cb, r) || r == "Unit") { Some(XdF(ps, r)) } else { None }
+  if all(ps, (a) => contains(cb, a)) && (contains(cb, r) || r == "Unit") {
+    Some(XdF(ps, r))
+  } else {
+    None
+  }
 }
 
 fn check_extern(c0: C, it: Node, sig: Ty) -> Result<C, F> {
@@ -1881,7 +2244,14 @@ fn check_extern(c0: C, it: Node, sig: Ty) -> Result<C, F> {
     let pa = if isret { f.ret } else { ps[i].1 }
     let pt = pr(c, xs[i])
     let h = ext_head(c, pa, pt)
-    var ok = contains(["Int", "Float", "Bool", "Str", "Ptr", "I8", "I16", "I32", "I64", "U8", "U16", "U32", "U64", "F32", "F64"], h) || isret && h == "Unit"
+    var ok = contains(
+      [
+        "Int", "Float", "Bool", "Str", "Ptr", "I8", "I16", "I32", "I64", "U8", "U16", "U32", "U64",
+        "F32", "F64",
+      ],
+      h,
+    )
+      || isret && h == "Unit"
     var d = XdH(h)
     if !ok {
       let (c1, sd) = c_struct_ok(c, pt, 0)?
@@ -1900,16 +2270,25 @@ fn check_extern(c0: C, it: Node, sig: Ty) -> Result<C, F> {
     descs = push(descs, d)
     if !ok {
       let what = if isret { "返回值" } else { "参数 " + pn + " " }
-      let tail = if isret { "，或字段都是 Int/Float/Bool/Ptr 的结构体" } else { "，或字段都是 Int/Float/Bool/Ptr 的结构体，或参数和返回值都是 Int/Float/Bool/Ptr 的 fn 回调" }
+      let tail = if isret {
+        "，或字段都是 Int/Float/Bool/Ptr 的结构体"
+      } else {
+        "，或字段都是 Int/Float/Bool/Ptr 的结构体，或参数和返回值都是 Int/Float/Bool/Ptr 的 fn 回调"
+      }
       let u = if isret { "、Unit" } else { "" }
-      return Err(te(c, it.line, "extern fn {nm} 的{what}不能是 {sh(c, pt)}（只支持 Int、Float、Bool、Str、Ptr{u}" + tail + "）"))
+      return Err(
+        te(
+          c,
+          it.line,
+          "extern fn {nm} 的{what}不能是 {sh(c, pt)}（只支持 Int、Float、Bool、Str、Ptr{u}" + tail + "）",
+        ),
+      )
     }
     i += 1
   }
   let et = (take(descs, len(descs) - 1), descs[len(descs) - 1])
   Ok(add_patch(c, it, PtExt(et)))
 }
-
 
 fn fn_body2(c: C, body: Node, sc: Sc, rt: Ty, name: Str) -> Result<(C, Node), F> {
   let (c1, bt, b2) = block(c, body, sc, Some(rt))?
@@ -1926,7 +2305,9 @@ fn body_gmap(c: C) -> Map<Str, Ty> {
   g
 }
 
-fn is_decl(k: Str) -> Bool { contains(["Fn", "Struct", "Enum", "Trait", "Impl", "Alias", "Use", "Mod"], k) }
+fn is_decl(k: Str) -> Bool {
+  contains(["Fn", "Struct", "Enum", "Trait", "Impl", "Alias", "Use", "Mod"], k)
+}
 
 // 块：返回块的类型和类型化的块（块节点本身的类型由 expr 记）
 fn block(c0: C, b: Node, scope: Sc, expected: Ty?) -> Result<(C, Ty, Node), F> {
@@ -1969,10 +2350,12 @@ fn block(c0: C, b: Node, scope: Sc, expected: Ty?) -> Result<(C, Ty, Node), F> {
       NExprStmt(ex) => if i == len(ss) - 1 && is_some(expected) {
         match expr(c, ex, sc, expected) {
           Ok((c1, t1, x)) => Ok((c1, sc, t1, Node { k: NExprStmt(x), ..s })),
-          Err(f)          => Err(f),
+          Err(f) => Err(f),
         }
-      } else { stmt(c, s, sc) },
-      _             => stmt(c, s, sc),
+      } else {
+        stmt(c, s, sc)
+      },
+      _ => stmt(c, s, sc),
     }
     match r {
       Ok((c1, s1, t1, x)) => {
@@ -1980,9 +2363,11 @@ fn block(c0: C, b: Node, scope: Sc, expected: Ty?) -> Result<(C, Ty, Node), F> {
         sc = s1
         t = t1
         out = push(out, x)
-        if is_k(s, "ExprStmt") && i < len(ss) - 1 && !c.in_pre && head(c, t1) == "Future" { c = warn(c, s.line, "警告: Future 没有被 .await，不会执行") }
+        if is_k(s, "ExprStmt") && i < len(ss) - 1 && !c.in_pre && head(c, t1) == "Future" {
+          c = warn(c, s.line, "警告: Future 没有被 .await，不会执行")
+        }
       },
-      Err(f)              => {
+      Err(f) => {
         if is_unsup(f) { return Err(f) }
         c = add_err(c, f)
         out = push(out, s)
@@ -2002,26 +2387,26 @@ fn block(c0: C, b: Node, scope: Sc, expected: Ty?) -> Result<(C, Ty, Node), F> {
   }
   let u = match b.k {
     NBlock(_, x) => x,
-    _            => false,
+    _ => false,
   }
   Ok((c, t, Node { k: NBlock(out, u), ..b }))
 }
 
 fn pat_names(p: Pat) -> List<Str> {
   match p {
-    PBind(n)               => [ast.nm_str(n)],
-    PVar(n)                => [ast.nm_str(n)],
-    PTuple(xs)             => flat_names(xs),
+    PBind(n) => [ast.nm_str(n)],
+    PVar(n) => [ast.nm_str(n)],
+    PTuple(xs) => flat_names(xs),
     PList(pre, rest, post) => {
       var out = flat_names(pre)
       if let Some(r) = rest { if r != "_" && r != "" { out = push(out, r) } }
       out + flat_names(post)
     },
-    PVariant(_, Some(xs))  => flat_names(xs),
-    PStruct(_, fs)         => flat_names(map(fs, (f) => f.1)),
-    POr(xs)                => pat_names(xs[0]),
-    PAt(a, b)              => pat_names(a) + pat_names(b),
-    _                      => [],
+    PVariant(_, Some(xs)) => flat_names(xs),
+    PStruct(_, fs) => flat_names(map(fs, (f) => f.1)),
+    POr(xs) => pat_names(xs[0]),
+    PAt(a, b) => pat_names(a) + pat_names(b),
+    _ => [],
   }
 }
 
@@ -2033,22 +2418,21 @@ fn flat_names(ps: List<Pat>) -> List<Str> {
 
 fn const_literal(e: Node) -> Lit? {
   match e.k {
-    NLit(l)            => match l {
+    NLit(l) => match l {
       LBig(_) => None,
-      _       => Some(l),
+      _ => Some(l),
     },
-    NUnary(op, o, _)   => {
+    NUnary(op, o, _) => {
       if op != "-" { return None }
       match o.k {
         NLit(LInt(i)) => Some(LInt(-i)),
         NLit(LFlt(f)) => Some(LFlt(-f)),
-        _             => None,
+        _ => None,
       }
     },
-    _                  => None,
+    _ => None,
   }
 }
-
 
 fn stmt(c0: C, s: Node, sc: Sc) -> Result<(C, Sc, Ty, Node), F> {
   let ln = s.line
@@ -2076,17 +2460,17 @@ fn stmt(c0: C, s: Node, sc: Sc) -> Result<(C, Sc, Ty, Node), F> {
       c = c3
       if is_const {
         let pn = match p {
-          PBind(n)               => ast.nm_str(n),
-          PVar(n)                => ast.nm_str(n),
-          PVariant(n, _)         => ast.nm_str(n),
-          PStruct(n, _)          => ast.nm_str(n),
-          PLit(LStr(x))          => x,
+          PBind(n) => ast.nm_str(n),
+          PVar(n) => ast.nm_str(n),
+          PVariant(n, _) => ast.nm_str(n),
+          PStruct(n, _) => ast.nm_str(n),
+          PLit(LStr(x)) => x,
           PRange(Some(LStr(x)), _, _) => x,
-          _                      => "",
+          _ => "",
         }
         match const_literal(value) {
           Some(v) => { c = C { const_lits: set(c.const_lits, pn, v), ..c } },
-          None    => { c = C { const_lits: remove(c.const_lits, pn), ..c } },
+          None => { c = C { const_lits: remove(c.const_lits, pn), ..c } },
         }
       }
       return Ok((c, sc3, unit_t(), Node { k: NLet(p, mutable, ty, v2, is_const), ..s }))
@@ -2098,7 +2482,9 @@ fn stmt(c0: C, s: Node, sc: Sc) -> Result<(C, Sc, Ty, Node), F> {
     NReturn(value) => {
       if len(c0.ret) == 0 { return Err(te(c0, ln, "return 只能出现在函数里")) }
       let rt = c0.ret[len(c0.ret) - 1]
-      if is_spawn(rt) { return Err(te(c0, ln, "spawn 任务里不能用 return（任务的值就是它的表达式）")) }
+      if is_spawn(rt) {
+        return Err(te(c0, ln, "spawn 任务里不能用 return（任务的值就是它的表达式）"))
+      }
       var c = c0
       var vt = unit_t()
       var v2: Node? = None
@@ -2132,11 +2518,14 @@ fn stmt(c0: C, s: Node, sc: Sc) -> Result<(C, Sc, Ty, Node), F> {
       let r = block(c, body, sc, None)
       let broke = match r {
         Ok((cb, _, _)) => cb.labels[len(cb.labels) - 1].2,
-        Err(_)         => true,
+        Err(_) => true,
       }
       let (c2, _, b2) = rest_r3(r, sv0)?
       // 语句位置的 loop（cond 为空）里没有 break 时永不结束，类型是 Never
-      return Ok((c2, sc, if is_none(cond) && !broke { never_t() } else { unit_t() }, Node { k: NWhile(cd2, b2), ..s }))
+      return Ok((c2, sc, if is_none(cond) && !broke { never_t() } else { unit_t() }, Node {
+        k: NWhile(cd2, b2),
+        ..s
+      }))
     },
     NFor(pat0, iter, body) => {
       let (c1, it0, it2) = expr(c0, iter, sc, None)?
@@ -2181,7 +2570,7 @@ fn stmt(c0: C, s: Node, sc: Sc) -> Result<(C, Sc, Ty, Node), F> {
 fn rest_r3<T, U>(r: Result<(C, T, U), F>, s: Saved) -> Result<(C, T, U), F> {
   match r {
     Ok((c, x, y)) => Ok((restore(c, s), x, y)),
-    Err(f)        => Err(F { c: restore(f.c, s), ..f }),
+    Err(f) => Err(F { c: restore(f.c, s), ..f }),
   }
 }
 
@@ -2202,8 +2591,10 @@ fn brk(c0: C, s: Node, sc: Sc, is_break: Bool, lab: Str?, val: Node?) -> Result<
   if is_break {
     let fr = c.labels[fi]
     match fr.1 {
-      None     => {
-        if is_some(val) { return Err(te(c, ln, "只有 loop 的 break 能带值（while / for 的值总是 ()）")) }
+      None => {
+        if is_some(val) {
+          return Err(te(c, ln, "只有 loop 的 break 能带值（while / for 的值总是 ()）"))
+        }
         c = C { labels: set(c.labels, fi, (fr.0, fr.1, true)), ..c }
       },
       Some(lt) => {
@@ -2217,7 +2608,7 @@ fn brk(c0: C, s: Node, sc: Sc, is_break: Bool, lab: Str?, val: Node?) -> Result<
         c = C { labels: set(c.labels, fi, (fr.0, fr.1, true)), ..c }
         c = unify(c, lt, vt, match val {
           Some(v) => v.line,
-          None    => ln,
+          None => ln,
         }, "loop 的 break 值")?
       },
     }
@@ -2233,7 +2624,7 @@ fn assign(c0: C, s: Node, sc: Sc) -> Result<(C, Node), F> {
   let ln = s.line
   let (t, op0s, value0) = match s.k {
     NAssign(a, b, x) => (a, b, x),
-    _                => { return Ok((c0, s)) },
+    _ => { return Ok((c0, s)) },
   }
   var root = t
   var go = true
@@ -2241,25 +2632,28 @@ fn assign(c0: C, s: Node, sc: Sc) -> Result<(C, Node), F> {
     match root.k {
       NField(o, _) => { root = o },
       NIndex(o, _) => { root = o },
-      _            => { go = false },
+      _ => { go = false },
     }
   }
   let rn = match root.k {
     NName(x) => x,
-    _        => { return Err(te(c0, ln, "赋值目标无效")) },
+    _ => { return Err(te(c0, ln, "赋值目标无效")) },
   }
   let e = match sc_find(c0, sc, rn) {
     Some(x) => x,
-    None    => { return Err(te(c0, ln, "未定义的变量 {rn}")) },
+    None => { return Err(te(c0, ln, "未定义的变量 {rn}")) },
   }
   if !e.mt { return Err(te(c0, ln, "不能修改不可变绑定 `{rn}`（改用 var 声明）")) }
-  if task_between(sc, rn) { return Err(te(c0, ln, "spawn 任务不能修改外层变量 `{rn}`（数据竞争）")) }
+  if task_between(sc, rn) {
+    return Err(te(c0, ln, "spawn 任务不能修改外层变量 `{rn}`（数据竞争）"))
+  }
   let (c1, tt, t2) = expr(c0, t, sc, None)?
   var c = c1
   var op = op0s
   let op0 = if len(op) > 0 { __str_slice(op, 0, 1) } else { "" }
-  if contains(["|=", "&=", "^=", "<<=", ">>="], op) || op == "-=" && head(c, tt) == "Set" ||
-    op != "=" && op_method(op0) != "" && (user_type(c, tt) || op_bound(c, tt, op0)) {
+  if contains(["|=", "&=", "^=", "<<=", ">>="], op)
+    || op == "-=" && head(c, tt) == "Set"
+    || op != "=" && op_method(op0) != "" && (user_type(c, tt) || op_bound(c, tt, op0)) {
     // a op= b 改写成 a = a op b：目标在新的值里又检查一遍（Python 版两处是同一个节点，取后一次的结果）
     let (c0b, bn) = fid(c, bin_node(ln, __str_slice(op, 0, len(op) - 1), t, value0))
     let (c2, vt, v2) = expr(c0b, bn, sc, None)?
@@ -2286,13 +2680,19 @@ fn lookup(c0: C, name: Str, sc: Sc, ln: Int) -> Result<(C, FT), F> {
   let c = c0
   let e = match sc_find(c, sc, name) {
     Some(x) => x,
-    None    => {
-      if is_some(std_mod(name)) { return Err(te(c, ln, "未定义的名字 {name}（需要 use std.{name}）")) }
-      if contains(c.structs, name) || contains(c.enums, name) { return Err(te(c, ln, "{name} 是类型，不是值")) }
+    None => {
+      if is_some(std_mod(name)) {
+        return Err(te(c, ln, "未定义的名字 {name}（需要 use std.{name}）"))
+      }
+      if contains(c.structs, name) || contains(c.enums, name) {
+        return Err(te(c, ln, "{name} 是类型，不是值"))
+      }
       return Err(te(c, ln, "未定义的名字 {name}"))
     },
   }
-  if e.sch && e.va && !c.va_ok { return Err(te(c, ln, "可变参数的 extern fn {name} 只能直接调用，不能当作值使用")) }
+  if e.sch && e.va && !c.va_ok {
+    return Err(te(c, ln, "可变参数的 extern fn {name} 只能直接调用，不能当作值使用"))
+  }
   if e.sch && e.ext != "" && c.unsafe_d == 0 {
     let ps = split(e.ext, "|")
     return Err(te(c, ln, "使用 {ps[0]} {ps[1]} 需要放在 unsafe \{ … } 里"))
@@ -2302,8 +2702,10 @@ fn lookup(c0: C, name: Str, sc: Sc, ln: Int) -> Result<(C, FT), F> {
     FTy(t) => if e.sch {
       let (c1, t1) = inst_cg(c, t, ln, e.cga)
       Ok((c1, FTy(t1)))
-    } else { Ok((c, FTy(t))) },
-    _      => Ok((c, e.t)),
+    } else {
+      Ok((c, FTy(t)))
+    },
+    _ => Ok((c, e.t)),
   }
 }
 
@@ -2312,11 +2714,9 @@ fn lookup(c0: C, name: Str, sc: Sc, ln: Int) -> Result<(C, FT), F> {
 fn ft_ty(ft: FT) -> Ty {
   match ft {
     FTy(t) => t,
-    _      => any_t(),
+    _ => any_t(),
   }
 }
-
-
 
 fn exprs(c0: C, es: List<Node>, sc: Sc) -> Result<(C, List<Ty>, List<Node>), F> {
   var c = c0
@@ -2357,10 +2757,10 @@ fn expr_(c0: C, e: Node, sc: Sc, expected: Ty?) -> Result<(C, Ty, Node), F> {
     NLit(l) => {
       match l {
         LBool(_) => { return Ok((c0, bool_t(), e)) },
-        LInt(_)  => { return Ok((c0, int_t(), e)) },
-        LBig(t)  => { return Err(te(c0, ln, "整数常量 {t} 超出 64 位范围")) },
-        LFlt(_)  => { return Ok((c0, float_t(), e)) },
-        LStr(_)  => { return Ok((c0, str_t(), e)) },
+        LInt(_) => { return Ok((c0, int_t(), e)) },
+        LBig(t) => { return Err(te(c0, ln, "整数常量 {t} 超出 64 位范围")) },
+        LFlt(_) => { return Ok((c0, float_t(), e)) },
+        LStr(_) => { return Ok((c0, str_t(), e)) },
       }
     },
     NName(n) => {
@@ -2379,12 +2779,18 @@ fn expr_(c0: C, e: Node, sc: Sc, expected: Ty?) -> Result<(C, Ty, Node), F> {
         }
       }
       let (cl, ft) = lookup(C { pend: [], ..c0 }, n, sc, ln)?
-      if len(cl.pend) > 0 { return Err(te(C { pend: [], ..cl }, ln, "{n} 带常量泛型参数，不能当值传递，请用 lambda 包一层")) }
+      if len(cl.pend) > 0 {
+        return Err(
+          te(C { pend: [], ..cl }, ln, "{n} 带常量泛型参数，不能当值传递，请用 lambda 包一层"),
+        )
+      }
       let c = cl
       match ft {
-        FTy(t)   => { return Ok((c, t, e)) },
-        FVar     => { return Ok((c, fn_t([any_t()], unit_t()), e)) },
-        FDict(_) => { return Err(te(c, ln, "内建函数 {n} 有多个重载，不能当值传递，请用 lambda 包一层")) },
+        FTy(t) => { return Ok((c, t, e)) },
+        FVar => { return Ok((c, fn_t([any_t()], unit_t()), e)) },
+        FDict(_) => {
+          return Err(te(c, ln, "内建函数 {n} 有多个重载，不能当值传递，请用 lambda 包一层"))
+        },
       }
     },
     NInterp(ps) => {
@@ -2397,7 +2803,7 @@ fn expr_(c0: C, e: Node, sc: Sc, expected: Ty?) -> Result<(C, Ty, Node), F> {
             c = c1
             out = push(out, IExpr(x2))
           },
-          IStr(_)  => { out = push(out, p) },
+          IStr(_) => { out = push(out, p) },
         }
       }
       return Ok((c, str_t(), with_k(e, NInterp(out))))
@@ -2422,7 +2828,11 @@ fn expr_(c0: C, e: Node, sc: Sc, expected: Ty?) -> Result<(C, Ty, Node), F> {
             return Err(te(c, ln, "~ 是 Int 的按位取反，不能用于 {sh(c, t)}（逻辑非请写 !）"))
           }
         }
-        if op == "!" { return Err(te(c, ln, "! 只用于 Bool；Int 的按位取反请写 ~x（kite fmt --migrate 可自动改写）")) }
+        if op == "!" {
+          return Err(
+            te(c, ln, "! 只用于 Bool；Int 的按位取反请写 ~x（kite fmt --migrate 可自动改写）"),
+          )
+        }
         let (cb, ne) = repl(c, e, call_node(ln, "__bnot", [o]))
         return expr_(cb, ne, sc, None)
       }
@@ -2430,7 +2840,9 @@ fn expr_(c0: C, e: Node, sc: Sc, expected: Ty?) -> Result<(C, Ty, Node), F> {
         let c2 = unify(c, bool_t(), t, ln, "! 的操作数")?
         return Ok((c2, bool_t(), with_k(e, NUnary(op, o2, pos))))
       }
-      if op == "-" && (user_type(c, t) || op_bound(c, t, "neg")) { return overload(c, e, "neg", t, sc) }
+      if op == "-" && (user_type(c, t) || op_bound(c, t, "neg")) {
+        return overload(c, e, "neg", t, sc)
+      }
       return Ok((add_con(c, t, KNum, ln), t, with_k(e, NUnary(op, o2, pos))))
     },
     NTuple(xs) => {
@@ -2460,7 +2872,9 @@ fn expr_(c0: C, e: Node, sc: Sc, expected: Ty?) -> Result<(C, Ty, Node), F> {
       var el = el0
       if let Some(ex) = expected {
         let pe = pr(c1, ex)
-        if is_con(pe) && tname(pe) == "List" && len(targs(pe)) > 0 && is_dyn(pr(c1, targs(pe)[0])) { el = pr(c1, targs(pe)[0]) }
+        if is_con(pe) && tname(pe) == "List" && len(targs(pe)) > 0 && is_dyn(pr(c1, targs(pe)[0])) {
+          el = pr(c1, targs(pe)[0])
+        }
       }
       var c = c1
       var ns: List<Node> = []
@@ -2473,13 +2887,19 @@ fn expr_(c0: C, e: Node, sc: Sc, expected: Ty?) -> Result<(C, Ty, Node), F> {
     },
     NCast(..) => { return cast(c0, e, sc) },
     NBlock(_, u) => {
-      if u { return rest_r3(block(C { unsafe_d: c0.unsafe_d + 1, ..c0 }, e, sc, expected), save(c0)) }
+      if u {
+        return rest_r3(block(C { unsafe_d: c0.unsafe_d + 1, ..c0 }, e, sc, expected), save(c0))
+      }
       return block(c0, e, sc, expected)
     },
     NLoop(body, lab) => {
       let (c1, v) = fresh(c0)
       let s = save(c1)
-      let c = C { loop_depth: c1.loop_depth + 1, labels: push(c1.labels, (lab, Some(v), false)), ..c1 }
+      let c = C {
+        loop_depth: c1.loop_depth + 1,
+        labels: push(c1.labels, (lab, Some(v), false)),
+        ..c1
+      }
       let (c2, _, b2) = block(c, body, sc, None)?
       let hit = c2.labels[len(c2.labels) - 1].2
       return Ok((restore(c2, s), if hit { v } else { never_t() }, with_k(e, NLoop(b2, lab))))
@@ -2490,7 +2910,7 @@ fn expr_(c0: C, e: Node, sc: Sc, expected: Ty?) -> Result<(C, Ty, Node), F> {
       let (c3, tt, thn2) = block(c2, thn, sc, expected)?
       let ex = match els {
         Some(x) => x,
-        None    => { return Ok((c3, unit_t(), with_k(e, NIf(cond2, thn2, None)))) },
+        None => { return Ok((c3, unit_t(), with_k(e, NIf(cond2, thn2, None)))) },
       }
       let (c4, et, ex2) = expr(c3, ex, sc, expected)?
       let e2 = with_k(e, NIf(cond2, thn2, Some(ex2)))
@@ -2518,7 +2938,9 @@ fn expr_(c0: C, e: Node, sc: Sc, expected: Ty?) -> Result<(C, Ty, Node), F> {
         let (c1, a0, a2) = expr(c0, fargs[0], sc, None)?
         let at = pr(c1, a0)
         if tname(at) != "Future" && tname(at) != "" && !is_tv(at) {
-          return Err(te(c1, ln, "只能 .await 一个 Future（async fn 的调用结果），这里是 {sh(c1, at)}"))
+          return Err(
+            te(c1, ln, "只能 .await 一个 Future（async fn 的调用结果），这里是 {sh(c1, at)}"),
+          )
         }
         let (c2, rt, f2, as2) = call(c1, f, [AT(at, fargs[0].line, Some(a2))], sc, ln)?
         return Ok((c2, rt, with_k(e, NCall(f2, as2))))
@@ -2540,7 +2962,7 @@ fn expr_(c0: C, e: Node, sc: Sc, expected: Ty?) -> Result<(C, Ty, Node), F> {
         let e2 = with_k(e, NCall(f2, as2))
         return match lt {
           Some(l) => Ok((c1, TC("Array", [targs(pr(c1, rt))[0], l]), e2)),
-          None    => Ok((c1, rt, e2)),
+          None => Ok((c1, rt, e2)),
         }
       }
       if is_k(f, "Name") {
@@ -2550,14 +2972,26 @@ fn expr_(c0: C, e: Node, sc: Sc, expected: Ty?) -> Result<(C, Ty, Node), F> {
           }
         }
       }
-      let (c3, rt3, f3, as3) = call(C { cg_node: Some(e), ..c0 }, f, map(fargs, (a) => AN(a)), sc, ln)?
+      let (c3, rt3, f3, as3) = call(
+        C { cg_node: Some(e), ..c0 },
+        f,
+        map(fargs, (a) => AN(a)),
+        sc,
+        ln,
+      )?
       return Ok((c3, rt3, with_k(e, NCall(f3, as3))))
     },
     NPipe(l, r) => {
       let (c1, lt, l2) = expr(c0, l, sc, None)?
       let left = AT(lt, l.line, None)
       if let NCall(rf, ra) = r.k {
-        let (c2, rt, rf2, ra2) = call(C { cg_node: Some(r), ..c1 }, rf, push([], left) + map(ra, (a) => AN(a)), sc, ln)?
+        let (c2, rt, rf2, ra2) = call(
+          C { cg_node: Some(r), ..c1 },
+          rf,
+          push([], left) + map(ra, (a) => AN(a)),
+          sc,
+          ln,
+        )?
         // 管道右边的调用节点本身不经过 expr，没有类型（和 Python 版一样）
         return Ok((c2, rt, with_k(e, NPipe(l2, with_k(r, NCall(rf2, ra2))))))
       }
@@ -2575,8 +3009,16 @@ fn expr_(c0: C, e: Node, sc: Sc, expected: Ty?) -> Result<(C, Ty, Node), F> {
           }
         }
         if len(c0.rigid) > 0 {
-          if contains(c0.rigid[len(c0.rigid) - 1], on) && !starts(on, "__tc_") && is_none(sc_find(c0, sc, on)) {
-            return Err(te(c0, ln, "类型参数 {on} 没有关联常量 {fname}（需要约束 {on}: 某个声明了 const {fname} 的 trait）"))
+          if contains(c0.rigid[len(c0.rigid) - 1], on)
+            && !starts(on, "__tc_")
+            && is_none(sc_find(c0, sc, on)) {
+            return Err(
+              te(
+                c0,
+                ln,
+                "类型参数 {on} 没有关联常量 {fname}（需要约束 {on}: 某个声明了 const {fname} 的 trait）",
+              ),
+            )
           }
         }
       }
@@ -2587,7 +3029,7 @@ fn expr_(c0: C, e: Node, sc: Sc, expected: Ty?) -> Result<(C, Ty, Node), F> {
       let t = pr(c, t0)
       let idx = match il {
         LInt(i) => i,
-        _       => 0,
+        _ => 0,
       }
       if tname(t) == "Tuple" && is_con(t) {
         if idx >= len(targs(t)) { return Err(te(c, ln, "元组只有 {len(targs(t))} 个元素")) }
@@ -2631,7 +3073,13 @@ fn expr_(c0: C, e: Node, sc: Sc, expected: Ty?) -> Result<(C, Ty, Node), F> {
       let h = head(c1, t)
       if h == "Result" {
         let (c2, tv) = fresh(c1)
-        let c3 = unify(c2, rt, TC("Result", [tv, targs(t)[1]]), ln, "? 要求函数返回同错误类型的 Result")?
+        let c3 = unify(
+          c2,
+          rt,
+          TC("Result", [tv, targs(t)[1]]),
+          ln,
+          "? 要求函数返回同错误类型的 Result",
+        )?
         return Ok((c3, targs(t)[0], e2))
       }
       if h == "Option" {
@@ -2679,10 +3127,10 @@ fn expr_(c0: C, e: Node, sc: Sc, expected: Ty?) -> Result<(C, Ty, Node), F> {
       }
       let g2 = match g.k {
         NSpawn(_) => Node { k: NSpawn(ni), ..g },
-        NRace(_)  => Node { k: NRace(ni), ..g },
+        NRace(_) => Node { k: NRace(ni), ..g },
         NTuple(_) => Node { k: NTuple(ni), ..g },
-        NList(_)  => Node { k: NList(ni), ..g },
-        _         => g,
+        NList(_) => Node { k: NList(ni), ..g },
+        _ => g,
       }
       let (cb, ne) = repl(c, e, g2)
       let (cc, t2) = group_t(cb, gk, gi, ts)?
@@ -2695,15 +3143,14 @@ fn expr_(c0: C, e: Node, sc: Sc, expected: Ty?) -> Result<(C, Ty, Node), F> {
   Err(te(c0, ln, "未知表达式 {kname(e)}"))
 }
 
-
 // spawn / race 的各项（Python 版 g.items）
 fn group_items(g: Node) -> List<Node> {
   match g.k {
     NSpawn(xs) => xs,
-    NRace(xs)  => xs,
+    NRace(xs) => xs,
     NTuple(xs) => xs,
-    NList(xs)  => xs,
-    _          => [],
+    NList(xs) => xs,
+    _ => [],
   }
 }
 
@@ -2744,7 +3191,7 @@ fn expr_o(c: C, e: Node?, sc: Sc) -> Result<(C, Ty, Node?), F> {
       let (c1, t, x2) = expr(c, x, sc, None)?
       Ok((c1, t, Some(x2)))
     },
-    None    => Ok((c, unit_t(), None)),
+    None => Ok((c, unit_t(), None)),
   }
 }
 
@@ -2752,7 +3199,7 @@ fn select_e(c0: C, e: Node, sc: Sc) -> Result<(C, Ty, Node), F> {
   let ln = e.line
   let arms = match e.k {
     NSelect(a) => a,
-    _          => [],
+    _ => [],
   }
   var c = c0
   var result: Ty? = None
@@ -2778,7 +3225,11 @@ fn select_e(c0: C, e: Node, sc: Sc) -> Result<(C, Ty, Node), F> {
         c = unify(c3, el, bt, ln, "send 的值")?
         b2 = Some(bx)
       } else if let Some(p) = arm.pat {
-        if !irrefutable(c, p) { return Err(te(c, ln, "select 的 recv 绑定必须是变量名或 _（值是 Option，在分支里再 match）")) }
+        if !irrefutable(c, p) {
+          return Err(
+            te(c, ln, "select 的 recv 绑定必须是变量名或 _（值是 Option，在分支里再 match）"),
+          )
+        }
         let (c4, s4, _) = pattern(c, p, TC("Option", [el]), asc, false, ln)?
         c = c4
         asc = s4
@@ -2792,7 +3243,7 @@ fn select_e(c0: C, e: Node, sc: Sc) -> Result<(C, Ty, Node), F> {
     c = c5
     out = push(out, SArm { a: a2, b: b2, guard: g2, body: body2, ..arm })
     match result {
-      None    => { result = Some(bt) },
+      None => { result = Some(bt) },
       Some(r) => {
         let (c6, j) = join_t(c, r, bt, arm.body.line, "select 各分支")?
         c = c6
@@ -2808,26 +3259,35 @@ fn type_app(c0: C, e: Node, sc: Sc) -> Result<(C, Ty, Node), F> {
   let ln = e.line
   let (f, targs_) = match e.k {
     NTypeApp(a, b) => (a, b),
-    _              => { return Err(te(c0, ln, "未知表达式")) },
+    _ => { return Err(te(c0, ln, "未知表达式")) },
   }
   let fname = match name_of(f) {
     Some(x) => x,
-    None    => { return Err(te(c0, ln, "显式泛型实参 .<…> 只能跟在泛型函数名后面")) },
+    None => { return Err(te(c0, ln, "显式泛型实参 .<…> 只能跟在泛型函数名后面")) },
   }
   let en = match sc_find(c0, sc, fname) {
     Some(x) => x,
-    None    => {
+    None => {
       let (_, _) = lookup(c0, fname, sc, ln)?
       return Err(te(c0, ln, "{fname} 不是泛型函数，不能写 .<…>"))
     },
   }
   let t = match en.t {
     FTy(x) => x,
-    _      => { return Err(te(c0, ln, "{fname} 不是泛型函数，不能写 .<…>")) },
+    _ => { return Err(te(c0, ln, "{fname} 不是泛型函数，不能写 .<…>")) },
   }
   if !en.sch || len(en.gens) == 0 { return Err(te(c0, ln, "{fname} 不是泛型函数，不能写 .<…>")) }
   if len(en.gens) != len(targs_) {
-    return Err(te(c0, ln, "{fname} 有 {len(en.gens)} 个泛型参数（" + join(en.gens, ", ") + "），给了 {len(targs_)} 个"))
+    return Err(
+      te(
+        c0,
+        ln,
+        "{fname} 有 {len(en.gens)} 个泛型参数（" + join(
+          en.gens,
+          ", ",
+        ) + "），给了 {len(targs_)} 个",
+      ),
+    )
   }
   var c = c0
   var rg: Map<Str, Ty> = Map()
@@ -2866,7 +3326,7 @@ fn cast(c0: C, e: Node, sc: Sc) -> Result<(C, Ty, Node), F> {
   let ln = e.line
   let (v, ty) = match e.k {
     NCast(a, b) => (a, b),
-    _           => { return Err(te(c0, ln, "未知表达式")) },
+    _ => { return Err(te(c0, ln, "未知表达式")) },
   }
   let (c1, s0) = expr_t(c0, v, sc, None)?
   let (c2, d0) = conv(c1, Some(ty), body_gmap(c1), false)?
@@ -2887,31 +3347,38 @@ fn cast(c0: C, e: Node, sc: Sc) -> Result<(C, Ty, Node), F> {
     let zero = if dn == "Int" { LInt(0) } else { LFlt(0.0) }
     rep = ast.mkn(ln, NIf(v, blk_of(ln, lit_n(ln, one)), Some(blk_of(ln, lit_n(ln, zero)))))
   } else {
-    return Err(te(c2, ln, "不能把 {sh(c2, src)} 转换为 {sh(c2, dst)}（as 只支持 Int、Float、Bool 之间的数值转换）"))
+    return Err(
+      te(
+        c2,
+        ln,
+        "不能把 {sh(c2, src)} 转换为 {sh(c2, dst)}（as 只支持 Int、Float、Bool 之间的数值转换）",
+      ),
+    )
   }
   let (cb, ne) = repl(c2, e, rep)
   let (c3, t3, n3) = expr(cb, ne, sc, None)?
   Ok((c3, t3, n3))
 }
 
-
 fn struct_lit(c0: C, e: Node, sc: Sc, expected: Ty?) -> Result<(C, Ty, Node), F> {
   let ln = e.line
   let (nv, fields, base) = match e.k {
     NStructLit(a, b, x) => (a, b, x),
-    _                   => { return Err(te(c0, ln, "未知表达式")) },
+    _ => { return Err(te(c0, ln, "未知表达式")) },
   }
   let name = ast.nm_str(nv)
   let q = match nv {
     NmQ(_, Some(x)) => x,
-    _               => "",
+    _ => "",
   }
-  if q != "" && contains(c0.enums, q) && !has_variant(c0, q, name) { return Err(te(c0, ln, "{q} 没有变体 {name}")) }
+  if q != "" && contains(c0.enums, q) && !has_variant(c0, q, name) {
+    return Err(te(c0, ln, "{q} 没有变体 {name}"))
+  }
   if (q != "" || !contains(c0.structs, name)) && contains(c0.variant_owner, name) {
     var en = unwrap(get(c0.variant_owner, name))
     let pt = match expected {
       Some(x) => pr(c0, x),
-      None    => unit_t(),
+      None => unit_t(),
     }
     if q != "" && contains(c0.enums, q) && has_variant(c0, q, name) {
       en = q
@@ -2922,7 +3389,9 @@ fn struct_lit(c0: C, e: Node, sc: Sc, expected: Ty?) -> Result<(C, Ty, Node), F>
     }
     let fs = vf_fields(variant_fs(c0, en, name))
     let vn = "{en}.{name}"
-    if len(fs) == 0 || starts(fs[0].0, "_") { return Err(te(c0, ln, "{vn} 不是记录变体，请写 {name}(…)")) }
+    if len(fs) == 0 || starts(fs[0].0, "_") {
+      return Err(te(c0, ln, "{vn} 不是记录变体，请写 {name}(…)"))
+    }
     if is_some(base) { return Err(te(c0, ln, "记录变体 {vn} 不支持 ..base 更新")) }
     let fnames = map(fs, (f) => f.0)
     for (f, _) in fields { if !contains(fnames, f) { return Err(te(c0, ln, "{vn} 没有字段 {f}")) } }
@@ -2949,7 +3418,9 @@ fn struct_lit(c0: C, e: Node, sc: Sc, expected: Ty?) -> Result<(C, Ty, Node), F>
     gm = set(gm, g, gvs[i])
     i += 1
   }
-  for (g, bs) in tbounds(c, name) { for b in bs { c = add_con(c, unwrap(get(gm, g)), KImpl(b), ln) } }
+  for (g, bs) in tbounds(c, name) {
+    for b in bs { c = add_con(c, unwrap(get(gm, g)), KImpl(b), ln) }
+  }
   var decl: List<(Str, Ty)> = []
   for f in fdecl {
     let (c2, t) = conv(c, f.1, gm, false)?
@@ -3017,7 +3488,7 @@ fn dget_t(d: List<(Str, Ty)>, k: Str) -> Ty {
 fn bin_parts(e: Node) -> (Str, Node, Node) {
   match e.k {
     NBin(op, l, r) => (op, l, unwrap_or(r, l)),
-    _              => ("", e, e),
+    _ => ("", e, e),
   }
 }
 
@@ -3038,10 +3509,23 @@ fn binop(c0: C, e: Node, sc: Sc) -> Result<(C, Ty, Node), F> {
     let c3 = unify(c2, int_t(), rt, ln, "区间终点")?
     return Ok((c3, list_t(int_t()), e2))
   }
-  if op == "^" || op == "<<" || op == ">>" || (op == "|" || op == "&") && (head(c, lt) == "Int" || head(c, rt) == "Int") {
+  if op == "^"
+    || op == "<<"
+    || op == ">>"
+    || (op == "|" || op == "&") && (head(c, lt) == "Int" || head(c, rt) == "Int") {
     let c2 = unify(c, int_t(), lt, ln, "运算 {op} 左边")?
     let c3 = unify(c2, int_t(), rt, ln, "运算 {op} 右边")?
-    let f = if op == "|" { "__bor" } else if op == "&" { "__band" } else if op == "^" { "__bxor" } else if op == "<<" { "__shl" } else { "__shr" }
+    let f = if op == "|" {
+      "__bor"
+    } else if op == "&" {
+      "__band"
+    } else if op == "^" {
+      "__bxor"
+    } else if op == "<<" {
+      "__shl"
+    } else {
+      "__shr"
+    }
     let (c3b, ne) = repl(c3, e, call_node(ln, f, [left, right]))
     return expr(c3b, ne, sc, None)
   }
@@ -3049,11 +3533,19 @@ fn binop(c0: C, e: Node, sc: Sc) -> Result<(C, Ty, Node), F> {
     let (c2, el) = fresh(c)
     let c3 = unify(c2, TC("Set", [el]), lt, ln, "运算 {op} 左边")?
     let c4 = unify(c3, TC("Set", [el]), rt, ln, "运算 {op} 右边")?
-    let f = if op == "|" { "__set_union" } else if op == "&" { "__set_intersect" } else { "__set_difference" }
+    let f = if op == "|" {
+      "__set_union"
+    } else if op == "&" {
+      "__set_intersect"
+    } else {
+      "__set_difference"
+    }
     let (c4b, ne) = repl(c4, e, call_node(ln, f, [left, right]))
     return expr(c4b, ne, sc, None)
   }
-  if op_method(op) != "" && (user_type(c, lt) || op_bound(c, lt, op)) { return overload(c, e, op, lt, sc) }
+  if op_method(op) != "" && (user_type(c, lt) || op_bound(c, lt, op)) {
+    return overload(c, e, op, lt, sc)
+  }
   let c2 = unify(c, lt, rt, ln, "运算 {op} 两边类型必须相同")?
   if op == "==" || op == "!=" { return Ok((c2, bool_t(), e2)) }
   if contains(["<", ">", "<=", ">="], op) { return Ok((add_con(c2, lt, KOrd, ln), bool_t(), e2)) }
@@ -3063,7 +3555,11 @@ fn binop(c0: C, e: Node, sc: Sc) -> Result<(C, Ty, Node), F> {
 fn user_type(c: C, t: Ty) -> Bool {
   let p = pr(c, t)
   let h = tname(p)
-  h != "" && !is_tr(p) && h != "Option" && h != "Result" && (contains(c.structs, h) || contains(c.enums, h))
+  h != ""
+    && !is_tr(p)
+    && h != "Option"
+    && h != "Result"
+    && (contains(c.structs, h) || contains(c.enums, h))
 }
 
 fn op_bound(c: C, t: Ty, op: Str) -> Bool {
@@ -3074,10 +3570,9 @@ fn op_bound(c: C, t: Ty, op: Str) -> Bool {
       let bi = if contains(["<", ">", "<=", ">="], op) { "Ord" } else { "Num" }
       !has_bound(c, bs, bi)
     },
-    _         => false,
+    _ => false,
   }
 }
-
 
 fn overload(c: C, e: Node, op: Str, lt: Ty, sc: Sc) -> Result<(C, Ty, Node), F> {
   let ln = e.line
@@ -3085,12 +3580,14 @@ fn overload(c: C, e: Node, op: Str, lt: Ty, sc: Sc) -> Result<(C, Ty, Node), F> 
   let h = head(c, lt)
   if !is_tr(pr(c, lt)) && !contains(unwrap_or(get(c.methods, h), Map()), meth) {
     let sym = if op == "neg" { "-（取负）" } else { op }
-    return Err(te(c, ln, "{sh(c, lt)} 没有方法 {meth}，不能用运算符 {sym}（在 impl {h} 里定义 fn {meth}）"))
+    return Err(
+      te(c, ln, "{sh(c, lt)} 没有方法 {meth}，不能用运算符 {sym}（在 impl {h} 里定义 fn {meth}）"),
+    )
   }
   let callv = match e.k {
-    NUnary(_, o, _)      => call_n(ln, ast.mkn(ln, NField(o, NmS(meth))), []),
-    NBin(bop, l, r)      => call_n(ln, ast.mkn(ln, NField(l, NmS(meth))), on_list(r)),
-    _                    => e,
+    NUnary(_, o, _) => call_n(ln, ast.mkn(ln, NField(o, NmS(meth))), []),
+    NBin(bop, l, r) => call_n(ln, ast.mkn(ln, NField(l, NmS(meth))), on_list(r)),
+    _ => e,
   }
   if contains(["<", ">", "<=", ">="], op) {
     // a < b 改写成 a.cmp(b) < 0
@@ -3099,7 +3596,7 @@ fn overload(c: C, e: Node, op: Str, lt: Ty, sc: Sc) -> Result<(C, Ty, Node), F> 
     let c2 = unify(c1, int_t(), ct, ln, "{h}.cmp 的返回值")?
     let k2 = match e.k {
       NBin(bop, _, _) => NBin(bop, cv2, Some(lit_n(ln, LInt(0)))),
-      _               => e.k,
+      _ => e.k,
     }
     return Ok((c2, bool_t(), with_k(e, k2)))
   }
@@ -3110,7 +3607,7 @@ fn overload(c: C, e: Node, op: Str, lt: Ty, sc: Sc) -> Result<(C, Ty, Node), F> 
 fn on_list(x: Node?) -> List<Node> {
   match x {
     Some(n) => [n],
-    None    => [],
+    None => [],
   }
 }
 
@@ -3118,7 +3615,7 @@ fn lam(c0: C, e: Node, sc: Sc, expected: Ty?) -> Result<(C, Ty, Node), F> {
   let ln = e.line
   let (ps, body, ctx) = match e.k {
     NLambda(a, b, x) => (a, b, x),
-    _                => { return Err(te(c0, ln, "未知表达式")) },
+    _ => { return Err(te(c0, ln, "未知表达式")) },
   }
   let n = len(ps)
   var c = c0
@@ -3126,7 +3623,7 @@ fn lam(c0: C, e: Node, sc: Sc, expected: Ty?) -> Result<(C, Ty, Node), F> {
   var ret = unit_t()
   let exp = match expected {
     Some(x) => pr(c0, x),
-    None    => unit_t(),
+    None => unit_t(),
   }
   if is_some(expected) && tname(exp) == "fn" && is_con(exp) && len(targs(exp)) - 1 == n {
     pts = take(targs(exp), n)
@@ -3154,14 +3651,20 @@ fn lam(c0: C, e: Node, sc: Sc, expected: Ty?) -> Result<(C, Ty, Node), F> {
   c = C { ret: push(c.ret, ret), loop_depth: 0, labels: [], ..c }
   let isb = match body.k {
     NBlock(_, u) => !u,
-    _            => false,
+    _ => false,
   }
   let (c4, b2) = rest_r(lam_body(c, body, inner, ret, isb, unwrap_or(ctx, "lambda 返回值"), ln), s)?
   Ok((c4, fn_t(pts, ret), with_k(e, NLambda(ps, b2, ctx))))
 }
 
-fn lam_body(c: C, body: Node, inner: Sc, ret: Ty, isb: Bool, ctx: Str, ln: Int) -> Result<(C, Node), F> {
-  let (c1, bt, b2) = if isb { block(c, body, inner, Some(ret))? } else { expr(c, body, inner, Some(ret))? }
+fn lam_body(c: C, body: Node, inner: Sc, ret: Ty, isb: Bool, ctx: Str, ln: Int) -> Result<(
+  C, Node
+), F> {
+  let (c1, bt, b2) = if isb {
+    block(c, body, inner, Some(ret))?
+  } else {
+    expr(c, body, inner, Some(ret))?
+  }
   let blk = is_k(body, "Block")
   if !(blk && diverges(body)) {
     let c2 = unify(c1, ret, bt, if blk { last_line(body) } else { ln }, ctx)?
@@ -3175,7 +3678,7 @@ fn field(c0: C, e: Node, sc: Sc) -> Result<(C, Ty, Node), F> {
   let ln = e.line
   let (obj, fname0) = match e.k {
     NField(o, f) => (o, f),
-    _            => { return Err(te(c0, ln, "未知表达式")) },
+    _ => { return Err(te(c0, ln, "未知表达式")) },
   }
   let fname = ast.nm_str(fname0)
   if let Some(en) = name_of(obj) {
@@ -3195,16 +3698,18 @@ fn field(c0: C, e: Node, sc: Sc) -> Result<(C, Ty, Node), F> {
     match std_member(m, fname) {
       Some((kk, s)) => {
         let (c1, ft) = builtin_ft(c, kk, s)?
-        if m == "ptr" && unsafe_ptr(fname) && c1.unsafe_d == 0 { return Err(te(c1, ln, "使用 unsafe 函数 {m}.{fname} 需要放在 unsafe \{ … } 里")) }
+        if m == "ptr" && unsafe_ptr(fname) && c1.unsafe_d == 0 {
+          return Err(te(c1, ln, "使用 unsafe 函数 {m}.{fname} 需要放在 unsafe \{ … } 里"))
+        }
         match ft {
           FTy(bt) => {
             let (c2, t2) = inst(c1, bt, ln)
             return Ok((c2, t2, e2))
           },
-          _       => { return Ok((c1, fn_t([any_t()], unit_t()), e2)) },
+          _ => { return Ok((c1, fn_t([any_t()], unit_t()), e2)) },
         }
       },
-      None          => { return Err(te(c, ln, "std.{m} 没有 {fname}")) },
+      None => { return Err(te(c, ln, "std.{m} 没有 {fname}")) },
     }
   }
   if contains(c.structs, h) && is_con(t) {
@@ -3229,7 +3734,7 @@ fn field(c0: C, e: Node, sc: Sc) -> Result<(C, Ty, Node), F> {
 fn arg_type(c: C, a: Arg, sc: Sc, expected: Ty?) -> Result<(C, Ty, Node?), F> {
   match a {
     AT(t, _, n) => Ok((c, t, n)),
-    AN(v)       => {
+    AN(v) => {
       let (c1, t, x) = expr(c, v, sc, expected)?
       Ok((c1, t, Some(x)))
     },
@@ -3239,14 +3744,14 @@ fn arg_type(c: C, a: Arg, sc: Sc, expected: Ty?) -> Result<(C, Ty, Node?), F> {
 fn arg_line(a: Arg, ln: Int) -> Int {
   match a {
     AT(_, l, _) => l,
-    AN(v)       => v.line,
+    AN(v) => v.line,
   }
 }
 
 fn is_lam_arg(a: Arg) -> Bool {
   match a {
     AN(v) => is_k(v, "Lambda"),
-    _     => false,
+    _ => false,
   }
 }
 
@@ -3257,7 +3762,9 @@ fn somes_n(xs: List<Node?>) -> List<Node> {
 }
 
 // 返回 (状态, 结果类型, 类型化的被调函数节点, 类型化的实参节点：只含带节点的实参，按原顺序)
-fn call(cin: C, fnode: Node, args: List<Arg>, sc: Sc, ln: Int) -> Result<(C, Ty, Node, List<Node>), F> {
+fn call(cin: C, fnode: Node, args: List<Arg>, sc: Sc, ln: Int) -> Result<(
+  C, Ty, Node, List<Node>
+), F> {
   let cg_node = cin.cg_node
   let c0 = C { cg_node: None, ..cin }
   if let NField(obj, fname0) = fnode.k {
@@ -3266,11 +3773,14 @@ fn call(cin: C, fnode: Node, args: List<Arg>, sc: Sc, ln: Int) -> Result<(C, Ty,
     let on = unwrap_or(on0, "")
     if is_some(on0) {
       let segs = split(on, ".")
-      if first_upper(segs[len(segs) - 1]) && (contains(c0.structs, on) || contains(c0.methods, on)) &&
-        !(contains(c0.enums, on) && is_none(sc_find(c0, sc, on))) {
+      if first_upper(segs[len(segs) - 1])
+        && (contains(c0.structs, on) || contains(c0.methods, on))
+        && !(contains(c0.enums, on) && is_none(sc_find(c0, sc, on))) {
         let tbl = unwrap_or(get(c0.methods, on), Map())
         if let Some((_, hs)) = get(tbl, fname) {
-          if hs { return Err(te(c0, ln, "{on}.{fname} 是实例方法（带 self），请用 值.{fname}(...) 调用")) }
+          if hs {
+            return Err(te(c0, ln, "{on}.{fname} 是实例方法（带 self），请用 值.{fname}(...) 调用"))
+          }
         }
         return Err(te(c0, ln, "类型 {on} 没有静态方法 {fname}"))
       }
@@ -3287,7 +3797,7 @@ fn call(cin: C, fnode: Node, args: List<Arg>, sc: Sc, ln: Int) -> Result<(C, Ty,
             let (ca, ta, xa) = apply(c, FVar, args, sc, ln, fname)?
             return Ok((ca, ta, f2, xa))
           },
-          _              => {
+          _ => {
             let (c1, ft, f3) = field(c, fnode, sc)?
             let (cb, tb, xb) = apply(c1, FTy(ft), args, sc, ln, fname)?
             return Ok((cb, tb, f3, xb))
@@ -3298,7 +3808,9 @@ fn call(cin: C, fnode: Node, args: List<Arg>, sc: Sc, ln: Int) -> Result<(C, Ty,
         for b in closure(c, bs) {
           for m in unwrap_or(get(c.traits, b), []) {
             if fnd(m).name == fname {
-              if fnd(m).is_unsafe && c.unsafe_d == 0 { return Err(te(c, ln, "使用 unsafe 方法 {fname} 需要放在 unsafe \{ … } 里")) }
+              if fnd(m).is_unsafe && c.unsafe_d == 0 {
+                return Err(te(c, ln, "使用 unsafe 方法 {fname} 需要放在 unsafe \{ … } 里"))
+              }
               let (c1, sig) = fn_sig(c, m, set(Map(), "Self", rt), Some(rt))?
               let recv = if has_self(m) { [AT(rt, ln, None)] } else { [] }
               let (cc, tc, xc) = apply(c1, FTy(sig), recv + args, sc, ln, fname)?
@@ -3312,9 +3824,16 @@ fn call(cin: C, fnode: Node, args: List<Arg>, sc: Sc, ln: Int) -> Result<(C, Ty,
       }
       let tbl = unwrap_or(get(c.methods, h), Map())
       if let Some((sig, hs)) = get(tbl, fname) {
-        if contains(c.umeth, h + "|" + fname) && c.unsafe_d == 0 { return Err(te(c, ln, "使用 unsafe 方法 {h}.{fname} 需要放在 unsafe \{ … } 里")) }
+        if contains(c.umeth, h + "|" + fname) && c.unsafe_d == 0 {
+          return Err(te(c, ln, "使用 unsafe 方法 {h}.{fname} 需要放在 unsafe \{ … } 里"))
+        }
         let recv = if hs { [AT(rt, ln, None)] } else { [] }
-        let (c1, isig) = inst_cg(C { pend: [], ..c }, sig, ln, unwrap_or(get(c.mcga, h + "|#" + fname), []))
+        let (c1, isig) = inst_cg(
+          C { pend: [], ..c },
+          sig,
+          ln,
+          unwrap_or(get(c.mcga, h + "|#" + fname), []),
+        )
         let c1b = take_cg(c1, cg_node, fname, ln)?
         let (cd, td, xd) = apply(c1b, FTy(isig), recv + args, sc, ln, fname)?
         return Ok((cd, td, f2, xd))
@@ -3350,9 +3869,9 @@ fn call(cin: C, fnode: Node, args: List<Arg>, sc: Sc, ln: Int) -> Result<(C, Ty,
     f2 = fx2
   }
   let name = match fnode.k {
-    NName(x)       => x,
+    NName(x) => x,
     NTypeApp(g, _) => unwrap_or(name_of(g), "函数"),
-    _              => "函数",
+    _ => "函数",
   }
   let (c2, rt, xs) = apply(c, ft, args, sc, ln, name)?
   c = c2
@@ -3364,7 +3883,9 @@ fn call(cin: C, fnode: Node, args: List<Arg>, sc: Sc, ln: Int) -> Result<(C, Ty,
           let p = pr(c, rt)
           el = if tname(p) == "List" { Some(targs(p)[0]) } else { None }
         }
-        if let Some(x) = el { c = C { ord_sites: push(c.ord_sites, (name, x, len(args), ln, fnode)), ..c } }
+        if let Some(x) = el {
+          c = C { ord_sites: push(c.ord_sites, (name, x, len(args), ln, fnode)), ..c }
+        }
       }
     }
   }
@@ -3377,10 +3898,12 @@ fn dict_get(d: List<(Str, Str)>, k: Str) -> Str? {
 }
 
 // 返回结果类型和类型化的实参节点（只含带节点的实参，按原顺序）
-fn apply(c0: C, ft: FT, args0: List<Arg>, sc: Sc, ln: Int, name: Str) -> Result<(C, Ty, List<Node>), F> {
+fn apply(c0: C, ft: FT, args0: List<Arg>, sc: Sc, ln: Int, name: Str) -> Result<(
+  C, Ty, List<Node>
+), F> {
   var args = args0
   match ft {
-    FVar     => {
+    FVar => {
       var c = c0
       var out: List<Node?> = []
       for a in args {
@@ -3395,7 +3918,7 @@ fn apply(c0: C, ft: FT, args0: List<Arg>, sc: Sc, ln: Int, name: Str) -> Result<
       var chosen = ""
       match dict_get(d, "#{len(args)}") {
         Some(s) => { chosen = s },
-        None    => {
+        None => {
           if len(args) == 0 { return Err(te(c, ln, "{name} 参数个数不对")) }
           let (c1, f0, x0) = arg_type(c, args[0], sc, None)?
           c = c1
@@ -3404,10 +3927,20 @@ fn apply(c0: C, ft: FT, args0: List<Arg>, sc: Sc, ln: Int, name: Str) -> Result<
           let h = head(c, first)
           match dict_get(d, h) {
             Some(s) => { chosen = s },
-            None    => {
-              if is_tv(first) { return Err(te(c, ln, "无法推断 {name} 第一个参数的类型，请加类型标注")) }
-              if name == "__slice" { return Err(te(c, ln, "{sh(c, first)} 不支持切片（只有 List 和 Str 可以切片）")) }
-              return Err(te(c, ln, "{name} 不支持 {sh(c, first)}，可用于 " + join(map(d, (kv) => kv.0), ", ")))
+            None => {
+              if is_tv(first) {
+                return Err(te(c, ln, "无法推断 {name} 第一个参数的类型，请加类型标注"))
+              }
+              if name == "__slice" {
+                return Err(te(c, ln, "{sh(c, first)} 不支持切片（只有 List 和 Str 可以切片）"))
+              }
+              return Err(
+                te(
+                  c,
+                  ln,
+                  "{name} 不支持 {sh(c, first)}，可用于 " + join(map(d, (kv) => kv.0), ", "),
+                ),
+              )
             },
           }
         },
@@ -3416,11 +3949,13 @@ fn apply(c0: C, ft: FT, args0: List<Arg>, sc: Sc, ln: Int, name: Str) -> Result<
       let (c3, it) = inst(c2, bt, ln)
       return apply(c3, FTy(it), args, sc, ln, name)
     },
-    FTy(t0)  => {
+    FTy(t0) => {
       var c = c0
       var t = pr(c, t0)
       if is_con(t) && tname(t) == "UnsafeFn" {
-        if c.unsafe_d == 0 { return Err(te(c, ln, "调用 unsafe 函数值 {name}（{sh(c, t)}）需要放在 unsafe \{ … } 里")) }
+        if c.unsafe_d == 0 {
+          return Err(te(c, ln, "调用 unsafe 函数值 {name}（{sh(c, t)}）需要放在 unsafe \{ … } 里"))
+        }
         t = pr(c, targs(t)[0])
       }
       if is_tv(t) {
@@ -3433,7 +3968,9 @@ fn apply(c0: C, ft: FT, args0: List<Arg>, sc: Sc, ln: Int, name: Str) -> Result<
       let xs = targs(t)
       let ps = take(xs, len(xs) - 1)
       let ret = xs[len(xs) - 1]
-      if len(ps) != len(args) { return Err(te(c, ln, "{name} 需要 {len(ps)} 个参数，给了 {len(args)} 个")) }
+      if len(ps) != len(args) {
+        return Err(te(c, ln, "{name} 需要 {len(ps)} 个参数，给了 {len(args)} 个"))
+      }
       var order: List<Int> = []
       var i = 0
       while i < len(args) {
@@ -3447,11 +3984,15 @@ fn apply(c0: C, ft: FT, args0: List<Arg>, sc: Sc, ln: Int, name: Str) -> Result<
       }
       var res: List<Node?> = map(args, (a) => match a {
         AT(_, _, n) => n,
-        AN(_)       => None,
+        AN(_) => None,
       })
       for j in order {
         let (c1, at, x) = arg_type(c, args[j], sc, Some(ps[j]))?
-        c = unify(c1, ps[j], at, arg_line(args[j], ln), if name == "__slice" { "切片的下标" } else { "{name} 的第 {j + 1} 个参数" })?
+        c = unify(c1, ps[j], at, arg_line(args[j], ln), if name == "__slice" {
+          "切片的下标"
+        } else {
+          "{name} 的第 {j + 1} 个参数"
+        })?
         res = set(res, j, x)
       }
       if name == "sum" || name == "abs" { c = add_con(c, ret, KNum, ln) }
@@ -3466,7 +4007,7 @@ fn match_e(c0: C, e: Node, sc: Sc, expected: Ty?) -> Result<(C, Ty, Node), F> {
   let ln = e.line
   let md = match e.k {
     NMatch(m) => m,
-    _         => { return Err(te(c0, ln, "未知表达式")) },
+    _ => { return Err(te(c0, ln, "未知表达式")) },
   }
   if let Some(els) = md.let_else {
     let ss = stmts_of(els)
@@ -3477,7 +4018,15 @@ fn match_e(c0: C, e: Node, sc: Sc, expected: Ty?) -> Result<(C, Ty, Node), F> {
         if let NCall(f, _) = x.k { ok = contains(["panic", "repanic"], unwrap_or(name_of(f), "")) }
       }
     }
-    if !ok { return Err(te(c0, els.line, "let ... else 的 else 块必须跳出（以 return / break / continue / panic 结尾）")) }
+    if !ok {
+      return Err(
+        te(
+          c0,
+          els.line,
+          "let ... else 的 else 块必须跳出（以 return / break / continue / panic 结尾）",
+        ),
+      )
+    }
   }
   let (c1, st, subj2) = expr(c0, md.subject, sc, None)?
   var c = c1
@@ -3506,7 +4055,7 @@ fn match_e(c0: C, e: Node, sc: Sc, expected: Ty?) -> Result<(C, Ty, Node), F> {
       }
     }
     match result {
-      None    => { result = Some(bt) },
+      None => { result = Some(bt) },
       Some(r) => {
         let (c5, j) = join_t(c, r, bt, a.body.line, "match 各分支")?
         c = c5
@@ -3521,19 +4070,18 @@ fn match_e(c0: C, e: Node, sc: Sc, expected: Ty?) -> Result<(C, Ty, Node), F> {
   Ok((c, unwrap_or(result, never_t()), e2))
 }
 
-
 fn pname(n: Nm) -> Str { ast.nm_str(n) }
 
 fn irrefutable(c: C, p: Pat) -> Bool {
   match p {
-    PWild          => true,
-    PBind(_)       => true,
-    PVar(_)        => true,
-    PTuple(xs)     => all(xs, (x) => irrefutable(c, x)),
+    PWild => true,
+    PBind(_) => true,
+    PVar(_) => true,
+    PTuple(xs) => all(xs, (x) => irrefutable(c, x)),
     PStruct(n, fs) => contains(c.structs, pname(n)) && all(fs, (f) => irrefutable(c, f.1)),
-    POr(xs)        => any(xs, (x) => irrefutable(c, x)),
-    PAt(_, b)      => irrefutable(c, b),
-    _              => false,
+    POr(xs) => any(xs, (x) => irrefutable(c, x)),
+    PAt(_, b) => irrefutable(c, b),
+    _ => false,
   }
 }
 
@@ -3549,24 +4097,24 @@ fn prod(parts: List<List<Pat>>) -> List<List<Pat>> {
 
 fn expand_or(p: Pat) -> List<Pat> {
   match p {
-    POr(xs)                => {
+    POr(xs) => {
       var out: List<Pat> = []
       for a in xs { out = out + expand_or(a) }
       out
     },
-    PTuple(xs)             => map(prod(map(xs, expand_or)), (cs) => PTuple(cs)),
-    PAt(_, b)              => expand_or(b),
+    PTuple(xs) => map(prod(map(xs, expand_or)), (cs) => PTuple(cs)),
+    PAt(_, b) => expand_or(b),
     PList(pre, rest, post) => {
       let n = len(pre)
       // Python 版展开后总是带着第四项（后缀）
       map(prod(map(pre + post, expand_or)), (cs) => PList(take(cs, n), rest, skip(cs, n)))
     },
-    PVariant(n, Some(xs))  => map(prod(map(xs, expand_or)), (cs) => PVariant(n, Some(cs))),
-    PStruct(n, fs)         => {
+    PVariant(n, Some(xs)) => map(prod(map(xs, expand_or)), (cs) => PVariant(n, Some(cs))),
+    PStruct(n, fs) => {
       let names = map(fs, (f) => f.0)
       map(prod(map(fs, (f) => expand_or(f.1))), (cs) => PStruct(n, zip(names, cs)))
     },
-    _                      => [p],
+    _ => [p],
   }
 }
 
@@ -3579,7 +4127,7 @@ fn exhaustive(c0: C, ln: Int, pats0: List<Pat>, st: Ty) -> Result<C, F> {
   let (c, w0) = missing_case(c0, arms, t)
   let w = match w0 {
     Some(x) => x,
-    None    => { return Ok(c) },
+    None => { return Ok(c) },
   }
   if contains(c.enums, h) {
     let vs = map(unwrap(get(c.enums, h)).1, (v) => v.0)
@@ -3587,25 +4135,32 @@ fn exhaustive(c0: C, ln: Int, pats0: List<Pat>, st: Ty) -> Result<C, F> {
     for p in arms {
       match p {
         PVariant(n, subs) => {
-          if is_none(subs) || all(unwrap(subs), (x) => irrefutable(c, x)) { have = push(have, pname(n)) }
+          if is_none(subs) || all(unwrap(subs), (x) => irrefutable(c, x)) {
+            have = push(have, pname(n))
+          }
         },
-        PStruct(n, fs)    => {
-          if contains(vs, pname(n)) && all(fs, (f) => irrefutable(c, f.1)) { have = push(have, pname(n)) }
+        PStruct(n, fs) => {
+          if contains(vs, pname(n)) && all(fs, (f) => irrefutable(c, f.1)) {
+            have = push(have, pname(n))
+          }
         },
-        _                 => (),
+        _ => (),
       }
     }
     let missing_ = filter(vs, (v) => !contains(have, v))
     let named = (p: Pat, m: Str) => match p {
       PVariant(n, _) => pname(n) == m,
-      PStruct(n, _)  => pname(n) == m,
-      _              => false,
+      PStruct(n, _) => pname(n) == m,
+      _ => false,
     }
-    if len(missing_) > 0 && all(missing_, (m) => !contains(have, m) && !any(arms, (p) => named(p, m))) {
+    if len(missing_) > 0
+      && all(missing_, (m) => !contains(have, m) && !any(arms, (p) => named(p, m))) {
       return Err(te(c, ln, "match 没有覆盖 {h} 的 " + join(missing_, ", ")))
     }
   }
-  if h == "Bool" && (w == "true" || w == "false") { return Err(te(c, ln, "match 没有覆盖 Bool 的所有值")) }
+  if h == "Bool" && (w == "true" || w == "false") {
+    return Err(te(c, ln, "match 没有覆盖 Bool 的所有值"))
+  }
   if w == "_" { return Err(te(c, ln, "match 不穷尽，{sh(c, t)} 需要一个兜底分支 _")) }
   Err(te(c, ln, "match 不穷尽，没有覆盖 {w}"))
 }
@@ -3628,14 +4183,14 @@ enum Cell {
 
 fn key_eq(a: Key, b: Key) -> Bool {
   match (a, b) {
-    (KB(x), KB(y))             => x == y,
-    (KLit(x), KLit(y))         => x == y,
-    (KT(x), KT(y))             => x == y,
-    (KVn(x), KVn(y))           => x == y,
-    (KS(x), KS(y))             => x == y,
-    (KLen(x), KLen(y))         => x == y,
+    (KB(x), KB(y)) => x == y,
+    (KLit(x), KLit(y)) => x == y,
+    (KT(x), KT(y)) => x == y,
+    (KVn(x), KVn(y)) => x == y,
+    (KS(x), KS(y)) => x == y,
+    (KLen(x), KLen(y)) => x == y,
     (KRest(x, p), KRest(y, q)) => x == y && p == q,
-    _                          => false,
+    _ => false,
   }
 }
 
@@ -3643,17 +4198,17 @@ fn pdump(p: Pat) -> Str { val.dump(ast.pat_v(p)) }
 
 fn norm(c: C, p: Pat) -> Cell {
   match p {
-    PWild                  => CW,
-    PBind(_)               => CW,
-    PVar(_)                => CW,
-    PLit(l)                => match l {
+    PWild => CW,
+    PBind(_) => CW,
+    PVar(_) => CW,
+    PLit(l) => match l {
       LBool(b) => CN(KB(b), []),
-      _        => CN(KLit("L" + val.dump(ast.lit_v(l))), []),
+      _ => CN(KLit("L" + val.dump(ast.lit_v(l))), []),
     },
-    PRange(..)             => CN(KLit("R" + pdump(p)), []),
-    PTuple(xs)             => CN(KT(len(xs)), map(xs, (x) => CP(x))),
-    PVariant(n, subs)      => CN(KVn(pname(n)), map(unwrap_or(subs, []), (x) => CP(x))),
-    PStruct(n, fs)         => {
+    PRange(..) => CN(KLit("R" + pdump(p)), []),
+    PTuple(xs) => CN(KT(len(xs)), map(xs, (x) => CP(x))),
+    PVariant(n, subs) => CN(KVn(pname(n)), map(unwrap_or(subs, []), (x) => CP(x))),
+    PStruct(n, fs) => {
       let name = pname(n)
       let pick = (fname: Str) => {
         var r = CW
@@ -3666,7 +4221,7 @@ fn norm(c: C, p: Pat) -> Cell {
       }
       let sf = match get(c.structs, name) {
         Some(s) => s.1,
-        None    => [],
+        None => [],
       }
       CN(KS(name), map(sf, (f) => pick(f.0)))
     },
@@ -3674,17 +4229,17 @@ fn norm(c: C, p: Pat) -> Cell {
       let n = len(pre) + len(post)
       let key = match rest {
         Some(r) => if r == "" { KLen(n) } else { KRest(n, len(post)) },
-        None    => KLen(n),
+        None => KLen(n),
       }
       CN(key, map(pre + post, (x) => CP(x)))
     },
-    _                      => CN(KLit("X" + pdump(p)), []),
+    _ => CN(KLit("X" + pdump(p)), []),
   }
 }
 
 fn conv_or_fresh(c: C, tas: List<TyX?>, gm: Map<Str, Ty>) -> (C, List<Ty>) {
   match convs(c, tas, gm, false) {
-    Ok(r)  => r,
+    Ok(r) => r,
     Err(_) => fresh_n(c, len(tas)),
   }
 }
@@ -3699,12 +4254,12 @@ fn universe(c0: C, t0: Ty, heads: List<Key>) -> (C, List<(Key, List<Ty>)>?) {
     var nl = false
     for k in heads {
       match k {
-        KVn(v)      => { vs = push(vs, v) },
-        KB(_)       => { nb = true },
-        KT(n)       => { if tn < 0 { tn = n } },
-        KLen(_)     => { nl = true },
+        KVn(v) => { vs = push(vs, v) },
+        KB(_) => { nb = true },
+        KT(n) => { if tn < 0 { tn = n } },
+        KLen(_) => { nl = true },
         KRest(_, _) => { nl = true },
-        _           => (),
+        _ => (),
       }
     }
     if len(vs) > 0 && contains(c.variant_owner, vs[0]) {
@@ -3796,9 +4351,9 @@ fn max_len(heads: List<Key>) -> Int {
   var m = 0
   for k in heads {
     match k {
-      KLen(n)     => { if n > m { m = n } },
+      KLen(n) => { if n > m { m = n } },
       KRest(n, _) => { if n > m { m = n } },
-      _           => (),
+      _ => (),
     }
   }
   m
@@ -3809,7 +4364,7 @@ fn specialize(rows: List<List<Cell>>, key: Key, arity: Int) -> List<List<Cell>> 
   for r in rows {
     let rest = skip(r, 1)
     match r[0] {
-      CW          => { out = push(out, __repeat(CW, arity) + rest) },
+      CW => { out = push(out, __repeat(CW, arity) + rest) },
       CN(k, subs) => {
         if key_eq(k, key) {
           out = push(out, subs + rest)
@@ -3821,11 +4376,11 @@ fn specialize(rows: List<List<Cell>>, key: Key, arity: Int) -> List<List<Cell>> 
                 out = push(out, take(subs, cut) + __repeat(CW, m - n) + skip(subs, cut) + rest)
               }
             },
-            _                         => (),
+            _ => (),
           }
         }
       },
-      CP(_)       => (),
+      CP(_) => (),
     }
   }
   out
@@ -3833,12 +4388,16 @@ fn specialize(rows: List<List<Cell>>, key: Key, arity: Int) -> List<List<Cell>> 
 
 fn show_case(key: Key, subs: List<Str>, top_l: Int) -> Str {
   match key {
-    KB(b)   => if b { "true" } else { "false" },
-    KT(_)   => "(" + join(subs, ", ") + ")",
-    KVn(v)  => v + (if len(subs) > 0 { "(" + join(subs, ", ") + ")" } else { "" }),
-    KS(s)   => s + " \{ .. }",
-    KLen(n) => if top_l >= 0 && n == top_l + 1 { "[" + join(subs, ", ") + ", ..]" } else { "[" + join(subs, ", ") + "]" },
-    _       => "_",
+    KB(b) => if b { "true" } else { "false" },
+    KT(_) => "(" + join(subs, ", ") + ")",
+    KVn(v) => v + (if len(subs) > 0 { "(" + join(subs, ", ") + ")" } else { "" }),
+    KS(s) => s + " \{ .. }",
+    KLen(n) => if top_l >= 0 && n == top_l + 1 {
+      "[" + join(subs, ", ") + ", ..]"
+    } else {
+      "[" + join(subs, ", ") + "]"
+    },
+    _ => "_",
   }
 }
 
@@ -3848,7 +4407,7 @@ fn missing(c0: C, rows0: List<List<Cell>>, types: List<Ty>, depth: Int) -> (C, L
   var c = c0
   let rows = map(rows0, (r) => match r[0] {
     CP(p) => push([], norm(c0, p)) + skip(r, 1),
-    _     => r,
+    _ => r,
   })
   var heads: List<Key> = []
   for r in rows {
@@ -3861,7 +4420,7 @@ fn missing(c0: C, rows0: List<List<Cell>>, types: List<Ty>, depth: Int) -> (C, L
     uni = u
   }
   match uni {
-    None     => {
+    None => {
       var d: List<List<Cell>> = []
       for r in rows {
         if let CW = r[0] { d = push(d, skip(r, 1)) }
@@ -3869,20 +4428,22 @@ fn missing(c0: C, rows0: List<List<Cell>>, types: List<Ty>, depth: Int) -> (C, L
       let (c2, w) = missing(c, d, skip(types, 1), depth + 1)
       return (c2, match w {
         Some(x) => Some(push([], "_") + x),
-        None    => None,
+        None => None,
       })
     },
     Some(us) => {
       let top_l = match us[0].0 {
         KLen(_) => max_len(heads),
-        _       => -1,
+        _ => -1,
       }
       for (key, sub) in us {
         let n = len(sub)
         let sp = specialize(rows, key, n)
         let (c3, w) = missing(c, sp, sub + skip(types, 1), depth + 1)
         c = c3
-        if let Some(x) = w { return (c, Some(push([], show_case(key, take(x, n), top_l)) + skip(x, n))) }
+        if let Some(x) = w {
+          return (c, Some(push([], show_case(key, take(x, n), top_l)) + skip(x, n)))
+        }
       }
       return (c, None)
     },
@@ -3893,7 +4454,7 @@ fn missing_case(c: C, arms: List<Pat>, t: Ty) -> (C, Str?) {
   let (c1, w) = missing(c, map(arms, (p) => [CP(p)]), [t], 0)
   (c1, match w {
     Some(x) => Some(x[0]),
-    None    => None,
+    None => None,
   })
 }
 
@@ -3910,7 +4471,7 @@ fn pattern(c: C, p: Pat, t: Ty, sc: Sc, mt: Bool, ln: Int) -> Result<(C, Sc, Pat
 fn is_dots(p: Pat) -> Bool {
   match p {
     PDots => true,
-    _     => false,
+    _ => false,
   }
 }
 
@@ -3936,14 +4497,16 @@ fn uniq_sorted(xs: List<Str>) -> List<Str> {
 fn lit_ty(v: Lit) -> Ty {
   match v {
     LBool(_) => bool_t(),
-    LInt(_)  => int_t(),
-    LBig(_)  => int_t(),
-    LFlt(_)  => float_t(),
-    LStr(_)  => str_t(),
+    LInt(_) => int_t(),
+    LBig(_) => int_t(),
+    LFlt(_) => float_t(),
+    LStr(_) => str_t(),
   }
 }
 
-fn pats(c0: C, ps: List<Pat>, ts: List<Ty>, sc0: Sc, mt: Bool, ln: Int) -> Result<(C, Sc, List<Pat>), F> {
+fn pats(c0: C, ps: List<Pat>, ts: List<Ty>, sc0: Sc, mt: Bool, ln: Int) -> Result<(
+  C, Sc, List<Pat>
+), F> {
   var c = c0
   var sc = sc0
   var out: List<Pat> = []
@@ -3963,7 +4526,7 @@ fn lit_repr(v: Lit) -> Str {
     LStr(s) => repr_str(s),
     LInt(i) => "{i}",
     LFlt(f) => "{f}",
-    _       => val.dump(ast.lit_v(v)),
+    _ => val.dump(ast.lit_v(v)),
   }
 }
 
@@ -3972,7 +4535,7 @@ fn lit_lt(a: Lit, b: Lit) -> Bool {
     (LInt(x), LInt(y)) => x < y,
     (LFlt(x), LFlt(y)) => x < y,
     (LStr(x), LStr(y)) => x < y,
-    _                  => false,
+    _ => false,
   }
 }
 
@@ -3981,7 +4544,7 @@ fn lit_eq(a: Lit, b: Lit) -> Bool {
     (LInt(x), LInt(y)) => x == y,
     (LFlt(x), LFlt(y)) => x == y,
     (LStr(x), LStr(y)) => x == y,
-    _                  => false,
+    _ => false,
   }
 }
 
@@ -3989,7 +4552,7 @@ fn lit_rt(v: Lit) -> Str {
   match v {
     LStr(_) => "Str",
     LFlt(_) => "Float",
-    _       => "Int",
+    _ => "Int",
   }
 }
 
@@ -4054,16 +4617,28 @@ fn pat(c0: C, p: Pat, t: Ty, sc0: Sc, mt: Bool, ln: Int) -> Result<(C, Sc, Pat),
         let b = unwrap(hi)
         if lit_rt(a) != lit_rt(b) { return Err(te(c, ln, "区间模式两端的类型不一致")) }
         if lit_lt(b, a) || lit_eq(b, a) && !inc {
-          return Err(te(c, ln, "区间模式 {lit_repr(a)}.." + (if inc { "=" } else { "" }) + "{lit_repr(b)} 是空的"))
+          return Err(
+            te(
+              c,
+              ln,
+              "区间模式 {lit_repr(a)}.." + (if inc { "=" } else { "" }) + "{lit_repr(b)} 是空的",
+            ),
+          )
         }
       }
-      let c1 = unify(c, t, tcon(lit_rt(match lo {
-        Some(x) => x,
-        None    => match hi {
-          Some(y) => y,
-          None    => LInt(0),
-        },
-      })), ln, "区间模式")?
+      let c1 = unify(
+        c,
+        t,
+        tcon(lit_rt(match lo {
+          Some(x) => x,
+          None => match hi {
+            Some(y) => y,
+            None => LInt(0),
+          },
+        })),
+        ln,
+        "区间模式",
+      )?
       return Ok((c1, sc, p))
     },
     PDots => { return Err(te(c, ln, ".. 只能出现在元组、变体或列表模式里")) },
@@ -4071,7 +4646,9 @@ fn pat(c0: C, p: Pat, t: Ty, sc0: Sc, mt: Bool, ln: Int) -> Result<(C, Sc, Pat),
       var subs = subs0
       if any(subs, is_dots) {
         let pt = pr(c, t)
-        if !(tname(pt) == "Tuple" && is_con(pt)) { return Err(te(c, ln, "带 .. 的元组模式需要已知长度的元组")) }
+        if !(tname(pt) == "Tuple" && is_con(pt)) {
+          return Err(te(c, ln, "带 .. 的元组模式需要已知长度的元组"))
+        }
         subs = expand_dots(c, subs, len(targs(pt)), "元组", ln)?
       }
       let (c1, ts) = fresh_n(c, len(subs))
@@ -4101,7 +4678,7 @@ fn pat(c0: C, p: Pat, t: Ty, sc0: Sc, mt: Bool, ln: Int) -> Result<(C, Sc, Pat),
         var en = unwrap(get(c.variant_owner, name))
         let q = match nv {
           NmQ(_, Some(x)) => x,
-          _               => "",
+          _ => "",
         }
         let pt = pr(c, t)
         if q != "" && contains(c.enums, q) && has_variant(c, q, name) {
@@ -4121,10 +4698,12 @@ fn pat(c0: C, p: Pat, t: Ty, sc0: Sc, mt: Bool, ln: Int) -> Result<(C, Sc, Pat),
         let fs = vf_fields(variant_fs(c, en, name))
         let subs1 = match subs0 {
           Some(x) => x,
-          None    => { return Ok((c, sc, p)) },
+          None => { return Ok((c, sc, p)) },
         }
         let subs = expand_dots(c, subs1, len(fs), "变体 {name} ", ln)?
-        if len(subs) != len(fs) { return Err(te(c, ln, "模式 {name} 需要 {len(fs)} 个字段，给了 {len(subs)} 个")) }
+        if len(subs) != len(fs) {
+          return Err(te(c, ln, "模式 {name} 需要 {len(fs)} 个字段，给了 {len(subs)} 个"))
+        }
         var fts: List<Ty> = []
         for f in fs {
           let (c2, ft) = conv(c, Some(f.1), gm, false)?
@@ -4143,7 +4722,9 @@ fn pat(c0: C, p: Pat, t: Ty, sc0: Sc, mt: Bool, ln: Int) -> Result<(C, Sc, Pat),
         return pat(c, PLit(unwrap(get(c.const_lits, name))), t, sc, mt, ln)
       }
       if is_none(subs0) && first_upper(name) && is_some(sc_find(c, sc, name)) {
-        return Err(te(c, ln, "常量 {name} 的值不是字面量，不能用作模式（请改用守卫 if x == {name}）"))
+        return Err(
+          te(c, ln, "常量 {name} 的值不是字面量，不能用作模式（请改用守卫 if x == {name}）"),
+        )
       }
       return Err(te(c, ln, "未知的变体 {name}"))
     },
@@ -4210,7 +4791,13 @@ fn solve_constraints(cin: C) -> C {
     round += 1
   }
   for (e, a, ln, ctx) in c.deferred {
-    c = C { errors: push(c.errors, (ln, "类型错误: " + pre(ctx) + "无法确定 {sh(c, e)} 和 {sh(c, a)} 是否一致，请加类型标注")), ..c }
+    c = C {
+      errors: push(
+        c.errors,
+        (ln, "类型错误: " + pre(ctx) + "无法确定 {sh(c, e)} 和 {sh(c, a)} 是否一致，请加类型标注"),
+      ),
+      ..c
+    }
   }
   c = C { deferred: [], ..c }
   let c0 = c
@@ -4227,26 +4814,51 @@ fn solve_constraints(cin: C) -> C {
         }
         continue
       },
-      KImpl(tr)      => {
+      KImpl(tr) => {
         if !implements(c, t, tr) {
-          let hint = if is_tr(t) { "（给泛型参数加约束 {sh(c, t)}: {tr}）" } else { "（需要 impl {tr} for {sh(c, t)}）" }
+          let hint = if is_tr(t) {
+            "（给泛型参数加约束 {sh(c, t)}: {tr}）"
+          } else {
+            "（需要 impl {tr} for {sh(c, t)}）"
+          }
           c = C { errors: push(c.errors, (ln, "类型错误: {sh(c, t)} 没有实现 {tr}{hint}")), ..c }
         }
         continue
       },
-      _              => (),
+      _ => (),
     }
     let kn = match kd {
       KNum => "num",
       KAdd => "add",
-      _    => "ord",
+      _ => "ord",
     }
     if let TR(rn, bs) = t {
       let need = if kn == "ord" { "Ord" } else { "Num" }
       if !has_bound(c, bs, need) {
-        let what = if kn == "num" { "数值运算" } else if kn == "add" { "+ 运算" } else { "大小比较" }
-        let alt = if kn == "add" { "Add" } else if kn == "ord" { "Cmp" } else { "Sub/Mul/Div/Rem/Neg" }
-        c = C { errors: push(c.errors, (ln, "类型错误: 泛型 {rn} 不能做 {what}，请加约束 {rn}: {need}（或运算符 trait {rn}: {alt}）")), ..c }
+        let what = if kn == "num" {
+          "数值运算"
+        } else if kn == "add" {
+          "+ 运算"
+        } else {
+          "大小比较"
+        }
+        let alt = if kn == "add" {
+          "Add"
+        } else if kn == "ord" {
+          "Cmp"
+        } else {
+          "Sub/Mul/Div/Rem/Neg"
+        }
+        c = C {
+          errors: push(
+            c.errors,
+            (
+              ln,
+              "类型错误: 泛型 {rn} 不能做 {what}，请加约束 {rn}: {need}（或运算符 trait {rn}: {alt}）",
+            ),
+          ),
+          ..c
+        }
       }
       continue
     }
@@ -4255,7 +4867,13 @@ fn solve_constraints(cin: C) -> C {
       t = int_t()
     }
     if is_anyn(t) { continue }
-    let ok = if kn == "num" { ["Int", "Float"] } else if kn == "add" { ["Int", "Float", "Str", "List"] } else { ["Int", "Float", "Str"] }
+    let ok = if kn == "num" {
+      ["Int", "Float"]
+    } else if kn == "add" {
+      ["Int", "Float", "Str", "List"]
+    } else {
+      ["Int", "Float", "Str"]
+    }
     if !(is_con(t) && contains(ok, tname(t))) {
       let what = if kn == "num" { "数值运算" } else if kn == "add" { "+ 运算" } else { "大小比较" }
       c = C { errors: push(c.errors, (ln, "类型错误: {what}不支持类型 {sh(c, t)}")), ..c }
@@ -4268,20 +4886,41 @@ fn solve_ord_sites(c0: C) -> C {
   var c = c0
   for (name, el, n, ln, fnode) in c0.ord_sites {
     let t = pr(c, el)
-    let cmpn = if name == "sort" { "__sort_cmp" } else { "__{name}" + (if n == 2 { "2" } else { "" }) + "_cmp" }
+    let cmpn = if name == "sort" {
+      "__sort_cmp"
+    } else {
+      "__{name}" + (if n == 2 { "2" } else { "" }) + "_cmp"
+    }
     if let TR(rn, bs) = t {
       if has_bound(c, bs, "Ord") { continue }
       if has_bound(c, bs, "Cmp") {
         c = add_patch(c, fnode, PtName(cmpn))
         continue
       }
-      c = C { errors: push(c.errors, (ln, "类型错误: {name} 需要可比较的元素，请给泛型加约束 {rn}: Ord 或 {rn}: Cmp")), ..c }
+      c = C {
+        errors: push(
+          c.errors,
+          (ln, "类型错误: {name} 需要可比较的元素，请给泛型加约束 {rn}: Ord 或 {rn}: Cmp"),
+        ),
+        ..c
+      }
       continue
     }
     let h = tname(t)
-    if h == "" || h == "Option" || h == "Result" || !(contains(c.structs, h) || contains(c.enums, h)) { continue }
+    if h == ""
+      || h == "Option"
+      || h == "Result"
+      || !(contains(c.structs, h) || contains(c.enums, h)) {
+      continue
+    }
     if !contains(c.impls, h + "|Cmp") {
-      c = C { errors: push(c.errors, (ln, "类型错误: {name} 需要可比较的元素：{sh(c, t)} 没有实现 Cmp（impl Cmp for {h}）")), ..c }
+      c = C {
+        errors: push(
+          c.errors,
+          (ln, "类型错误: {name} 需要可比较的元素：{sh(c, t)} 没有实现 Cmp（impl Cmp for {h}）"),
+        ),
+        ..c
+      }
     } else {
       c = add_patch(c, fnode, PtName(cmpn))
     }
@@ -4289,22 +4928,25 @@ fn solve_ord_sites(c0: C) -> C {
   C { ord_sites: [], ..c }
 }
 
-
 // ───────── 静态方法改写（kite.py 的 lower_statics）─────────
 
 fn subst_self(t: TyX?, tt: TyX) -> TyX? {
   match t {
     Some(x) => Some(subst_self1(x, tt)),
-    None    => None,
+    None => None,
   }
 }
 
 fn subst_self1(t: TyX, tt: TyX) -> TyX {
   match t {
-    YCon(n, a, l) => if n == "Self" && len(a) == 0 { tt } else { YCon(n, map(a, (x) => subst_self1(x, tt)), l) },
-    YTup(a, l)    => YTup(map(a, (x) => subst_self1(x, tt)), l),
-    YFn(a, r, l)  => YFn(map(a, (x) => subst_self1(x, tt)), subst_self1(r, tt), l),
-    _             => t,
+    YCon(n, a, l) => if n == "Self" && len(a) == 0 {
+      tt
+    } else {
+      YCon(n, map(a, (x) => subst_self1(x, tt)), l)
+    },
+    YTup(a, l) => YTup(map(a, (x) => subst_self1(x, tt)), l),
+    YFn(a, r, l) => YFn(map(a, (x) => subst_self1(x, tt)), subst_self1(r, tt), l),
+    _ => t,
   }
 }
 
@@ -4320,7 +4962,7 @@ fn set_body(n: Node, b: Node?) -> Node {
 fn walk_body(n: Node, w: fn(Node) -> Node) -> Node {
   match fn_body(n) {
     Some(b) => set_body(n, Some(w(b))),
-    None    => n,
+    None => n,
   }
 }
 
@@ -4343,11 +4985,22 @@ fn lower_statics(its: List<Node>) -> List<Node> {
       let gens = ign + filter(mf.gen.names, (g) => !contains(ign, g))
       let ps = map(mf.params, (p) => (p.0, subst_self(p.1, tt)))
       let cg = d.gen.cgens + filter(mf.gen.cgens, (g) => !contains(d.gen.cgens, g))
-      let fd = FnD { name: target + "." + mf.name, params: ps, ret: subst_self(mf.ret, tt), body: mf.body, gen: Gen { names: gens, bounds: b, cgens: cg },
-        is_async: mf.is_async, is_unsafe: mf.is_unsafe, varargs: false, ext: None, cname: None, x: FnX { static_of: Some(target), ..ast.no_fnx() } }
+      let fd = FnD {
+        name: target + "." + mf.name,
+        params: ps,
+        ret: subst_self(mf.ret, tt),
+        body: mf.body,
+        gen: Gen { names: gens, bounds: b, cgens: cg },
+        is_async: mf.is_async,
+        is_unsafe: mf.is_unsafe,
+        varargs: false,
+        ext: None,
+        cname: None,
+        x: FnX { static_of: Some(target), ..ast.no_fnx() },
+      }
       let pv = match m.vis {
         Some(v) => v.is_pub,
-        None    => true,
+        None => true,
       }
       let fnv = Node { vis: pub_vis(pv), pre: it.pre, ..ast.mkn(m.line, NFn(fd)) }
       extra = push(extra, (fnv, target))
@@ -4376,16 +5029,38 @@ fn mk_body(e: Node, ln: Int) -> Node { ast.mkn(ln, NBlock([ast.mkn(ln, NExprStmt
 
 // __c_N 方法（trait 里 / impl 里）：字段和 Python 版 lower_consts 生成的完全一样
 fn cfn(name: Str, ln: Int, ret: TyX, body: Node?, cname: Str) -> Node {
-  let fd = FnD { name: name, params: [("self", None)], ret: Some(ret), body: body, gen: ast.no_gen(), is_async: false, is_unsafe: false,
-    varargs: false, ext: None, cname: None, x: FnX { bare: true, const_name: Some(cname), ..ast.no_fnx() } }
+  let fd = FnD {
+    name: name,
+    params: [("self", None)],
+    ret: Some(ret),
+    body: body,
+    gen: ast.no_gen(),
+    is_async: false,
+    is_unsafe: false,
+    varargs: false,
+    ext: None,
+    cname: None,
+    x: FnX { bare: true, const_name: Some(cname), ..ast.no_fnx() },
+  }
   Node { attrs: Some([]), ..ast.mkn(ln, NFn(fd)) }
 }
 
 // impl 里的常量生成的顶层函数 "类型.N"()
 fn cfn_top(name: Str, ln: Int, ret: TyX?, body: Node, it: Node, target: Str) -> Node {
   let d = implv(it)
-  let fd = FnD { name: name, params: [], ret: ret, body: Some(body), gen: d.gen, is_async: false, is_unsafe: false, varargs: false, ext: None,
-    cname: None, x: FnX { static_of: Some(target), ..ast.no_fnx() } }
+  let fd = FnD {
+    name: name,
+    params: [],
+    ret: ret,
+    body: Some(body),
+    gen: d.gen,
+    is_async: false,
+    is_unsafe: false,
+    varargs: false,
+    ext: None,
+    cname: None,
+    x: FnX { static_of: Some(target), ..ast.no_fnx() },
+  }
   Node { vis: pub_vis(true), pre: it.pre, ..ast.mkn(ln, NFn(fd)) }
 }
 
@@ -4411,8 +5086,8 @@ fn lower_consts(its: List<Node>) -> Result<(List<Node>, Map<Str, List<(Str, TyX)
         sup = set(sup, t.name, t.supers)
         if len(t.consts) > 0 { any_c = true }
       },
-      NImpl(d)  => { if len(d.consts) > 0 { any_c = true } },
-      _         => (),
+      NImpl(d) => { if len(d.consts) > 0 { any_c = true } },
+      _ => (),
     }
   }
   if !any_c { return Ok((its, tc2)) }
@@ -4426,13 +5101,13 @@ fn lower_consts(its: List<Node>) -> Result<(List<Node>, Map<Str, List<(Str, TyX)
         for cx in t.consts {
           let body = match cx.value {
             Some(v) => Some(mk_body(v, cx.line)),
-            None    => None,
+            None => None,
           }
           ms = push(ms, cfn("__c_" + cx.name, cx.line, cx.ty, body, cx.name))
         }
         out = push(out, Node { k: NTrait(TraitD { methods: ms, ..t }), ..it })
       },
-      NImpl(d)  => {
+      NImpl(d) => {
         var given = d.consts
         if let Some(tr) = trait_name(d) {
           let decl = unwrap_or(get(tconsts, tr), [])
@@ -4453,15 +5128,25 @@ fn lower_consts(its: List<Node>) -> Result<(List<Node>, Map<Str, List<(Str, TyX)
         for cx in given {
           let ln = cx.line
           let nm = cx.name
-          let fnv = cfn_top(target + "." + nm, ln, subst_self(Some(cx.ty), tt), mk_body(unwrap(cx.value), ln), it, target)
+          let fnv = cfn_top(
+            target + "." + nm,
+            ln,
+            subst_self(Some(cx.ty), tt),
+            mk_body(unwrap(cx.value), ln),
+            it,
+            target,
+          )
           extra = push(extra, (fnv, target))
           owned = push(owned, target + "|" + nm)
           let call = call_n(ln, name_n(ln, target + "." + nm), [])
-          ms = push(ms, Node { vis: pub_vis(true), ..cfn("__c_" + nm, ln, cx.ty, Some(mk_body(call, ln)), nm) })
+          ms = push(ms, Node {
+            vis: pub_vis(true),
+            ..cfn("__c_" + nm, ln, cx.ty, Some(mk_body(call, ln)), nm)
+          })
         }
         out = push(out, Node { k: NImpl(ImplD { methods: ms, ..d }), ..it })
       },
-      _         => { out = push(out, it) },
+      _ => { out = push(out, it) },
     }
   }
   let lc = LC { owned: owned, tconsts: tconsts, sup: sup }
@@ -4481,7 +5166,9 @@ fn lower_consts(its: List<Node>) -> Result<(List<Node>, Map<Str, List<(Str, TyX)
   Ok((res, tc2))
 }
 
-fn walk_cs(lc: LC, xs: List<Node>, target: Str, trn: Str, hs: Bool) -> Result<List<Node>, (Int, Str)> {
+fn walk_cs(lc: LC, xs: List<Node>, target: Str, trn: Str, hs: Bool) -> Result<List<Node>, (
+  Int, Str
+)> {
   var out: List<Node> = []
   for y in xs {
     let w = walk_c(lc, y, target, trn, hs)?
@@ -4496,7 +5183,7 @@ fn walk_c(lc: LC, x: Node, target0: Str, tr0: Str, hs0: Bool) -> Result<Node, (I
   var hs = hs0
   let l = x.line
   match x.k {
-    NImpl(d)  => {
+    NImpl(d) => {
       target = d.target
       trn = ""
     },
@@ -4504,12 +5191,14 @@ fn walk_c(lc: LC, x: Node, target0: Str, tr0: Str, hs0: Bool) -> Result<Node, (I
       target = ""
       trn = t.name
     },
-    NFn(f)    => { if (target != "" || trn != "") && !starts(f.name, "__c_") { hs = has_self(x) } },
+    NFn(f) => { if (target != "" || trn != "") && !starts(f.name, "__c_") { hs = has_self(x) } },
     NField(obj, fname0) => {
       let fname = ast.nm_str(fname0)
       if let Some(on) = name_of(obj) {
         let q = if on == "Self" && target != "" { target } else { on }
-        if contains(lc.owned, q + "|" + fname) { return Ok(call_n(l, name_n(l, q + "." + fname), [])) }
+        if contains(lc.owned, q + "|" + fname) {
+          return Ok(call_n(l, name_n(l, q + "." + fname), []))
+        }
         if q == "Self" && trn != "" {
           var hit = false
           for t in tclosure(trn, lc.sup, []) {
@@ -4522,13 +5211,23 @@ fn walk_c(lc: LC, x: Node, target0: Str, tr0: Str, hs0: Bool) -> Result<Node, (I
         }
       }
     },
-    _         => (),
+    _ => (),
   }
   // Python 版跳过 consts 字段：trait / impl 只走方法
   match x.k {
-    NTrait(t) => { return Ok(Node { k: NTrait(TraitD { methods: walk_cs(lc, t.methods, target, trn, hs)?, ..t }), ..x }) },
-    NImpl(d)  => { return Ok(Node { k: NImpl(ImplD { methods: walk_cs(lc, d.methods, target, trn, hs)?, ..d }), ..x }) },
-    _         => (),
+    NTrait(t) => {
+      return Ok(Node {
+        k: NTrait(TraitD { methods: walk_cs(lc, t.methods, target, trn, hs)?, ..t }),
+        ..x
+      })
+    },
+    NImpl(d) => {
+      return Ok(Node {
+        k: NImpl(ImplD { methods: walk_cs(lc, d.methods, target, trn, hs)?, ..d }),
+        ..x
+      })
+    },
+    _ => (),
   }
   Ok(ast.with_kids(x, walk_cs(lc, ast.kids(x), target, trn, hs)?))
 }
@@ -4536,37 +5235,56 @@ fn walk_c(lc: LC, x: Node, target0: Str, tr0: Str, hs0: Bool) -> Result<Node, (I
 // ───────── 入口 ─────────
 
 // 返回 (错误 [(行, 文本)]，按行号稳定排序；每个用户顶层函数的签名；类型化 IR)
-pub fn check(prelude: List<Node>, user: List<Node>) -> (List<(Int, Str)>, List<(Str, Str)>, List<Node>) {
+pub fn check(prelude: List<Node>, user: List<Node>) -> (
+  List<(Int, Str)>,
+  List<(Str, Str)>,
+  List<Node>,
+) {
   let (errs, sigs, low, _) = check_c(prelude, user)
   (errs, sigs, low)
 }
 
 fn mark_pre(it: Node) -> Node {
   match it.k {
-    NTrait(t) => Node { pre: true, k: NTrait(TraitD { methods: map(t.methods, (x) => Node { pre: true, ..x }), ..t }), ..it },
-    NImpl(d)  => Node { pre: true, k: NImpl(ImplD { methods: map(d.methods, (x) => Node { pre: true, ..x }), ..d }), ..it },
-    _         => Node { pre: true, ..it },
+    NTrait(t) => Node {
+      pre: true,
+      k: NTrait(TraitD { methods: map(t.methods, (x) => Node { pre: true, ..x }), ..t }),
+      ..it
+    },
+    NImpl(d) => Node {
+      pre: true,
+      k: NImpl(ImplD { methods: map(d.methods, (x) => Node { pre: true, ..x }), ..d }),
+      ..it
+    },
+    _ => Node { pre: true, ..it },
   }
 }
 
 // 同 check，另外返回检查器的最终状态（KIR 要用其中的签名表、替换表 sub 和各 impl 的 trait 默认方法 dflt）
-pub fn check_c(prelude: List<Node>, user: List<Node>) -> (List<(Int, Str)>, List<(Str, Str)>, List<Node>, C) {
+pub fn check_c(prelude: List<Node>, user: List<Node>) -> (
+  List<(Int, Str)>,
+  List<(Str, Str)>,
+  List<Node>,
+  C,
+) {
   let c0 = match install(new_c()) {
-    Ok(c)  => c,
+    Ok(c) => c,
     Err(f) => { return ([(f.ln, f.msg)], [], [], new_c()) },
   }
   let pmark = map(prelude, mark_pre)
   let (low, tconsts) = match lower_consts(pmark + user) {
-    Ok(r)        => r,
+    Ok(r) => r,
     Err((ln, m)) => {
       var sg: List<(Str, Str)> = []
-      for it in user { if is_k(it, "Fn") && it.line < 1000000 { sg = push(sg, (fnd(it).name, "~")) } }
+      for it in user {
+        if is_k(it, "Fn") && it.line < 1000000 { sg = push(sg, (fnd(it).name, "~")) }
+      }
       return ([(ln, m)], sg, [], c0)
     },
   }
   let (its, nids) = number_list(lower_statics(low), 0)
   match check2(C { tconsts: tconsts, idn: nids, ..c0 }, its) {
-    Ok((c, out))  => {
+    Ok((c, out)) => {
       var keyed: List<(Int, (Int, Str))> = []
       var i = 0
       for e in c.errors {
@@ -4579,7 +5297,7 @@ pub fn check_c(prelude: List<Node>, user: List<Node>) -> (List<(Int, Str)>, List
         if is_k(it, "Fn") && it.line < 1000000 {
           sigs = push(sigs, (fnd(it).name, match get(c.fsigs, fkey(it)) {
             Some(s) => sh(c, s),
-            None    => "~",
+            None => "~",
           }))
         }
       }
@@ -4604,7 +5322,7 @@ fn check2(c0: C, its: List<Node>) -> Result<(C, List<Node>), F> {
           c = c2
           out = push(out, x)
         },
-        Err(f)            => {
+        Err(f) => {
           if is_unsup(f) { return Err(f) }
           c = add_err(c, f)
           out = push(out, it)
@@ -4622,7 +5340,7 @@ fn check2(c0: C, its: List<Node>) -> Result<(C, List<Node>), F> {
           c = c2
           out = set(out, i, x)
         },
-        Err(f)      => {
+        Err(f) => {
           if is_unsup(f) { return Err(f) }
           c = add_err(c, f)
         },
@@ -4690,7 +5408,7 @@ fn fresh_ids(c0: C, v: Node) -> (C, Node) {
 fn with_va(vav: List<(Str, Str, List<Str>)>, it: Node) -> Node {
   let f = match it.k {
     NFn(x) => x,
-    _      => { return it },
+    _ => { return it },
   }
   if is_none(f.ext) { return it }
   let vs = filter(vav, (t) => t.0 == f.name)
@@ -4700,12 +5418,15 @@ fn with_va(vav: List<(Str, Str, List<Str>)>, it: Node) -> Node {
 
 fn patch1(n: Node, p: Pt) -> Node {
   match (p, n.k) {
-    (PtBounds(bs), NImpl(d))    => Node { k: NImpl(ImplD { gen: Gen { bounds: bs, ..d.gen }, ..d }), ..n },
-    (PtExt(et), NFn(f))         => with_fnd(n, FnD { x: FnX { ext_tys: Some(et), ..f.x }, ..f }),
-    (PtParams(hid), NFn(f))     => with_fnd(n, FnD { params: f.params + hid, ..f }),
+    (PtBounds(bs), NImpl(d)) => Node {
+      k: NImpl(ImplD { gen: Gen { bounds: bs, ..d.gen }, ..d }),
+      ..n
+    },
+    (PtExt(et), NFn(f)) => with_fnd(n, FnD { x: FnX { ext_tys: Some(et), ..f.x }, ..f }),
+    (PtParams(hid), NFn(f)) => with_fnd(n, FnD { params: f.params + hid, ..f }),
     (PtArgs(extra), NCall(f, a)) => Node { k: NCall(f, a + extra), ..n },
-    (PtName(nm), NName(_))      => Node { k: NName(nm), ..n },
-    _                           => n,
+    (PtName(nm), NName(_)) => Node { k: NName(nm), ..n },
+    _ => n,
   }
 }
 

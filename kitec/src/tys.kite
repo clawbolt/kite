@@ -34,35 +34,35 @@ pub fn tname(t: Ty) -> Str {
   match t {
     TC(n, _) => n,
     TR(n, _) => n,
-    _        => "",
+    _ => "",
   }
 }
 
 pub fn targs(t: Ty) -> List<Ty> {
   match t {
     TC(_, a) => a,
-    _        => [],
+    _ => [],
   }
 }
 
 pub fn is_tv(t: Ty) -> Bool {
   match t {
     TV(_) => true,
-    _     => false,
+    _ => false,
   }
 }
 
 pub fn is_tr(t: Ty) -> Bool {
   match t {
     TR(_, _) => true,
-    _        => false,
+    _ => false,
   }
 }
 
 pub fn is_tg(t: Ty) -> Bool {
   match t {
     TG(_, _) => true,
-    _        => false,
+    _ => false,
   }
 }
 
@@ -70,7 +70,7 @@ pub fn is_con(t: Ty) -> Bool {
   match t {
     TC(_, _) => true,
     TR(_, _) => true,
-    _        => false,
+    _ => false,
   }
 }
 
@@ -101,7 +101,7 @@ pub fn show_list(sub: Map<Int, Ty>, ts: List<Ty>, ns0: List<Int>) -> (List<Int>,
 pub fn show_n(sub: Map<Int, Ty>, t0: Ty, ns: List<Int>) -> (List<Int>, Str) {
   let t = prune(sub, t0)
   match t {
-    TV(i)    => {
+    TV(i) => {
       let k = idx_of(ns, i)
       if k >= 0 { (ns, "?" + letter(k % 26)) } else { (push(ns, i), "?" + letter(len(ns) % 26)) }
     },
@@ -130,7 +130,9 @@ pub fn show_n(sub: Map<Int, Ty>, t0: Ty, ns: List<Int>) -> (List<Int>, Str) {
       } else if len(args) > 0 {
         let (n1, ps) = show_list(sub, args, ns)
         (n1, n + "<" + join(ps, ", ") + ">")
-      } else { (ns, n) }
+      } else {
+        (ns, n)
+      }
     },
   }
 }
@@ -138,9 +140,9 @@ pub fn show_n(sub: Map<Int, Ty>, t0: Ty, ns: List<Int>) -> (List<Int>, Str) {
 pub fn occurs(sub: Map<Int, Ty>, v: Int, t0: Ty) -> Bool {
   let t = prune(sub, t0)
   match t {
-    TV(i)    => i == v,
+    TV(i) => i == v,
     TC(_, a) => any(a, (x) => occurs(sub, v, x)),
-    _        => false,
+    _ => false,
   }
 }
 
@@ -149,7 +151,7 @@ pub fn subst(sub: Map<Int, Ty>, t0: Ty, m: Map<Str, Ty>) -> Ty {
   match t {
     TG(n, _) => unwrap_or(get(m, n), t),
     TC(n, a) => if len(a) > 0 { TC(n, map(a, (x) => subst(sub, x, m))) } else { t },
-    _        => t,
+    _ => t,
   }
 }
 
@@ -160,11 +162,11 @@ fn gen_acc(sub: Map<Int, Ty>, t0: Ty, acc0: List<(Str, List<Str>)>) -> List<(Str
   let t = prune(sub, t0)
   match t {
     TG(n, bs) => if any(acc0, (p) => p.0 == n) { acc0 } else { push(acc0, (n, bs)) },
-    TC(_, a)  => {
+    TC(_, a) => {
       var acc = acc0
       for x in a { acc = gen_acc(sub, x, acc) }
       acc
     },
-    _         => acc0,
+    _ => acc0,
   }
 }

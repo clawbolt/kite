@@ -7,11 +7,29 @@
 use std.path
 use std.fs
 
-pub type FileInfo = { name: Str, path: Str, size: Int, mtime_ms: Int, is_dir: Bool, is_file: Bool, is_symlink: Bool, mode: Int }
+pub type FileInfo = {
+  name: Str,
+  path: Str,
+  size: Int,
+  mtime_ms: Int,
+  is_dir: Bool,
+  is_file: Bool,
+  is_symlink: Bool,
+  mode: Int,
+}
 
 fn info(p: Str, follow: Bool) -> Result<FileInfo, Str> {
   let (size, mt, kind, mode) = __fs_stat(p, follow)?
-  Ok(FileInfo { name: path.base(p), path: p, size: size, mtime_ms: mt, is_dir: kind == 1, is_file: kind == 0, is_symlink: kind == 2, mode: mode })
+  Ok(FileInfo {
+    name: path.base(p),
+    path: p,
+    size: size,
+    mtime_ms: mt,
+    is_dir: kind == 1,
+    is_file: kind == 0,
+    is_symlink: kind == 2,
+    mode: mode,
+  })
 }
 
 // 跟随符号链接
@@ -71,7 +89,10 @@ fn glob_from(dir: Str, segs: List<Str>, i: Int, abs: Bool) -> List<Str> {
   let seg = segs[i]
   let names = if has_meta(seg) {
     match fs.list(dir) {
-      Ok(ns) => filter(ns, (n) => path.match_glob(seg, n) && (starts_with(seg, ".") || !starts_with(n, "."))),
+      Ok(ns) => filter(
+        ns,
+        (n) => path.match_glob(seg, n) && (starts_with(seg, ".") || !starts_with(n, ".")),
+      ),
       Err(_) => [],
     }
   } else {

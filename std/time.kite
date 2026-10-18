@@ -46,7 +46,18 @@ pub const HOUR: Int = 3600000
 pub const DAY: Int = 86400000
 
 // 拆开的日期时间。weekday：0 是星期日；yday：一年里的第几天（1 起）；offset：相对 UTC 的秒数
-pub type DateTime = { year: Int, month: Int, day: Int, hour: Int, minute: Int, second: Int, ms: Int, weekday: Int, yday: Int, offset: Int }
+pub type DateTime = {
+  year: Int,
+  month: Int,
+  day: Int,
+  hour: Int,
+  minute: Int,
+  second: Int,
+  ms: Int,
+  weekday: Int,
+  yday: Int,
+  offset: Int,
+}
 
 fn fdiv(a: Int, b: Int) -> Int { if a >= 0 { a / b } else { -((-a + b - 1) / b) } }
 
@@ -63,7 +74,13 @@ fn days_from_civil(y0: Int, m: Int, d: Int) -> Int {
 pub fn is_leap(y: Int) -> Bool { (y % 4 == 0 && y % 100 != 0) || y % 400 == 0 }
 
 pub fn days_in_month(y: Int, m: Int) -> Int {
-  if m == 2 { if is_leap(y) { 29 } else { 28 } } else if m == 4 || m == 6 || m == 9 || m == 11 { 30 } else { 31 }
+  if m == 2 {
+    if is_leap(y) { 29 } else { 28 }
+  } else if m == 4 || m == 6 || m == 9 || m == 11 {
+    30
+  } else {
+    31
+  }
 }
 
 // 按偏移 offset 秒拆开（0 就是 UTC）；1970 年以前也正确
@@ -81,7 +98,18 @@ pub fn in_offset(ms: Int, offset: Int) -> DateTime {
   let m = if mp < 10 { mp + 3 } else { mp - 9 }
   let y = yoe + era * 400 + (if m <= 2 { 1 } else { 0 })
   let wd = (days % 7 + 11) % 7
-  DateTime { year: y, month: m, day: d, hour: rem / HOUR, minute: rem % HOUR / MINUTE, second: rem % MINUTE / 1000, ms: rem % 1000, weekday: wd, yday: days - days_from_civil(y, 1, 1) + 1, offset: offset }
+  DateTime {
+    year: y,
+    month: m,
+    day: d,
+    hour: rem / HOUR,
+    minute: rem % HOUR / MINUTE,
+    second: rem % MINUTE / 1000,
+    ms: rem % 1000,
+    weekday: wd,
+    yday: days - days_from_civil(y, 1, 1) + 1,
+    offset: offset,
+  }
 }
 
 pub fn utc(ms: Int) -> DateTime { in_offset(ms, 0) }
@@ -96,10 +124,14 @@ pub fn date(year: Int, month: Int, day: Int, hour: Int, minute: Int, second: Int
   let m0 = month - 1
   let y = year + fdiv(m0, 12)
   let m = m0 - fdiv(m0, 12) * 12 + 1
-  days_from_civil(y, m, 1) * DAY + (day - 1) * DAY + hour * HOUR + minute * MINUTE + second * SECOND + ms
+  days_from_civil(y, m, 1) * DAY + (
+    day - 1
+  ) * DAY + hour * HOUR + minute * MINUTE + second * SECOND + ms
 }
 
-pub fn to_ms(dt: DateTime) -> Int { date(dt.year, dt.month, dt.day, dt.hour, dt.minute, dt.second, dt.ms) - dt.offset * 1000 }
+pub fn to_ms(dt: DateTime) -> Int {
+  date(dt.year, dt.month, dt.day, dt.hour, dt.minute, dt.second, dt.ms) - dt.offset * 1000
+}
 
 // 按日历加年、月、日（同 Go 的 AddDate），结果按 UTC 计
 pub fn add_date(ms: Int, years: Int, months: Int, days: Int) -> Int {
@@ -110,9 +142,26 @@ pub fn add_date(ms: Int, years: Int, months: Int, days: Int) -> Int {
 // 截到 d 的整数倍（同 Go 的 Truncate），比如 truncate(t, DAY) 是当天 0 点（UTC）
 pub fn truncate(ms: Int, d: Int) -> Int { fdiv(ms, d) * d }
 
-fn month_names() -> List<Str> { ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"] }
+fn month_names() -> List<Str> {
+  [
+    "January",
+    "February",
+    "March",
+    "April",
+    "May",
+    "June",
+    "July",
+    "August",
+    "September",
+    "October",
+    "November",
+    "December",
+  ]
+}
 
-fn day_names() -> List<Str> { ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"] }
+fn day_names() -> List<Str> {
+  ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"]
+}
 
 fn pad(n: Int, w: Int, c: Str) -> Str {
   var s = "{n}"
@@ -130,7 +179,36 @@ fn offset_str(off: Int, colon: Bool, z: Bool) -> Str {
 // Go 风格的布局：用参考时间 Mon Jan 2 15:04:05 MST 2006 的各部分表示格式
 //   2006 06 | 01 1 Jan January | 02 2 _2 | 002（年内第几天）| 15 03 3 | 04 4 | 05 5 | .000 .000000 | PM pm | Mon Monday | -0700 -07:00 Z07:00 Z0700 MST
 pub fn format_dt(t: DateTime, layout: Str) -> Str {
-  let toks = [("January", 0), ("Monday", 1), ("Z07:00", 2), ("Z0700", 3), ("-07:00", 4), ("-0700", 5), (".000000", 6), (".000", 7), ("2006", 8), ("002", 9), ("Jan", 10), ("Mon", 11), ("MST", 12), ("01", 13), ("02", 14), ("_2", 15), ("06", 16), ("15", 17), ("03", 18), ("04", 19), ("05", 20), ("PM", 21), ("pm", 22), ("1", 23), ("2", 24), ("3", 25), ("4", 26), ("5", 27)]
+  let toks = [
+    ("January", 0),
+    ("Monday", 1),
+    ("Z07:00", 2),
+    ("Z0700", 3),
+    ("-07:00", 4),
+    ("-0700", 5),
+    (".000000", 6),
+    (".000", 7),
+    ("2006", 8),
+    ("002", 9),
+    ("Jan", 10),
+    ("Mon", 11),
+    ("MST", 12),
+    ("01", 13),
+    ("02", 14),
+    ("_2", 15),
+    ("06", 16),
+    ("15", 17),
+    ("03", 18),
+    ("04", 19),
+    ("05", 20),
+    ("PM", 21),
+    ("pm", 22),
+    ("1", 23),
+    ("2", 24),
+    ("3", 25),
+    ("4", 26),
+    ("5", 27),
+  ]
   let h12 = if t.hour % 12 == 0 { 12 } else { t.hour % 12 }
   var out = ""
   var i = 0
@@ -221,7 +299,11 @@ fn name_at(s: Str, i: Int, names: List<Str>, short: Bool) -> (Int, Int) {
 
 // 按布局解析成 unix 毫秒；布局里没有时区时按 UTC
 pub fn parse(layout: Str, s: Str) -> Result<Int, Str> {
-  let toks = ["January", "Monday", "Z07:00", "Z0700", "-07:00", "-0700", ".000000", ".000", "2006", "002", "Jan", "Mon", "MST", "01", "02", "_2", "06", "15", "03", "04", "05", "PM", "pm", "1", "2", "3", "4", "5"]
+  let toks = [
+    "January", "Monday", "Z07:00", "Z0700", "-07:00", "-0700", ".000000", ".000", "2006", "002",
+    "Jan", "Mon", "MST", "01", "02", "_2", "06", "15", "03", "04", "05", "PM", "pm", "1", "2", "3",
+    "4", "5",
+  ]
   let bad = "无法按布局 {layout} 解析时间: {s}"
   var y = 1970
   var mo = 1
@@ -305,21 +387,45 @@ pub fn parse(layout: Str, s: Str) -> Result<Int, Str> {
     } else {
       var j2 = j
       if tok == "_2" && __str_slice(s, j, j + 1) == " " { j2 = j + 1 }
-      let w = if tok == "2006" { 4 } else if tok == "002" { 3 } else if len(tok) == 1 || tok == "_2" { 1 } else { 2 }
+      let w = if tok == "2006" {
+        4
+      } else if tok == "002" {
+        3
+      } else if len(tok) == 1 || tok == "_2" {
+        1
+      } else {
+        2
+      }
       let (x, e1) = digits(s, j2, w, if len(tok) == 1 || tok == "_2" { 2 } else { w })
       if x < 0 { return Err(bad) }
       v = x
       e = e1
     }
     if v < 0 { return Err(bad) }
-    if tok == "2006" { y = v } else if tok == "06" { y = if v >= 69 { 1900 + v } else { 2000 + v } } else if tok == "January" || tok == "Jan" || tok == "01" || tok == "1" { mo = v } else if tok == "02" || tok == "2" || tok == "_2" { d = v } else if tok == "15" || tok == "03" || tok == "3" { h = v } else if tok == "04" || tok == "4" { mi = v } else if tok == "05" || tok == "5" { sec = v }
+    if tok == "2006" {
+      y = v
+    } else if tok == "06" {
+      y = if v >= 69 { 1900 + v } else { 2000 + v }
+    } else if tok == "January" || tok == "Jan" || tok == "01" || tok == "1" {
+      mo = v
+    } else if tok == "02" || tok == "2" || tok == "_2" {
+      d = v
+    } else if tok == "15" || tok == "03" || tok == "3" {
+      h = v
+    } else if tok == "04" || tok == "4" {
+      mi = v
+    } else if tok == "05" || tok == "5" {
+      sec = v
+    }
     i += len(tok)
     j = e
   }
   if j != len(s) { return Err(bad) }
   if pm == 1 && h < 12 { h += 12 }
   if pm == 0 && h == 12 { h = 0 }
-  if mo < 1 || mo > 12 || d < 1 || d > days_in_month(y, mo) || h > 23 || mi > 59 || sec > 59 { return Err("时间超出范围: {s}") }
+  if mo < 1 || mo > 12 || d < 1 || d > days_in_month(y, mo) || h > 23 || mi > 59 || sec > 59 {
+    return Err("时间超出范围: {s}")
+  }
   Ok(date(y, mo, d, h, mi, sec, ms) - off * 1000)
 }
 
@@ -383,7 +489,19 @@ pub fn parse_duration(s: Str) -> Result<Int, Str> {
       u = u + cs[i]
       i += 1
     }
-    let unit = if u == "ms" { 1 } else if u == "s" { SECOND } else if u == "m" { MINUTE } else if u == "h" { HOUR } else if u == "d" { DAY } else { 0 }
+    let unit = if u == "ms" {
+      1
+    } else if u == "s" {
+      SECOND
+    } else if u == "m" {
+      MINUTE
+    } else if u == "h" {
+      HOUR
+    } else if u == "d" {
+      DAY
+    } else {
+      0
+    }
     if unit == 0 { return Err(bad) }
     total = total + whole * unit + frac * unit / scale
   }

@@ -15,7 +15,11 @@ pub const SRC: Int = 1
 
 const M: Int = 65535
 
-fn clip(dst: Image, r0: Rectangle, src: Image, sp0: Point, mask: Option<Image>, mp0: Point) -> (Rectangle, Point, Point) {
+fn clip(dst: Image, r0: Rectangle, src: Image, sp0: Point, mask: Option<Image>, mp0: Point) -> (
+  Rectangle,
+  Point,
+  Point,
+) {
   let orig = r0.min
   var r = r0.intersect(dst.bounds())
   r = r.intersect(src.bounds().add(orig.sub(sp0)))
@@ -28,15 +32,27 @@ fn clip(dst: Image, r0: Rectangle, src: Image, sp0: Point, mask: Option<Image>, 
   (r, image.pt(sp0.x + dx, sp0.y + dy), image.pt(mp0.x + dx, mp0.y + dy))
 }
 
-pub fn draw(dst: Image, r: Rectangle, src: Image, sp: Point, op: Int) -> Image { draw_mask(dst, r, src, sp, None, image.zp(), op) }
+pub fn draw(dst: Image, r: Rectangle, src: Image, sp: Point, op: Int) -> Image {
+  draw_mask(dst, r, src, sp, None, image.zp(), op)
+}
 
 fn drawable(k: Int) -> Bool { k != image.YCBCR && k != image.NYCBCRA && k != image.UNIFORM }
 
-pub fn draw_mask(dst: Image, r0: Rectangle, src: Image, sp0: Point, mask: Option<Image>, mp0: Point, op: Int) -> Image {
+pub fn draw_mask(
+  dst: Image,
+  r0: Rectangle,
+  src: Image,
+  sp0: Point,
+  mask: Option<Image>,
+  mp0: Point,
+  op: Int,
+) -> Image {
   let (r, sp, mp) = clip(dst, r0, src, sp0, mask, mp0)
   if r.empty() || !drawable(dst.kind) { return dst }
   let has_mask = match mask { Some(_) => true, None => false }
-  if dst.kind == image.PALETTED && op == SRC && !has_mask { return draw_paletted(dst, r, src, sp, false) }
+  if dst.kind == image.PALETTED && op == SRC && !has_mask {
+    return draw_paletted(dst, r, src, sp, false)
+  }
   let mk = match mask { Some(m) => m, None => src }
   var pix = dst.pix
   let bpp = if dst.kind == image.PALETTED { 1 } else { len(dst.px_bytes(Color.Alpha(0))) }
@@ -59,10 +75,24 @@ pub fn draw_mask(dst: Image, r0: Rectangle, src: Image, sp0: Point, mask: Option
           let (dr, dg, db, da) = dst.rgba64_at_pix(pix, dx, dy)
           if has_mask {
             let a = M - sa * ma / M
-            out = Some(Color.RGBA64(((dr * a + sr * ma) / M) & 0xffff, ((dg * a + sg * ma) / M) & 0xffff, ((db * a + sb * ma) / M) & 0xffff, ((da * a + sa * ma) / M) & 0xffff))
+            out = Some(
+              Color.RGBA64(
+                ((dr * a + sr * ma) / M) & 0xffff,
+                ((dg * a + sg * ma) / M) & 0xffff,
+                ((db * a + sb * ma) / M) & 0xffff,
+                ((da * a + sa * ma) / M) & 0xffff,
+              ),
+            )
           } else {
             let a = M - sa
-            out = Some(Color.RGBA64((dr * a / M + sr) & 0xffff, (dg * a / M + sg) & 0xffff, (db * a / M + sb) & 0xffff, (da * a / M + sa) & 0xffff))
+            out = Some(
+              Color.RGBA64(
+                (dr * a / M + sr) & 0xffff,
+                (dg * a / M + sg) & 0xffff,
+                (db * a / M + sb) & 0xffff,
+                (da * a / M + sa) & 0xffff,
+              ),
+            )
           }
         } else {
           out = Some(Color.RGBA64(sr * ma / M, sg * ma / M, sb * ma / M, sa * ma / M))
@@ -117,7 +147,10 @@ fn draw_paletted(dst0: Image, r: Rectangle, src: Image, sp: Point, fs: Bool) -> 
         var best_sum = 4294967295
         for idx in 0..len(pal) {
           let p = pal[idx]
-          let sum = sq_diff(e[0], p[0]) + sq_diff(e[1], p[1]) + sq_diff(e[2], p[2]) + sq_diff(e[3], p[3])
+          let sum = sq_diff(e[0], p[0]) + sq_diff(e[1], p[1]) + sq_diff(e[2], p[2]) + sq_diff(
+            e[3],
+            p[3],
+          )
           if sum < best_sum {
             best = idx
             best_sum = sum
@@ -128,7 +161,11 @@ fn draw_paletted(dst0: Image, r: Rectangle, src: Image, sp: Point, fs: Bool) -> 
         if !fs { continue }
         for c in 0..4 { e[c] = e[c] - pal[best][c] }
       } else {
-        dst = dst.set(r.min.x + x, r.min.y + y, Color.RGBA64(e[0] & 0xffff, e[1] & 0xffff, e[2] & 0xffff, e[3] & 0xffff))
+        dst = dst.set(
+          r.min.x + x,
+          r.min.y + y,
+          Color.RGBA64(e[0] & 0xffff, e[1] & 0xffff, e[2] & 0xffff, e[3] & 0xffff),
+        )
         if !fs { continue }
         let (qr, qg, qb, qa) = dst.rgba64_at(r.min.x + x, r.min.y + y)
         e = [e[0] - qr, e[1] - qg, e[2] - qb, e[3] - qa]

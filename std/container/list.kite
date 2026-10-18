@@ -23,9 +23,13 @@ impl<T> LinkedList<T> {
 
   fn init(self) -> LinkedList<T> { LinkedList { order: [], vals: Map(), next_id: self.next_id } }
 
-  fn front(self) -> Option<Element> { if len(self.order) == 0 { None } else { Some(self.order[0]) } }
+  fn front(self) -> Option<Element> {
+    if len(self.order) == 0 { None } else { Some(self.order[0]) }
+  }
 
-  fn back(self) -> Option<Element> { if len(self.order) == 0 { None } else { Some(self.order[len(self.order) - 1]) } }
+  fn back(self) -> Option<Element> {
+    if len(self.order) == 0 { None } else { Some(self.order[len(self.order) - 1]) }
+  }
 
   fn next(self, e: Element) -> Option<Element> {
     let i = pos(self, e)
@@ -41,7 +45,9 @@ impl<T> LinkedList<T> {
 
   fn value(self, e: Element) -> T { self.vals[e] }
 
-  fn set_value(self, e: Element, v: T) -> LinkedList<T> { if contains(self.vals, e) { LinkedList { vals: set(self.vals, e, v), ..self } } else { self } }
+  fn set_value(self, e: Element, v: T) -> LinkedList<T> {
+    if contains(self.vals, e) { LinkedList { vals: set(self.vals, e, v), ..self } } else { self }
+  }
 
   fn insert_at(self, i: Int, v: T) -> (LinkedList<T>, Element) {
     let id = self.next_id
@@ -73,7 +79,14 @@ impl<T> LinkedList<T> {
     let i = pos(self, e)
     if i < 0 { return (self, None) }
     let v = self.vals[e]
-    (LinkedList { order: self.order[..i] + self.order[i + 1..], vals: remove(self.vals, e), ..self }, Some(v))
+    (
+      LinkedList {
+        order: self.order[..i] + self.order[i + 1..],
+        vals: remove(self.vals, e),
+        ..self
+      },
+      Some(v),
+    )
   }
 
   fn move_to(self, e: Element, j0: Int) -> LinkedList<T> {

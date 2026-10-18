@@ -35,13 +35,13 @@ fn ji(v: json.Json, k: Str) -> Int { unwrap_or(json.as_int(jf(v, k)), 0) }
 fn jarr(v: json.Json) -> List<json.Json> {
   match v {
     JArr(xs) => xs,
-    _        => [],
+    _ => [],
   }
 }
 
 fn pint(s: Str, d: Int) -> Int {
   match parse_int(s) {
-    Ok(n)  => n,
+    Ok(n) => n,
     Err(_) => d,
   }
 }
@@ -49,7 +49,7 @@ fn pint(s: Str, d: Int) -> Int {
 fn is_null(v: json.Json) -> Bool {
   match v {
     JNull => true,
-    _     => false,
+    _ => false,
   }
 }
 
@@ -60,7 +60,9 @@ fn jint(i: Int) -> json.Json { JInt(i) }
 fn pos(line: Int, ch: Int) -> json.Json { obj([("line", jint(line)), ("character", jint(ch))]) }
 
 // 行号 1 起、列 0 起
-fn rng(ln: Int, c: Int, word: Str) -> json.Json { obj([("start", pos(ln - 1, c)), ("end", pos(ln - 1, c + len(word)))]) }
+fn rng(ln: Int, c: Int, word: Str) -> json.Json {
+  obj([("start", pos(ln - 1, c)), ("end", pos(ln - 1, c + len(word)))])
+}
 
 fn rstart(r: json.Json) -> (Int, Int) {
   let s = jf(r, "start")
@@ -116,7 +118,9 @@ fn words(s: Str) -> List<(Int, Int, Str)> {
       while j < len(cs) && is_wc(cs[j]) { j += 1 }
       out = push(out, (i, j, join(sl_list(cs, i, j), "")))
       i = j
-    } else { i += 1 }
+    } else {
+      i += 1
+    }
   }
   out
 }
@@ -158,13 +162,22 @@ fn count_nl(s: Str, upto: Int) -> Int {
 // ───────── 符号 ─────────
 
 // 扁平的符号表（先序）：par 是父符号在表里的下标，顶层为 -1
-pub type Sym = { name: Str, kind: Str, line: Int, detail: Str, doc: Str, end: Int, par: Int, is_pub: Bool }
+pub type Sym = {
+  name: Str,
+  kind: Str,
+  line: Int,
+  detail: Str,
+  doc: Str,
+  end: Int,
+  par: Int,
+  is_pub: Bool,
+}
 
 type Loc = (Int, Str, Str, Str)
 
 fn block_end(lines: List<Str>, start: Int) -> Int {
   let toks = match fmt.tokenize(join(skip(lines, start - 1), "\n")) {
-    Ok(t)  => t,
+    Ok(t) => t,
     Err(_) => { return start },
   }
   var depth = 0
@@ -175,7 +188,9 @@ fn block_end(lines: List<Str>, start: Int) -> Int {
       if t.k == "op" && (t.s == lb() || t.s == "(") {
         depth += 1
         opened = true
-      } else if t.k == "op" && (t.s == rb() || t.s == ")") { depth -= 1 }
+      } else if t.k == "op" && (t.s == rb() || t.s == ")") {
+        depth -= 1
+      }
     }
     if opened && depth <= 0 { return start + i }
     if !opened && i > 0 { return start }
@@ -200,7 +215,7 @@ fn header(lines: List<Str>, line: Int) -> Str {
   if line < 1 || line > len(lines) { return "" }
   let text = trim(lines[line - 1])
   let tl = match fmt.tokenize(text) {
-    Ok(t)  => if len(t) > 0 { t[0] } else { [] },
+    Ok(t) => if len(t) > 0 { t[0] } else { [] },
     Err(_) => { return text },
   }
   let first = if len(words(text)) > 0 { split(text, " ")[0] } else { "" }
@@ -227,7 +242,7 @@ fn find_line(lines: List<Str>, word: Str, start: Int, end: Int) -> Int {
 }
 
 fn strip_num_prefix(msg: Str) -> Str {
-  // ^\d+(:\d+)?: 
+  // ^\d+(:\d+)?:
   let cs = chars(msg)
   var i = 0
   while i < len(cs) && is_digit(cs[i]) { i += 1 }
@@ -284,7 +299,7 @@ fn has_nonstd_use(src: Str) -> Bool {
 fn vis_pub(n: ast.Node) -> Bool {
   match n.vis {
     Some(v) => v.is_pub,
-    None    => false,
+    None => false,
   }
 }
 
@@ -295,7 +310,7 @@ pub fn analyze(src: Str, file: Str, pits: List<ast.Node>, kdir: Str) -> An {
   let lines = split(src, "\n")
   let items = match parser.parse(src) {
     Ok(its) => its,
-    Err(e)  => { return An { diags: [parse_err(lines, e)], syms: [], locs: [] } },
+    Err(e) => { return An { diags: [parse_err(lines, e)], syms: [], locs: [] } },
   }
   var diags: List<json.Json> = []
   var check_items = items
@@ -303,7 +318,7 @@ pub fn analyze(src: Str, file: Str, pits: List<ast.Node>, kdir: Str) -> An {
     let l = modules.with_overlay(modules.new_l(__getcwd(), file, kdir), src)
     match modules.load_main_src(l, file) {
       Ok((its, _)) => { check_items = its },
-      Err(e)       => {
+      Err(e) => {
         let msg = if e.ln == -2 || e.ln == -1 { e.msg } else { modules.strip_lm(e.msg) }
         let ln = if e.ln > 0 && e.ln < modules.LINE_BASE { e.ln } else { 1 }
         return An { diags: [diag(lines, ln, 0, msg, 1)], syms: [], locs: [] }
@@ -311,7 +326,9 @@ pub fn analyze(src: Str, file: Str, pits: List<ast.Node>, kdir: Str) -> An {
     }
   }
   let (errs, _, _, c) = check.check_c(pits, check_items)
-  for (ln, w) in sort(c.warns) { if ln < modules.LINE_BASE { diags = push(diags, diag(lines, ln, 0, w, 2)) } }
+  for (ln, w) in sort(c.warns) {
+    if ln < modules.LINE_BASE { diags = push(diags, diag(lines, ln, 0, w, 2)) }
+  }
   var seen: Set<(Int, Str)> = Set()
   var locs: List<Loc> = []
   for l in check.local_types(c) {
@@ -323,25 +340,43 @@ pub fn analyze(src: Str, file: Str, pits: List<ast.Node>, kdir: Str) -> An {
     let msg = modules.strip_lm(m)
     if ln >= modules.LINE_BASE {
       diags = push(diags, diag(lines, 1, 0, msg, 1))
-    } else { diags = push(diags, diag(lines, ln, 0, msg, 1)) }
+    } else {
+      diags = push(diags, diag(lines, ln, 0, msg, 1))
+    }
   }
   An { diags: diags, syms: symbols_of(items, lines), locs: locs }
 }
 
 fn symbols_of(items: List<ast.Node>, lines: List<Str>) -> List<Sym> {
   var syms: List<Sym> = []
-  let mk = (name: Str, kind: Str, line: Int, par: Int, p: Bool) => mk_sym(lines, name, kind, line, par, p)
+  let mk = (name: Str, kind: Str, line: Int, par: Int, p: Bool) => mk_sym(
+    lines,
+    name,
+    kind,
+    line,
+    par,
+    p,
+  )
   for it in items {
     let p = vis_pub(it)
     match it.k {
-      NFn(f)          => { syms = push(syms, mk(f.name, "fn", it.line, -1, p)) },
+      NFn(f) => { syms = push(syms, mk(f.name, "fn", it.line, -1, p)) },
       NStruct(n, fs, _) => {
         let s = mk(n, "struct", it.line, -1, p)
         let pi = len(syms)
         syms = push(syms, s)
         for (f, _) in fs {
           let ln = find_line(lines, f, it.line, s.end)
-          syms = push(syms, Sym { name: f, kind: "field", line: ln, detail: "{n}.{f}", doc: "", end: ln, par: pi, is_pub: false })
+          syms = push(syms, Sym {
+            name: f,
+            kind: "field",
+            line: ln,
+            detail: "{n}.{f}",
+            doc: "",
+            end: ln,
+            par: pi,
+            is_pub: false,
+          })
         }
       },
       NAlias(n, _, _) => { syms = push(syms, mk(n, "struct", it.line, -1, p)) },
@@ -351,18 +386,27 @@ fn symbols_of(items: List<ast.Node>, lines: List<Str>) -> List<Sym> {
         syms = push(syms, s)
         for (vn, _) in vs {
           let ln = find_line(lines, vn, it.line, s.end)
-          syms = push(syms, Sym { name: vn, kind: "member", line: ln, detail: trim(lines[ln - 1]), doc: "{n} 的变体", end: ln, par: pi, is_pub: false })
+          syms = push(syms, Sym {
+            name: vn,
+            kind: "member",
+            line: ln,
+            detail: trim(lines[ln - 1]),
+            doc: "{n} 的变体",
+            end: ln,
+            par: pi,
+            is_pub: false,
+          })
         }
       },
-      NTrait(t)       => {
+      NTrait(t) => {
         let pi = len(syms)
         syms = push(syms, mk(t.name, "trait", it.line, -1, p))
         for m in t.methods { syms = push(syms, mk(fn_name(m), "method", m.line, pi, false)) }
       },
-      NImpl(d)        => {
+      NImpl(d) => {
         let label = match d.tr {
           Some(tr) => "impl {ast.bound_name(tr)} for {d.target}",
-          None     => "impl {d.target}",
+          None => "impl {d.target}",
         }
         let pi = len(syms)
         syms = push(syms, mk(label, "impl", it.line, -1, p))
@@ -371,23 +415,32 @@ fn symbols_of(items: List<ast.Node>, lines: List<Str>) -> List<Sym> {
       NLet(pt, _, _, _, _) => {
         if let PBind(n) = pt { syms = push(syms, mk(ast.nm_str(n), "var", it.line, -1, p)) }
       },
-      NExtern(fs)     => {
+      NExtern(fs) => {
         for f in fs { syms = push(syms, mk(fn_name(f), "fn", f.line, -1, vis_pub(f))) }
       },
-      _               => (),
+      _ => (),
     }
   }
   syms
 }
 
 fn mk_sym(lines: List<Str>, name: Str, kind: Str, line: Int, par: Int, p: Bool) -> Sym {
-  Sym { name: name, kind: kind, line: line, detail: header(lines, line), doc: doc_above(lines, line), end: block_end(lines, line), par: par, is_pub: p }
+  Sym {
+    name: name,
+    kind: kind,
+    line: line,
+    detail: header(lines, line),
+    doc: doc_above(lines, line),
+    end: block_end(lines, line),
+    par: par,
+    is_pub: p,
+  }
 }
 
 fn fn_name(n: ast.Node) -> Str {
   match n.k {
     NFn(f) => f.name,
-    _      => "",
+    _ => "",
   }
 }
 
@@ -407,7 +460,7 @@ fn local_at(syms: List<Sym>, locs: List<Loc>, word: Str, line: Int) -> Loc? {
     if l.1 == word && lo <= l.0 && l.0 <= top {
       match best {
         Some(b) => { if l.0 >= b.0 { best = Some(l) } },
-        None    => { best = Some(l) },
+        None => { best = Some(l) },
       }
     }
   }
@@ -430,11 +483,15 @@ type Occ = (Int, Int, Bool, Str)
 fn occurrences(src: Str, word: Str) -> List<Occ> {
   let lines = split(src, "\n")
   let toks = match lexer.lex(src) {
-    Ok(t)  => t,
+    Ok(t) => t,
     Err(_) => { return [] },
   }
   let after = (ln: Int, e: Int) => {
-    let rest = if ln - 1 < len(lines) { lstrip(sl(lines[ln - 1], e, len(lines[ln - 1]))) } else { "" }
+    let rest = if ln - 1 < len(lines) {
+      lstrip(sl(lines[ln - 1], e, len(lines[ln - 1])))
+    } else {
+      ""
+    }
     sl(rest, 0, 1)
   }
   var out: List<Occ> = []
@@ -454,11 +511,21 @@ fn occurrences(src: Str, word: Str) -> List<Occ> {
           match lexer.lex(txt) {
             Ok(sub) => {
               for u in sub {
-                if u.kind == "IDENT" && lexer.sv(u.val) == word { out = push(out, (t.line, base + u.col - 1, p2 == ".", after(t.line, base + u.col - 1 + len(word)))) }
+                if u.kind == "IDENT" && lexer.sv(u.val) == word {
+                  out = push(
+                    out,
+                    (
+                      t.line,
+                      base + u.col - 1,
+                      p2 == ".",
+                      after(t.line, base + u.col - 1 + len(word)),
+                    ),
+                  )
+                }
                 p2 = if u.kind == "OP" { lexer.sv(u.val) } else { "" }
               }
             },
-            Err(_)  => (),
+            Err(_) => (),
           }
         }
       }
@@ -501,9 +568,12 @@ fn path_uri(p: Str) -> Str {
   var out = "file://"
   for b in __bytes(p) {
     let c = __chr(b)
-    if b < 128 && (is_ascii_alpha(c) || is_digit(c) || c == "/" || c == "." || c == "-" || c == "~") {
+    if b < 128
+      && (is_ascii_alpha(c) || is_digit(c) || c == "/" || c == "." || c == "-" || c == "~") {
       out = out + c
-    } else { out = out + "%" + sl(hx, b / 16, b / 16 + 1) + sl(hx, b % 16, b % 16 + 1) }
+    } else {
+      out = out + "%" + sl(hx, b / 16, b / 16 + 1) + sl(hx, b % 16, b % 16 + 1)
+    }
   }
   out
 }
@@ -523,26 +593,31 @@ fn use_stmts(src: Str) -> List<U> {
           items = its
           ok = true
         },
-        Err(_)  => (),
+        Err(_) => (),
       }
     },
     Err(_) => (),
   }
   if !ok {
     // 正在输入、整个文件暂时解析不了：只留下 use 行（其余行换成空行，行号不变）再试一次
-    let only = join(map(split(src, "\n"), (l) => {
-      var t = lstrip(l)
-      if starts_with(t, "pub") && len(t) > 3 && is_ws(sl(t, 3, 4)) { t = lstrip(sl(t, 3, len(t))) }
-      if starts_with(t, "use") && (len(t) == 3 || !is_wc(sl(t, 3, 4))) { l } else { "" }
-    }), "\n")
+    let only = join(
+      map(split(src, "\n"), (l) => {
+        var t = lstrip(l)
+        if starts_with(t, "pub") && len(t) > 3 && is_ws(sl(t, 3, 4)) {
+          t = lstrip(sl(t, 3, len(t)))
+        }
+        if starts_with(t, "use") && (len(t) == 3 || !is_wc(sl(t, 3, 4))) { l } else { "" }
+      }),
+      "\n",
+    )
     match lexer.lex(only) {
-      Ok(t)  => {
+      Ok(t) => {
         match parser.parse(only) {
           Ok(its) => {
             toks = t
             items = its
           },
-          Err(_)  => { return [] },
+          Err(_) => { return [] },
         }
       },
       Err(_) => { return [] },
@@ -553,9 +628,12 @@ fn use_stmts(src: Str) -> List<U> {
   for u in items {
     let (up, al) = match u.k {
       NUse(p, a) => (p, a),
-      _          => { continue },
+      _ => { continue },
     }
-    while i < len(toks) && !(toks[i].kind == "KW" && lexer.sv(toks[i].val) == "use" && toks[i].line >= u.line) { i += 1 }
+    while i < len(toks)
+      && !(toks[i].kind == "KW" && lexer.sv(toks[i].val) == "use" && toks[i].line >= u.line) {
+      i += 1
+    }
     var j = i + 1
     var ids: List<(lexer.Tok, Bool, Int)> = []
     var depth = 0
@@ -563,7 +641,15 @@ fn use_stmts(src: Str) -> List<U> {
     while j < len(toks) {
       let t = toks[j]
       let v = lexer.sv(t.val)
-      if t.kind == "OP" && v == lb() { depth += 1 } else if t.kind == "OP" && v == rb() { depth -= 1 } else if (t.kind == "NEWLINE" || t.kind == "EOF") && depth <= 0 { break } else if t.kind == "OP" && v == ";" && depth <= 0 { break }
+      if t.kind == "OP" && v == lb() {
+        depth += 1
+      } else if t.kind == "OP" && v == rb() {
+        depth -= 1
+      } else if (t.kind == "NEWLINE" || t.kind == "EOF") && depth <= 0 {
+        break
+      } else if t.kind == "OP" && v == ";" && depth <= 0 {
+        break
+      }
       if t.kind == "KW" && v == "as" {
         after_as = true
       } else if t.kind == "IDENT" {
@@ -587,7 +673,7 @@ fn use_stmts(src: Str) -> List<U> {
 
 fn up_name(u: ast.UseP) -> Str {
   match u {
-    UName(s)  => s,
+    UName(s) => s,
     UGroup(_) => "",
   }
 }
@@ -595,14 +681,14 @@ fn up_name(u: ast.UseP) -> Str {
 fn is_group(u: ast.UseP) -> Bool {
   match u {
     UGroup(_) => true,
-    UName(_)  => false,
+    UName(_) => false,
   }
 }
 
 fn group_of(u: ast.UseP) -> List<(Str, Str?)> {
   match u {
     UGroup(xs) => xs,
-    UName(_)   => [],
+    UName(_) => [],
   }
 }
 
@@ -619,14 +705,16 @@ fn kite_files(root: Str) -> List<Str> {
     let d = stack[len(stack) - 1]
     stack = take(stack, len(stack) - 1)
     let es = match fs.list(d) {
-      Ok(x)  => sort(x),
+      Ok(x) => sort(x),
       Err(_) => [],
     }
     var subs: List<Str> = []
     for e in es {
       let f = path.join([d, e])
       if fs.is_dir(f) {
-        if !starts_with(e, ".") && e != "node_modules" && e != "__pycache__" && e != "server" { subs = push(subs, f) }
+        if !starts_with(e, ".") && e != "node_modules" && e != "__pycache__" && e != "server" {
+          subs = push(subs, f)
+        }
       } else if ends_with(e, ".kite") {
         out = push(out, path.clean(f))
         if len(out) >= 2000 { return out }
@@ -640,7 +728,7 @@ fn kite_files(root: Str) -> List<Str> {
 // chain.word 形式的出现（chain 是名字列表，如 ["geo"]）：[(行, 列)]；chain 前面不能再接 .
 fn qualified_occ(src: Str, chain: List<Str>, word: Str) -> List<(Int, Int)> {
   let toks = match lexer.lex(src) {
-    Ok(t)  => filter(t, (x) => x.kind != "NEWLINE"),
+    Ok(t) => filter(t, (x) => x.kind != "NEWLINE"),
     Err(_) => { return [] },
   }
   var out: List<(Int, Int)> = []
@@ -652,7 +740,14 @@ fn qualified_occ(src: Str, chain: List<Str>, word: Str) -> List<(Int, Int)> {
       for m in 0..k {
         let a = toks[i - 2 * (k - m)]
         let b = toks[i - 2 * (k - m) + 1]
-        if !(a.kind == "IDENT" && lexer.sv(a.val) == chain[m] && b.kind == "OP" && lexer.sv(b.val) == ".") { ok = false }
+        if !(
+          a.kind == "IDENT"
+            && lexer.sv(a.val) == chain[m]
+            && b.kind == "OP"
+            && lexer.sv(b.val) == "."
+        ) {
+          ok = false
+        }
       }
       let bi = i - 2 * k - 1
       let dotb = bi >= 0 && toks[bi].kind == "OP" && lexer.sv(toks[bi].val) == "."
@@ -705,21 +800,28 @@ fn call_at(text: Str, line: Int, ch: Int) -> (Int, Int, Str, Bool, Str, Int)? {
       var j = sig[k]
       while j > 0 && (cs[j - 1] == " " || cs[j - 1] == "\t") { j -= 1 }
       let e = j
-      while j > 0 && (is_ascii_alpha(cs[j - 1]) || is_digit(cs[j - 1]) || __ord(cs[j - 1]) >= 128) { j -= 1 }
+      while j > 0 && (is_ascii_alpha(cs[j - 1]) || is_digit(cs[j - 1]) || __ord(cs[j - 1]) >= 128) {
+        j -= 1
+      }
       let name = join(sl_list(cs, j, e), "")
       if name == "" || is_digit(sl(name, 0, 1)) || contains(lexer.KEYWORDS, name) { return None }
       let dot = j > 0 && cs[j - 1] == "."
       var recv = ""
       if dot {
         var r = j - 1
-        while r > 0 && (is_ascii_alpha(cs[r - 1]) || is_digit(cs[r - 1]) || __ord(cs[r - 1]) >= 128) { r -= 1 }
+        while r > 0
+          && (is_ascii_alpha(cs[r - 1]) || is_digit(cs[r - 1]) || __ord(cs[r - 1]) >= 128) {
+          r -= 1
+        }
         recv = join(sl_list(cs, r, j - 1), "")
       }
       let ln = count_nl(src, j)
       var q = j
       while q > 0 && cs[q - 1] != "\n" { q -= 1 }
       return Some((ln, j - q, name, dot, recv, commas))
-    } else if c == "," && depth == 0 { commas += 1 }
+    } else if c == "," && depth == 0 {
+      commas += 1
+    }
     k -= 1
   }
   None
@@ -770,7 +872,9 @@ fn builtin_names() -> List<Str> {
   sort(xs)
 }
 
-fn std_mods() -> List<(Str, List<Str>)> { map(builtins.std_sigs(), (m) => (m.0, sort(map(m.1, (e) => e.0)))) }
+fn std_mods() -> List<(Str, List<Str>)> {
+  map(builtins.std_sigs(), (m) => (m.0, sort(map(m.1, (e) => e.0))))
+}
 
 fn std_members(m: Str) -> List<Str>? {
   for (n, xs) in std_mods() { if n == m { return Some(xs) } }
@@ -794,15 +898,22 @@ pub type S = {
 
 fn send(s: S, m: json.Json) -> S { S { out: push(s.out, m), ..s } }
 
-fn reply(s: S, id: json.Json, r: json.Json) -> S { send(s, obj([("jsonrpc", jstr("2.0")), ("id", id), ("result", r)])) }
+fn reply(s: S, id: json.Json, r: json.Json) -> S {
+  send(s, obj([("jsonrpc", jstr("2.0")), ("id", id), ("result", r)]))
+}
 
 fn reply_err(s: S, id: json.Json, code: Int, msg: Str) -> S {
-  send(s, obj([("jsonrpc", jstr("2.0")), ("id", id), ("error", obj([("code", jint(code)), ("message", jstr(msg))]))]))
+  send(s, obj([("jsonrpc", jstr("2.0")), ("id", id), ("error", obj([
+    ("code", jint(code)),
+    ("message", jstr(msg)),
+  ]))]))
 }
 
 fn publish(s: S, uri: Str, ds: List<json.Json>) -> S {
-  send(s, obj([("jsonrpc", jstr("2.0")), ("method", jstr("textDocument/publishDiagnostics")),
-    ("params", obj([("uri", jstr(uri)), ("diagnostics", JArr(ds))]))]))
+  send(s, obj([("jsonrpc", jstr("2.0")), ("method", jstr("textDocument/publishDiagnostics")), (
+    "params",
+    obj([("uri", jstr(uri)), ("diagnostics", JArr(ds))]),
+  )]))
 }
 
 fn doc(s: S, uri: Str) -> Str { unwrap_or(get(s.docs, uri), "") }
@@ -828,7 +939,7 @@ fn analyze_uri(s0: S, uri: Str) -> S {
 fn syms(s: S, uri: Str) -> (S, List<Sym>) {
   match get(s.cache, uri) {
     Some(c) => (s, c.1),
-    None    => {
+    None => {
       let s2 = analyze_uri(s, uri)
       (s2, unwrap(get(s2.cache, uri)).1)
     },
@@ -838,7 +949,18 @@ fn syms(s: S, uri: Str) -> (S, List<Sym>) {
 fn locs_of(s: S, uri: Str) -> List<Loc> { unwrap_or(get(s.locs, uri), []) }
 
 pub fn new_s(pits: List<ast.Node>, kdir: Str) -> S {
-  S { docs: Map(), ro: Map(), cache: Map(), locs: Map(), pits: pits, kdir: kdir, running: true, out: [], bnames: builtin_names(), stdm: std_mods() }
+  S {
+    docs: Map(),
+    ro: Map(),
+    cache: Map(),
+    locs: Map(),
+    pits: pits,
+    kdir: kdir,
+    running: true,
+    out: [],
+    bnames: builtin_names(),
+    stdm: std_mods(),
+  }
 }
 
 // 处理一条消息；要发出的消息累积在 s.out
@@ -850,14 +972,24 @@ pub fn handle(s0: S, msg: json.Json) -> S {
   var s = s0
   if m == "initialize" {
     let caps = obj([
-      ("textDocumentSync", jint(1)), ("hoverProvider", JBool(true)), ("definitionProvider", JBool(true)),
-      ("documentSymbolProvider", JBool(true)), ("documentFormattingProvider", JBool(true)),
+      ("textDocumentSync", jint(1)),
+      ("hoverProvider", JBool(true)),
+      ("definitionProvider", JBool(true)),
+      ("documentSymbolProvider", JBool(true)),
+      ("documentFormattingProvider", JBool(true)),
       ("completionProvider", obj([("triggerCharacters", JArr([jstr(".")]))])),
-      ("signatureHelpProvider", obj([("triggerCharacters", JArr([jstr("("), jstr(",")])), ("retriggerCharacters", JArr([jstr(")")]))])),
-      ("renameProvider", obj([("prepareProvider", JBool(true))])), ("referencesProvider", JBool(true)),
+      ("signatureHelpProvider", obj([("triggerCharacters", JArr([jstr("("), jstr(",")])), (
+        "retriggerCharacters",
+        JArr([jstr(")")]),
+      )])),
+      ("renameProvider", obj([("prepareProvider", JBool(true))])),
+      ("referencesProvider", JBool(true)),
       ("documentHighlightProvider", JBool(true)),
     ])
-    return reply(s, id, obj([("capabilities", caps), ("serverInfo", obj([("name", jstr("kite-lsp")), ("version", jstr("1.00"))]))]))
+    return reply(s, id, obj([("capabilities", caps), ("serverInfo", obj([
+      ("name", jstr("kite-lsp")),
+      ("version", jstr("1.00")),
+    ]))]))
   }
   if m == "shutdown" { return reply(s, id, JNull) }
   if m == "exit" { return S { running: false, ..s } }
@@ -901,10 +1033,12 @@ pub fn handle(s0: S, msg: json.Json) -> S {
   }
   if m == "textDocument/rename" {
     let new = js(p, "newName")
-    if !is_word(new) || contains(lexer.KEYWORDS, new) { return reply_err(s, id, -32602, "'{new}' 不是合法的名字") }
+    if !is_word(new) || contains(lexer.KEYWORDS, new) {
+      return reply_err(s, id, -32602, "'{new}' 不是合法的名字")
+    }
     return match collect(s, uri, pl, pc, new, false) {
       Ok((s1, ch)) => reply(s1, id, obj([("changes", ch)])),
-      Err(e)       => reply_err(s, id, -32602, e),
+      Err(e) => reply_err(s, id, -32602, e),
     }
   }
   if m == "textDocument/signatureHelp" {
@@ -914,14 +1048,16 @@ pub fn handle(s0: S, msg: json.Json) -> S {
   if m == "textDocument/references" {
     let inc = match json.field(jf(p, "context"), "includeDeclaration") {
       Some(JBool(b)) => b,
-      _              => true,
+      _ => true,
     }
     let (s1, r) = references(s, uri, pl, pc, inc)
     return reply(s1, id, JArr(r))
   }
   if m == "textDocument/documentHighlight" {
     let (s1, r) = references(s, uri, pl, pc, true)
-    return reply(s1, id, JArr(map(filter(r, (o) => js(o, "uri") == uri), (o) => obj([("range", jf(o, "range"))]))))
+    return reply(s1, id, JArr(map(filter(r, (o) => js(o, "uri") == uri), (o) => obj([
+      ("range", jf(o, "range")),
+    ]))))
   }
   if m == "textDocument/formatting" { return reply(s, id, format(s, uri)) }
   if has_id { return reply_err(s, id, -32601, "不支持的方法 {m}") }
@@ -949,7 +1085,9 @@ fn lookup(ss: List<Sym>, word: Str, prefix: Str) -> Sym? {
   Some(sort_by(cands, (x) => kind_rank(x.kind))[0])
 }
 
-fn md(v: Str) -> json.Json { obj([("contents", obj([("kind", jstr("markdown")), ("value", jstr(v))]))]) }
+fn md(v: Str) -> json.Json {
+  obj([("contents", obj([("kind", jstr("markdown")), ("value", jstr(v))]))])
+}
 
 fn hover(s0: S, uri: Str, line: Int, ch: Int) -> (S, json.Json) {
   let (word, prefix) = word_at(doc(s0, uri), line, ch)
@@ -966,7 +1104,9 @@ fn hover(s0: S, uri: Str, line: Int, ch: Int) -> (S, json.Json) {
     return (s, md("```kite\n" + detail + "\n```" + (if x.doc != "" { "\n\n" + x.doc } else { "" })))
   }
   if contains(s.bnames, word) { return (s, md("```kite\n" + word + "\n```\n\nKite 内建函数")) }
-  if let Some(ms) = std_members(word) { return (s, md("```kite\nuse std.{word}\n```\n\n标准库模块：" + join(ms, ", "))) }
+  if let Some(ms) = std_members(word) {
+    return (s, md("```kite\nuse std.{word}\n```\n\n标准库模块：" + join(ms, ", ")))
+  }
   if contains(lexer.KEYWORDS, word) { return (s, md("关键字 `{word}`")) }
   (s, JNull)
 }
@@ -982,11 +1122,13 @@ fn target(s0: S, uri: Str, line: Int, ch: Int) -> (S, Str, Tg?) {
   if word == "" || contains(lexer.KEYWORDS, word) { return (s0, word, None) }
   let (s, ss) = syms(s0, uri)
   if !ends_dot(prefix) {
-    if let Some(l) = local_at(ss, locs_of(s, uri), word, line + 1) { return (s, word, Some(TLocal(l))) }
+    if let Some(l) = local_at(ss, locs_of(s, uri), word, line + 1) {
+      return (s, word, Some(TLocal(l)))
+    }
   }
   match lookup(ss, word, prefix) {
     Some(x) => (s, word, Some(TSym(x))),
-    None    => (s, word, None),
+    None => (s, word, None),
   }
 }
 
@@ -994,7 +1136,7 @@ fn target(s0: S, uri: Str, line: Int, ch: Int) -> (S, Str, Tg?) {
 fn text_of(s: S, p: Str) -> (Str, Str?) {
   for u in keys(s.docs) { if uri_path(u) == p { return (u, get(s.docs, u)) } }
   match fs.read(p) {
-    Ok(t)  => (path_uri(p), Some(t)),
+    Ok(t) => (path_uri(p), Some(t)),
     Err(_) => (path_uri(p), None),
   }
 }
@@ -1052,7 +1194,11 @@ fn trailing_chain(prefix: Str) -> List<Str> {
 fn pub_line_has(src: Str, word: Str) -> Bool {
   for l in split(src, "\n") {
     let t = lstrip(l)
-    if starts_with(t, "pub") && (len(t) == 3 || !is_wc(sl(t, 3, 4))) && word_pos(sl(t, 3, len(t)), word) >= 0 { return true }
+    if starts_with(t, "pub")
+      && (len(t) == 3 || !is_wc(sl(t, 3, 4)))
+      && word_pos(sl(t, 3, len(t)), word) >= 0 {
+      return true
+    }
   }
   false
 }
@@ -1074,18 +1220,30 @@ fn xref(s: S, uri: Str, line: Int, ch: Int) -> (Str, Str)? {
     if contains(u.lines, line_no) {
       for (t, after_as, _) in skip(u.ids, n) {
         let v = lexer.sv(t.val)
-        if t.line == line_no && t.col - 1 <= ch && ch <= t.col - 1 + len(v) && v == word && !after_as { return Some((f, word)) }
+        if t.line == line_no
+          && t.col - 1 <= ch
+          && ch <= t.col - 1 + len(v)
+          && v == word
+          && !after_as {
+          return Some((f, word))
+        }
       }
       continue
     }
     if len(chain) > 0 {
-      if len(rest) == 0 && n >= 1 && chain == [unwrap_or(u.alias, up_name(u.path[n - 1]))] { return Some((f, word)) }
+      if len(rest) == 0 && n >= 1 && chain == [unwrap_or(u.alias, up_name(u.path[n - 1]))] {
+        return Some((f, word))
+      }
       continue
     }
     if len(rest) == 0 { continue }
     let item = rest[0]
-    if !is_group(item) && up_name(item) == word && is_none(u.alias) && len(rest) == 1 { return Some((f, word)) }
-    if u.alias == Some(word) && len(rest) == 1 && !is_group(item) { return Some((f, up_name(item))) }
+    if !is_group(item) && up_name(item) == word && is_none(u.alias) && len(rest) == 1 {
+      return Some((f, word))
+    }
+    if u.alias == Some(word) && len(rest) == 1 && !is_group(item) {
+      return Some((f, up_name(item)))
+    }
     for (nm, al) in group_of(item) {
       if is_none(al) && nm == word { return Some((f, word)) }
       if al == Some(word) { return Some((f, nm)) }
@@ -1113,12 +1271,12 @@ fn xtarget(s0: S, uri: Str, line: Int, ch: Int) -> (S, Str, Str, Tg?) {
   }
   let (f, name) = match xr {
     Some(x) => x,
-    None    => { return (s, uri, word, None) },
+    None => { return (s, uri, word, None) },
   }
   let (furi, so) = text_of(s, f)
   let src = match so {
     Some(x) => x,
-    None    => { return (s, uri, word, None) },
+    None => { return (s, uri, word, None) },
   }
   let (s2, fs_, _) = file_info(s, furi, src, f)
   s = s2
@@ -1128,21 +1286,23 @@ fn xtarget(s0: S, uri: Str, line: Int, ch: Int) -> (S, Str, Str, Tg?) {
   (s, furi, name, Some(TSym(hit[0])))
 }
 
-fn src_of(s: S, uri: Str) -> Str { if contains(s.docs, uri) { doc(s, uri) } else { unwrap_or(get(s.ro, uri), "") } }
+fn src_of(s: S, uri: Str) -> Str {
+  if contains(s.docs, uri) { doc(s, uri) } else { unwrap_or(get(s.ro, uri), "") }
+}
 
 fn loc_json(uri: Str, r: json.Json) -> json.Json { obj([("uri", jstr(uri)), ("range", r)]) }
 
 fn definition(s0: S, uri: Str, line: Int, ch: Int) -> (S, json.Json) {
   let (s, duri, word, t) = xtarget(s0, uri, line, ch)
   match t {
-    None            => (s, JNull),
+    None => (s, JNull),
     Some(TLocal(l)) => {
       for (ln, c, dot, _) in occurrences(doc(s, uri), word) {
         if ln == l.0 && !dot { return (s, loc_json(uri, rng(ln, c, word))) }
       }
       (s, JNull)
     },
-    Some(TSym(x))   => (s, loc_json(duri, name_range(split(src_of(s, duri), "\n"), x))),
+    Some(TSym(x)) => (s, loc_json(duri, name_range(split(src_of(s, duri), "\n"), x))),
   }
 }
 
@@ -1152,30 +1312,44 @@ fn prepare_rename(s0: S, uri: Str, line: Int, ch: Int) -> (S, json.Json) {
   let ls = split(doc(s, uri), "\n")
   if line >= len(ls) { return (s, JNull) }
   for (a, b, w) in words(ls[line]) {
-    if a <= ch && ch <= b { return (s, obj([("range", rng(line + 1, a, w)), ("placeholder", jstr(w))])) }
+    if a <= ch && ch <= b {
+      return (s, obj([("range", rng(line + 1, a, w)), ("placeholder", jstr(w))]))
+    }
   }
   (s, JNull)
 }
 
-fn edit(ln: Int, c: Int, word: Str, new: Str) -> json.Json { obj([("range", rng(ln, c, word)), ("newText", jstr(new))]) }
+fn edit(ln: Int, c: Int, word: Str, new: Str) -> json.Json {
+  obj([("range", rng(ln, c, word)), ("newText", jstr(new))])
+}
 
 // 一个文件里的重命名编辑：局部绑定只改同一作用域里解析到它的引用；顶层名字改所有未被局部遮蔽的引用；
 // 字段 / 方法改 .name、定义处和结构体字面量里的 name:。t 为 None：别的文件里导入进来的顶层名字
-fn file_edits(src: Str, ss: List<Sym>, ls: List<Loc>, word: Str, t: Tg?, new: Str, skip_lines: List<Int>) -> List<json.Json> {
+fn file_edits(
+  src: Str,
+  ss: List<Sym>,
+  ls: List<Loc>,
+  word: Str,
+  t: Tg?,
+  new: Str,
+  skip_lines: List<Int>,
+) -> List<json.Json> {
   var edits: List<json.Json> = []
   for (ln, c, dot, nxt) in occurrences(src, word) {
     if contains(skip_lines, ln) { continue }
     let loc = if dot { None } else { local_at(ss, ls, word, ln) }
     let hit = match t {
-      None            => !dot && is_none(loc),
+      None => !dot && is_none(loc),
       Some(TLocal(l)) => match loc {
         Some(x) => x.0 == l.0,
-        None    => false,
+        None => false,
       },
-      Some(TSym(x))   => if x.kind == "method" || x.kind == "field" {
+      Some(TSym(x)) => if x.kind == "method" || x.kind == "field" {
         let inside = x.par >= 0 && ss_par_contains(ss, x, ln) && !dot && is_none(loc)
         dot || inside || x.kind == "field" && nxt == ":" && is_none(loc)
-      } else { !dot && is_none(loc) },
+      } else {
+        !dot && is_none(loc)
+      },
     }
     if hit { edits = push(edits, edit(ln, c, word, new)) }
   }
@@ -1202,12 +1376,14 @@ fn put(ch: Ch, uri: Str, ln: Int, c: Int, w: Str, new: Str) -> Ch {
   set(ch, uri, push(ed, edit(ln, c, w, new)))
 }
 
-fn collect(s0: S, uri: Str, line: Int, ch: Int, new: Str, refs: Bool) -> Result<(S, json.Json), Str> {
+fn collect(s0: S, uri: Str, line: Int, ch: Int, new: Str, refs: Bool) -> Result<(
+  S, json.Json
+), Str> {
   let (s1, duri, word, t) = xtarget(s0, uri, line, ch)
   var s = s1
   let tg = match t {
     Some(x) => x,
-    None    => { return Err("这里没有可以重命名的名字") },
+    None => { return Err("这里没有可以重命名的名字") },
   }
   let dsrc = src_of(s, duri)
   let dpath = uri_path(duri)
@@ -1216,12 +1392,15 @@ fn collect(s0: S, uri: Str, line: Int, ch: Int, new: Str, refs: Bool) -> Result<
   var changes: Ch = Map()
   changes = set(changes, duri, file_edits(dsrc, dss, dls, word, t, new, []))
   let sym = match tg {
-    TSym(x)   => x,
+    TSym(x) => x,
     TLocal(_) => { return Ok((s, ch_json(changes))) },
   }
   if dpath == "" { return Ok((s, ch_json(changes))) }
   let top = sym.par == -1 && contains(["fn", "struct", "enum", "trait", "var"], sym.kind)
-  let member = (sym.kind == "method" || sym.kind == "field") && sym.par >= 0 && sym.par < len(dss) && dss[sym.par].is_pub
+  let member = (sym.kind == "method" || sym.kind == "field")
+    && sym.par >= 0
+    && sym.par < len(dss)
+    && dss[sym.par].is_pub
   if !(top && sym.is_pub || member) { return Ok((s, ch_json(changes))) }
   for (g, gsrc, u, n) in importers(s, dpath) {
     let guri = uri_for(s, g)
@@ -1231,19 +1410,27 @@ fn collect(s0: S, uri: Str, line: Int, ch: Int, new: Str, refs: Bool) -> Result<
       s = s3
       for (ln, c, dot, nxt) in occurrences(gsrc, word) {
         if contains(u.lines, ln) { continue }
-        if dot || sym.kind == "field" && nxt == ":" && is_none(local_at(gs, gl, word, ln)) { changes = put(changes, guri, ln, c, word, new) }
+        if dot || sym.kind == "field" && nxt == ":" && is_none(local_at(gs, gl, word, ln)) {
+          changes = put(changes, guri, ln, c, word, new)
+        }
       }
       continue
     }
     let rest = skip(u.path, n)
     if len(rest) == 0 {
       let head = unwrap_or(u.alias, if n >= 1 { up_name(u.path[n - 1]) } else { "" })
-      for (ln, c) in qualified_occ(gsrc, [head], word) { changes = put(changes, guri, ln, c, word, new) }
+      for (ln, c) in qualified_occ(gsrc, [head], word) {
+        changes = put(changes, guri, ln, c, word, new)
+      }
       continue
     }
     let item = rest[0]
     let grp = is_group(item)
-    var aname = if refs && !grp && up_name(item) == word && len(rest) == 1 { unwrap_or(u.alias, "") } else { "" }
+    var aname = if refs && !grp && up_name(item) == word && len(rest) == 1 {
+      unwrap_or(u.alias, "")
+    } else {
+      ""
+    }
     let cand = if !grp { take(skip(u.ids, n), 1) } else { skip(u.ids, n) }
     var k = 0
     for (tok, after_as, depth) in cand {
@@ -1258,7 +1445,11 @@ fn collect(s0: S, uri: Str, line: Int, ch: Int, new: Str, refs: Bool) -> Result<
       k += 1
     }
     if aname != "" && !grp {
-      for (tok, after_as, _) in u.ids { if after_as && lexer.sv(tok.val) == aname { changes = put(changes, guri, tok.line, tok.col - 1, aname, new) } }
+      for (tok, after_as, _) in u.ids {
+        if after_as && lexer.sv(tok.val) == aname {
+          changes = put(changes, guri, tok.line, tok.col - 1, aname, new)
+        }
+      }
     }
     if aname != "" {   // 查找引用：use … as 别名的引用也算
       let (s3, gs, gl) = file_info(s, guri, gsrc, g)
@@ -1270,7 +1461,9 @@ fn collect(s0: S, uri: Str, line: Int, ch: Int, new: Str, refs: Bool) -> Result<
         }
       }
     }
-    let plain = !grp && up_name(item) == word && is_none(u.alias) && len(rest) == 1 || !grp && up_name(item) == "*" || grp && any(group_of(item), (e) => e.0 == word && is_none(e.1))
+    let plain = !grp && up_name(item) == word && is_none(u.alias) && len(rest) == 1
+      || !grp && up_name(item) == "*"
+      || grp && any(group_of(item), (e) => e.0 == word && is_none(e.1))
     if plain {
       let (s3, gs, gl) = file_info(s, guri, gsrc, g)
       s = s3
@@ -1295,7 +1488,7 @@ fn ch_json(ch: Ch) -> json.Json {
 
 fn references(s0: S, uri: Str, line: Int, ch: Int, inc: Bool) -> (S, List<json.Json>) {
   let (s, chs) = match collect(s0, uri, line, ch, "", true) {
-    Ok(r)  => r,
+    Ok(r) => r,
     Err(_) => { return (s0, []) },
   }
   var out: List<(Str, Int, Int, json.Json)> = []
@@ -1309,7 +1502,7 @@ fn references(s0: S, uri: Str, line: Int, ch: Int, inc: Bool) -> (S, List<json.J
         }
       }
     },
-    _       => (),
+    _ => (),
   }
   var s2 = s
   if !inc {
@@ -1325,7 +1518,10 @@ fn references(s0: S, uri: Str, line: Int, ch: Int, inc: Bool) -> (S, List<json.J
 }
 
 fn sig_info(label: Str, ps: List<(Int, Int)>, d: Str) -> json.Json {
-  var kv = [("label", jstr(label)), ("parameters", JArr(map(ps, (x) => obj([("label", JArr([jint(x.0), jint(x.1)]))]))))]
+  var kv = [("label", jstr(label)), ("parameters", JArr(map(ps, (x) => obj([("label", JArr([
+    jint(x.0),
+    jint(x.1),
+  ]))]))))]
   if d != "" { kv = push(kv, ("documentation", jstr(d))) }
   obj(kv)
 }
@@ -1370,7 +1566,9 @@ fn builtin_cands(name: Str, recv: Str, dot: Bool) -> List<(Str, Str, Bool)> {
   if dot {
     for (m, es) in builtins.std_sigs() {
       if m == recv {
-        for (n, k, sg) in es { if n == name && k == "s" && len(sg) == 1 { return [(recv + "." + name, sg[0].1, false)] } }
+        for (n, k, sg) in es {
+          if n == name && k == "s" && len(sg) == 1 { return [(recv + "." + name, sg[0].1, false)] }
+        }
       }
     }
     if is_some(std_members(recv)) { return [] }
@@ -1384,7 +1582,7 @@ fn builtin_cands(name: Str, recv: Str, dot: Bool) -> List<(Str, Str, Bool)> {
 fn signature(s0: S, uri: Str, line: Int, ch: Int) -> (S, json.Json) {
   let (ln, col, name, dot, recv, act) = match call_at(doc(s0, uri), line, ch) {
     Some(c) => c,
-    None    => { return (s0, JNull) },
+    None => { return (s0, JNull) },
   }
   let (s, _, _, t) = xtarget(s0, uri, ln, col)
   var sigs: List<json.Json> = []
@@ -1398,14 +1596,19 @@ fn signature(s0: S, uri: Str, line: Int, ch: Int) -> (S, json.Json) {
         if o >= 0 {
           let e = close_paren(chars(label), o)
           var ps = map(split_params(sl(label, o, e - 1)), (q) => (o + q.0, o + q.1))
-          if dot && len(ps) > 0 && is_self_param(sl(label, ps[0].0, ps[0].1)) && !lexer.first_upper(recv) { ps = skip(ps, 1) }
+          if dot
+            && len(ps) > 0
+            && is_self_param(sl(label, ps[0].0, ps[0].1))
+            && !lexer.first_upper(recv) {
+            ps = skip(ps, 1)
+          }
           sigs = push(sigs, sig_info(label, ps, x.doc))
           nps = push(nps, len(ps))
         }
       }
     },
-    Some(_)       => (),
-    None          => {
+    Some(_) => (),
+    None => {
       for (nm, sg, method) in builtin_cands(name, recv, dot) {
         if !starts_with(sg, "fn(") { continue }
         let e = close_paren(chars(sg), 3)
@@ -1427,7 +1630,10 @@ fn signature(s0: S, uri: Str, line: Int, ch: Int) -> (S, json.Json) {
       let ws = words(l)
       var k = 0
       if len(ws) > 0 && ws[0].2 == "pub" { k = 1 }
-      if len(ws) > k + 1 && ws[k].2 == "fn" && ws[k + 1].2 == name && trim(sl(l, 0, ws[0].0)) == "" {
+      if len(ws) > k + 1
+        && ws[k].2 == "fn"
+        && ws[k + 1].2 == name
+        && trim(sl(l, 0, ws[0].0)) == "" {
         let label = header(lines, i)
         let nm_at = __str_find(label, name, 0)
         let kk = if nm_at >= 0 { __str_find(label, "(", nm_at) } else { -1 }
@@ -1453,35 +1659,39 @@ fn signature(s0: S, uri: Str, line: Int, ch: Int) -> (S, json.Json) {
     }
     i += 1
   }
-  (s, obj([("signatures", JArr(sigs)), ("activeSignature", jint(best)), ("activeParameter", jint(act))]))
+  (s, obj([
+    ("signatures", JArr(sigs)),
+    ("activeSignature", jint(best)),
+    ("activeParameter", jint(act)),
+  ]))
 }
 
 fn sk(k: Str) -> Int {
   match k {
-    "fn"     => 12,
+    "fn" => 12,
     "struct" => 23,
-    "enum"   => 10,
+    "enum" => 10,
     "member" => 22,
-    "trait"  => 11,
+    "trait" => 11,
     "method" => 6,
-    "impl"   => 5,
-    "var"    => 13,
-    _        => 8,
+    "impl" => 5,
+    "var" => 13,
+    _ => 8,
   }
 }
 
 fn ck(k: Str) -> Int {
   match k {
-    "fn"     => 3,
+    "fn" => 3,
     "struct" => 22,
-    "enum"   => 13,
+    "enum" => 13,
     "member" => 20,
-    "trait"  => 8,
+    "trait" => 8,
     "method" => 2,
-    "kw"     => 14,
-    "var"    => 6,
+    "kw" => 14,
+    "var" => 6,
     "module" => 9,
-    _        => 5,
+    _ => 5,
   }
 }
 
@@ -1496,9 +1706,12 @@ fn sym_json(lines: List<Str>, ss: List<Sym>, i: Int) -> json.Json {
     j += 1
   }
   obj([
-    ("name", jstr(x.name)), ("kind", jint(sk(x.kind))), ("detail", jstr(x.detail)),
+    ("name", jstr(x.name)),
+    ("kind", jint(sk(x.kind))),
+    ("detail", jstr(x.detail)),
     ("range", obj([("start", pos(x.line - 1, 0)), ("end", pos(el, ec))])),
-    ("selectionRange", name_range(lines, x)), ("children", JArr(kids)),
+    ("selectionRange", name_range(lines, x)),
+    ("children", JArr(kids)),
   ])
 }
 
@@ -1515,7 +1728,11 @@ fn doc_symbols(s0: S, uri: Str) -> (S, json.Json) {
 }
 
 fn citem(label: Str, kind: Int, detail: Str) -> json.Json {
-  if detail == "" { obj([("label", jstr(label)), ("kind", jint(kind))]) } else { obj([("label", jstr(label)), ("kind", jint(kind)), ("detail", jstr(detail))]) }
+  if detail == "" {
+    obj([("label", jstr(label)), ("kind", jint(kind))])
+  } else {
+    obj([("label", jstr(label)), ("kind", jint(kind)), ("detail", jstr(detail))])
+  }
 }
 
 // before 以 名字.前缀 结尾时返回那个名字（ASCII 名字，同 Python 版的正则）
@@ -1540,7 +1757,9 @@ fn complete(s0: S, uri: Str, line: Int, ch: Int) -> (S, json.Json) {
   let (s, ss) = syms(s0, uri)
   var items: List<json.Json> = []
   if let Some(o) = dot_obj(before) {
-    if let Some(ms) = std_members(o) { return (s, JArr(map(ms, (n) => citem(n, ck("fn"), "std.{o}")))) }
+    if let Some(ms) = std_members(o) {
+      return (s, JArr(map(ms, (n) => citem(n, ck("fn"), "std.{o}"))))
+    }
     var seen: List<Str> = []
     for x in ss {
       if (x.kind == "method" || x.kind == "field") && !contains(seen, x.name) {
@@ -1550,7 +1769,11 @@ fn complete(s0: S, uri: Str, line: Int, ch: Int) -> (S, json.Json) {
     }
     return (s, JArr(items))
   }
-  for x in ss { if contains(["fn", "struct", "enum", "trait", "member", "var"], x.kind) { items = push(items, citem(x.name, ck(x.kind), x.detail)) } }
+  for x in ss {
+    if contains(["fn", "struct", "enum", "trait", "member", "var"], x.kind) {
+      items = push(items, citem(x.name, ck(x.kind), x.detail))
+    }
+  }
   for b in s.bnames { items = push(items, citem(b, ck("fn"), "内建函数")) }
   for k in sort(lexer.KEYWORDS) { items = push(items, citem(k, ck("kw"), "")) }
   for (n, _) in s.stdm { items = push(items, citem(n, ck("module"), "std.{n}")) }
@@ -1560,12 +1783,15 @@ fn complete(s0: S, uri: Str, line: Int, ch: Int) -> (S, json.Json) {
 fn format(s: S, uri: Str) -> json.Json {
   let text = doc(s, uri)
   let new = match fmt.fmt(text) {
-    Ok(x)  => x,
+    Ok(x) => x,
     Err(_) => { return JArr([]) },   // 有语法错误时不格式化
   }
   if new == text { return JArr([]) }
   let n = count_nl(text, len(text))
-  JArr([obj([("range", obj([("start", pos(0, 0)), ("end", pos(n + 1, 0))])), ("newText", jstr(new))])])
+  JArr([obj([
+    ("range", obj([("start", pos(0, 0)), ("end", pos(n + 1, 0))])),
+    ("newText", jstr(new)),
+  ])])
 }
 
 // ───────── stdio 主循环 ─────────
@@ -1574,13 +1800,20 @@ fn format(s: S, uri: Str) -> json.Json {
 fn find_crlf2(bs: List<Int>) -> Int {
   var i = 0
   while i + 1 < len(bs) {
-    if bs[i] == 10 && (bs[i + 1] == 10 || i + 2 < len(bs) && bs[i + 1] == 13 && bs[i + 2] == 10) { return i }
+    if bs[i] == 10 && (bs[i + 1] == 10 || i + 2 < len(bs) && bs[i + 1] == 13 && bs[i + 2] == 10) {
+      return i
+    }
     i += 1
   }
   -1
 }
 
-pub fn serve(pits: List<ast.Node>, kdir: Str, rd: fn(Int) -> List<Int>, wr: fn(Str) -> Unit) -> Int {
+pub fn serve(
+  pits: List<ast.Node>,
+  kdir: Str,
+  rd: fn(Int) -> List<Int>,
+  wr: fn(Str) -> Unit,
+) -> Int {
   var s = new_s(pits, kdir)
   var buf: List<Int> = []
   var eof = false
@@ -1611,7 +1844,7 @@ pub fn serve(pits: List<ast.Node>, kdir: Str, rd: fn(Int) -> List<Int>, wr: fn(S
     let body = unwrap_or(__from_bytes(take(buf, length)), "")
     buf = skip(buf, length)
     let msg = match json.parse(body) {
-      Ok(v)  => v,
+      Ok(v) => v,
       Err(_) => { continue },
     }
     s = handle(S { out: [], ..s }, msg)

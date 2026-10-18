@@ -22,15 +22,73 @@ pub const MAX_DEPTH: Int = 10000
 
 // 只实现 encoding/json v1 用到的选项
 //   legacy：v1 的 offset 算法；canonical：Canonicalize（RFC 8785 的数字、字符串和成员排序）
-pub type Opts = { allow_invalid_utf8: Bool, allow_dup: Bool, legacy: Bool, canonical: Bool, multiline: Bool, prefix: List<Int>, indent: List<Int> }
+pub type Opts = {
+  allow_invalid_utf8: Bool,
+  allow_dup: Bool,
+  legacy: Bool,
+  canonical: Bool,
+  multiline: Bool,
+  prefix: List<Int>,
+  indent: List<Int>,
+}
 
-pub fn v1_opts() -> Opts { Opts { allow_invalid_utf8: true, allow_dup: true, legacy: true, canonical: false, multiline: false, prefix: [], indent: [] } }
+pub fn v1_opts() -> Opts {
+  Opts {
+    allow_invalid_utf8: true,
+    allow_dup: true,
+    legacy: true,
+    canonical: false,
+    multiline: false,
+    prefix: [],
+    indent: [],
+  }
+}
 
 // jsontext.Value.Compact / Indent / Canonicalize / IsValid 的选项
-pub fn compact_opts() -> Opts { Opts { allow_invalid_utf8: true, allow_dup: true, legacy: false, canonical: false, multiline: false, prefix: [], indent: [] } }
-pub fn indent_opts(prefix: Str, ind: Str) -> Opts { Opts { allow_invalid_utf8: true, allow_dup: true, legacy: false, canonical: false, multiline: true, prefix: __bytes(prefix), indent: __bytes(ind) } }
-pub fn canonical_opts() -> Opts { Opts { allow_invalid_utf8: false, allow_dup: false, legacy: false, canonical: true, multiline: false, prefix: [], indent: [] } }
-pub fn strict_opts() -> Opts { Opts { allow_invalid_utf8: false, allow_dup: false, legacy: false, canonical: false, multiline: false, prefix: [], indent: [] } }
+pub fn compact_opts() -> Opts {
+  Opts {
+    allow_invalid_utf8: true,
+    allow_dup: true,
+    legacy: false,
+    canonical: false,
+    multiline: false,
+    prefix: [],
+    indent: [],
+  }
+}
+pub fn indent_opts(prefix: Str, ind: Str) -> Opts {
+  Opts {
+    allow_invalid_utf8: true,
+    allow_dup: true,
+    legacy: false,
+    canonical: false,
+    multiline: true,
+    prefix: __bytes(prefix),
+    indent: __bytes(ind),
+  }
+}
+pub fn canonical_opts() -> Opts {
+  Opts {
+    allow_invalid_utf8: false,
+    allow_dup: false,
+    legacy: false,
+    canonical: true,
+    multiline: false,
+    prefix: [],
+    indent: [],
+  }
+}
+pub fn strict_opts() -> Opts {
+  Opts {
+    allow_invalid_utf8: false,
+    allow_dup: false,
+    legacy: false,
+    canonical: false,
+    multiline: false,
+    prefix: [],
+    indent: [],
+  }
+}
 
 // 内部错误：kind 0 = 意外结束，1 = 非法文本（what 是那段原始字节），2 = 其他（msg），
 //   3 = 重复的成员名，4 = 结构符号不匹配（errMismatchDelim）；ptr 是外层逐级补上的 JSON Pointer 后缀
@@ -52,7 +110,13 @@ pub fn escape_pointer_name(name: List<Int>) -> Str {
   var i = 0
   while i < len(name) {
     let (r, n) = utf8.decode_rune_at(name, i)
-    if r == 126 { out = out + [126, 48] } else if r == 47 { out = out + [126, 49] } else { out = out + utf8.encode_rune(r) }
+    if r == 126 {
+      out = out + [126, 48]
+    } else if r == 47 {
+      out = out + [126, 49]
+    } else {
+      out = out + utf8.encode_rune(r)
+    }
     i += n
   }
   unwrap(__from_bytes(out))
@@ -63,7 +127,9 @@ fn with_name(e: WErr, quoted: List<Int>) -> WErr {
   WErr { kind: e.kind, what: e.what, msg: e.msg, ptr: [escape_pointer_name(u)] + e.ptr }
 }
 
-fn with_index(e: WErr, idx: Int) -> WErr { WErr { kind: e.kind, what: e.what, msg: e.msg, ptr: ["{idx}"] + e.ptr } }
+fn with_index(e: WErr, idx: Int) -> WErr {
+  WErr { kind: e.kind, what: e.what, msg: e.msg, ptr: ["{idx}"] + e.ptr }
+}
 
 fn hexdig(v: Int) -> Str { chars("0123456789abcdef")[v] }
 
@@ -99,8 +165,16 @@ fn invalid_text(label: Str, what: List<Int>, where_: Str) -> WErr {
 
 // Go 的 unicode.IsSpace
 fn is_space_rune(r: Int) -> Bool {
-  if r <= 0xff { return r == 9 || r == 10 || r == 11 || r == 12 || r == 13 || r == 32 || r == 0x85 || r == 0xa0 }
-  r == 0x1680 || (r >= 0x2000 && r <= 0x200a) || r == 0x2028 || r == 0x2029 || r == 0x202f || r == 0x205f || r == 0x3000
+  if r <= 0xff {
+    return r == 9 || r == 10 || r == 11 || r == 12 || r == 13 || r == 32 || r == 0x85 || r == 0xa0
+  }
+  r == 0x1680
+    || (r >= 0x2000 && r <= 0x200a)
+    || r == 0x2028
+    || r == 0x2029
+    || r == 0x202f
+    || r == 0x205f
+    || r == 0x3000
 }
 
 // NewInvalidCharacterError：取 b[at..] 的第一个码点
@@ -110,7 +184,11 @@ fn invalid_char(b: List<Int>, at: Int, where_: Str) -> WErr {
 }
 
 fn invalid_escape(what: List<Int>) -> WErr {
-  if len(what) > 6 { invalid_text("surrogate pair", what, "in string") } else { invalid_text("escape sequence", what, "in string") }
+  if len(what) > 6 {
+    invalid_text("surrogate pair", what, "in string")
+  } else {
+    invalid_text("escape sequence", what, "in string")
+  }
 }
 
 fn is_ws(c: Int) -> Bool { c == 32 || c == 9 || c == 13 || c == 10 }
@@ -132,7 +210,18 @@ fn consume_literal(b: List<Int>, p: Int, lit: Str) -> (Int, Option<WErr>) {
   let l = __bytes(lit)
   var i = 0
   while i < len(l) && p + i < len(b) {
-    if b[p + i] != l[i] { return (p + i, Some(invalid_char(b, p + i, "in literal " + lit + " (expecting " + strconv.quote_rune(l[i]) + ")"))) }
+    if b[p + i] != l[i] {
+      return (
+        p + i,
+        Some(
+          invalid_char(
+            b,
+            p + i,
+            "in literal " + lit + " (expecting " + strconv.quote_rune(l[i]) + ")",
+          ),
+        ),
+      )
+    }
     i += 1
   }
   if len(b) - p < len(l) { return (len(b), Some(eof_err())) }
@@ -140,7 +229,15 @@ fn consume_literal(b: List<Int>, p: Int, lit: Str) -> (Int, Option<WErr>) {
 }
 
 fn hexval(c: Int) -> Int {
-  if c >= 48 && c <= 57 { c - 48 } else if c >= 97 && c <= 102 { c - 87 } else if c >= 65 && c <= 70 { c - 55 } else { -1 }
+  if c >= 48 && c <= 57 {
+    c - 48
+  } else if c >= 97 && c <= 102 {
+    c - 87
+  } else if c >= 65 && c <= 70 {
+    c - 55
+  } else {
+    -1
+  }
 }
 
 fn parse_hex16(b: List<Int>, p: Int) -> Int {
@@ -171,7 +268,11 @@ fn has_escaped_utf16_prefix(b: List<Int>, p: Int, lower: Bool) -> Bool {
 fn is_surrogate(r: Int) -> Bool { r >= 0xd800 && r < 0xe000 }
 
 fn utf16_decode(r1: Int, r2: Int) -> Int {
-  if r1 >= 0xd800 && r1 < 0xdc00 && r2 >= 0xdc00 && r2 < 0xe000 { ((r1 - 0xd800) << 10 | (r2 - 0xdc00)) + 0x10000 } else { 0xfffd }
+  if r1 >= 0xd800 && r1 < 0xdc00 && r2 >= 0xdc00 && r2 < 0xe000 {
+    ((r1 - 0xd800) << 10 | (r2 - 0xdc00)) + 0x10000
+  } else {
+    0xfffd
+  }
 }
 
 // ConsumeString（整段输入，没有续读）：返回 (结束位置或出错位置, 错误)
@@ -207,8 +308,12 @@ pub fn consume_string(b: List<Int>, p0: Int, validate: Bool) -> (Int, Option<WEr
             return (n - 6, Some(invalid_escape(b[n - 6..])))
           }
           let v2 = parse_hex16(b, n + 2)
-          if b[n] != 92 || b[n + 1] != 117 || v2 < 0 { return (n - 6, Some(invalid_escape(b[n - 6..n + 6]))) }
-          if utf16_decode(v1, v2) == 0xfffd { return (n - 6, Some(invalid_escape(b[n - 6..n + 6]))) }
+          if b[n] != 92 || b[n + 1] != 117 || v2 < 0 {
+            return (n - 6, Some(invalid_escape(b[n - 6..n + 6])))
+          }
+          if utf16_decode(v1, v2) == 0xfffd {
+            return (n - 6, Some(invalid_escape(b[n - 6..n + 6])))
+          }
           n += 6
         }
       } else {
@@ -287,7 +392,9 @@ fn d_value(b: List<Int>, p: Int, depth: Int, o: Opts, last: Int) -> (Int, Option
   }
   if c == 123 { return d_object(b, p, depth, o, last) }
   if c == 91 { return d_array(b, p, depth, o, last) }
-  if (last == 1 && c == 93) || (last == 2 && c == 125) { return (p, Some(WErr { kind: 4, what: [], msg: "", ptr: [] })) }
+  if (last == 1 && c == 93) || (last == 2 && c == 125) {
+    return (p, Some(WErr { kind: 4, what: [], msg: "", ptr: [] }))
+  }
   (p, Some(invalid_char(b, p, "at start of value")))
 }
 
@@ -311,7 +418,9 @@ fn d_object(b: List<Int>, p0: Int, depth0: Int, o: Opts, last: Int) -> (Int, Opt
     }
     p = consume_ws(b, q)
     if p >= len(b) { return (p, Some(with_name(eof_err(), quoted))) }
-    if b[p] != 58 { return (p, Some(with_name(invalid_char(b, p, "after object name (expecting ':')"), quoted))) }
+    if b[p] != 58 {
+      return (p, Some(with_name(invalid_char(b, p, "after object name (expecting ':')"), quoted)))
+    }
     p = consume_ws(b, p + 1)
     if p >= len(b) { return (p, Some(with_name(eof_err(), quoted))) }
     let (q2, e2) = d_value(b, p, depth, o, last)
@@ -362,16 +471,39 @@ fn wrap_full(b: List<Int>, e0: WErr, pos: Int, base: List<Str>, legacy: Bool) ->
   if e.kind == 4 { e = invalid_char(b, pos, "at start of value") }
   if legacy && e.kind != 0 {
     let off = if e.kind == 1 { pos + len(e.what) } else { pos + 1 }
-    return SynErr { msg: e.msg, offset: off, eof: false, pointer: ptr_str(toks), dup: e.kind == 3, ioeof: false }
+    return SynErr {
+      msg: e.msg,
+      offset: off,
+      eof: false,
+      pointer: ptr_str(toks),
+      dup: e.kind == 3,
+      ioeof: false,
+    }
   }
-  SynErr { msg: e.msg, offset: pos, eof: e.kind == 0, pointer: ptr_str(toks), dup: e.kind == 3, ioeof: false }
+  SynErr {
+    msg: e.msg,
+    offset: pos,
+    eof: e.kind == 0,
+    pointer: ptr_str(toks),
+    dup: e.kind == 3,
+    ioeof: false,
+  }
 }
 
 fn wrap(e: WErr, pos: Int) -> SynErr { wrap_full([], e, pos, [], true) }
 
 pub fn read_value(b: List<Int>, o: Opts) -> Result<(Int, Int), SynErr> {
   let p = consume_ws(b, 0)
-  if p >= len(b) { return Err(SynErr { msg: "unexpected EOF", offset: len(b), eof: true, pointer: "", dup: false, ioeof: true }) }
+  if p >= len(b) {
+    return Err(SynErr {
+      msg: "unexpected EOF",
+      offset: len(b),
+      eof: true,
+      pointer: "",
+      dup: false,
+      ioeof: true,
+    })
+  }
   let (q, e) = d_value(b, p, 1, o, 2)
   match e {
     Some(err) => Err(wrap_full(b, err, q, [], o.legacy)),
@@ -447,8 +579,12 @@ fn truncate_pointer(s: Str, n: Int) -> Str {
   let midb = b[i..j]
   let slashes = len(filter(midb, (c) => c == 47))
   var middle = if slashes == 0 { "…" } else if slashes == 1 { "…/…" } else { "…/…/…" }
-  if len(midb) > 0 && midb[0] == 47 && middle != "…" { middle = __str_slice(middle, 1, len(middle)) }
-  if len(midb) > 0 && midb[len(midb) - 1] == 47 && middle != "…" { middle = __str_slice(middle, 0, len(middle) - 1) }
+  if len(midb) > 0 && midb[0] == 47 && middle != "…" {
+    middle = __str_slice(middle, 1, len(middle))
+  }
+  if len(midb) > 0 && midb[len(midb) - 1] == 47 && middle != "…" {
+    middle = __str_slice(middle, 0, len(middle) - 1)
+  }
   unwrap(__from_bytes(b[..i])) + middle + unwrap(__from_bytes(b[j..]))
 }
 
@@ -490,7 +626,11 @@ fn canon_number(t: List<Int>) -> List<Int> {
 }
 
 // 返回 (输出, 结束位置或出错位置, 错误)；输出是追加在 dst 之后的结果
-fn r_value(dst: List<Int>, b: List<Int>, p: Int, depth: Int, o: Opts) -> (List<Int>, Int, Option<WErr>) {
+fn r_value(dst: List<Int>, b: List<Int>, p: Int, depth: Int, o: Opts) -> (
+  List<Int>,
+  Int,
+  Option<WErr>,
+) {
   if p >= len(b) { return (dst, p, Some(eof_err())) }
   let c = b[p]
   if c == 110 || c == 102 || c == 116 {
@@ -519,7 +659,11 @@ fn r_value(dst: List<Int>, b: List<Int>, p: Int, depth: Int, o: Opts) -> (List<I
   (dst, p, Some(invalid_char(b, p, "at start of value")))
 }
 
-fn r_object(dst0: List<Int>, b: List<Int>, p0: Int, depth0: Int, o: Opts) -> (List<Int>, Int, Option<WErr>) {
+fn r_object(dst0: List<Int>, b: List<Int>, p0: Int, depth0: Int, o: Opts) -> (
+  List<Int>,
+  Int,
+  Option<WErr>,
+) {
   if depth0 == MAX_DEPTH + 1 { return (dst0, p0, Some(other_err("exceeded max depth"))) }
   var dst = push(dst0, 123)
   let body = len(dst)
@@ -545,7 +689,13 @@ fn r_object(dst0: List<Int>, b: List<Int>, p0: Int, depth0: Int, o: Opts) -> (Li
     dst = if o.canonical { append_quote(dst, uname, false, false) } else { dst + quoted }
     p = consume_ws(b, q)
     if p >= len(b) { return (dst, p, Some(with_name(eof_err(), quoted))) }
-    if b[p] != 58 { return (dst, p, Some(with_name(invalid_char(b, p, "after object name (expecting ':')"), quoted))) }
+    if b[p] != 58 {
+      return (
+        dst,
+        p,
+        Some(with_name(invalid_char(b, p, "after object name (expecting ':')"), quoted)),
+      )
+    }
     dst = push(dst, 58)
     if o.multiline { dst = push(dst, 32) }
     p = consume_ws(b, p + 1)
@@ -622,7 +772,11 @@ pub fn compare_utf16(x: List<Int>, y: List<Int>) -> Int {
   if a < b2 { -1 } else if a > b2 { 1 } else { 0 }
 }
 
-fn r_array(dst0: List<Int>, b: List<Int>, p0: Int, depth0: Int, o: Opts) -> (List<Int>, Int, Option<WErr>) {
+fn r_array(dst0: List<Int>, b: List<Int>, p0: Int, depth0: Int, o: Opts) -> (
+  List<Int>,
+  Int,
+  Option<WErr>,
+) {
   if depth0 == MAX_DEPTH + 1 { return (dst0, p0, Some(other_err("exceeded max depth"))) }
   var dst = push(dst0, 91)
   var p = consume_ws(b, p0 + 1)
@@ -658,7 +812,9 @@ pub fn append_format(b: List<Int>, o: Opts) -> Result<List<Int>, SynErr> {
   let (out, q, e) = r_value([], b, p, 1, o)
   if let Some(err) = e { return Err(wrap_full(b, err, q, [], o.legacy)) }
   let r = consume_ws(b, q)
-  if r < len(b) { return Err(wrap_full(b, invalid_char(b, r, "after top-level value"), r, [], o.legacy)) }
+  if r < len(b) {
+    return Err(wrap_full(b, invalid_char(b, r, "after top-level value"), r, [], o.legacy))
+  }
   Ok(out)
 }
 
@@ -676,7 +832,9 @@ pub fn compact(b: List<Int>) -> Result<List<Int>, Str> { fmt_value(b, compact_op
 pub fn indent(b: List<Int>) -> Result<List<Int>, Str> { fmt_value(b, indent_opts("", "\t")) }
 
 // WithIndentPrefix / WithIndent：只能是空格和 Tab（Go 里给别的字符会 panic）
-pub fn indent_with(b: List<Int>, prefix: Str, ind: Str) -> Result<List<Int>, Str> { fmt_value(b, indent_opts(prefix, ind)) }
+pub fn indent_with(b: List<Int>, prefix: Str, ind: Str) -> Result<List<Int>, Str> {
+  fmt_value(b, indent_opts(prefix, ind))
+}
 
 pub fn canonicalize(b: List<Int>) -> Result<List<Int>, Str> { fmt_value(b, canonical_opts()) }
 
@@ -697,7 +855,9 @@ pub fn v1_message(e: SynErr) -> Str {
 // ── 字符串 ──
 
 fn esc16(dst: List<Int>, v: Int) -> List<Int> {
-  dst + __bytes("\\u" + hexdig((v >> 12) & 15) + hexdig((v >> 8) & 15) + hexdig((v >> 4) & 15) + hexdig(v & 15))
+  dst + __bytes(
+    "\\u" + hexdig((v >> 12) & 15) + hexdig((v >> 8) & 15) + hexdig((v >> 4) & 15) + hexdig(v & 15),
+  )
 }
 
 fn esc_ascii(dst: List<Int>, c: Int) -> List<Int> {
@@ -781,7 +941,9 @@ fn unquote_raw(src: List<Int>) -> (List<Int>, Str) {
         if is_surrogate(v1) {
           rr = 0xfffd
           if l < n + 6 {
-            if has_escaped_utf16_prefix(src, n, true) { return (dst + utf8.encode_rune(rr), "unexpected EOF") }
+            if has_escaped_utf16_prefix(src, n, true) {
+              return (dst + utf8.encode_rune(rr), "unexpected EOF")
+            }
             err = invalid_escape(src[n - 6..]).msg
           } else {
             let v2 = parse_hex16(src, n + 2)
@@ -803,7 +965,17 @@ fn unquote_raw(src: List<Int>) -> (List<Int>, Str) {
         dst = push(dst, e)
         n += 2
       } else if e == 98 || e == 102 || e == 110 || e == 114 || e == 116 {
-        dst = push(dst, if e == 98 { 8 } else if e == 102 { 12 } else if e == 110 { 10 } else if e == 114 { 13 } else { 9 })
+        dst = push(dst, if e == 98 {
+          8
+        } else if e == 102 {
+          12
+        } else if e == 110 {
+          10
+        } else if e == 114 {
+          13
+        } else {
+          9
+        })
         n += 2
       } else {
         return (dst, invalid_escape(src[n..n + 2]).msg)
@@ -863,10 +1035,28 @@ pub fn append_float(f: Float, bits: Int) -> List<Int> {
 // obj：对象还是数组（栈底是顶层的虚拟数组）；n：已读的名字和值的个数
 pub type Ent = { obj: Bool, n: Int }
 
-pub type Dec = { buf: List<Int>, prev_start: Int, prev_end: Int, peek_pos: Int, peek_err: Option<SynErr>, stack: List<Ent>, names: List<List<Int>>, o: Opts }
+pub type Dec = {
+  buf: List<Int>,
+  prev_start: Int,
+  prev_end: Int,
+  peek_pos: Int,
+  peek_err: Option<SynErr>,
+  stack: List<Ent>,
+  names: List<List<Int>>,
+  o: Opts,
+}
 
 pub fn new_decoder(b: List<Int>, o: Opts) -> Dec {
-  Dec { buf: b, prev_start: 0, prev_end: 0, peek_pos: 0, peek_err: None, stack: [Ent { obj: false, n: 0 }], names: [], o: o }
+  Dec {
+    buf: b,
+    prev_start: 0,
+    prev_end: 0,
+    peek_pos: 0,
+    peek_err: None,
+    stack: [Ent { obj: false, n: 0 }],
+    names: [],
+    o: o,
+  }
 }
 
 fn d_last(d: Dec) -> Ent { d.stack[len(d.stack) - 1] }
@@ -900,7 +1090,11 @@ pub fn stack_pointer(d: Dec, where_: Int) -> List<Str> {
     let e = d.stack[i]
     var delta = -1
     if i == depth - 1 {
-      if (where_ < 0 && e.n == 0) || (where_ == 0 && !need_value(e)) || (where_ > 0 && need_name(e)) { return out }
+      if (where_ < 0 && e.n == 0)
+        || (where_ == 0 && !need_value(e))
+        || (where_ > 0 && need_name(e)) {
+        return out
+      }
       if where_ > 0 && !e.obj { delta = 0 }
     }
     if e.obj {
@@ -920,26 +1114,52 @@ fn dwrap(d: Dec, e0: WErr, pos: Int, where_: Int) -> SynErr {
     var w = "at start of value"
     let last = d_last(d)
     if len(d.stack) > 1 && last.n > 0 {
-      w = if last.obj { "after object value (expecting ',' or '}')" } else { "after array element (expecting ',' or ']')" }
+      w = if last.obj {
+        "after object value (expecting ',' or '}')"
+      } else {
+        "after array element (expecting ',' or ']')"
+      }
       if len(toks) > 0 { toks = toks[..len(toks) - 1] }
     }
     e = invalid_char(d.buf, pos, w)
   }
   if d.o.legacy && e.kind != 0 {
     let off = if e.kind == 1 { pos + len(e.what) } else { pos + 1 }
-    return SynErr { msg: e.msg, offset: off, eof: false, pointer: ptr_str(toks), dup: e.kind == 3, ioeof: false }
+    return SynErr {
+      msg: e.msg,
+      offset: off,
+      eof: false,
+      pointer: ptr_str(toks),
+      dup: e.kind == 3,
+      ioeof: false,
+    }
   }
-  SynErr { msg: e.msg, offset: pos, eof: e.kind == 0, pointer: ptr_str(toks), dup: e.kind == 3, ioeof: false }
+  SynErr {
+    msg: e.msg,
+    offset: pos,
+    eof: e.kind == 0,
+    pointer: ptr_str(toks),
+    dup: e.kind == 3,
+    ioeof: false,
+  }
 }
 
-fn io_eof(pos: Int) -> SynErr { SynErr { msg: "EOF", offset: pos, eof: true, pointer: "", dup: false, ioeof: true } }
+fn io_eof(pos: Int) -> SynErr {
+  SynErr { msg: "EOF", offset: pos, eof: true, pointer: "", dup: false, ioeof: true }
+}
 
 fn check_delim(d: Dec, delim: Int, next: Int) -> Option<SynErr> {
   let nd = need_delim(d, next)
   if nd == delim { return None }
   var w = "at start of value"
   if nd == 58 { w = "after object name (expecting ':')" }
-  if nd == 44 { w = if d_last(d).obj { "after object value (expecting ',' or '}')" } else { "after array element (expecting ',' or ']')" } }
+  if nd == 44 {
+    w = if d_last(d).obj {
+      "after object value (expecting ',' or '}')"
+    } else {
+      "after array element (expecting ',' or ']')"
+    }
+  }
   let pos = consume_ws(d.buf, d.prev_end)
   Some(dwrap(d, invalid_char(d.buf, pos, w), pos, 0))
 }
@@ -979,7 +1199,9 @@ pub fn peek_kind(d: Dec) -> (Dec, Int) {
 
 fn take_peek(d: Dec) -> Result<(Dec, Int, Int), SynErr> {
   if d.peek_pos < 0 { return Err(unwrap(d.peek_err)) }
-  if d.peek_pos > 0 { return Ok((Dec { peek_pos: 0, peek_err: None, ..d }, d.peek_pos, kind_of(d.buf[d.peek_pos]))) }
+  if d.peek_pos > 0 {
+    return Ok((Dec { peek_pos: 0, peek_err: None, ..d }, d.peek_pos, kind_of(d.buf[d.peek_pos])))
+  }
   let (pos, next) = scan_next(d)?
   Ok((d, pos, next))
 }
@@ -996,7 +1218,9 @@ pub fn read_token(d0: Dec) -> Result<(Dec, Tok), SynErr> {
       let (q, e) = consume_literal(b, pos, lit)
       return Err(dwrap(d, unwrap(e), q, 1))
     }
-    if need_name(d_last(d)) { return Err(dwrap(d, other_err("object member name must be a string"), pos, 1)) }
+    if need_name(d_last(d)) {
+      return Err(dwrap(d, other_err("object member name must be a string"), pos, 1))
+    }
     let q = pos + len(lit)
     return Ok((Dec { prev_start: q, prev_end: q, ..incr(d) }, Tok { kind: next, raw: b[pos..q] }))
   }
@@ -1016,28 +1240,44 @@ pub fn read_token(d0: Dec) -> Result<(Dec, Tok), SynErr> {
       let at = if err.kind == 0 { pos } else { q }
       return Err(dwrap(d, err, at, 1))
     }
-    if need_name(d_last(d)) { return Err(dwrap(d, other_err("object member name must be a string"), pos, 1)) }
+    if need_name(d_last(d)) {
+      return Err(dwrap(d, other_err("object member name must be a string"), pos, 1))
+    }
     return Ok((Dec { prev_start: pos, prev_end: q, ..incr(d) }, Tok { kind: 48, raw: b[pos..q] }))
   }
   if next == 123 || next == 91 {
-    if need_name(d_last(d)) { return Err(dwrap(d, other_err("object member name must be a string"), pos, 1)) }
-    if len(d.stack) == MAX_DEPTH + 1 { return Err(dwrap(d, other_err("exceeded max depth"), pos, 1)) }
+    if need_name(d_last(d)) {
+      return Err(dwrap(d, other_err("object member name must be a string"), pos, 1))
+    }
+    if len(d.stack) == MAX_DEPTH + 1 {
+      return Err(dwrap(d, other_err("exceeded max depth"), pos, 1))
+    }
     let d1 = incr(d)
     let st = push(d1.stack, Ent { obj: next == 123, n: 0 })
     let nm = if next == 123 { push(d1.names, []) } else { d1.names }
-    return Ok((Dec { stack: st, names: nm, prev_start: pos + 1, prev_end: pos + 1, ..d1 }, Tok { kind: next, raw: [next] }))
+    return Ok((Dec { stack: st, names: nm, prev_start: pos + 1, prev_end: pos + 1, ..d1 }, Tok {
+      kind: next,
+      raw: [next],
+    }))
   }
   if next == 125 || next == 93 {
     let last = d_last(d)
     if next == 125 {
       if !last.obj { return Err(dwrap(d, WErr { kind: 4, what: [], msg: "", ptr: [] }, pos, 1)) }
-      if need_value(last) { return Err(dwrap(d, other_err("missing value after object name"), pos, 1)) }
+      if need_value(last) {
+        return Err(dwrap(d, other_err("missing value after object name"), pos, 1))
+      }
     } else {
-      if last.obj || len(d.stack) == 1 { return Err(dwrap(d, WErr { kind: 4, what: [], msg: "", ptr: [] }, pos, 1)) }
+      if last.obj || len(d.stack) == 1 {
+        return Err(dwrap(d, WErr { kind: 4, what: [], msg: "", ptr: [] }, pos, 1))
+      }
     }
     let st = d.stack[..len(d.stack) - 1]
     let nm = if next == 125 { d.names[..len(d.names) - 1] } else { d.names }
-    return Ok((Dec { stack: st, names: nm, prev_start: pos + 1, prev_end: pos + 1, ..d }, Tok { kind: next, raw: [next] }))
+    return Ok((Dec { stack: st, names: nm, prev_start: pos + 1, prev_end: pos + 1, ..d }, Tok {
+      kind: next,
+      raw: [next],
+    }))
   }
   Err(dwrap(d, invalid_char(b, pos, "at start of value"), pos, 1))
 }

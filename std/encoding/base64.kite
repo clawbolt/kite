@@ -4,9 +4,13 @@
 //   raw_url_encode / raw_url_decode：URL 安全字母表，不填充（JWT 用的就是这种）
 // decode 系列返回字节列表，decode_str 系列再按 UTF-8 转成 Str
 
-fn std_abc() -> List<Str> { chars("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/") }
+fn std_abc() -> List<Str> {
+  chars("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/")
+}
 
-fn url_abc() -> List<Str> { chars("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_") }
+fn url_abc() -> List<Str> {
+  chars("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_")
+}
 
 fn enc(bs: List<Int>, abc: List<Str>, pad: Bool) -> Str {
   var out = ""
@@ -23,14 +27,30 @@ fn enc(bs: List<Int>, abc: List<Str>, pad: Bool) -> Str {
     out = out + abc[(v >> 18) & 63] + abc[(v >> 12) & 63] + if pad { "==" } else { "" }
   } else if rest == 2 {
     let v = (bs[i] << 16) | (bs[i + 1] << 8)
-    out = out + abc[(v >> 18) & 63] + abc[(v >> 12) & 63] + abc[(v >> 6) & 63] + if pad { "=" } else { "" }
+    out = out + abc[(v >> 18) & 63] + abc[(v >> 12) & 63] + abc[(v >> 6) & 63] + if pad {
+      "="
+    } else {
+      ""
+    }
   }
   out
 }
 
 fn val(c: Str, url: Bool) -> Int {
   let o = __ord(c)
-  if o >= 65 && o <= 90 { o - 65 } else if o >= 97 && o <= 122 { o - 71 } else if o >= 48 && o <= 57 { o + 4 } else if (!url && c == "+") || (url && c == "-") { 62 } else if (!url && c == "/") || (url && c == "_") { 63 } else { -1 }
+  if o >= 65 && o <= 90 {
+    o - 65
+  } else if o >= 97 && o <= 122 {
+    o - 71
+  } else if o >= 48 && o <= 57 {
+    o + 4
+  } else if (!url && c == "+") || (url && c == "-") {
+    62
+  } else if (!url && c == "/") || (url && c == "_") {
+    63
+  } else {
+    -1
+  }
 }
 
 fn dec(s: Str, url: Bool, pad: Bool) -> Result<List<Int>, Str> {
@@ -118,9 +138,13 @@ pub fn new_encoding(alphabet: Str) -> Encoding {
   Encoding { abc: abc, dmap: dmap, pad: STD_PADDING, is_strict: false }
 }
 
-pub fn std_encoding() -> Encoding { new_encoding("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/") }
+pub fn std_encoding() -> Encoding {
+  new_encoding("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/")
+}
 
-pub fn url_encoding() -> Encoding { new_encoding("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_") }
+pub fn url_encoding() -> Encoding {
+  new_encoding("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_")
+}
 
 pub fn raw_std_encoding() -> Encoding { std_encoding().with_padding(NO_PADDING) }
 
@@ -139,9 +163,13 @@ impl Encoding {
 
   fn strict(self) -> Encoding { Encoding { is_strict: true, ..self } }
 
-  fn encoded_len(self, n: Int) -> Int { if self.pad == NO_PADDING { n / 3 * 4 + (n % 3 * 8 + 5) / 6 } else { (n + 2) / 3 * 4 } }
+  fn encoded_len(self, n: Int) -> Int {
+    if self.pad == NO_PADDING { n / 3 * 4 + (n % 3 * 8 + 5) / 6 } else { (n + 2) / 3 * 4 }
+  }
 
-  fn decoded_len(self, n: Int) -> Int { if self.pad == NO_PADDING { n / 4 * 3 + n % 4 * 6 / 8 } else { n / 4 * 3 } }
+  fn decoded_len(self, n: Int) -> Int {
+    if self.pad == NO_PADDING { n / 4 * 3 + n % 4 * 6 / 8 } else { n / 4 * 3 }
+  }
 
   fn encode(self, src: List<Int>) -> List<Int> {
     var out: List<Int> = []
@@ -149,7 +177,12 @@ impl Encoding {
     let n = len(src)
     while i + 2 < n {
       let v = (src[i] << 16) | (src[i + 1] << 8) | src[i + 2]
-      out = out + [self.abc[(v >> 18) & 63], self.abc[(v >> 12) & 63], self.abc[(v >> 6) & 63], self.abc[v & 63]]
+      out = out + [
+        self.abc[(v >> 18) & 63],
+        self.abc[(v >> 12) & 63],
+        self.abc[(v >> 6) & 63],
+        self.abc[v & 63],
+      ]
       i += 3
     }
     let rem = n - i

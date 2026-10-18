@@ -4,8 +4,30 @@
 use ast
 use lexer
 use lexer.{ TV, SPart, sv, iv, is_nil }
-use ast.{ Node, K, Lit, Nm, TyX, Pat, Attr, Vis, EvF, UseP, IPart, AConst, TAssoc, Arm, SArm, Gen, FnD,
-  ImplD, TraitD, MatchD, mkn, kname }
+use ast.{
+  Node,
+  K,
+  Lit,
+  Nm,
+  TyX,
+  Pat,
+  Attr,
+  Vis,
+  EvF,
+  UseP,
+  IPart,
+  AConst,
+  TAssoc,
+  Arm,
+  SArm,
+  Gen,
+  FnD,
+  ImplD,
+  TraitD,
+  MatchD,
+  mkn,
+  kname,
+}
 use lexer.{ Tok, err, repr_str, repr_v, first_upper, first_lower }
 
 pub type P = {
@@ -146,7 +168,7 @@ fn v_lit(v: TV) -> Lit {
     TkInt(i) => LInt(i),
     TkBig(t) => LBig(t),
     TkFlt(f) => LFlt(f),
-    _       => LStr(sv(v)),
+    _ => LStr(sv(v)),
   }
 }
 
@@ -163,7 +185,7 @@ fn call_name(ln: Int, f: Str, args: List<Node>) -> Node { mkn(ln, NCall(name_nod
 fn block_stmts(b: Node) -> List<Node> {
   match b.k {
     NBlock(ss, _) => ss,
-    _             => [],
+    _ => [],
   }
 }
 
@@ -176,19 +198,19 @@ fn bind(n: Str) -> Pat { PBind(NmS(n)) }
 
 fn pat_names(p: Pat) -> List<Str> {
   match p {
-    PBind(n)              => [nm_s(n)],
-    PVar(n)               => [nm_s(n)],
-    PTuple(xs)            => concat_names(xs),
+    PBind(n) => [nm_s(n)],
+    PVar(n) => [nm_s(n)],
+    PTuple(xs) => concat_names(xs),
     PList(pre, rest, post) => {
       var out = concat_names(pre)
       if let Some(r) = rest { if r != "_" { out = push(out, r) } }
       out + concat_names(post)
     },
     PVariant(_, Some(xs)) => concat_names(xs),
-    PStruct(_, fs)        => concat_names(map(fs, (f) => f.1)),
-    POr(xs)               => pat_names(xs[0]),
-    PAt(a, b)             => pat_names(a) + pat_names(b),
-    _                     => [],
+    PStruct(_, fs) => concat_names(map(fs, (f) => f.1)),
+    POr(xs) => pat_names(xs[0]),
+    PAt(a, b) => pat_names(a) + pat_names(b),
+    _ => [],
   }
 }
 
@@ -205,7 +227,7 @@ fn with_vis(n: Node, v: Vis) -> Node { Node { vis: Some(v), ..n } }
 fn vis_pub(n: Node) -> Bool {
   match n.vis {
     Some(v) => v.is_pub,
-    None    => false,
+    None => false,
   }
 }
 
@@ -214,15 +236,26 @@ fn with_attrs(n: Node, ats: List<Attr>) -> Node { Node { attrs: Some(ats), ..n }
 fn with_label(n: Node, l: Str) -> Node {
   match n.k {
     NLoop(b, _) => Node { k: NLoop(b, Some(l)), label: Some(l), ..n },
-    _           => Node { label: Some(l), ..n },
+    _ => Node { label: Some(l), ..n },
   }
 }
 
 fn fn_d(n: Node) -> FnD {
   match n.k {
     NFn(f) => f,
-    _      => FnD { name: "", params: [], ret: None, body: None, gen: ast.no_gen(), is_async: false, is_unsafe: false, varargs: false,
-      ext: None, cname: None, x: ast.no_fnx() },
+    _ => FnD {
+      name: "",
+      params: [],
+      ret: None,
+      body: None,
+      gen: ast.no_gen(),
+      is_async: false,
+      is_unsafe: false,
+      varargs: false,
+      ext: None,
+      cname: None,
+      x: ast.no_fnx(),
+    },
   }
 }
 
@@ -233,7 +266,7 @@ fn with_fn(n: Node, f: FnD) -> Node { Node { k: NFn(f), ..n } }
 fn extern_fns(n: Node) -> List<Node>? {
   match n.k {
     NExtern(fs) => Some(fs),
-    _           => None,
+    _ => None,
   }
 }
 
@@ -245,7 +278,7 @@ fn program(p0: P) -> Result<List<Node>, Str> {
     p = q
     match extern_fns(it) {
       Some(fs) => { out = out + fs },
-      None     => { out = push(out, it) },
+      None => { out = push(out, it) },
     }
     p = end_stmt(p)?
   }
@@ -265,7 +298,7 @@ fn extern_block(p0: P) -> Result<(P, Node), Str> {
     for x in lexer.parts(t.val) {
       match x {
         SStr(s) => { abi = abi + s },
-        _     => {},
+        _ => {},
       }
     }
     if abi != "C" { return Err(e_at(t, "语法错误: 只支持 extern \"C\"，不支持 " + repr_str(abi))) }
@@ -292,10 +325,14 @@ fn extern_block(p0: P) -> Result<(P, Node), Str> {
     p.in_extern = false
     let fd = fn_d(f0)
     if is_some(fd.body) { return Err(e_ln(f0.line, "语法错误: extern fn {fd.name} 不能有函数体")) }
-    if len(fd.gen.names) > 0 { return Err(e_ln(f0.line, "语法错误: extern fn {fd.name} 不能有泛型参数")) }
+    if len(fd.gen.names) > 0 {
+      return Err(e_ln(f0.line, "语法错误: extern fn {fd.name} 不能有泛型参数"))
+    }
     for a in ats {
       let an = a.name
-      if an != "doc" && an != "allow" && an != "deprecated" { return Err(e_ln(a.line, "语法错误: @{an} 不能用在 extern fn 上")) }
+      if an != "doc" && an != "allow" && an != "deprecated" {
+        return Err(e_ln(a.line, "语法错误: @{an} 不能用在 extern fn 上"))
+      }
     }
     var f = with_fn(f0, FnD { ext: Some([]), cname: Some(fd.name), ..fd })
     f = Node { vis: Some(Vis { is_pub: is_pub, vis: None, has_vis: false }), attrs: Some(ats), ..f }
@@ -320,7 +357,15 @@ fn attrs(p0: P) -> Result<(P, List<Attr>), Str> {
       name = name + "." + nx
     }
     if !contains(KNOWN_ATTRS, name) {
-      return Err(e_at(at, "语法错误: 未知属性 @{name}（支持: " + join(map(KNOWN_ATTRS, (a) => "@" + a), ", ") + "）"))
+      return Err(
+        e_at(
+          at,
+          "语法错误: 未知属性 @{name}（支持: " + join(
+            map(KNOWN_ATTRS, (a) => "@" + a),
+            ", ",
+          ) + "）",
+        ),
+      )
     }
     var args: List<(Str?, Lit?)> = []
     if at_op(p, "(") {
@@ -359,7 +404,7 @@ fn all_str(xs: List<SPart>) -> Bool {
   for x in xs {
     match x {
       SStr(_) => {},
-      _     => { return false },
+      _ => { return false },
     }
   }
   true
@@ -368,35 +413,39 @@ fn all_str(xs: List<SPart>) -> Bool {
 fn join_strs(xs: List<SPart>) -> Str {
   join(map(xs, (x) => match x {
     SStr(s) => s,
-    _       => "",
+    _ => "",
   }), "")
 }
 
 fn attr_lit(p: P) -> Result<(P, Lit), Str> {
   let t = cur(p)
   if t.kind == "INT" || t.kind == "FLOAT" { return Ok((skip(p), v_lit(t.val))) }
-  if t.kind == "KW" && (sv(t.val) == "true" || sv(t.val) == "false") { return Ok((skip(p), LBool(sv(t.val) == "true"))) }
-  if t.kind == "STR" && all_str(lexer.parts(t.val)) { return Ok((skip(p), LStr(join_strs(lexer.parts(t.val))))) }
+  if t.kind == "KW" && (sv(t.val) == "true" || sv(t.val) == "false") {
+    return Ok((skip(p), LBool(sv(t.val) == "true")))
+  }
+  if t.kind == "STR" && all_str(lexer.parts(t.val)) {
+    return Ok((skip(p), LStr(join_strs(lexer.parts(t.val)))))
+  }
   Err(e_at(t, "语法错误: 属性参数只能是字面量（整数、浮点、字符串、true/false）或名字"))
 }
 
 fn is_decl(n: Node) -> Bool {
   match n.k {
-    NFn(_)                => true,
-    NStruct(..)           => true,
-    NEnum(..)             => true,
-    NTrait(_)             => true,
-    NImpl(_)              => true,
-    NAlias(..)            => true,
-    NLet(_, _, _, _, ic)  => ic,
-    _                     => false,
+    NFn(_) => true,
+    NStruct(..) => true,
+    NEnum(..) => true,
+    NTrait(_) => true,
+    NImpl(_) => true,
+    NAlias(..) => true,
+    NLet(_, _, _, _, ic) => ic,
+    _ => false,
   }
 }
 
 fn is_fn(n: Node) -> Bool {
   match n.k {
     NFn(_) => true,
-    _      => false,
+    _ => false,
   }
 }
 
@@ -411,7 +460,7 @@ fn item(p0: P, top: Bool) -> Result<(P, Node), Str> {
         for kv in a.args {
           match kv.1 {
             Some(LStr(s)) => { libs = push(libs, s) },
-            _             => {},
+            _ => {},
           }
         }
       } else if an != "doc" && an != "allow" {
@@ -423,18 +472,26 @@ fn item(p0: P, top: Bool) -> Result<(P, Node), Str> {
       let fd = fn_d(f)
       let v = match f.vis {
         Some(x) => Vis { is_pub: x.is_pub || npub, ..x },
-        None    => Vis { is_pub: npub, vis: None, has_vis: false },
+        None => Vis { is_pub: npub, vis: None, has_vis: false },
       }
       Node { k: NFn(FnD { ext: Some(libs), ..fd }), vis: Some(v), ..f }
     })
     return Ok((p, Node { k: NExtern(fs), ..node }))
   }
-  for a in ats { if a.name == "link" { return Err(e_ln(ats[0].line, "语法错误: @link 只能用在 extern 块上")) } }
+  for a in ats {
+    if a.name == "link" { return Err(e_ln(ats[0].line, "语法错误: @link 只能用在 extern 块上")) }
+  }
   if len(ats) > 0 {
-    if !is_decl(node) { return Err(e_ln(ats[0].line, "语法错误: 属性只能放在声明（fn type enum trait impl const）前面")) }
+    if !is_decl(node) {
+      return Err(
+        e_ln(ats[0].line, "语法错误: 属性只能放在声明（fn type enum trait impl const）前面"),
+      )
+    }
     for a in ats {
       let an = a.name
-      if (an == "test" || an == "inline" || an == "cold") && !is_fn(node) { return Err(e_ln(a.line, "语法错误: @{an} 只能用在 fn 上")) }
+      if (an == "test" || an == "inline" || an == "cold") && !is_fn(node) {
+        return Err(e_ln(a.line, "语法错误: @{an} 只能用在 fn 上"))
+      }
     }
     return Ok((p, with_attrs(node, ats)))
   }
@@ -459,7 +516,9 @@ fn item0(p0: P, top: Bool) -> Result<(P, Node), Str> {
       } else {
         let (q, w) = expect_ident(p)?
         p = q
-        if w != "pkg" { return Err(e_at(t, "语法错误: 可见性只能是 pub、pub(pkg) 或 pub(mod)，不能写 pub({w})")) }
+        if w != "pkg" {
+          return Err(e_at(t, "语法错误: 可见性只能是 pub、pub(pkg) 或 pub(mod)，不能写 pub({w})"))
+        }
         vis = Some("pkg")
       }
       let (q, _) = expect(p, "OP", ")")?
@@ -472,7 +531,9 @@ fn item0(p0: P, top: Bool) -> Result<(P, Node), Str> {
 
 fn item1(p0: P) -> Result<(P, Node), Str> {
   var p = p0
-  if at_kw(p, "fn") || at_kw(p, "async") || (at_kw(p, "unsafe") && tis(peek(p, 1), "KW", "fn")) { return fn_decl(p) }
+  if at_kw(p, "fn") || at_kw(p, "async") || (at_kw(p, "unsafe") && tis(peek(p, 1), "KW", "fn")) {
+    return fn_decl(p)
+  }
   if at_kw(p, "type") { return type_decl(p) }
   if at_kw(p, "enum") { return enum_decl(p) }
   if at_kw(p, "trait") { return trait_decl(p) }
@@ -503,7 +564,7 @@ fn item1(p0: P) -> Result<(P, Node), Str> {
       p = q
       match extern_fns(it) {
         Some(fs) => { its = its + fs },
-        None     => { its = push(its, it) },
+        None => { its = push(its, it) },
       }
       p = end_stmt(p)?
     }
@@ -519,15 +580,25 @@ fn item1(p0: P) -> Result<(P, Node), Str> {
   if at_kw(p, "const") || !p.top { return stmt(p, None) }
   let t = cur(p)
   if t.kind == "KW" && (sv(t.val) == "let" || sv(t.val) == "var") {
-    return Err(e_at(t, "语法错误: 顶层不能用 {sv(t.val)}；全局常量请写 const NAME: T = …，可变状态请放进函数里"))
+    return Err(
+      e_at(
+        t,
+        "语法错误: 顶层不能用 {sv(t.val)}；全局常量请写 const NAME: T = …，可变状态请放进函数里",
+      ),
+    )
   }
-  Err(e_at(t, "语法错误: 顶层只允许声明（fn type enum trait impl use mod const），语句请放进 fn main"))
+  Err(
+    e_at(
+      t,
+      "语法错误: 顶层只允许声明（fn type enum trait impl use mod const），语句请放进 fn main",
+    ),
+  )
 }
 
 fn use_name0(u: UseP) -> Str {
   match u {
     UName(s) => s,
-    _        => "",
+    _ => "",
   }
 }
 
@@ -579,7 +650,7 @@ fn use_decl(p0: P) -> Result<(P, Node), Str> {
     let (q2, t) = adv(q)
     let bad = match parts[len(parts) - 1] {
       UGroup(_) => true,
-      UName(s)  => s == "*",
+      UName(s) => s == "*",
     }
     if bad { return Err(e_at(t, "语法错误: 分组或通配导入不能整体改名（在 \{ } 里逐项写 as）")) }
     let (q3, al) = expect_ident(q2)?
@@ -594,7 +665,14 @@ fn at_gt(p: P) -> (P, Bool) {
   let t = cur(p)
   if t.kind == "OP" && (sv(t.val) == ">>" || sv(t.val) == ">>=") {
     let a = Tok { kind: "OP", val: TkStr(">"), line: t.line, col: t.col, nl: t.nl, pos: t.pos }
-    let b = Tok { kind: "OP", val: TkStr(__str_slice(sv(t.val), 1, len(sv(t.val)))), line: t.line, col: t.col + 1, nl: false, pos: t.pos }
+    let b = Tok {
+      kind: "OP",
+      val: TkStr(__str_slice(sv(t.val), 1, len(sv(t.val)))),
+      line: t.line,
+      col: t.col + 1,
+      nl: false,
+      pos: t.pos,
+    }
     let nt = p.t[0..p.i] + [a, b] + p.t[p.i + 1..len(p.t)]
     return (P { t: nt, ..p }, true)
   }
@@ -607,7 +685,9 @@ fn has_head(xs: List<TyX>, b: TyX) -> Bool {
   any(xs, (x) => ast.ty_head(x) == h)
 }
 
-fn where_clause(p0: P, gens: List<Str>, bounds0: List<(Str, List<TyX>)>) -> Result<(P, List<(Str, List<TyX>)>), Str> {
+fn where_clause(p0: P, gens: List<Str>, bounds0: List<(Str, List<TyX>)>) -> Result<(
+  P, List<(Str, List<TyX>)>
+), Str> {
   var p = p0
   var bounds = bounds0
   if !at_kw(p, "where") { return Ok((p, bounds)) }
@@ -616,7 +696,9 @@ fn where_clause(p0: P, gens: List<Str>, bounds0: List<(Str, List<TyX>)>) -> Resu
     let t = cur(p)
     let (q, name) = expect_ident(p)?
     p = q
-    if !contains(gens, name) { return Err(e_at(t, "语法错误: where 子句里的 {name} 不是泛型参数（目前只支持约束泛型参数）")) }
+    if !contains(gens, name) {
+      return Err(e_at(t, "语法错误: where 子句里的 {name} 不是泛型参数（目前只支持约束泛型参数）"))
+    }
     let (q, _) = expect(p, "OP", ":")?
     let (q, t1) = ty(q)?
     p = q
@@ -653,10 +735,12 @@ fn generics(p0: P) -> Result<(P, List<Str>), Str> {
         let (q, _) = expect(q, "OP", ":")?
         let (q, tt) = ty(q)?
         p = q
-        if !first_upper(n) { return Err(e_at(t, "语法错误: 常量泛型参数名必须以大写字母开头：{n}")) }
+        if !first_upper(n) {
+          return Err(e_at(t, "语法错误: 常量泛型参数名必须以大写字母开头：{n}"))
+        }
         let int_ok = match tt {
           YCon(cn, ca, _) => cn == "Int" && len(ca) == 0,
-          _               => false,
+          _ => false,
         }
         if !int_ok { return Err(e_at(t, "语法错误: 常量泛型参数 {n} 目前只支持 Int 类型")) }
         names = push(names, n)
@@ -728,7 +812,7 @@ fn ty(p0: P) -> Result<(P, TyX), Str> {
     p = q
     t = match n {
       Some(x) => con("Array", [inner, x], ln),
-      None    => con("List", [inner], ln),
+      None => con("List", [inner], ln),
     }
   } else if at_kw(p, "dyn") || at_kw(p, "impl") {
     let (q, kt) = adv(p)
@@ -873,11 +957,13 @@ fn odwalk(d: Desugar, t: TyX?, in_ret: Bool) -> (Desugar, TyX?) {
       let (d2, y) = dwalk(d, x, in_ret)
       (d2, Some(y))
     },
-    None    => (d, None),
+    None => (d, None),
   }
 }
 
-fn future_lit(ln: Int, lam: Node) -> Node { mkn(ln, NStructLit(NmS("Future"), [("run", lam)], None)) }
+fn future_lit(ln: Int, lam: Node) -> Node {
+  mkn(ln, NStructLit(NmS("Future"), [("run", lam)], None))
+}
 
 fn fn_decl(p0: P) -> Result<(P, Node), Str> {
   var p = p0
@@ -937,8 +1023,20 @@ fn fn_decl(p0: P) -> Result<(P, Node), Str> {
       body = Some(block_of(ln, [expr_stmt(ln, future_lit(ln, lam))]))
     }
   }
-  let fd = FnD { name: name, params: ps, ret: ret, body: body, gen: Gen { names: d3.gens, bounds: d3.bounds, cgens: cgens }, is_async:
-    is_async, is_unsafe: is_unsafe, varargs: va, ext: None, cname: None, x: ast.no_fnx() }
+  let fd = FnD {
+    name: name,
+    params: ps,
+    ret: ret,
+    body: body,
+    gen: Gen { names: d3.gens, bounds: d3.bounds, cgens: cgens },
+    is_async:
+      is_async,
+    is_unsafe: is_unsafe,
+    varargs: va,
+    ext: None,
+    cname: None,
+    x: ast.no_fnx(),
+  }
   Ok((p, mkn(ln, NFn(fd))))
 }
 
@@ -1006,7 +1104,9 @@ fn enum_decl(p0: P) -> Result<(P, Node), Str> {
         let (q, fname) = expect_ident(p)?
         let (q, _) = expect(q, "OP", ":")?
         p = q
-        if any(rf, (f) => f.0 == fname) { return Err(e_at(ft, "语法错误: 变体 {vname} 的字段 {fname} 重复")) }
+        if any(rf, (f) => f.0 == fname) {
+          return Err(e_at(ft, "语法错误: 变体 {vname} 的字段 {fname} 重复"))
+        }
         let (q, x) = ty(p)?
         p = q
         rf = push(rf, (fname, x))
@@ -1014,7 +1114,11 @@ fn enum_decl(p0: P) -> Result<(P, Node), Str> {
         p = skip_nl(p)
       }
       p = skip(p)
-      if len(rf) == 0 { return Err(e_ln(ln, "语法错误: 记录变体 {vname} 至少要有一个字段（无字段请直接写 {vname}）")) }
+      if len(rf) == 0 {
+        return Err(
+          e_ln(ln, "语法错误: 记录变体 {vname} 至少要有一个字段（无字段请直接写 {vname}）"),
+        )
+      }
       fs = EvRec(rf)
     } else if at_op(p, "(") {
       p = skip(p)
@@ -1105,7 +1209,13 @@ fn trait_decl(p0: P) -> Result<(P, Node), Str> {
     p = skip_nl(p)
   }
   p = skip(p)
-  Ok((p, mkn(ln, NTrait(TraitD { name: name, methods: methods, assoc: assoc, supers: supers, consts: consts }))))
+  Ok((p, mkn(ln, NTrait(TraitD {
+    name: name,
+    methods: methods,
+    assoc: assoc,
+    supers: supers,
+    consts: consts,
+  }))))
 }
 
 fn assoc_const(p0: P, consts: List<AConst>, need_value: Bool) -> Result<(P, AConst), Str> {
@@ -1146,7 +1256,7 @@ fn impl_decl(p0: P) -> Result<(P, Node), Str> {
   }
   let target: Str? = match target_t {
     YCon(n, _, _) => Some(n),
-    _             => None,
+    _ => None,
   }
   let (q, ibounds) = where_clause(p, gens, ib0)?
   let (q, _) = expect(q, "OP", "\{")?
@@ -1182,8 +1292,20 @@ fn impl_decl(p0: P) -> Result<(P, Node), Str> {
   }
   p = skip(p)
   p.impl_target = saved_tgt
-  let d = ImplD { tr: trait_t, target: unwrap_or(target, "Tuple"), target_t: target_t, methods: methods, gen: Gen { names: gens, bounds:
-    ibounds, cgens: icgens }, assoc: assoc, consts: consts }
+  let d = ImplD {
+    tr: trait_t,
+    target: unwrap_or(target, "Tuple"),
+    target_t: target_t,
+    methods: methods,
+    gen: Gen {
+      names: gens,
+      bounds:
+        ibounds,
+      cgens: icgens,
+    },
+    assoc: assoc,
+    consts: consts,
+  }
   Ok((p, mkn(ln, NImpl(d))))
 }
 
@@ -1195,7 +1317,9 @@ fn break_block(ln: Int) -> Node { block_of(ln, [mkn(ln, NBreak(None, None, true)
 
 fn arm(pat: Pat, guard: Node?, body: Node) -> Arm { Arm { pat: pat, guard: guard, body: body } }
 
-fn match_n(ln: Int, subj: Node, arms: List<Arm>) -> Node { mkn(ln, NMatch(MatchD { subject: subj, arms: arms, is_conj: None, let_else: None })) }
+fn match_n(ln: Int, subj: Node, arms: List<Arm>) -> Node {
+  mkn(ln, NMatch(MatchD { subject: subj, arms: arms, is_conj: None, let_else: None }))
+}
 
 fn stmt(p0: P, label: Str?) -> Result<(P, Node), Str> {
   var p = p0
@@ -1204,7 +1328,9 @@ fn stmt(p0: P, label: Str?) -> Result<(P, Node), Str> {
     p = skip(p)
     let nt = cur(p)
     let (q, name) = expect_ident(p)?
-    if !first_upper(name) { return Err(e_at(nt, "语法错误: const 的名字必须以大写字母开头（{name}）")) }
+    if !first_upper(name) {
+      return Err(e_at(nt, "语法错误: const 的名字必须以大写字母开头（{name}）"))
+    }
     let (q, _) = expect(q, "OP", ":")?
     let (q, t) = ty(q)?
     let (q, _) = expect(q, "OP", "=")?
@@ -1230,8 +1356,17 @@ fn stmt(p0: P, label: Str?) -> Result<(P, Node), Str> {
       p = q
       let names = pat_names(pat)
       let ln = tok.line
-      let res = if len(names) == 1 { name_node(ln, names[0]) } else { mkn(ln, NTuple(map(names, (n) => name_node(ln, n)))) }
-      let m = mkn(ln, NMatch(MatchD { subject: value, arms: [arm(pat, None, res), arm(PWild, None, els)], is_conj: None, let_else: Some(els) }))
+      let res = if len(names) == 1 {
+        name_node(ln, names[0])
+      } else {
+        mkn(ln, NTuple(map(names, (n) => name_node(ln, n))))
+      }
+      let m = mkn(ln, NMatch(MatchD {
+        subject: value,
+        arms: [arm(pat, None, res), arm(PWild, None, els)],
+        is_conj: None,
+        let_else: Some(els),
+      }))
       var bpat = if len(names) == 1 { bind(names[0]) } else { PTuple(map(names, bind)) }
       if len(names) == 0 { bpat = PWild }
       return Ok((p, mkn(ln, NLet(bpat, mutable, if len(names) == 1 { t } else { None }, m, false))))
@@ -1240,7 +1375,9 @@ fn stmt(p0: P, label: Str?) -> Result<(P, Node), Str> {
   }
   if at_kw(p, "return") {
     p = skip(p)
-    if at_k(p, "NEWLINE") || at_op(p, "}") || at_op(p, ";") { return Ok((p, mkn(tok.line, NReturn(None)))) }
+    if at_k(p, "NEWLINE") || at_op(p, "}") || at_op(p, ";") {
+      return Ok((p, mkn(tok.line, NReturn(None))))
+    }
     let (q, v) = expr(p, false)?
     return Ok((q, mkn(tok.line, NReturn(Some(v)))))
   }
@@ -1255,7 +1392,7 @@ fn stmt(p0: P, label: Str?) -> Result<(P, Node), Str> {
     var s = with_label(s0, lab)
     match s.k {
       NExprStmt(e) => { s = Node { k: NExprStmt(with_label(e, lab)), ..s } },
-      _            => {},
+      _ => {},
     }
     return Ok((q, s))
   }
@@ -1269,7 +1406,16 @@ fn stmt(p0: P, label: Str?) -> Result<(P, Node), Str> {
     }
     var val: Node? = None
     let is_break = sv(tok.val) == "break"
-    if is_break && !cur(p).nl && !(at_k(p, "NEWLINE") || at_k(p, "EOF") || at_op(p, "}") || at_op(p, ";") || at_op(p, ",") || at_op(p, ")")) {
+    if is_break
+      && !cur(p).nl
+      && !(
+        at_k(p, "NEWLINE")
+          || at_k(p, "EOF")
+          || at_op(p, "}")
+          || at_op(p, ";")
+          || at_op(p, ",")
+          || at_op(p, ")")
+      ) {
       let (q, v) = expr(p, false)?
       p = q
       val = Some(v)
@@ -1304,7 +1450,7 @@ fn stmt(p0: P, label: Str?) -> Result<(P, Node), Str> {
     let (q, e) = loop_expr(skip(p), tok.line, label, false)?
     match e.k {
       NLoop(..) => { return Ok((q, expr_stmt(tok.line, e))) },
-      _         => { return Ok((q, e)) },
+      _ => { return Ok((q, e)) },
     }
   }
   if at_kw(p, "for") {
@@ -1325,10 +1471,10 @@ fn stmt(p0: P, label: Str?) -> Result<(P, Node), Str> {
   if at_ops(p, ASSIGN_OPS) {
     let (q, ot) = adv(p)
     let ok = match e.k {
-      NName(_)     => true,
-      NField(..)   => true,
-      NIndex(..)   => true,
-      _            => false,
+      NName(_) => true,
+      NField(..) => true,
+      NIndex(..) => true,
+      _ => false,
     }
     if !ok { return Err(e_at(tok, "赋值目标无效")) }
     let (q, v) = expr(q, false)?
@@ -1363,17 +1509,36 @@ fn expr(p0: P, no_struct: Bool) -> Result<(P, Node), Str> {
 
 fn is_conj(left: Node, right: Node, ln: Int) -> Node {
   match left.k {
-    NIs(v, pat) => mkn(ln, NMatch(MatchD { subject: v, arms: [arm(pat, None, right), arm(PWild, None, lit(ln, LBool(false)))], is_conj:
-      Some((left, right)), let_else: None })),
-    NBin(op, l, Some(r)) => if op == "&&" { mkn(left.line, NBin("&&", l, Some(is_conj(r, right, ln)))) } else {
+    NIs(v, pat) => mkn(ln, NMatch(MatchD {
+      subject: v,
+      arms: [arm(pat, None, right), arm(PWild, None, lit(ln, LBool(false)))],
+      is_conj:
+        Some((left, right)),
+      let_else: None,
+    })),
+    NBin(op, l, Some(r)) => if op == "&&" {
+      mkn(left.line, NBin("&&", l, Some(is_conj(r, right, ln))))
+    } else {
       mkn(ln, NBin("&&", left, Some(right)))
     },
     _ => mkn(ln, NBin("&&", left, Some(right))),
   }
 }
 
-const BIN: List<List<Str>> = [["||"], ["&&"], ["==", "!="], ["<", ">", "<=", ">="], ["|>"], ["..", "..="], ["|"], ["^"], ["&"],
-  ["<<", ">>"], ["+", "-"], ["*", "/", "%"]]
+const BIN: List<List<Str>> = [
+  ["||"],
+  ["&&"],
+  ["==", "!="],
+  ["<", ">", "<=", ">="],
+  ["|>"],
+  ["..", "..="],
+  ["|"],
+  ["^"],
+  ["&"],
+  ["<<", ">>"],
+  ["+", "-"],
+  ["*", "/", "%"],
+]
 const HIGH_OPS: List<Str> = ["..", "..=", "|", "^", "&", "<<", ">>", "+", "-", "*", "/", "%"]
 
 fn binary(p0: P, lvl: Int) -> Result<(P, Node), Str> {
@@ -1402,7 +1567,12 @@ fn binary(p0: P, lvl: Int) -> Result<(P, Node), Str> {
       p = q
       if at_ops(p, HIGH_OPS) || at_kw(p, "as") {
         let t = cur(p)
-        return Err(e_at(t, "语法错误: 管道 |> 的右侧只能是函数或调用，不会吸收后面的 {sv(t.val)}；请写成 (a |> f) {sv(t.val)} …"))
+        return Err(
+          e_at(
+            t,
+            "语法错误: 管道 |> 的右侧只能是函数或调用，不会吸收后面的 {sv(t.val)}；请写成 (a |> f) {sv(t.val)} …",
+          ),
+        )
       }
       left = mkn(pt.line, NPipe(left, right))
     }
@@ -1431,7 +1601,12 @@ fn binary(p0: P, lvl: Int) -> Result<(P, Node), Str> {
     if lvl == 5 { break }
     if (lvl == 2 || lvl == 3 || lvl == 5) && at_ops(p, BIN[lvl]) {
       let t = cur(p)
-      return Err(e_at(t, "语法错误: {op} 与 {sv(t.val)} 不可连用（比较不可结合）：a < b < c 请写成 a < b && b < c"))
+      return Err(
+        e_at(
+          t,
+          "语法错误: {op} 与 {sv(t.val)} 不可连用（比较不可结合）：a < b < c 请写成 a < b && b < c",
+        ),
+      )
     }
   }
   if lvl == 2 && at_kw(p, "is") {
@@ -1465,7 +1640,12 @@ fn loop_expr(p0: P, ln: Int, label: Str?, force: Bool) -> Result<(P, Node), Str>
 
 fn slice_node(obj: Node, lo: Node?, op: Str, hi: Node?, ln: Int) -> Node {
   let mode = if is_none(hi) { 2 } else if op == "..=" { 1 } else { 0 }
-  call_name(ln, "__slice", [obj, unwrap_or(lo, lit(ln, LInt(0))), unwrap_or(hi, lit(ln, LInt(0))), lit(ln, LInt(mode))])
+  call_name(ln, "__slice", [
+    obj,
+    unwrap_or(lo, lit(ln, LInt(0))),
+    unwrap_or(hi, lit(ln, LInt(0))),
+    lit(ln, LInt(mode)),
+  ])
 }
 
 fn unary(p0: P) -> Result<(P, Node), Str> {
@@ -1481,7 +1661,7 @@ fn unary(p0: P) -> Result<(P, Node), Str> {
 fn name_of(e: Node) -> Str? {
   match e.k {
     NName(n) => Some(n),
-    _        => None,
+    _ => None,
   }
 }
 
@@ -1503,10 +1683,12 @@ fn postfix(p0: P, e0: Node) -> Result<(P, Node), Str> {
         p = q
         let sr = match e.k {
           NSpawn(_) => true,
-          NRace(_)  => true,
-          _         => false,
+          NRace(_) => true,
+          _ => false,
         }
-        if !sr && !p.in_async { return Err(e_at(at, "语法错误: .await 只能用在 async fn、async 块或 async 闭包里")) }
+        if !sr && !p.in_async {
+          return Err(e_at(at, "语法错误: .await 只能用在 async fn、async 块或 async 闭包里"))
+        }
         if sr { e = mkn(ln, NAwait(e)) } else { e = call_name(ln, "__await", [e]) }
         continue
       }
@@ -1685,7 +1867,9 @@ fn is_fn_decl(p: P) -> Bool {
   tis(p.t[j], "KW", "fn") && p.t[j + 1].kind == "IDENT"
 }
 
-fn future_of(ln: Int, body: Node, ctx: Str) -> Node { future_lit(ln, mkn(ln, NLambda([], body, Some(ctx)))) }
+fn future_of(ln: Int, body: Node, ctx: Str) -> Node {
+  future_lit(ln, mkn(ln, NLambda([], body, Some(ctx))))
+}
 
 fn async_body(p0: P, ln: Int, ctx: Str) -> Result<(P, Node), Str> {
   var p = p0
@@ -1810,7 +1994,9 @@ fn fmt_spec_ok(spec: Str) -> Bool {
 fn primary(p0: P) -> Result<(P, Node), Str> {
   var p = p0
   let tok = cur(p)
-  if tok.kind == "INT" || tok.kind == "FLOAT" { return Ok((skip(p), lit(tok.line, v_lit(tok.val)))) }
+  if tok.kind == "INT" || tok.kind == "FLOAT" {
+    return Ok((skip(p), lit(tok.line, v_lit(tok.val))))
+  }
   if tok.kind == "STR" {
     p = skip(p)
     var parts: List<IPart> = []
@@ -1821,15 +2007,28 @@ fn primary(p0: P) -> Result<(P, Node), Str> {
           let stoks0 = lexer.lex(src)?
           let stoks = map(stoks0, (st) => Tok { line: tok.line + st.line - 1, ..st })
           let sub = skip_nl(new_p(stoks))
-          if at_k(sub, "EOF") { return Err(e_at(tok, "语法错误: 空的字符串插值 \{}（字面的 \{ 写成 \\\{）")) }
+          if at_k(sub, "EOF") {
+            return Err(e_at(tok, "语法错误: 空的字符串插值 \{}（字面的 \{ 写成 \\\{）"))
+          }
           let (sub2, ex0) = expr(sub, false)?
           let sub3 = skip_nl(sub2)
-          if !at_k(sub3, "EOF") { return Err(e_at(tok, "语法错误: 字符串插值里表达式后面有多余内容 " + repr_v(cur(sub3).val))) }
+          if !at_k(sub3, "EOF") {
+            return Err(
+              e_at(tok, "语法错误: 字符串插值里表达式后面有多余内容 " + repr_v(cur(sub3).val)),
+            )
+          }
           var ex = ex0
           match spec {
             Some(sp) => {
               if !fmt_spec_ok(sp) {
-                return Err(e_at(tok, "语法错误: 无效的格式说明 " + repr_str(sp) + "（[[填充]对齐][0][宽度][.精度][x|X|o|b|e|?]）"))
+                return Err(
+                  e_at(
+                    tok,
+                    "语法错误: 无效的格式说明 " + repr_str(
+                      sp,
+                    ) + "（[[填充]对齐][0][宽度][.精度][x|X|o|b|e|?]）",
+                  ),
+                )
               }
               ex = call_name(tok.line, "__fmt", [ex, lit(tok.line, LStr(sp))])
             },
@@ -1843,17 +2042,21 @@ fn primary(p0: P) -> Result<(P, Node), Str> {
     if len(parts) == 1 {
       match parts[0] {
         IStr(s) => { return Ok((p, lit(tok.line, LStr(s)))) },
-        _       => {},
+        _ => {},
       }
     }
     return Ok((p, mkn(tok.line, NInterp(parts))))
   }
-  if at_kw(p, "true") || at_kw(p, "false") { return Ok((skip(p), lit(tok.line, LBool(sv(tok.val) == "true")))) }
+  if at_kw(p, "true") || at_kw(p, "false") {
+    return Ok((skip(p), lit(tok.line, LBool(sv(tok.val) == "true"))))
+  }
   if tok.kind == "IDENT" && tis(peek(p, 1), "OP", "=>") && !p.in_guard {
     let (q, body) = lambda_body(skip(skip(p)))?
     return Ok((q, mkn(tok.line, NLambda([(sv(tok.val), None)], body, None))))
   }
-  if tok.kind == "IDENT" && sv(tok.val) == "select" && tis(peek(p, 1), "OP", "\{") { return select_expr(p) }
+  if tok.kind == "IDENT" && sv(tok.val) == "select" && tis(peek(p, 1), "OP", "\{") {
+    return select_expr(p)
+  }
   if tok.kind == "IDENT" && sv(tok.val) == "race" && tis(peek(p, 1), "OP", "\{") {
     p = skip_nl(skip(skip(p)))
     var its: List<Node> = []
@@ -1871,7 +2074,10 @@ fn primary(p0: P) -> Result<(P, Node), Str> {
   if tok.kind == "IDENT" || at_kw(p, "self") || at_kw(p, "Self") {
     p = skip(p)
     let tv = sv(tok.val)
-    if tok.kind == "IDENT" && tv == "Set" && at_op(p, "\{") && (!p.no_struct || (cur(p).line == tok.line && cur(p).col == tok.col + 3)) {
+    if tok.kind == "IDENT"
+      && tv == "Set"
+      && at_op(p, "\{")
+      && (!p.no_struct || (cur(p).line == tok.line && cur(p).col == tok.col + 3)) {
       p = skip_nl(skip(p))
       var its: List<Node> = []
       let saved = p.no_struct
@@ -1902,8 +2108,8 @@ fn at_struct_lit(p: P) -> Bool {
   if p.no_struct || !at_op(p, "\{") { return false }
   let a = peek(p, 1)
   let b = peek(p, 2)
-  (a.kind == "IDENT" && b.kind == "OP" && contains([":", ",", "}"], sv(b.val))) || (a.kind == "OP" && contains(["}", ".."],
-    sv(a.val)))
+  (a.kind == "IDENT" && b.kind == "OP" && contains([":", ",", "}"], sv(b.val)))
+    || (a.kind == "OP" && contains(["}", ".."], sv(a.val)))
 }
 
 fn struct_lit(p0: P, tok: Tok, name: Nm) -> Result<(P, Node), Str> {
@@ -2002,7 +2208,9 @@ fn primary2(p0: P, tok: Tok) -> Result<(P, Node), Str> {
   if at_kw(p, "loop") { return loop_expr(skip(p), tok.line, None, true) }
   if tok.kind == "LABEL" && tis(peek(p, 1), "OP", ":") {
     p = skip(skip(p))
-    if !at_kw(p, "loop") { return Err(e_at(cur(p), "语法错误: 表达式里的标签 '{sv(tok.val)} 后面必须是 loop")) }
+    if !at_kw(p, "loop") {
+      return Err(e_at(cur(p), "语法错误: 表达式里的标签 '{sv(tok.val)} 后面必须是 loop"))
+    }
     return loop_expr(skip(p), tok.line, Some(sv(tok.val)), true)
   }
   if at_kw(p, "spawn") {
@@ -2043,13 +2251,13 @@ fn else_part(p0: P, ln: Int) -> Result<(P, Node?), Str> {
 fn is_block(n: Node) -> Bool {
   match n.k {
     NBlock(..) => true,
-    _          => false,
+    _ => false,
   }
 }
 
 fn wrap_els(then0: Node, els0: Node?, ln: Int) -> (Node, Node) {
   match els0 {
-    None    => (unit_tail(then0), block_of(ln, [])),
+    None => (unit_tail(then0), block_of(ln, [])),
     Some(e) => if is_block(e) { (then0, e) } else { (then0, block_of(ln, [expr_stmt(ln, e)])) },
   }
 }
@@ -2074,7 +2282,7 @@ fn if_expr(p0: P) -> Result<(P, Node), Str> {
       if let Some(ic) = m.is_conj {
         match ic.0.k {
           NIs(v, pt) => { isn = Some((v, pt, Some(ic.1))) },
-          _          => {},
+          _ => {},
         }
       }
     },
@@ -2117,7 +2325,9 @@ fn select_expr(p0: P) -> Result<(P, Node), Str> {
     var guard: Node? = None
     if t.kind == "IDENT" && tv == "_" {
       p = skip(p)
-    } else if t.kind == "IDENT" && (tv == "recv" || tv == "send" || tv == "after") && tis(peek(p, 1), "OP", "(") {
+    } else if t.kind == "IDENT"
+      && (tv == "recv" || tv == "send" || tv == "after")
+      && tis(peek(p, 1), "OP", "(") {
       kd = tv
       let (q, x) = expr(skip(skip(p)), false)?
       p = q
@@ -2141,7 +2351,9 @@ fn select_expr(p0: P) -> Result<(P, Node), Str> {
         guard = Some(x)
       }
     } else {
-      return Err(e_at(t, "语法错误: select 的分支必须是 recv(通道)、send(通道, 值)、after(毫秒) 或 _"))
+      return Err(
+        e_at(t, "语法错误: select 的分支必须是 recv(通道)、send(通道, 值)、after(毫秒) 或 _"),
+      )
     }
     let (q, _) = expect(p, "OP", "=>")?
     let (q, body) = expr(q, false)?
@@ -2152,7 +2364,9 @@ fn select_expr(p0: P) -> Result<(P, Node), Str> {
   }
   p = skip(p)
   let kinds = map(arms, (x) => x.kind)
-  if !any(kinds, (k) => k == "recv" || k == "send") { return Err(e_ln(ln, "语法错误: select 至少要有一个 recv 或 send 分支")) }
+  if !any(kinds, (k) => k == "recv" || k == "send") {
+    return Err(e_ln(ln, "语法错误: select 至少要有一个 recv 或 send 分支"))
+  }
   if count(kinds, (k) => k == "after" || k == "default") > 1 {
     return Err(e_ln(ln, "语法错误: select 最多只能有一个 after 或 _ 分支（二者不能同时出现）"))
   }
@@ -2203,15 +2417,22 @@ fn pattern(p0: P) -> Result<(P, Pat), Str> {
 fn pat_lit_start(p: P, k: Int) -> Bool {
   let t = if k > 0 { peek(p, k) } else { cur(p) }
   let nk = peek(p, k + 1).kind
-  t.kind == "INT" || t.kind == "FLOAT" || t.kind == "STR" || (tis(t, "OP", "-") && (nk == "INT" || nk == "FLOAT"))
+  t.kind == "INT"
+    || t.kind == "FLOAT"
+    || t.kind == "STR"
+    || (tis(t, "OP", "-") && (nk == "INT" || nk == "FLOAT"))
 }
 
 fn neg(v: TV) -> Lit {
   match v {
     TkInt(i) => LInt(-i),
     TkFlt(f) => LFlt(-f),
-    TkBig(t) => if t == "9223372036854775808" { LInt(-9223372036854775807 - 1) } else { LBig("-" + t) },
-    _       => v_lit(v),
+    TkBig(t) => if t == "9223372036854775808" {
+      LInt(-9223372036854775807 - 1)
+    } else {
+      LBig("-" + t)
+    },
+    _ => v_lit(v),
   }
 }
 
@@ -2223,7 +2444,9 @@ fn pat_lit(p0: P) -> Result<(P, Lit), Str> {
     return Ok((q, neg(t.val)))
   }
   if tok.kind == "STR" {
-    if !all_str(lexer.parts(tok.val)) { return Err(e_at(tok, "语法错误: 模式里的字符串不能有插值")) }
+    if !all_str(lexer.parts(tok.val)) {
+      return Err(e_at(tok, "语法错误: 模式里的字符串不能有插值"))
+    }
     return Ok((skip(p0), LStr(join_strs(lexer.parts(tok.val)))))
   }
   if tok.kind == "INT" || tok.kind == "FLOAT" { return Ok((skip(p0), v_lit(tok.val))) }
@@ -2275,7 +2498,9 @@ fn pattern1(p0: P) -> Result<(P, Pat), Str> {
   if at_kw(p, "var") {
     p = skip(p)
     let n = cur(p)
-    if n.kind != "IDENT" || sv(n.val) == "_" || first_upper(sv(n.val)) { return Err(e_at(n, "语法错误: var 后面必须是小写的绑定名")) }
+    if n.kind != "IDENT" || sv(n.val) == "_" || first_upper(sv(n.val)) {
+      return Err(e_at(n, "语法错误: var 后面必须是小写的绑定名"))
+    }
     p = skip(p)
     let b = PVar(NmS(sv(n.val)))
     if at_op(p, "@") {
@@ -2307,7 +2532,9 @@ fn pattern1(p0: P) -> Result<(P, Pat), Str> {
     }
     return Ok((p, PLit(lo)))
   }
-  if at_kw(p, "true") || at_kw(p, "false") { return Ok((skip(p), PLit(LBool(sv(tok.val) == "true")))) }
+  if at_kw(p, "true") || at_kw(p, "false") {
+    return Ok((skip(p), PLit(LBool(sv(tok.val) == "true"))))
+  }
   if at_op(p, "(") {
     let (q, pre, rest, post) = seq_pats(skip_nl(skip(p)), ")", false)?
     if is_none(rest) && len(pre) == 1 { return Ok((q, pre[0])) }
@@ -2323,7 +2550,7 @@ fn pattern1(p0: P) -> Result<(P, Pat), Str> {
     if at_kw(p, "Self") {
       match p.impl_target {
         Some(t) => { name = NmS(t) },
-        None    => { return Err(e_at(tok, "语法错误: 模式里的 Self 只能用在 impl 里")) },
+        None => { return Err(e_at(tok, "语法错误: 模式里的 Self 只能用在 impl 里")) },
       }
       p = skip(p)
     } else {
@@ -2340,10 +2567,12 @@ fn pattern1(p0: P) -> Result<(P, Pat), Str> {
     let ns = nm_s(name)
     let is_q = match name {
       NmQ(..) => true,
-      _       => false,
+      _ => false,
     }
     if at_op(p, "@") {
-      if first_upper(ns) || is_q || ns == "self" { return Err(e_at(tok, "语法错误: @ 左边必须是小写的绑定名")) }
+      if first_upper(ns) || is_q || ns == "self" {
+        return Err(e_at(tok, "语法错误: @ 左边必须是小写的绑定名"))
+      }
       let (q, x) = pattern1(skip(p))?
       return Ok((q, PAt(PBind(name), x)))
     }

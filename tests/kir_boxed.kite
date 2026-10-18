@@ -7,7 +7,7 @@ enum Shape {
 
 fn area(s: Shape) -> Float {
   match s {
-    Circle(r)  => 3.0 * r * r
+    Circle(r) => 3.0 * r * r
     Rect(w, h) => w * h
   }
 }
@@ -44,10 +44,10 @@ fn sum_to(n: Int) -> Int {
 
 fn classify(v: Int) -> Str {
   match v {
-    0          => "zero"
-    1..10      => "small"
+    0 => "zero"
+    1..10 => "small"
     n if n < 0 => "negative"
-    _          => "big"
+    _ => "big"
   }
 }
 
@@ -163,7 +163,7 @@ fn local_types() -> Int {
   let p = P { x: 3, y: 4 }
   let d = Down(5)
   let k = match d {
-    Up      => 0
+    Up => 0
     Down(n) => n
   }
   p.sum() + k

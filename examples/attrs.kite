@@ -20,5 +20,13 @@ enum E {
 }
 fn main() {
   let f = id.<Str>
-  print(id.<Int>(3), pair.<Int, _>(1, "b"), f("s"), sum.<Float>([1.0, 2.5]), old_parse("4"), P { x: 1, y: 2 }, A)
+  print(
+    id.<Int>(3),
+    pair.<Int, _>(1, "b"),
+    f("s"),
+    sum.<Float>([1.0, 2.5]),
+    old_parse("4"),
+    P { x: 1, y: 2 },
+    A,
+  )
 }

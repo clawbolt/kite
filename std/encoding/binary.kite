@@ -57,16 +57,26 @@ pub fn little_get_u64(bs: List<Int>, off: Int) -> Result<Int, Str> { read_le(bs,
 
 fn sign(v: Int, bits: Int) -> Int { if v >= (1 << (bits - 1)) { v - (1 << bits) } else { v } }
 
-pub fn big_get_i16(bs: List<Int>, off: Int) -> Result<Int, Str> { Ok(sign(read_be(bs, off, 2)?, 16)) }
+pub fn big_get_i16(bs: List<Int>, off: Int) -> Result<Int, Str> {
+  Ok(sign(read_be(bs, off, 2)?, 16))
+}
 
-pub fn big_get_i32(bs: List<Int>, off: Int) -> Result<Int, Str> { Ok(sign(read_be(bs, off, 4)?, 32)) }
+pub fn big_get_i32(bs: List<Int>, off: Int) -> Result<Int, Str> {
+  Ok(sign(read_be(bs, off, 4)?, 32))
+}
 
-pub fn little_get_i16(bs: List<Int>, off: Int) -> Result<Int, Str> { Ok(sign(read_le(bs, off, 2)?, 16)) }
+pub fn little_get_i16(bs: List<Int>, off: Int) -> Result<Int, Str> {
+  Ok(sign(read_le(bs, off, 2)?, 16))
+}
 
-pub fn little_get_i32(bs: List<Int>, off: Int) -> Result<Int, Str> { Ok(sign(read_le(bs, off, 4)?, 32)) }
+pub fn little_get_i32(bs: List<Int>, off: Int) -> Result<Int, Str> {
+  Ok(sign(read_le(bs, off, 4)?, 32))
+}
 
 // 逻辑右移（把 Int 当成无符号 64 位）
-fn shr(x: Int, k: Int) -> Int { if x >= 0 || k == 0 { x >> k } else { (x >> k) & ~(-1 << (64 - k)) } }
+fn shr(x: Int, k: Int) -> Int {
+  if x >= 0 || k == 0 { x >> k } else { (x >> k) & ~(-1 << (64 - k)) }
+}
 
 // 无符号变长整数（LEB128，同 Go 的 PutUvarint）；负数按 64 位无符号处理，最多 10 个字节
 pub fn put_uvarint(x: Int) -> List<Int> {

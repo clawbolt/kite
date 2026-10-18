@@ -23,8 +23,11 @@ const ERR_RATIO: Str = "unsupported JPEG feature: luma/chroma subsampling ratio"
 fn ferr(s: Str) -> Str { "invalid JPEG format: " + s }
 fn uerr(s: Str) -> Str { "unsupported JPEG feature: " + s }
 
-const UNZIG: List<Int> = [0, 1, 8, 16, 9, 2, 3, 10, 17, 24, 32, 25, 18, 11, 4, 5, 12, 19, 26, 33, 40, 48, 41, 34, 27, 20, 13, 6, 7, 14, 21, 28,
-  35, 42, 49, 56, 57, 50, 43, 36, 29, 22, 15, 23, 30, 37, 44, 51, 58, 59, 52, 45, 38, 31, 39, 46, 53, 60, 61, 54, 47, 55, 62, 63]
+const UNZIG: List<Int> = [
+  0, 1, 8, 16, 9, 2, 3, 10, 17, 24, 32, 25, 18, 11, 4, 5, 12, 19, 26, 33, 40, 48, 41, 34, 27, 20,
+  13, 6, 7, 14, 21, 28, 35, 42, 49, 56, 57, 50, 43, 36, 29, 22, 15, 23, 30, 37, 44, 51, 58, 59, 52,
+  45, 38, 31, 39, 46, 53, 60, 61, 54, 47, 55, 62, 63,
+]
 
 fn w32(x: Int) -> Int { ((x + 0x80000000) & 0xffffffff) - 0x80000000 }
 
@@ -371,7 +374,12 @@ fn ensure_nbits(r0: R, n: Int) -> (R, Str) {
       if e == UEOF { return (r, ERR_SHORT_HUFF) }
       return (r, e)
     }
-    r = R { a: ((r.a << 8) | c) & 0xffffffff, n: r.n + 8, m: if r.m == 0 { 128 } else { (r.m << 8) & 0xffffffff }, ..r }
+    r = R {
+      a: ((r.a << 8) | c) & 0xffffffff,
+      n: r.n + 8,
+      m: if r.m == 0 { 128 } else { (r.m << 8) & 0xffffffff },
+      ..r
+    }
     if r.n >= n { break }
   }
   (r, "")
@@ -392,9 +400,18 @@ fn receive_extend(r0: R, t: Int) -> (R, Int, Str) {
   (r, x, "")
 }
 
-type H = { n_codes: Int, lut: List<Int>, vals: List<Int>, min_codes: List<Int>, max_codes: List<Int>, vals_indices: List<Int> }
+type H = {
+  n_codes: Int,
+  lut: List<Int>,
+  vals: List<Int>,
+  min_codes: List<Int>,
+  max_codes: List<Int>,
+  vals_indices: List<Int>,
+}
 
-fn empty_h() -> H { H { n_codes: 0, lut: [], vals: [], min_codes: [], max_codes: [], vals_indices: [] } }
+fn empty_h() -> H {
+  H { n_codes: 0, lut: [], vals: [], min_codes: [], max_codes: [], vals_indices: [] }
+}
 
 fn decode_huffman(r0: R, h: H) -> (R, Int, Str) {
   if h.n_codes == 0 { return (r0, 0, ferr("uninitialized Huffman table")) }
@@ -458,18 +475,66 @@ fn decode_bits(r0: R, n: Int) -> (R, Int, Str) {
 type Comp = { h: Int, v: Int, c: Int, tq: Int, eh: Int, ev: Int }
 
 type D = {
-  width: Int, height: Int, n_comp: Int, comps: List<Comp>, max_h: Int, max_v: Int, ri: Int, baseline: Bool, progressive: Bool,
-  jfif: Bool, adobe_valid: Bool, adobe_transform: Int, eob: Int, huff: List<H>, quant: List<List<Int>>, flex: Bool,
-  made: Int, ratio: Int, fw: Int, fh: Int, ys: Int, cs: Int, bs: Int,
-  p0: List<Int>, p1: List<Int>, p2: List<Int>, p3: List<Int>, prog: List<List<Int>>,
+  width: Int,
+  height: Int,
+  n_comp: Int,
+  comps: List<Comp>,
+  max_h: Int,
+  max_v: Int,
+  ri: Int,
+  baseline: Bool,
+  progressive: Bool,
+  jfif: Bool,
+  adobe_valid: Bool,
+  adobe_transform: Int,
+  eob: Int,
+  huff: List<H>,
+  quant: List<List<Int>>,
+  flex: Bool,
+  made: Int,
+  ratio: Int,
+  fw: Int,
+  fh: Int,
+  ys: Int,
+  cs: Int,
+  bs: Int,
+  p0: List<Int>,
+  p1: List<Int>,
+  p2: List<Int>,
+  p3: List<Int>,
+  prog: List<List<Int>>,
 }
 
 fn new_d() -> D {
   D {
-    width: 0, height: 0, n_comp: 0, comps: map(0..4, (_) => Comp { h: 0, v: 0, c: 0, tq: 0, eh: 0, ev: 0 }), max_h: 0, max_v: 0, ri: 0,
-    baseline: false, progressive: false, jfif: false, adobe_valid: false, adobe_transform: 0, eob: 0,
-    huff: map(0..8, (_) => empty_h()), quant: map(0..4, (_) => map(0..64, (_) => 0)), flex: false,
-    made: 0, ratio: 0, fw: 0, fh: 0, ys: 0, cs: 0, bs: 0, p0: [], p1: [], p2: [], p3: [], prog: [[], [], [], []],
+    width: 0,
+    height: 0,
+    n_comp: 0,
+    comps: map(0..4, (_) => Comp { h: 0, v: 0, c: 0, tq: 0, eh: 0, ev: 0 }),
+    max_h: 0,
+    max_v: 0,
+    ri: 0,
+    baseline: false,
+    progressive: false,
+    jfif: false,
+    adobe_valid: false,
+    adobe_transform: 0,
+    eob: 0,
+    huff: map(0..8, (_) => empty_h()),
+    quant: map(0..4, (_) => map(0..64, (_) => 0)),
+    flex: false,
+    made: 0,
+    ratio: 0,
+    fw: 0,
+    fh: 0,
+    ys: 0,
+    cs: 0,
+    bs: 0,
+    p0: [],
+    p1: [],
+    p2: [],
+    p3: [],
+    prog: [[], [], [], []],
   }
 }
 
@@ -530,7 +595,14 @@ fn process_dht(r0: R, d0: D, n0: Int) -> (R, D, Str) {
       c = c << 1
     }
     var hs = d.huff
-    hs[tc * 4 + th] = H { n_codes: total, lut: lut, vals: vals, min_codes: minc, max_codes: maxc, vals_indices: vidx }
+    hs[tc * 4 + th] = H {
+      n_codes: total,
+      lut: lut,
+      vals: vals,
+      min_codes: minc,
+      max_codes: maxc,
+      vals_indices: vidx,
+    }
     d = D { huff: hs, ..d }
   }
   (r, d, "")
@@ -540,7 +612,15 @@ fn process_sof(r0: R, d0: D, n: Int) -> (R, D, Str) {
   var d = d0
   if d.n_comp != 0 { return (r0, d, ferr("multiple SOF markers")) }
   var nc = 0
-  if n == 9 { nc = 1 } else if n == 15 { nc = 3 } else if n == 18 { nc = 4 } else { return (r0, d, uerr("number of components")) }
+  if n == 9 {
+    nc = 1
+  } else if n == 15 {
+    nc = 3
+  } else if n == 18 {
+    nc = 4
+  } else {
+    return (r0, d, uerr("number of components"))
+  }
   d = D { n_comp: nc, ..d }
   let (r, t, e) = read_full(r0, n)
   if e != "" { return (r, d, e) }
@@ -565,9 +645,13 @@ fn process_sof(r0: R, d0: D, n: Int) -> (R, D, Str) {
       h = 1
       v = 1
     } else if nc == 4 {
-      if i == 0 { if hv != 0x11 && hv != 0x22 { return (r, d, ERR_RATIO) } }
-      else if i == 1 || i == 2 { if hv != 0x11 { return (r, d, ERR_RATIO) } }
-      else if comps[0].h != h || comps[0].v != v { return (r, d, ERR_RATIO) }
+      if i == 0 {
+        if hv != 0x11 && hv != 0x22 { return (r, d, ERR_RATIO) }
+      } else if i == 1 || i == 2 {
+        if hv != 0x11 { return (r, d, ERR_RATIO) }
+      } else if comps[0].h != h || comps[0].v != v {
+        return (r, d, ERR_RATIO)
+      }
     }
     if h > mh { mh = h }
     if v > mv { mv = v }
@@ -611,7 +695,9 @@ fn process_dqt(r0: R, d0: D, n0: Int) -> (R, D, Str) {
       var qs = d.quant
       qs[tq] = map(0..64, (i) => (t[2 * i] << 8) | t[2 * i + 1])
       d = D { quant: qs, ..d }
-    } else { return (r, d, ferr("bad Pq value")) }
+    } else {
+      return (r, d, ferr("bad Pq value"))
+    }
   }
   if n != 0 { return (r, d, ferr("DQT has wrong length")) }
   (r, d, "")
@@ -629,12 +715,35 @@ fn make_img(d0: D, mxx: Int, myy: Int) -> D {
     d = D { flex: true, ..d }
   } else {
     let hv = ((d.max_h / c[1].h) << 4) | (d.max_v / c[1].v)
-    if hv == 0x11 { ratio = image.RATIO_444 } else if hv == 0x12 { ratio = image.RATIO_440 } else if hv == 0x21 { ratio = image.RATIO_422 }
-    else if hv == 0x22 { ratio = image.RATIO_420 } else if hv == 0x41 { ratio = image.RATIO_411 } else if hv == 0x42 { ratio = image.RATIO_410 }
-    else { d = D { flex: true, ..d } }
+    if hv == 0x11 {
+      ratio = image.RATIO_444
+    } else if hv == 0x12 {
+      ratio = image.RATIO_440
+    } else if hv == 0x21 {
+      ratio = image.RATIO_422
+    } else if hv == 0x22 {
+      ratio = image.RATIO_420
+    } else if hv == 0x41 {
+      ratio = image.RATIO_411
+    } else if hv == 0x42 {
+      ratio = image.RATIO_410
+    } else {
+      d = D { flex: true, ..d }
+    }
   }
   let full = unwrap(image.new_ycbcr(image.rect(0, 0, 8 * d.max_h * mxx, 8 * d.max_v * myy), ratio))
-  d = D { made: 3, ratio: ratio, fw: full.rect.dx(), fh: full.rect.dy(), ys: full.y_stride, cs: full.c_stride, p0: full.y, p1: full.cb, p2: full.cr, ..d }
+  d = D {
+    made: 3,
+    ratio: ratio,
+    fw: full.rect.dx(),
+    fh: full.rect.dy(),
+    ys: full.y_stride,
+    cs: full.c_stride,
+    p0: full.y,
+    p1: full.cb,
+    p2: full.cr,
+    ..d
+  }
   if d.n_comp == 4 {
     let h3 = c[3].h
     let v3 = c[3].v
@@ -651,9 +760,13 @@ fn find_rst(r0: R, t0: List<Int>, expected: Int) -> (R, Str) {
   loop {
     var i = 0
     if t[0] == 0xff {
-      if t[1] == expected { return (r, "") }
-      else if t[1] == 0xff { i = 1 }
-      else if t[1] != 0 { return (r, ferr("bad RST marker")) }
+      if t[1] == expected {
+        return (r, "")
+      } else if t[1] == 0xff {
+        i = 1
+      } else if t[1] != 0 {
+        return (r, ferr("bad RST marker"))
+      }
     } else if t[1] == 0xff {
       t = [0xff, t[1]]
       i = 1
@@ -666,7 +779,12 @@ fn find_rst(r0: R, t0: List<Int>, expected: Int) -> (R, Str) {
   (r, "")
 }
 
-fn refine_nonzeroes(r0: R, b0: List<Int>, zig0: Int, zig_end: Int, nz0: Int, delta: Int) -> (R, List<Int>, Int, Str) {
+fn refine_nonzeroes(r0: R, b0: List<Int>, zig0: Int, zig_end: Int, nz0: Int, delta: Int) -> (
+  R,
+  List<Int>,
+  Int,
+  Str,
+) {
   var r = r0
   var b = b0
   var zig = zig0
@@ -690,7 +808,12 @@ fn refine_nonzeroes(r0: R, b0: List<Int>, zig0: Int, zig_end: Int, nz0: Int, del
   (r, b, zig, "")
 }
 
-fn refine(r0: R, d0: D, b0: List<Int>, h: H, zig_start: Int, zig_end: Int, delta: Int) -> (R, D, List<Int>, Str) {
+fn refine(r0: R, d0: D, b0: List<Int>, h: H, zig_start: Int, zig_end: Int, delta: Int) -> (
+  R,
+  D,
+  List<Int>,
+  Str,
+) {
   var r = r0
   var d = d0
   var b = b0
@@ -727,7 +850,9 @@ fn refine(r0: R, d0: D, b0: List<Int>, h: H, zig_start: Int, zig_end: Int, delta
         r = r3
         if e3 != "" { return (r, d, b, e3) }
         if !bit { z = -z }
-      } else { return (r, d, b, ferr("unexpected Huffman code")) }
+      } else {
+        return (r, d, b, ferr("unexpected Huffman code"))
+      }
       let (r4, b4, z4, e4) = refine_nonzeroes(r, b, zig, zig_end, val0, delta)
       r = r4
       b = b4
@@ -812,8 +937,12 @@ fn process_sos(r0: R, d0: D, n: Int) -> (R, D, Str) {
     zig_end = t[2 + 2 * ncomp]
     ah = t[3 + 2 * ncomp] >> 4
     al = t[3 + 2 * ncomp] & 15
-    if (zig_start == 0 && zig_end != 0) || zig_start > zig_end || 64 <= zig_end { return (r, d, ferr("bad spectral selection bounds")) }
-    if zig_start != 0 && ncomp != 1 { return (r, d, ferr("progressive AC coefficients for more than one component")) }
+    if (zig_start == 0 && zig_end != 0) || zig_start > zig_end || 64 <= zig_end {
+      return (r, d, ferr("bad spectral selection bounds"))
+    }
+    if zig_start != 0 && ncomp != 1 {
+      return (r, d, ferr("progressive AC coefficients for more than one component"))
+    }
     if ah != 0 && ah != al + 1 { return (r, d, ferr("bad successive approximation values")) }
   }
   let mxx = (d.width + 8 * d.max_h - 1) / (8 * d.max_h)
@@ -823,7 +952,9 @@ fn process_sos(r0: R, d0: D, n: Int) -> (R, D, Str) {
   if d.progressive {
     for i in 0..ncomp {
       let ci = sci[i]
-      if len(prog[ci]) == 0 { prog[ci] = map(0..mxx * myy * d.comps[ci].h * d.comps[ci].v * 64, (_) => 0) }
+      if len(prog[ci]) == 0 {
+        prog[ci] = map(0..mxx * myy * d.comps[ci].h * d.comps[ci].v * 64, (_) => 0)
+      }
     }
   }
   var pc0 = prog[0]
@@ -867,7 +998,15 @@ fn process_sos(r0: R, d0: D, n: Int) -> (R, D, Str) {
           let bi = (by * mxx * hi + bx) * 64
           var b: List<Int> = []
           if d.progressive {
-            b = if ci == 0 { pc0[bi..bi + 64] } else if ci == 1 { pc1[bi..bi + 64] } else if ci == 2 { pc2[bi..bi + 64] } else { pc3[bi..bi + 64] }
+            b = if ci == 0 {
+              pc0[bi..bi + 64]
+            } else if ci == 1 {
+              pc1[bi..bi + 64]
+            } else if ci == 2 {
+              pc2[bi..bi + 64]
+            } else {
+              pc3[bi..bi + 64]
+            }
           } else {
             b = map(0..64, (_) => 0)
           }
@@ -950,7 +1089,15 @@ fn process_sos(r0: R, d0: D, n: Int) -> (R, D, Str) {
           }
           if d.progressive {
             for k in 0..64 {
-              if ci == 0 { pc0[bi + k] = b[k] } else if ci == 1 { pc1[bi + k] = b[k] } else if ci == 2 { pc2[bi + k] = b[k] } else { pc3[bi + k] = b[k] }
+              if ci == 0 {
+                pc0[bi + k] = b[k]
+              } else if ci == 1 {
+                pc1[bi + k] = b[k]
+              } else if ci == 2 {
+                pc2[bi + k] = b[k]
+              } else {
+                pc3[bi + k] = b[k]
+              }
             }
             continue
           }
@@ -962,7 +1109,15 @@ fn process_sos(r0: R, d0: D, n: Int) -> (R, D, Str) {
               for yy in 0..fv {
                 for xx in 0..fh {
                   let o = base + (y * fv + yy) * stride + x * fh + xx
-                  if ci == 0 { p0[o] = val } else if ci == 1 { p1[o] = val } else if ci == 2 { p2[o] = val } else { p3[o] = val }
+                  if ci == 0 {
+                    p0[o] = val
+                  } else if ci == 1 {
+                    p1[o] = val
+                  } else if ci == 2 {
+                    p2[o] = val
+                  } else {
+                    p3[o] = val
+                  }
                 }
               }
             }
@@ -974,8 +1129,9 @@ fn process_sos(r0: R, d0: D, n: Int) -> (R, D, Str) {
         if d.ri > 0 && mcu % d.ri == 0 && mcu < mxx * myy {
           let (r2, tt, e2) = read_full(r, 2)
           r = r2
-          if e2 != "" { err = e2 }
-          else if tt[0] != 0xff || tt[1] != expected {
+          if e2 != "" {
+            err = e2
+          } else if tt[0] != 0xff || tt[1] != expected {
             let (r3, e3) = find_rst(r, tt, expected)
             r = r3
             if e3 != "" { err = e3 }
@@ -1017,18 +1173,26 @@ fn reconstruct_progressive(d0: D) -> D {
         let bi = (by * stride + bx) * 64
         let b = coeffs[bi..bi + 64]
         let vals = recon_vals(d, b, i)
-          let (base, stride, fh, fv) = block_geom(d, bx, by, i)
-          for y in 0..8 {
-            for x in 0..8 {
-              let val = vals[y * 8 + x]
-              for yy in 0..fv {
-                for xx in 0..fh {
-                  let o = base + (y * fv + yy) * stride + x * fh + xx
-                  if i == 0 { p0[o] = val } else if i == 1 { p1[o] = val } else if i == 2 { p2[o] = val } else { p3[o] = val }
+        let (base, stride, fh, fv) = block_geom(d, bx, by, i)
+        for y in 0..8 {
+          for x in 0..8 {
+            let val = vals[y * 8 + x]
+            for yy in 0..fv {
+              for xx in 0..fh {
+                let o = base + (y * fv + yy) * stride + x * fh + xx
+                if i == 0 {
+                  p0[o] = val
+                } else if i == 1 {
+                  p1[o] = val
+                } else if i == 2 {
+                  p2[o] = val
+                } else {
+                  p3[o] = val
                 }
               }
             }
           }
+        }
         bx += 1
       }
       by += 1
@@ -1049,7 +1213,9 @@ fn ycbcr_img(d: D) -> Image {
 }
 
 fn apply_black(d: D) -> Result<Image, Str> {
-  if !d.adobe_valid { return Err(uerr("unknown color model: 4-component JPEG doesn't have Adobe APP14 metadata")) }
+  if !d.adobe_valid {
+    return Err(uerr("unknown color model: 4-component JPEG doesn't have Adobe APP14 metadata"))
+  }
   let y3 = ycbcr_img(d)
   let bounds = y3.rect
   let w = bounds.dx()
@@ -1074,7 +1240,15 @@ fn apply_black(d: D) -> Result<Image, Str> {
         let sy = if sub { y / 2 } else { y }
         for x in 0..w {
           let sx = if sub { x / 2 } else { x }
-          let v = if t == 0 { y3.y[sy * y3.y_stride + sx] } else if t == 1 { y3.cb[sy * y3.c_stride + sx] } else if t == 2 { y3.cr[sy * y3.c_stride + sx] } else { d.p3[sy * d.bs + sx] }
+          let v = if t == 0 {
+            y3.y[sy * y3.y_stride + sx]
+          } else if t == 1 {
+            y3.cb[sy * y3.c_stride + sx]
+          } else if t == 2 {
+            y3.cr[sy * y3.c_stride + sx]
+          } else {
+            d.p3[sy * d.bs + sx]
+          }
           pix[y * 4 * w + 4 * x + t] = 255 - v
         }
       }
@@ -1086,7 +1260,9 @@ fn apply_black(d: D) -> Result<Image, Str> {
 
 fn convert_to_rgb(d: D) -> Result<Image, Str> {
   let c = d.comps
-  if c[1].h != c[2].h || c[0].h % c[1].h != 0 || c[1].v != c[2].v || c[0].v % c[1].v != 0 { return Err(ERR_RATIO) }
+  if c[1].h != c[2].h || c[0].h % c[1].h != 0 || c[1].v != c[2].v || c[0].v % c[1].v != 0 {
+    return Err(ERR_RATIO)
+  }
   let cscale = c[0].h / c[1].h
   let y3 = ycbcr_img(d)
   let b = y3.rect
@@ -1182,8 +1358,9 @@ fn run(bs: List<Int>, config_only: Bool) -> (D, Option<Image>, Str) {
         let (r4, e4) = ignore(r, n)
         r = r4
         err = e4
-      } else if n != 2 { err = ferr("DRI has wrong length") }
-      else {
+      } else if n != 2 {
+        err = ferr("DRI has wrong length")
+      } else {
         let (r4, t4, e4) = read_full(r, 2)
         r = r4
         err = e4
@@ -1217,7 +1394,9 @@ fn run(bs: List<Int>, config_only: Bool) -> (D, Option<Image>, Str) {
         r = r4
         err = e4
         if e4 == "" {
-          if t4[0..5] == [65, 100, 111, 98, 101] { d = D { adobe_valid: true, adobe_transform: t4[11], ..d } }
+          if t4[0..5] == [65, 100, 111, 98, 101] {
+            d = D { adobe_valid: true, adobe_transform: t4[11], ..d }
+          }
           if n > 12 {
             let (r5, e5) = ignore(r, n - 12)
             r = r5
@@ -1230,8 +1409,11 @@ fn run(bs: List<Int>, config_only: Bool) -> (D, Option<Image>, Str) {
         let (r4, e4) = ignore(r, n)
         r = r4
         err = e4
-      } else if marker < 0xc0 { err = ferr("unknown marker") }
-      else { err = uerr("unknown marker") }
+      } else if marker < 0xc0 {
+        err = ferr("unknown marker")
+      } else {
+        err = uerr("unknown marker")
+      }
     }
     if err != "" { return (d, None, err) }
   }
@@ -1261,18 +1443,34 @@ pub fn decode(bs: List<Int>) -> Result<Image, Str> {
 pub fn decode_config(bs: List<Int>) -> Result<Config, Str> {
   let (d, _, e) = run(bs, true)
   if e != "" { return Err(e) }
-  if d.n_comp == 1 { return Ok(Config { model: color.GRAY_MODEL, width: d.width, height: d.height }) }
-  if d.n_comp == 3 { return Ok(Config { model: if is_rgb(d) { color.RGBA_MODEL } else { color.YCBCR_MODEL }, width: d.width, height: d.height }) }
-  if d.n_comp == 4 { return Ok(Config { model: color.CMYK_MODEL, width: d.width, height: d.height }) }
+  if d.n_comp == 1 {
+    return Ok(Config { model: color.GRAY_MODEL, width: d.width, height: d.height })
+  }
+  if d.n_comp == 3 {
+    return Ok(Config {
+      model: if is_rgb(d) { color.RGBA_MODEL } else { color.YCBCR_MODEL },
+      width: d.width,
+      height: d.height,
+    })
+  }
+  if d.n_comp == 4 {
+    return Ok(Config { model: color.CMYK_MODEL, width: d.width, height: d.height })
+  }
   Err(ferr("missing SOF marker"))
 }
 
 // ───────── 编码 ─────────
 
-const QUANT_LUMA: List<Int> = [16, 11, 12, 14, 12, 10, 16, 14, 13, 14, 18, 17, 16, 19, 24, 40, 26, 24, 22, 22, 24, 49, 35, 37, 29, 40, 58, 51, 61, 60, 57, 51,
-  56, 55, 64, 72, 92, 78, 64, 68, 87, 69, 55, 56, 80, 109, 81, 87, 95, 98, 103, 104, 103, 62, 77, 113, 121, 112, 100, 120, 92, 101, 103, 99]
-const QUANT_CHROMA: List<Int> = [17, 18, 18, 24, 21, 24, 47, 26, 26, 47, 99, 66, 56, 66, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99,
-  99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99]
+const QUANT_LUMA: List<Int> = [
+  16, 11, 12, 14, 12, 10, 16, 14, 13, 14, 18, 17, 16, 19, 24, 40, 26, 24, 22, 22, 24, 49, 35, 37,
+  29, 40, 58, 51, 61, 60, 57, 51, 56, 55, 64, 72, 92, 78, 64, 68, 87, 69, 55, 56, 80, 109, 81, 87,
+  95, 98, 103, 104, 103, 62, 77, 113, 121, 112, 100, 120, 92, 101, 103, 99,
+]
+const QUANT_CHROMA: List<Int> = [
+  17, 18, 18, 24, 21, 24, 47, 26, 26, 47, 99, 66, 56, 66, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99,
+  99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99,
+  99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99,
+]
 
 const SPEC_COUNTS: List<List<Int>> = [
   [0, 1, 5, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0],
@@ -1282,21 +1480,33 @@ const SPEC_COUNTS: List<List<Int>> = [
 ]
 const SPEC_VALUES: List<List<Int>> = [
   [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11],
-  [0x01, 0x02, 0x03, 0x00, 0x04, 0x11, 0x05, 0x12, 0x21, 0x31, 0x41, 0x06, 0x13, 0x51, 0x61, 0x07, 0x22, 0x71, 0x14, 0x32, 0x81, 0x91, 0xa1, 0x08,
-   0x23, 0x42, 0xb1, 0xc1, 0x15, 0x52, 0xd1, 0xf0, 0x24, 0x33, 0x62, 0x72, 0x82, 0x09, 0x0a, 0x16, 0x17, 0x18, 0x19, 0x1a, 0x25, 0x26, 0x27, 0x28,
-   0x29, 0x2a, 0x34, 0x35, 0x36, 0x37, 0x38, 0x39, 0x3a, 0x43, 0x44, 0x45, 0x46, 0x47, 0x48, 0x49, 0x4a, 0x53, 0x54, 0x55, 0x56, 0x57, 0x58, 0x59,
-   0x5a, 0x63, 0x64, 0x65, 0x66, 0x67, 0x68, 0x69, 0x6a, 0x73, 0x74, 0x75, 0x76, 0x77, 0x78, 0x79, 0x7a, 0x83, 0x84, 0x85, 0x86, 0x87, 0x88, 0x89,
-   0x8a, 0x92, 0x93, 0x94, 0x95, 0x96, 0x97, 0x98, 0x99, 0x9a, 0xa2, 0xa3, 0xa4, 0xa5, 0xa6, 0xa7, 0xa8, 0xa9, 0xaa, 0xb2, 0xb3, 0xb4, 0xb5, 0xb6,
-   0xb7, 0xb8, 0xb9, 0xba, 0xc2, 0xc3, 0xc4, 0xc5, 0xc6, 0xc7, 0xc8, 0xc9, 0xca, 0xd2, 0xd3, 0xd4, 0xd5, 0xd6, 0xd7, 0xd8, 0xd9, 0xda, 0xe1, 0xe2,
-   0xe3, 0xe4, 0xe5, 0xe6, 0xe7, 0xe8, 0xe9, 0xea, 0xf1, 0xf2, 0xf3, 0xf4, 0xf5, 0xf6, 0xf7, 0xf8, 0xf9, 0xfa],
+  [
+    0x01, 0x02, 0x03, 0x00, 0x04, 0x11, 0x05, 0x12, 0x21, 0x31, 0x41, 0x06, 0x13, 0x51, 0x61, 0x07,
+    0x22, 0x71, 0x14, 0x32, 0x81, 0x91, 0xa1, 0x08, 0x23, 0x42, 0xb1, 0xc1, 0x15, 0x52, 0xd1, 0xf0,
+    0x24, 0x33, 0x62, 0x72, 0x82, 0x09, 0x0a, 0x16, 0x17, 0x18, 0x19, 0x1a, 0x25, 0x26, 0x27, 0x28,
+    0x29, 0x2a, 0x34, 0x35, 0x36, 0x37, 0x38, 0x39, 0x3a, 0x43, 0x44, 0x45, 0x46, 0x47, 0x48, 0x49,
+    0x4a, 0x53, 0x54, 0x55, 0x56, 0x57, 0x58, 0x59, 0x5a, 0x63, 0x64, 0x65, 0x66, 0x67, 0x68, 0x69,
+    0x6a, 0x73, 0x74, 0x75, 0x76, 0x77, 0x78, 0x79, 0x7a, 0x83, 0x84, 0x85, 0x86, 0x87, 0x88, 0x89,
+    0x8a, 0x92, 0x93, 0x94, 0x95, 0x96, 0x97, 0x98, 0x99, 0x9a, 0xa2, 0xa3, 0xa4, 0xa5, 0xa6, 0xa7,
+    0xa8, 0xa9, 0xaa, 0xb2, 0xb3, 0xb4, 0xb5, 0xb6, 0xb7, 0xb8, 0xb9, 0xba, 0xc2, 0xc3, 0xc4, 0xc5,
+    0xc6, 0xc7, 0xc8, 0xc9, 0xca, 0xd2, 0xd3, 0xd4, 0xd5, 0xd6, 0xd7, 0xd8, 0xd9, 0xda, 0xe1, 0xe2,
+    0xe3, 0xe4, 0xe5, 0xe6, 0xe7, 0xe8, 0xe9, 0xea, 0xf1, 0xf2, 0xf3, 0xf4, 0xf5, 0xf6, 0xf7, 0xf8,
+    0xf9, 0xfa,
+  ],
   [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11],
-  [0x00, 0x01, 0x02, 0x03, 0x11, 0x04, 0x05, 0x21, 0x31, 0x06, 0x12, 0x41, 0x51, 0x07, 0x61, 0x71, 0x13, 0x22, 0x32, 0x81, 0x08, 0x14, 0x42, 0x91,
-   0xa1, 0xb1, 0xc1, 0x09, 0x23, 0x33, 0x52, 0xf0, 0x15, 0x62, 0x72, 0xd1, 0x0a, 0x16, 0x24, 0x34, 0xe1, 0x25, 0xf1, 0x17, 0x18, 0x19, 0x1a, 0x26,
-   0x27, 0x28, 0x29, 0x2a, 0x35, 0x36, 0x37, 0x38, 0x39, 0x3a, 0x43, 0x44, 0x45, 0x46, 0x47, 0x48, 0x49, 0x4a, 0x53, 0x54, 0x55, 0x56, 0x57, 0x58,
-   0x59, 0x5a, 0x63, 0x64, 0x65, 0x66, 0x67, 0x68, 0x69, 0x6a, 0x73, 0x74, 0x75, 0x76, 0x77, 0x78, 0x79, 0x7a, 0x82, 0x83, 0x84, 0x85, 0x86, 0x87,
-   0x88, 0x89, 0x8a, 0x92, 0x93, 0x94, 0x95, 0x96, 0x97, 0x98, 0x99, 0x9a, 0xa2, 0xa3, 0xa4, 0xa5, 0xa6, 0xa7, 0xa8, 0xa9, 0xaa, 0xb2, 0xb3, 0xb4,
-   0xb5, 0xb6, 0xb7, 0xb8, 0xb9, 0xba, 0xc2, 0xc3, 0xc4, 0xc5, 0xc6, 0xc7, 0xc8, 0xc9, 0xca, 0xd2, 0xd3, 0xd4, 0xd5, 0xd6, 0xd7, 0xd8, 0xd9, 0xda,
-   0xe2, 0xe3, 0xe4, 0xe5, 0xe6, 0xe7, 0xe8, 0xe9, 0xea, 0xf2, 0xf3, 0xf4, 0xf5, 0xf6, 0xf7, 0xf8, 0xf9, 0xfa],
+  [
+    0x00, 0x01, 0x02, 0x03, 0x11, 0x04, 0x05, 0x21, 0x31, 0x06, 0x12, 0x41, 0x51, 0x07, 0x61, 0x71,
+    0x13, 0x22, 0x32, 0x81, 0x08, 0x14, 0x42, 0x91, 0xa1, 0xb1, 0xc1, 0x09, 0x23, 0x33, 0x52, 0xf0,
+    0x15, 0x62, 0x72, 0xd1, 0x0a, 0x16, 0x24, 0x34, 0xe1, 0x25, 0xf1, 0x17, 0x18, 0x19, 0x1a, 0x26,
+    0x27, 0x28, 0x29, 0x2a, 0x35, 0x36, 0x37, 0x38, 0x39, 0x3a, 0x43, 0x44, 0x45, 0x46, 0x47, 0x48,
+    0x49, 0x4a, 0x53, 0x54, 0x55, 0x56, 0x57, 0x58, 0x59, 0x5a, 0x63, 0x64, 0x65, 0x66, 0x67, 0x68,
+    0x69, 0x6a, 0x73, 0x74, 0x75, 0x76, 0x77, 0x78, 0x79, 0x7a, 0x82, 0x83, 0x84, 0x85, 0x86, 0x87,
+    0x88, 0x89, 0x8a, 0x92, 0x93, 0x94, 0x95, 0x96, 0x97, 0x98, 0x99, 0x9a, 0xa2, 0xa3, 0xa4, 0xa5,
+    0xa6, 0xa7, 0xa8, 0xa9, 0xaa, 0xb2, 0xb3, 0xb4, 0xb5, 0xb6, 0xb7, 0xb8, 0xb9, 0xba, 0xc2, 0xc3,
+    0xc4, 0xc5, 0xc6, 0xc7, 0xc8, 0xc9, 0xca, 0xd2, 0xd3, 0xd4, 0xd5, 0xd6, 0xd7, 0xd8, 0xd9, 0xda,
+    0xe2, 0xe3, 0xe4, 0xe5, 0xe6, 0xe7, 0xe8, 0xe9, 0xea, 0xf2, 0xf3, 0xf4, 0xf5, 0xf6, 0xf7, 0xf8,
+    0xf9, 0xfa,
+  ],
 ]
 
 fn huff_lut(k: Int) -> List<Int> {
@@ -1328,7 +1538,9 @@ fn bit_count(a: Int) -> Int {
   n
 }
 
-fn div_round(a: Int, b: Int) -> Int { if a >= 0 { (a + (b >> 1)) / b } else { -((-a + (b >> 1)) / b) } }
+fn div_round(a: Int, b: Int) -> Int {
+  if a >= 0 { (a + (b >> 1)) / b } else { -((-a + (b >> 1)) / b) }
+}
 
 type E = { out: List<Int>, bits: Int, nbits: Int }
 
@@ -1365,7 +1577,14 @@ fn emit_huff_rle(e0: E, luts: List<List<Int>>, h: Int, run: Int, value: Int) -> 
   e
 }
 
-fn write_block(e0: E, luts: List<List<Int>>, b0: List<Int>, q: Int, quant: List<Int>, prev: Int) -> (E, Int) {
+fn write_block(
+  e0: E,
+  luts: List<List<Int>>,
+  b0: List<Int>,
+  q: Int,
+  quant: List<Int>,
+  prev: Int,
+) -> (E, Int) {
   let b = fdct(b0)
   let dc = div_round(b[0], 8 * quant[0])
   var e = emit_huff_rle(e0, luts, 2 * q, 0, dc - prev)
@@ -1373,7 +1592,9 @@ fn write_block(e0: E, luts: List<List<Int>>, b0: List<Int>, q: Int, quant: List<
   var run = 0
   for zig in 1..64 {
     let ac = div_round(b[UNZIG[zig]], 8 * quant[zig])
-    if ac == 0 { run += 1 } else {
+    if ac == 0 {
+      run += 1
+    } else {
       while run > 15 {
         e = emit_huff(e, luts, h, 0xf0)
         run -= 16
@@ -1458,14 +1679,29 @@ pub fn encode(m: Image, quality0: Int) -> Result<List<Int>, Str> {
   let nc = if gray { 1 } else { 3 }
   var out: List<Int> = [0xff, 0xd8, 0xff, 0xdb, 0, 132, 0] + qs[0] + [1] + qs[1]
   let mlen = 8 + 3 * nc
-  out = out + [0xff, 0xc0, mlen >> 8, mlen & 255, 8, (b.dy() >> 8) & 255, b.dy() & 255, (b.dx() >> 8) & 255, b.dx() & 255, nc]
+  out = out + [
+    0xff,
+    0xc0,
+    mlen >> 8,
+    mlen & 255,
+    8,
+    (b.dy() >> 8) & 255,
+    b.dy() & 255,
+    (b.dx() >> 8) & 255,
+    b.dx() & 255,
+    nc,
+  ]
   if gray { out = out + [1, 0x11, 0] } else { out = out + [1, 0x22, 0, 2, 0x11, 1, 3, 0x11, 1] }
   let nspec = if gray { 2 } else { 4 }
   var dlen = 2
   for k in 0..nspec { dlen += 17 + len(SPEC_VALUES[k]) }
   out = out + [0xff, 0xc4, dlen >> 8, dlen & 255]
   for k in 0..nspec { out = out + [[0, 0x10, 1, 0x11][k]] + SPEC_COUNTS[k] + SPEC_VALUES[k] }
-  if gray { out = out + [0xff, 0xda, 0, 8, 1, 1, 0, 0, 0x3f, 0] } else { out = out + [0xff, 0xda, 0, 12, 3, 1, 0, 2, 0x11, 3, 0x11, 0, 0x3f, 0] }
+  if gray {
+    out = out + [0xff, 0xda, 0, 8, 1, 1, 0, 0, 0x3f, 0]
+  } else {
+    out = out + [0xff, 0xda, 0, 12, 3, 1, 0, 2, 0x11, 3, 0x11, 0, 0x3f, 0]
+  }
   let luts = map(0..4, (k) => huff_lut(k))
   var e = E { out: out, bits: 0, nbits: 0 }
   var pdy = 0
@@ -1478,7 +1714,9 @@ pub fn encode(m: Image, quality0: Int) -> Result<List<Int>, Str> {
       while x < b.max.x {
         var blk = map(0..64, (_) => 0)
         for j in 0..8 {
-          for i in 0..8 { blk[8 * j + i] = m.pix[m.pix_offset(imin(x + i, b.max.x - 1), imin(y + j, b.max.y - 1))] }
+          for i in 0..8 {
+            blk[8 * j + i] = m.pix[m.pix_offset(imin(x + i, b.max.x - 1), imin(y + j, b.max.y - 1))]
+          }
         }
         let (e2, dc) = write_block(e, luts, blk, 0, qs[0], pdy)
         e = e2

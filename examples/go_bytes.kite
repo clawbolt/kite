@@ -3,15 +3,90 @@ use std.unicode.utf8
 fn b(s: Str) -> List<Int> { __bytes(s) }
 fn sp(r: Int) -> Bool { r == 44 || r == 59 || r == 0xfffd }
 fn main() {
-  let ss = [b(""), b("a"), b("a,b,,c,"), b("héllo, wörld"), b("  \t x y \u{a0}\n"), b("aaaa"), [0xff, 97, 0xc3, 44, 0xe4, 0xb8, 0x96, 0xed, 0xa0, 0x80, 32, 0xf0, 0x9f, 0x98], b("Go gopher go"), [0xe4, 0xb8], b("straße İx ǆ")]
+  let ss = [
+    b(""),
+    b("a"),
+    b("a,b,,c,"),
+    b("héllo, wörld"),
+    b("  \t x y \u{a0}\n"),
+    b("aaaa"),
+    [0xff, 97, 0xc3, 44, 0xe4, 0xb8, 0x96, 0xed, 0xa0, 0x80, 32, 0xf0, 0x9f, 0x98],
+    b("Go gopher go"),
+    [0xe4, 0xb8],
+    b("straße İx ǆ"),
+  ]
   for s in ss {
-    print(s, bytes.split(s, b(",")), bytes.split(s, []), bytes.split_n(s, b(","), 2), bytes.split_n(s, [], 3), bytes.split_after(s, b(",")), bytes.split_after_n(s, b(","), 2))
-    print(bytes.fields(s), bytes.fields_func(s, sp), bytes.title(s), bytes.to_upper(s), bytes.to_lower(s), bytes.to_title(s), bytes.runes(s))
-    print(bytes.index(s, b("o")), bytes.last_index(s, b("o")), bytes.index_byte(s, 97), bytes.last_index_byte(s, 97), bytes.index_any(s, "lo\u{fffd}"), bytes.last_index_any(s, "lo\u{fffd}"), bytes.index_rune(s, 0x77), bytes.index_rune(s, 0xfffd), bytes.index_rune(s, 0x4e16), bytes.contains_rune(s, 0x61), bytes.index_func(s, sp), bytes.last_index_func(s, sp), bytes.contains_any(s, ""), bytes.contains(s, b("a")))
-    print(bytes.trim(s, " a,\u{fffd}"), bytes.trim_left(s, " a,"), bytes.trim_right(s, " a,\u{fffd}"), bytes.trim_space(s), bytes.trim_func(s, sp), bytes.count(s, b("a")), bytes.count(s, []), bytes.trim_prefix(s, b("a")), bytes.trim_suffix(s, b(",")))
-    print(bytes.replace(s, b("a"), b("XY"), 2), bytes.replace(s, [], b("-"), 3), bytes.replace_all(s, [], b("|")), bytes.replace_all(s, b("o"), b("0")), bytes.cut(s, b(",")), bytes.cut_prefix(s, b("a")), bytes.cut_suffix(s, b(",")), bytes.has_prefix(s, b("a")), bytes.has_suffix(s, b(",")))
-    print(bytes.compare(s, b("abc")), bytes.equal_fold(s, bytes.to_upper(s)), bytes.map_rune((r) => if r == 97 { -1 } else { r + 1 }, s), bytes.to_valid_utf8(s, b("?")), bytes.repeat(s, 2) == s + s, bytes.join([s, s, b("z")], b("--")))
-    print(utf8.decode_rune(s), utf8.decode_last_rune(s), utf8.full_rune(s), utf8.rune_count_bytes(s), utf8.valid_bytes(s))
+    print(
+      s,
+      bytes.split(s, b(",")),
+      bytes.split(s, []),
+      bytes.split_n(s, b(","), 2),
+      bytes.split_n(s, [], 3),
+      bytes.split_after(s, b(",")),
+      bytes.split_after_n(s, b(","), 2),
+    )
+    print(
+      bytes.fields(s),
+      bytes.fields_func(s, sp),
+      bytes.title(s),
+      bytes.to_upper(s),
+      bytes.to_lower(s),
+      bytes.to_title(s),
+      bytes.runes(s),
+    )
+    print(
+      bytes.index(s, b("o")),
+      bytes.last_index(s, b("o")),
+      bytes.index_byte(s, 97),
+      bytes.last_index_byte(s, 97),
+      bytes.index_any(s, "lo\u{fffd}"),
+      bytes.last_index_any(s, "lo\u{fffd}"),
+      bytes.index_rune(s, 0x77),
+      bytes.index_rune(s, 0xfffd),
+      bytes.index_rune(s, 0x4e16),
+      bytes.contains_rune(s, 0x61),
+      bytes.index_func(s, sp),
+      bytes.last_index_func(s, sp),
+      bytes.contains_any(s, ""),
+      bytes.contains(s, b("a")),
+    )
+    print(
+      bytes.trim(s, " a,\u{fffd}"),
+      bytes.trim_left(s, " a,"),
+      bytes.trim_right(s, " a,\u{fffd}"),
+      bytes.trim_space(s),
+      bytes.trim_func(s, sp),
+      bytes.count(s, b("a")),
+      bytes.count(s, []),
+      bytes.trim_prefix(s, b("a")),
+      bytes.trim_suffix(s, b(",")),
+    )
+    print(
+      bytes.replace(s, b("a"), b("XY"), 2),
+      bytes.replace(s, [], b("-"), 3),
+      bytes.replace_all(s, [], b("|")),
+      bytes.replace_all(s, b("o"), b("0")),
+      bytes.cut(s, b(",")),
+      bytes.cut_prefix(s, b("a")),
+      bytes.cut_suffix(s, b(",")),
+      bytes.has_prefix(s, b("a")),
+      bytes.has_suffix(s, b(",")),
+    )
+    print(
+      bytes.compare(s, b("abc")),
+      bytes.equal_fold(s, bytes.to_upper(s)),
+      bytes.map_rune((r) => if r == 97 { -1 } else { r + 1 }, s),
+      bytes.to_valid_utf8(s, b("?")),
+      bytes.repeat(s, 2) == s + s,
+      bytes.join([s, s, b("z")], b("--")),
+    )
+    print(
+      utf8.decode_rune(s),
+      utf8.decode_last_rune(s),
+      utf8.full_rune(s),
+      utf8.rune_count_bytes(s),
+      utf8.valid_bytes(s),
+    )
   }
   var buf = bytes.new_buffer_string("line1\nline2\nrest")
   buf = buf.write_string("!").write_byte(65).write_rune(0x4e16)
@@ -22,11 +97,11 @@ fn main() {
   let (nx, b4) = buf.next(3)
   let rb = match b4.read_byte() {
     Ok((x, _)) => "Ok(({x}, _))",
-    Err(e)     => e,
+    Err(e) => e,
   }
   let rr = match b4.read_rune() {
     Ok((x, w, _)) => "Ok(({x}, {w}, _))",
-    Err(e)        => e,
+    Err(e) => e,
   }
   print(nx, rb, rr, b4.truncate(2).string(), b4.reset().len())
 }

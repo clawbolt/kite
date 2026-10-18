@@ -4,7 +4,12 @@
 
 use std.crypto.subtle
 
-pub fn sum(h: fn(List<Int>) -> List<Int>, block_size: Int, key: List<Int>, msg: List<Int>) -> List<Int> {
+pub fn sum(
+  h: fn(List<Int>) -> List<Int>,
+  block_size: Int,
+  key: List<Int>,
+  msg: List<Int>,
+) -> List<Int> {
   var k = if len(key) > block_size { h(key) } else { key }
   while len(k) < block_size { k = push(k, 0) }
   let ipad = map(k, (b) => b ^ 0x36)

@@ -10,11 +10,14 @@ pub type Block = { typ: Str, headers: Map<Str, Str>, bytes: List<Int> }
 
 fn get_line(data: Str) -> (Str, Str) {
   match strings.find(data, "\n") {
-    None    => (strings.trim_right_chars(data, " \t"), ""),
+    None => (strings.trim_right_chars(data, " \t"), ""),
     Some(i) => {
       var e = i
       if i > 0 && strings.slice(data, i - 1, i) == "\r" { e = i - 1 }
-      (strings.trim_right_chars(strings.slice(data, 0, e), " \t"), strings.slice(data, i + 1, len(data)))
+      (
+        strings.trim_right_chars(strings.slice(data, 0, e), " \t"),
+        strings.slice(data, i + 1, len(data)),
+      )
     },
   }
 }
@@ -29,7 +32,7 @@ pub fn decode(data: Str) -> (Option<Block>, Str) {
     } else {
       match strings.find(rest, "\n-----BEGIN ") {
         Some(i) => { rest = drop(rest, i + 12) },
-        None    => { return (None, data) },
+        None => { return (None, data) },
       }
     }
     let (tl, r1) = get_line(rest)
@@ -41,8 +44,8 @@ pub fn decode(data: Str) -> (Option<Block>, Str) {
       if rest == "" { return (None, data) }
       let (line, next) = get_line(rest)
       match strings.cut(line, ":") {
-        None           => { break },
-        Some((k, v))   => {
+        None => { break },
+        Some((k, v)) => {
           headers = set(headers, trim(k), trim(v))
           rest = next
         },
@@ -59,7 +62,7 @@ pub fn decode(data: Str) -> (Option<Block>, Str) {
           end_index = i
           trailer_index = i + 10
         },
-        None    => { continue },
+        None => { continue },
       }
     }
     let et0 = drop(rest, trailer_index)
@@ -87,8 +90,12 @@ pub fn encode(b: Block) -> Result<Str, Str> {
   }
   var out = "-----BEGIN " + b.typ + "-----\n"
   if len(b.headers) > 0 {
-    if contains(b.headers, "Proc-Type") { out = out + "Proc-Type: " + b.headers["Proc-Type"] + "\n" }
-    for k in sort(filter(keys(b.headers), (k) => k != "Proc-Type")) { out = out + k + ": " + b.headers[k] + "\n" }
+    if contains(b.headers, "Proc-Type") {
+      out = out + "Proc-Type: " + b.headers["Proc-Type"] + "\n"
+    }
+    for k in sort(filter(keys(b.headers), (k) => k != "Proc-Type")) {
+      out = out + k + ": " + b.headers[k] + "\n"
+    }
     out = out + "\n"
   }
   let enc = base64.std_encoding().encode_to_string(b.bytes)
@@ -103,7 +110,7 @@ pub fn encode(b: Block) -> Result<Str, Str> {
 
 pub fn encode_to_memory(b: Block) -> Option<Str> {
   match encode(b) {
-    Ok(s)  => Some(s),
+    Ok(s) => Some(s),
     Err(_) => None,
   }
 }

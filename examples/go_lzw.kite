@@ -33,14 +33,14 @@ fn comp(data: List<Int>, order: Int, lw: Int, chunk0: Int) -> Result<List<Int>, 
     w = w2
     match r {
       Err(e) => { return Err(e) },
-      Ok(_)  => {},
+      Ok(_) => {},
     }
     i += chunk
   }
   let (w3, e) = w.close()
   match e {
     Some(m) => Err(m),
-    None    => Ok(w3.bytes()),
+    None => Ok(w3.bytes()),
   }
 }
 
@@ -52,20 +52,20 @@ fn show(b: List<Int>) -> Str {
 fn nilstr(e: Option<Str>) -> Str {
   match e {
     Some(m) => m,
-    None    => "<nil>",
+    None => "<nil>",
   }
 }
 
 fn errstr(r: Result<List<Int>, Str>) -> Str {
   match r {
-    Ok(_)  => "<nil>",
+    Ok(_) => "<nil>",
     Err(e) => e,
   }
 }
 
 fn wres(r: Result<Int, Str>) -> Str {
   match r {
-    Ok(n)  => "{n} <nil>",
+    Ok(n) => "{n} <nil>",
     Err(e) => "0 " + e,
   }
 }
@@ -77,7 +77,13 @@ fn main() {
   for o in orders {
     for lw in 2..9 {
       let mask = (1 << lw) - 1
-      var ins: List<List<Int>> = [[], [0], [1, 1, 1, 1, 1, 1, 1, 1], gen(40, lw, mask), gen(700, 99, mask & 3)]
+      var ins: List<List<Int>> = [
+        [],
+        [0],
+        [1, 1, 1, 1, 1, 1, 1, 1],
+        gen(40, lw, mask),
+        gen(700, 99, mask & 3),
+      ]
       if lw == 8 {
         ins = push(ins, __bytes("TOBEORNOTTOBEORTOBEORNOT#"))
         ins = push(ins, text(600))
@@ -85,7 +91,7 @@ fn main() {
       for inp in ins {
         match comp(inp, o, lw, 0) {
           Err(e) => print("err", e),
-          Ok(c)  => {
+          Ok(c) => {
             let (d, e) = lzw.read_all(c, o, lw)
             print("{o} {lw} {len(inp)} {show(c)} {d == inp} {e}")
           },
@@ -140,7 +146,13 @@ fn main() {
     let (d, e) = lzw.read_all(good[..n], lzw.LSB, 8)
     print("trunc {n} {quote(d)} {e}")
   }
-  let bads = [[0xff, 0xff, 0xff], [0x00, 0xff, 0x0f], [0x41, 0x0c, 0x0c, 0x0c, 0xff, 0xff], [0x00, 0x01], gen(30, 1, 255)]
+  let bads = [
+    [0xff, 0xff, 0xff],
+    [0x00, 0xff, 0x0f],
+    [0x41, 0x0c, 0x0c, 0x0c, 0xff, 0xff],
+    [0x00, 0x01],
+    gen(30, 1, 255),
+  ]
   for b in bads {
     for o in orders {
       for lw in [2, 7, 8] {

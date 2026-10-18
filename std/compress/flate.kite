@@ -4,10 +4,20 @@
 //     再在固定 Huffman、动态 Huffman、存储三种编码里取最短的（整个输入一个块）
 //   inflate_at(bs, start)：从 start 开始解一个 DEFLATE 流，返回 (数据, 流结束后的下一个字节位置)，供 gzip / zlib 使用
 
-const LEN_BASE: List<Int> = [3, 4, 5, 6, 7, 8, 9, 10, 11, 13, 15, 17, 19, 23, 27, 31, 35, 43, 51, 59, 67, 83, 99, 115, 131, 163, 195, 227, 258]
-const LEN_EXTRA: List<Int> = [0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 2, 2, 2, 2, 3, 3, 3, 3, 4, 4, 4, 4, 5, 5, 5, 5, 0]
-const DIST_BASE: List<Int> = [1, 2, 3, 4, 5, 7, 9, 13, 17, 25, 33, 49, 65, 97, 129, 193, 257, 385, 513, 769, 1025, 1537, 2049, 3073, 4097, 6145, 8193, 12289, 16385, 24577]
-const DIST_EXTRA: List<Int> = [0, 0, 0, 0, 1, 1, 2, 2, 3, 3, 4, 4, 5, 5, 6, 6, 7, 7, 8, 8, 9, 9, 10, 10, 11, 11, 12, 12, 13, 13]
+const LEN_BASE: List<Int> = [
+  3, 4, 5, 6, 7, 8, 9, 10, 11, 13, 15, 17, 19, 23, 27, 31, 35, 43, 51, 59, 67, 83, 99, 115, 131,
+  163, 195, 227, 258,
+]
+const LEN_EXTRA: List<Int> = [
+  0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 2, 2, 2, 2, 3, 3, 3, 3, 4, 4, 4, 4, 5, 5, 5, 5, 0,
+]
+const DIST_BASE: List<Int> = [
+  1, 2, 3, 4, 5, 7, 9, 13, 17, 25, 33, 49, 65, 97, 129, 193, 257, 385, 513, 769, 1025, 1537, 2049,
+  3073, 4097, 6145, 8193, 12289, 16385, 24577,
+]
+const DIST_EXTRA: List<Int> = [
+  0, 0, 0, 0, 1, 1, 2, 2, 3, 3, 4, 4, 5, 5, 6, 6, 7, 7, 8, 8, 9, 9, 10, 10, 11, 11, 12, 12, 13, 13,
+]
 const CL_ORDER: List<Int> = [16, 17, 18, 0, 8, 7, 9, 6, 10, 5, 11, 4, 12, 3, 13, 2, 14, 1, 15]
 
 // ── 解压 ──
@@ -57,7 +67,7 @@ fn build(lens: List<Int>) -> Result<Huff, Str> {
     while e < 0 && l <= 9 {
       match get(by, l * 1024 + (idx & ((1 << l) - 1))) {
         Some(sym) => { e = sym * 16 + l },
-        None      => {},
+        None => {},
       }
       l += 1
     }
@@ -102,7 +112,9 @@ fn decode(bs: List<Int>, pos: Int, h: Huff) -> Result<(Int, Int), Str> {
 
 fn fixed_tables() -> (Huff, Huff) {
   var ll: List<Int> = []
-  for i in 0..288 { ll = push(ll, if i < 144 { 8 } else if i < 256 { 9 } else if i < 280 { 7 } else { 8 }) }
+  for i in 0..288 {
+    ll = push(ll, if i < 144 { 8 } else if i < 256 { 9 } else if i < 280 { 7 } else { 8 })
+  }
   (unwrap(build(ll)), unwrap(build(fill(30, 5))))
 }
 
@@ -220,7 +232,9 @@ fn stored(bs: List<Int>) -> List<Int> {
   while true {
     let n = min(65535, len(bs) - i)
     let last = i + n >= len(bs)
-    out = out + [if last { 1 } else { 0 }, n & 255, n >> 8, ~n & 255, (~n >> 8) & 255] + bs[i..i + n]
+    out = out + [if last { 1 } else { 0 }, n & 255, n >> 8, ~n & 255, (~n >> 8) & 255] + bs[
+      i..i + n
+    ]
     i += n
     if last { break }
   }
@@ -252,7 +266,7 @@ fn tokens(bs: List<Int>, level: Int) -> List<(Int, Int)> {
       let k = key(bs, next_reg)
       match get(head, k) {
         Some(old) => { prev = set(prev, next_reg, old) },
-        None      => {},
+        None => {},
       }
       head = set(head, k, next_reg)
       next_reg += 1
@@ -265,7 +279,7 @@ fn tokens(bs: List<Int>, level: Int) -> List<(Int, Int)> {
         let k = key(bs, i + 1)
         match get(head, k) {
           Some(old) => { prev = set(prev, i + 1, old) },
-          None      => {},
+          None => {},
         }
         head = set(head, k, i + 1)
         next_reg = i + 2
@@ -284,7 +298,10 @@ fn tokens(bs: List<Int>, level: Int) -> List<(Int, Int)> {
   out
 }
 
-fn longest(bs: List<Int>, i: Int, head: Map<Int, Int>, prev: Map<Int, Int>, chain: Int) -> (Int, Int) {
+fn longest(bs: List<Int>, i: Int, head: Map<Int, Int>, prev: Map<Int, Int>, chain: Int) -> (
+  Int,
+  Int,
+) {
   let n = len(bs)
   if i + 3 > n { return (0, 0) }
   var best = 0
@@ -393,7 +410,9 @@ fn rev_bits(v: Int, n: Int) -> Int {
 
 fn fixed_lens() -> List<Int> {
   var ll: List<Int> = []
-  for i in 0..288 { ll = push(ll, if i < 144 { 8 } else if i < 256 { 9 } else if i < 280 { 7 } else { 8 }) }
+  for i in 0..288 {
+    ll = push(ll, if i < 144 { 8 } else if i < 256 { 9 } else if i < 280 { 7 } else { 8 })
+  }
   ll
 }
 
@@ -469,7 +488,17 @@ pub fn compress(bs: List<Int>, level: Int) -> List<Int> {
   while hclen > 4 && cl[CL_ORDER[hclen - 1]] == 0 { hclen -= 1 }
   // 位数比较
   var dbits = 3 + 5 + 5 + 4 + 3 * hclen + extra_bits
-  for (sym, _) in seq { dbits += cl[sym] + (if sym == 16 { 2 } else if sym == 17 { 3 } else if sym == 18 { 7 } else { 0 }) }
+  for (sym, _) in seq {
+    dbits += cl[sym] + (if sym == 16 {
+      2
+    } else if sym == 17 {
+      3
+    } else if sym == 18 {
+      7
+    } else {
+      0
+    })
+  }
   var fbits = 3 + extra_bits
   for i in 0..286 {
     if i < len(ll) { dbits += lf[i] * ll[i] }
@@ -548,6 +577,6 @@ pub fn decompress_str(bs: List<Int>) -> Result<Str, Str> {
   let out = decompress(bs)?
   match __from_bytes(out) {
     Some(s) => Ok(s),
-    None    => Err("flate: 解压结果不是合法的 UTF-8"),
+    None => Err("flate: 解压结果不是合法的 UTF-8"),
   }
 }

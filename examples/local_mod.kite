@@ -14,7 +14,7 @@ fn report() -> Str {
 
     pub fn area(s: Shape) -> Int {
       match s {
-        Shape.Dot(_)    => 0,
+        Shape.Dot(_) => 0,
         Shape.Box(a, b) => (b.x - a.x) * (b.y - a.y),
       }
     }

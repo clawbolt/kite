@@ -13,8 +13,12 @@ fn texts(ts: List<dc.Text>) -> Str {
     match t {
       Plain(s) => { out = push(out, "p<" + s + ">") },
       Italic(s) => { out = push(out, "i<" + s + ">") },
-      Link { auto, text, url } => { out = push(out, "a<" + b(auto) + "," + url + ";" + texts(text) + ">") },
-      DocLink { text, import_path, recv, name } => { out = push(out, "d<" + import_path + "," + recv + "," + name + ";" + texts(text) + ">") },
+      Link { auto, text, url } => {
+        out = push(out, "a<" + b(auto) + "," + url + ";" + texts(text) + ">")
+      },
+      DocLink { text, import_path, recv, name } => {
+        out = push(out, "d<" + import_path + "," + recv + "," + name + ";" + texts(text) + ">")
+      },
     }
   }
   join(out, "")
@@ -28,7 +32,9 @@ fn blocks(bs: List<dc.Block>) -> Str {
       Heading { text } => { out = push(out, "H(" + texts(text) + ")") },
       Code { text } => { out = push(out, "C(" + text + ")") },
       List { items, force_blank_before, force_blank_between } => {
-        var s = "L(" + b(force_blank_before) + "," + b(force_blank_between) + "," + b(dc.list_blank_before(x)) + "," + b(dc.list_blank_between(x))
+        var s = "L(" + b(force_blank_before) + "," + b(force_blank_between) + "," + b(
+          dc.list_blank_before(x),
+        ) + "," + b(dc.list_blank_between(x))
         for it in items { s = s + " #" + it.number + ":" + blocks(it.content) }
         out = push(out, s + ")")
       },

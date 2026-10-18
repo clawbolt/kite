@@ -10,7 +10,7 @@
 use std.go.token as token
 use std.go.scanner as scanner
 use std.go.ast as ast
-use std.go.ast.{Node, Object, Scope}
+use std.go.ast.{ Node, Object, Scope }
 use std.unicode
 
 pub const PACKAGE_CLAUSE_ONLY: Int = 1
@@ -42,10 +42,31 @@ type P = {
   bail: Bool,
 }
 
-const STMT_START: List<Int> = [token.BREAK, token.CONST, token.CONTINUE, token.DEFER, token.FALLTHROUGH, token.FOR, token.GO,
-  token.GOTO, token.IF, token.RETURN, token.SELECT, token.SWITCH, token.TYPE, token.VAR]
+const STMT_START: List<Int> = [
+  token.BREAK,
+  token.CONST,
+  token.CONTINUE,
+  token.DEFER,
+  token.FALLTHROUGH,
+  token.FOR,
+  token.GO,
+  token.GOTO,
+  token.IF,
+  token.RETURN,
+  token.SELECT,
+  token.SWITCH,
+  token.TYPE,
+  token.VAR,
+]
 const DECL_START: List<Int> = [token.IMPORT, token.CONST, token.TYPE, token.VAR]
-const EXPR_END: List<Int> = [token.COMMA, token.COLON, token.SEMICOLON, token.RPAREN, token.RBRACK, token.RBRACE]
+const EXPR_END: List<Int> = [
+  token.COMMA,
+  token.COLON,
+  token.SEMICOLON,
+  token.RPAREN,
+  token.RBRACK,
+  token.RBRACE,
+]
 
 fn ident(pos: Int, name: Str) -> Node { Node.Ident { name_pos: pos, name: name, obj: -1 } }
 fn bad_expr(a: Int, b: Int) -> Node { Node.BadExpr { from: a, to: b } }
@@ -84,7 +105,11 @@ fn tag_version(t: Str) -> Int {
   if k < 0 { return -1 }
   var v = __str_slice(t, k + 4, len(t))
   var neg = false
-  if starts_with(v, "+") { v = __str_slice(v, 1, len(v)) } else if starts_with(v, "-") { neg = true; v = __str_slice(v, 1, len(v)) }
+  if starts_with(v, "+") {
+    v = __str_slice(v, 1, len(v))
+  } else if starts_with(v, "-") {
+    neg = true; v = __str_slice(v, 1, len(v))
+  }
   if v == "" || len(v) > 18 { return -1 }
   var n = 0
   for c in v {
@@ -226,7 +251,9 @@ fn next(p0: P) -> P {
       p = p2
       comment = c
       endline = e
-      if line_for(p, p.pos) != endline || p.tok == token.SEMICOLON || p.tok == token.EOF { p = P { linec: comment, ..p } }
+      if line_for(p, p.pos) != endline || p.tok == token.SEMICOLON || p.tok == token.EOF {
+        p = P { linec: comment, ..p }
+      }
     }
     endline = -1
     while p.tok == token.COMMENT {
@@ -256,9 +283,13 @@ fn err(p: P, pos: Int, msg: Str) -> P {
 fn error_expected(p: P, pos: Int, msg0: Str) -> P {
   var msg = "expected " + msg0
   if pos == p.pos {
-    if p.tok == token.SEMICOLON && p.lit == "\n" { msg = msg + ", found newline" }
-    else if token.is_literal(p.tok) { msg = msg + ", found " + p.lit }
-    else { msg = msg + ", found '" + token.token_string(p.tok) + "'" }
+    if p.tok == token.SEMICOLON && p.lit == "\n" {
+      msg = msg + ", found newline"
+    } else if token.is_literal(p.tok) {
+      msg = msg + ", found " + p.lit
+    } else {
+      msg = msg + ", found '" + token.token_string(p.tok) + "'"
+    }
   }
   err(p, pos, msg)
 }
@@ -273,7 +304,11 @@ fn expect(p0: P, tok: Int) -> (P, Int) {
 fn expect2(p0: P, tok: Int) -> (P, Int) {
   var p = p0
   var pos = 0
-  if p.tok == tok { pos = p.pos } else { p = error_expected(p, p.pos, "'" + token.token_string(tok) + "'") }
+  if p.tok == tok {
+    pos = p.pos
+  } else {
+    p = error_expected(p, p.pos, "'" + token.token_string(tok) + "'")
+  }
   (next(p), pos)
 }
 
@@ -479,7 +514,10 @@ fn parse_field_decl(p0: P) -> (P, Node) {
   if p.tok == token.IDENT {
     let (p2, name) = parse_ident(p)
     p = p2
-    if p.tok == token.PERIOD || p.tok == token.STRING || p.tok == token.SEMICOLON || p.tok == token.RBRACE {
+    if p.tok == token.PERIOD
+      || p.tok == token.STRING
+      || p.tok == token.SEMICOLON
+      || p.tok == token.RBRACE {
       typ = name
       if p.tok == token.PERIOD {
         let (p3, t) = parse_qualified_ident(p, name)
@@ -562,7 +600,11 @@ fn parse_struct_type(p0: P) -> (P, Node) {
     list = push(list, f)
   }
   let (p3, rbrace) = expect(p, token.RBRACE)
-  (p3, Node.StructType { struct_pos: pos, fields: Node.FieldList { opening: lbrace, list: list, closing: rbrace }, incomplete: false })
+  (p3, Node.StructType {
+    struct_pos: pos,
+    fields: Node.FieldList { opening: lbrace, list: list, closing: rbrace },
+    incomplete: false,
+  })
 }
 
 fn parse_pointer_type(p0: P) -> (P, Node) {
@@ -600,8 +642,15 @@ fn parse_param_decl(p0: P, name: Node, type_sets_ok: Bool) -> (P, PF) {
       f = PF { name: n, ..f }
     }
     let t1 = p.tok
-    if t1 == token.IDENT || t1 == token.MUL || t1 == token.ARROW || t1 == token.FUNC || t1 == token.CHAN || t1 == token.MAP ||
-       t1 == token.STRUCT || t1 == token.INTERFACE || t1 == token.LPAREN {
+    if t1 == token.IDENT
+      || t1 == token.MUL
+      || t1 == token.ARROW
+      || t1 == token.FUNC
+      || t1 == token.CHAN
+      || t1 == token.MAP
+      || t1 == token.STRUCT
+      || t1 == token.INTERFACE
+      || t1 == token.LPAREN {
       let (p2, t) = parse_type(p)
       p = p2
       f = PF { typ: t, ..f }
@@ -627,8 +676,15 @@ fn parse_param_decl(p0: P, name: Node, type_sets_ok: Bool) -> (P, PF) {
         return (p2, PF { name: Nil, typ: t })
       }
     }
-  } else if t0 == token.MUL || t0 == token.ARROW || t0 == token.FUNC || t0 == token.LBRACK || t0 == token.CHAN || t0 == token.MAP ||
-            t0 == token.STRUCT || t0 == token.INTERFACE || t0 == token.LPAREN {
+  } else if t0 == token.MUL
+    || t0 == token.ARROW
+    || t0 == token.FUNC
+    || t0 == token.LBRACK
+    || t0 == token.CHAN
+    || t0 == token.MAP
+    || t0 == token.STRUCT
+    || t0 == token.INTERFACE
+    || t0 == token.LPAREN {
     let (p2, t) = parse_type(p)
     p = p2
     f = PF { typ: t, ..f }
@@ -647,7 +703,10 @@ fn parse_param_decl(p0: P, name: Node, type_sets_ok: Bool) -> (P, PF) {
   (p, f)
 }
 
-fn parse_parameter_list(p0: P, name00: Node, typ00: Node, closing: Int, dddok: Bool) -> (P, List<Node>) {
+fn parse_parameter_list(p0: P, name00: Node, typ00: Node, closing: Int, dddok: Bool) -> (
+  P,
+  List<Node>,
+) {
   var p = p0
   var name0 = name00
   var typ0 = typ00
@@ -749,7 +808,11 @@ fn parse_parameter_list(p0: P, name00: Node, typ00: Node, closing: Int, dddok: B
         if !dddok || i + 1 < len(list) {
           if first {
             first = false
-            p = err(p, ellipsis, if dddok { "can only use ... with final parameter" } else { "invalid use of ..." })
+            p = err(p, ellipsis, if dddok {
+              "can only use ... with final parameter"
+            } else {
+              "invalid use of ..."
+            })
           }
           list = set(list, i, PF { typ: bad_expr(ast.pos(f.typ), ast.end(f.typ)), ..f })
           tids = set(tids, i, len(list) + i)
@@ -761,7 +824,15 @@ fn parse_parameter_list(p0: P, name00: Node, typ00: Node, closing: Int, dddok: B
   }
   var params: List<Node> = []
   if named == 0 {
-    for par in list { params = push(params, Node.Field { doc: Nil, names: [], typ: par.typ, tag: Nil, comment: Nil }) }
+    for par in list {
+      params = push(params, Node.Field {
+        doc: Nil,
+        names: [],
+        typ: par.typ,
+        tag: Nil,
+        comment: Nil,
+      })
+    }
     return (p, params)
   }
   var names: List<Node> = []
@@ -771,7 +842,13 @@ fn parse_parameter_list(p0: P, name00: Node, typ00: Node, closing: Int, dddok: B
   for par in list {
     if tids[j] != cur {
       if len(names) > 0 {
-        params = push(params, Node.Field { doc: Nil, names: names, typ: typ, tag: Nil, comment: Nil })
+        params = push(params, Node.Field {
+          doc: Nil,
+          names: names,
+          typ: typ,
+          tag: Nil,
+          comment: Nil,
+        })
         names = []
       }
       typ = par.typ
@@ -780,7 +857,9 @@ fn parse_parameter_list(p0: P, name00: Node, typ00: Node, closing: Int, dddok: B
     names = push(names, par.name)
     j += 1
   }
-  if len(names) > 0 { params = push(params, Node.Field { doc: Nil, names: names, typ: typ, tag: Nil, comment: Nil }) }
+  if len(names) > 0 {
+    params = push(params, Node.Field { doc: Nil, names: names, typ: typ, tag: Nil, comment: Nil })
+  }
   (p, params)
 }
 
@@ -816,7 +895,11 @@ fn parse_parameters(p0: P, result: Bool) -> (P, Node) {
   }
   let (p4, typ) = try_ident_or_type(p)
   if typ != Nil {
-    return (p4, Node.FieldList { opening: 0, list: [Node.Field { doc: Nil, names: [], typ: typ, tag: Nil, comment: Nil }], closing: 0 })
+    return (p4, Node.FieldList {
+      opening: 0,
+      list: [Node.Field { doc: Nil, names: [], typ: typ, tag: Nil, comment: Nil }],
+      closing: 0,
+    })
   }
   (p4, Nil)
 }
@@ -826,7 +909,12 @@ fn parse_func_type(p0: P) -> (P, Node) {
   if p.tok == token.LBRACK {
     let (p2, tparams) = parse_type_parameters(p)
     p = p2
-    match tparams { FieldList { opening, .. } => { p = err(p, opening, "function type must have no type parameters") }, _ => {} }
+    match tparams {
+      FieldList { opening, .. } => {
+        p = err(p, opening, "function type must have no type parameters")
+      },
+      _ => {},
+    }
   }
   let (p3, params) = parse_parameters(p, false)
   let (p4, results) = parse_parameters(p3, true)
@@ -981,7 +1069,11 @@ fn parse_interface_type(p0: P) -> (P, Node) {
     }
   }
   let (p5, rbrace) = expect(p, token.RBRACE)
-  (p5, Node.InterfaceType { interface_pos: pos, methods: Node.FieldList { opening: lbrace, list: list, closing: rbrace }, incomplete: false })
+  (p5, Node.InterfaceType {
+    interface_pos: pos,
+    methods: Node.FieldList { opening: lbrace, list: list, closing: rbrace },
+    incomplete: false,
+  })
 }
 
 fn parse_map_type(p0: P) -> (P, Node) {
@@ -1034,7 +1126,12 @@ fn parse_type_instance(p0: P, typ: Node) -> (P, Node) {
   p = p3
   if len(list) == 0 {
     p = error_expected(p, closing, "type argument list")
-    return (p, Node.IndexExpr { x: typ, lbrack: opening, index: bad_expr(opening + 1, closing), rbrack: closing })
+    return (p, Node.IndexExpr {
+      x: typ,
+      lbrack: opening,
+      index: bad_expr(opening + 1, closing),
+      rbrack: closing,
+    })
   }
   (p, pack_index_expr(typ, opening, list, closing))
 }
@@ -1071,7 +1168,10 @@ fn try_ident_or_type(p0: P) -> (P, Node) {
 fn parse_stmt_list(p0: P) -> (P, List<Node>) {
   var p = p0
   var list: List<Node> = []
-  while p.tok != token.CASE && p.tok != token.DEFAULT && p.tok != token.RBRACE && p.tok != token.EOF {
+  while p.tok != token.CASE
+    && p.tok != token.DEFAULT
+    && p.tok != token.RBRACE
+    && p.tok != token.EOF {
     let (p1, s) = parse_stmt(p)
     p = p1
     list = push(list, s)
@@ -1148,7 +1248,12 @@ fn parse_index_or_slice_or_instance(p0: P, x: Node) -> (P, Node) {
     p = error_expected(p, p.pos, "operand")
     let rbrack = p.pos
     p = next(p)
-    return (p, Node.IndexExpr { x: x, lbrack: lbrack, index: bad_expr(rbrack, rbrack), rbrack: rbrack })
+    return (p, Node.IndexExpr {
+      x: x,
+      lbrack: lbrack,
+      index: bad_expr(rbrack, rbrack),
+      rbrack: rbrack,
+    })
   }
   p = P { expr_lev: p.expr_lev + 1, ..p }
   var args: List<Node> = []
@@ -1198,9 +1303,19 @@ fn parse_index_or_slice_or_instance(p0: P, x: Node) -> (P, Node) {
         index = set(index, 2, bad_expr(colons[1] + 1, rbrack))
       }
     }
-    return (p, Node.SliceExpr { x: x, lbrack: lbrack, low: index[0], high: index[1], max: index[2], slice3: slice3, rbrack: rbrack })
+    return (p, Node.SliceExpr {
+      x: x,
+      lbrack: lbrack,
+      low: index[0],
+      high: index[1],
+      max: index[2],
+      slice3: slice3,
+      rbrack: rbrack,
+    })
   }
-  if len(args) == 0 { return (p, Node.IndexExpr { x: x, lbrack: lbrack, index: index[0], rbrack: rbrack }) }
+  if len(args) == 0 {
+    return (p, Node.IndexExpr { x: x, lbrack: lbrack, index: index[0], rbrack: rbrack })
+  }
   (p, pack_index_expr(x, lbrack, args, rbrack))
 }
 
@@ -1269,7 +1384,13 @@ fn parse_literal_value(p0: P, typ: Node) -> (P, Node) {
   }
   p = P { expr_lev: p.expr_lev - 1, ..p }
   let (p2, rbrace) = expect_closing(p, token.RBRACE, "composite literal")
-  (p2, Node.CompositeLit { typ: typ, lbrace: lbrace, elts: elts, rbrace: rbrace, incomplete: false })
+  (p2, Node.CompositeLit {
+    typ: typ,
+    lbrace: lbrace,
+    elts: elts,
+    rbrace: rbrace,
+    incomplete: false,
+  })
 }
 
 fn parse_primary_expr(p0: P, x0: Node) -> (P, Node) {
@@ -1309,10 +1430,13 @@ fn parse_primary_expr(p0: P, x0: Node) -> (P, Node) {
     } else if t == token.LBRACE {
       let u = ast.unparen(x)
       let k = ast.type_name(u)
-      if k == "BadExpr" || k == "Ident" || k == "SelectorExpr" || k == "IndexExpr" || k == "IndexListExpr" {
+      if k == "BadExpr"
+        || k == "Ident"
+        || k == "SelectorExpr"
+        || k == "IndexExpr"
+        || k == "IndexListExpr" {
         if p.expr_lev < 0 { return (p, x) }
-      } else if k == "ArrayType" || k == "StructType" || k == "MapType" {
-      } else {
+      } else if k == "ArrayType" || k == "StructType" || k == "MapType" {} else {
         return (p, x)
       }
       if u != x { p = err(p, ast.pos(u), "cannot parenthesize type in composite literal") }
@@ -1337,9 +1461,19 @@ fn fix_recv_chan(p0: P, typ: Node, arrow0: Int) -> (P, Node, Int, Int) {
       let nd = dir
       if nd == ast.SEND && value is ChanType { .. } {
         let (p2, v2, d2, a2) = fix_recv_chan(p, value, new_arrow)
-        return (p2, Node.ChanType { begin: arrow0, arrow: arrow0, dir: ast.RECV, value: v2 }, d2, a2)
+        return (
+          p2,
+          Node.ChanType { begin: arrow0, arrow: arrow0, dir: ast.RECV, value: v2 },
+          d2,
+          a2,
+        )
       }
-      (p, Node.ChanType { begin: arrow0, arrow: arrow0, dir: ast.RECV, value: value }, nd, new_arrow)
+      (
+        p,
+        Node.ChanType { begin: arrow0, arrow: arrow0, dir: ast.RECV, value: value },
+        nd,
+        new_arrow,
+      )
     },
     _ => (p, typ, ast.SEND, arrow0),
   }
@@ -1348,7 +1482,12 @@ fn fix_recv_chan(p0: P, typ: Node, arrow0: Int) -> (P, Node, Int, Int) {
 fn parse_unary_expr(p0: P) -> (P, Node) {
   var p = p0
   let t = p.tok
-  if t == token.ADD || t == token.SUB || t == token.NOT || t == token.XOR || t == token.AND || t == token.TILDE {
+  if t == token.ADD
+    || t == token.SUB
+    || t == token.NOT
+    || t == token.XOR
+    || t == token.AND
+    || t == token.TILDE {
     let pos = p.pos
     p = next(p)
     let (p1, x) = parse_unary_expr(p)
@@ -1415,9 +1554,19 @@ const LABEL_OK: Int = 1
 const RANGE_OK: Int = 2
 
 fn is_assign_tok(t: Int) -> Bool {
-  t == token.DEFINE || t == token.ASSIGN || t == token.ADD_ASSIGN || t == token.SUB_ASSIGN || t == token.MUL_ASSIGN ||
-  t == token.QUO_ASSIGN || t == token.REM_ASSIGN || t == token.AND_ASSIGN || t == token.OR_ASSIGN || t == token.XOR_ASSIGN ||
-  t == token.SHL_ASSIGN || t == token.SHR_ASSIGN || t == token.AND_NOT_ASSIGN
+  t == token.DEFINE
+    || t == token.ASSIGN
+    || t == token.ADD_ASSIGN
+    || t == token.SUB_ASSIGN
+    || t == token.MUL_ASSIGN
+    || t == token.QUO_ASSIGN
+    || t == token.REM_ASSIGN
+    || t == token.AND_ASSIGN
+    || t == token.OR_ASSIGN
+    || t == token.XOR_ASSIGN
+    || t == token.SHL_ASSIGN
+    || t == token.SHR_ASSIGN
+    || t == token.AND_NOT_ASSIGN
 }
 
 fn parse_simple_stmt(p0: P, mode: Int) -> (P, Node, Bool) {
@@ -1474,7 +1623,9 @@ fn parse_call_expr(p0: P, call_type: Str) -> (P, Node) {
     x = t
   }
   if x is CallExpr { .. } { return (p, x) }
-  if !(x is BadExpr { .. }) { p = err(p, ast.end(x), "expression in " + call_type + " must be function call") }
+  if !(x is BadExpr { .. }) {
+    p = err(p, ast.end(x), "expression in " + call_type + " must be function call")
+  }
   (p, Nil)
 }
 
@@ -1523,7 +1674,11 @@ fn make_expr(p: P, s: Node, want: Str) -> (P, Node) {
   if s == Nil { return (p, Nil) }
   match s { ExprStmt { x } => { return (p, x) }, _ => {} }
   let found = if s is AssignStmt { .. } { "assignment" } else { "simple statement" }
-  let p2 = err(p, ast.pos(s), "expected " + want + ", found " + found + " (missing parentheses around composite literal?)")
+  let p2 = err(
+    p,
+    ast.pos(s),
+    "expected " + want + ", found " + found + " (missing parentheses around composite literal?)",
+  )
   (p2, bad_expr(ast.pos(s), ast.end(s)))
 }
 
@@ -1683,7 +1838,9 @@ fn parse_switch_stmt(p0: P) -> (P, Node) {
   let (p6, _) = expect_semi(p5)
   p = p6
   let body = Node.BlockStmt { lbrace: lbrace, list: list, rbrace: rbrace }
-  if type_switch { return (p, Node.TypeSwitchStmt { switch_pos: pos, init_s: s1, assign: s2, body: body }) }
+  if type_switch {
+    return (p, Node.TypeSwitchStmt { switch_pos: pos, init_s: s1, assign: s2, body: body })
+  }
   let (p7, tag) = make_expr(p, s2, "switch expression")
   (p7, Node.SwitchStmt { switch_pos: pos, init_s: s1, tag: tag, body: body })
 }
@@ -1741,7 +1898,11 @@ fn parse_select_stmt(p0: P) -> (P, Node) {
   }
   let (p3, rbrace) = expect(p, token.RBRACE)
   let (p4, _) = expect_semi(p3)
-  (p4, Node.SelectStmt { select_pos: pos, body: Node.BlockStmt { lbrace: lbrace, list: list, rbrace: rbrace } })
+  (p4, Node.SelectStmt { select_pos: pos, body: Node.BlockStmt {
+    lbrace: lbrace,
+    list: list,
+    rbrace: rbrace,
+  } })
 }
 
 fn parse_for_stmt(p0: P) -> (P, Node) {
@@ -1759,7 +1920,11 @@ fn parse_for_stmt(p0: P) -> (P, Node) {
         p = next(p)
         let (p1, e) = parse_rhs(p)
         p = p1
-        s2 = Node.AssignStmt { lhs: [], tok_pos: 0, tok: token.ILLEGAL, rhs: [Node.UnaryExpr { op_pos: rpos, op: token.RANGE, x: e }] }
+        s2 = Node.AssignStmt { lhs: [], tok_pos: 0, tok: token.ILLEGAL, rhs: [Node.UnaryExpr {
+          op_pos: rpos,
+          op: token.RANGE,
+          x: e,
+        }] }
         is_range = true
       } else {
         let (p1, s, r) = parse_simple_stmt(p, RANGE_OK)
@@ -1795,14 +1960,25 @@ fn parse_for_stmt(p0: P) -> (P, Node) {
       AssignStmt { lhs, tok_pos, tok, rhs } => {
         var key: Node = Nil
         var value: Node = Nil
-        if len(lhs) == 1 { key = lhs[0] }
-        else if len(lhs) == 2 { key = lhs[0]; value = lhs[1] }
-        else if len(lhs) > 2 {
+        if len(lhs) == 1 {
+          key = lhs[0]
+        } else if len(lhs) == 2 {
+          key = lhs[0]; value = lhs[1]
+        } else if len(lhs) > 2 {
           p = error_expected(p, ast.pos(lhs[len(lhs) - 1]), "at most 2 expressions")
           return (p, Node.BadStmt { from: pos, to: ast.end(body) })
         }
         let x = match rhs[0] { UnaryExpr { x, .. } => x, _ => Nil }
-        return (p, Node.RangeStmt { for_pos: pos, key: key, value: value, tok_pos: tok_pos, tok: tok, range_pos: ast.pos(rhs[0]), x: x, body: body })
+        return (p, Node.RangeStmt {
+          for_pos: pos,
+          key: key,
+          value: value,
+          tok_pos: tok_pos,
+          tok: tok,
+          range_pos: ast.pos(rhs[0]),
+          x: x,
+          body: body,
+        })
       },
       _ => {},
     }
@@ -1818,9 +1994,26 @@ fn parse_stmt(p0: P) -> (P, Node) {
     let (p1, d) = parse_decl(p, STMT_START)
     return (p1, Node.DeclStmt { decl: d })
   }
-  if t == token.IDENT || t == token.INT || t == token.FLOAT || t == token.IMAG || t == token.CHAR || t == token.STRING || t == token.FUNC ||
-     t == token.LPAREN || t == token.LBRACK || t == token.STRUCT || t == token.MAP || t == token.CHAN || t == token.INTERFACE ||
-     t == token.ADD || t == token.SUB || t == token.MUL || t == token.AND || t == token.XOR || t == token.ARROW || t == token.NOT {
+  if t == token.IDENT
+    || t == token.INT
+    || t == token.FLOAT
+    || t == token.IMAG
+    || t == token.CHAR
+    || t == token.STRING
+    || t == token.FUNC
+    || t == token.LPAREN
+    || t == token.LBRACK
+    || t == token.STRUCT
+    || t == token.MAP
+    || t == token.CHAN
+    || t == token.INTERFACE
+    || t == token.ADD
+    || t == token.SUB
+    || t == token.MUL
+    || t == token.AND
+    || t == token.XOR
+    || t == token.ARROW
+    || t == token.NOT {
     let (p1, s, _) = parse_simple_stmt(p, LABEL_OK)
     p = p1
     if !(s is LabeledStmt { .. }) {
@@ -1832,7 +2025,9 @@ fn parse_stmt(p0: P) -> (P, Node) {
   if t == token.GO { return parse_go_stmt(p) }
   if t == token.DEFER { return parse_defer_stmt(p) }
   if t == token.RETURN { return parse_return_stmt(p) }
-  if t == token.BREAK || t == token.CONTINUE || t == token.GOTO || t == token.FALLTHROUGH { return parse_branch_stmt(p, t) }
+  if t == token.BREAK || t == token.CONTINUE || t == token.GOTO || t == token.FALLTHROUGH {
+    return parse_branch_stmt(p, t)
+  }
   if t == token.LBRACE {
     let (p1, s) = parse_body(p)
     let (p2, _) = expect_semi(p1)
@@ -1881,7 +2076,13 @@ fn parse_import_spec(p0: P, doc: Node) -> (P, Node) {
   }
   let (p2, comment) = expect_semi(p)
   p = p2
-  let spec = Node.ImportSpec { doc: doc, name: id, path: Node.BasicLit { value_pos: pos, value_end: end, kind: token.STRING, value: path }, comment: comment, end_pos: 0 }
+  let spec = Node.ImportSpec {
+    doc: doc,
+    name: id,
+    path: Node.BasicLit { value_pos: pos, value_end: end, kind: token.STRING, value: path },
+    comment: comment,
+    end_pos: 0,
+  }
   (P { imports: push(p.imports, spec), ..p }, spec)
 }
 
@@ -1923,7 +2124,10 @@ type TS = { type_params: Node, assign: Int, typ: Node }
 fn parse_generic_type(p0: P, ts: TS, open_pos: Int, name0: Node, typ0: Node) -> (P, TS) {
   let (p1, list) = parse_parameter_list(p0, name0, typ0, token.RBRACK, false)
   var (p, close_pos) = expect(p1, token.RBRACK)
-  var t = TS { type_params: Node.FieldList { opening: open_pos, list: list, closing: close_pos }, ..ts }
+  var t = TS {
+    type_params: Node.FieldList { opening: open_pos, list: list, closing: close_pos },
+    ..ts
+  }
   if p.tok == token.ASSIGN {
     t = TS { assign: p.pos, ..t }
     p = next(p)
@@ -1974,7 +2178,14 @@ fn parse_type_spec(p0: P, doc: Node) -> (P, Node) {
     ts = TS { typ: t, ..ts }
   }
   let (p6, comment) = expect_semi(p)
-  (p6, Node.TypeSpec { doc: doc, name: name, type_params: ts.type_params, assign: ts.assign, typ: ts.typ, comment: comment })
+  (p6, Node.TypeSpec {
+    doc: doc,
+    name: name,
+    type_params: ts.type_params,
+    assign: ts.assign,
+    typ: ts.typ,
+    comment: comment,
+  })
 }
 
 fn extract_name(x: Node, force: Bool) -> (Node, Node) {
@@ -1982,10 +2193,14 @@ fn extract_name(x: Node, force: Bool) -> (Node, Node) {
     Ident { .. } => (x, Nil),
     BinaryExpr { x: bx, op_pos, op, y } => {
       if op == token.MUL {
-        if bx is Ident { .. } && (force || is_type_elem(y)) { return (bx, Node.StarExpr { star: op_pos, x: y }) }
+        if bx is Ident { .. } && (force || is_type_elem(y)) {
+          return (bx, Node.StarExpr { star: op_pos, x: y })
+        }
       } else if op == token.OR {
         let (name, lhs) = extract_name(bx, force || is_type_elem(y))
-        if name != Nil && lhs != Nil { return (name, Node.BinaryExpr { x: lhs, op_pos: op_pos, op: op, y: y }) }
+        if name != Nil && lhs != Nil {
+          return (name, Node.BinaryExpr { x: lhs, op_pos: op_pos, op: op, y: y })
+        }
       }
       (Nil, x)
     },
@@ -2045,7 +2260,14 @@ fn parse_gen_decl(p0: P, keyword: Int, kind: Int) -> (P, Node) {
     p = p1
     list = push(list, s)
   }
-  (p, Node.GenDecl { doc: doc, tok_pos: pos, tok: keyword, lparen: lparen, specs: list, rparen: rparen })
+  (p, Node.GenDecl {
+    doc: doc,
+    tok_pos: pos,
+    tok: keyword,
+    lparen: lparen,
+    specs: list,
+    rparen: rparen,
+  })
 }
 
 fn parse_func_decl(p0: P) -> (P, Node) {
@@ -2087,7 +2309,13 @@ fn parse_func_decl(p0: P) -> (P, Node) {
     let (p6, _) = expect_semi(p)
     p = p6
   }
-  (p, Node.FuncDecl { doc: doc, recv: recv, name: id, typ: Node.FuncType { func_pos: pos, type_params: tparams, params: params, results: results }, body: body })
+  (p, Node.FuncDecl {
+    doc: doc,
+    recv: recv,
+    name: id,
+    typ: Node.FuncType { func_pos: pos, type_params: tparams, params: params, results: results },
+    body: body,
+  })
 }
 
 fn parse_decl(p0: P, sync: List<Int>) -> (P, Node) {
@@ -2104,8 +2332,21 @@ fn parse_decl(p0: P, sync: List<Int>) -> (P, Node) {
 }
 
 fn empty_file() -> Node {
-  Node.File { doc: Nil, package_pos: 0, name: ident(0, ""), decls: [], file_start: 0, file_end: 0, scope: Some(Scope { objects: Map() }),
-    imports: [], unresolved: [], comments: [], go_version: "", unresolved_set: false, objects: [] }
+  Node.File {
+    doc: Nil,
+    package_pos: 0,
+    name: ident(0, ""),
+    decls: [],
+    file_start: 0,
+    file_end: 0,
+    scope: Some(Scope { objects: Map() }),
+    imports: [],
+    unresolved: [],
+    comments: [],
+    go_version: "",
+    unresolved_set: false,
+    objects: [],
+  }
 }
 
 // 返回 (P, File 或 Nil)
@@ -2116,7 +2357,9 @@ fn parse_file0(p0: P) -> (P, Node) {
   let (p1, pos) = expect(p, token.PACKAGE)
   let (p2, id) = parse_ident(p1)
   p = p2
-  if id is Ident { name: "_", .. } && p.mode & DECLARATION_ERRORS != 0 { p = err(p, p.pos, "invalid package name _") }
+  if id is Ident { name: "_", .. } && p.mode & DECLARATION_ERRORS != 0 {
+    p = err(p, p.pos, "invalid package name _")
+  }
   let (p3, _) = expect_semi(p)
   p = p3
   if len(p.errors) != 0 { return (p, Nil) }
@@ -2130,7 +2373,9 @@ fn parse_file0(p0: P) -> (P, Node) {
     if p.mode & IMPORTS_ONLY == 0 {
       var prev = token.IMPORT
       while p.tok != token.EOF {
-        if p.tok == token.IMPORT && prev != token.IMPORT { p = err(p, p.pos, "imports must appear before other declarations") }
+        if p.tok == token.IMPORT && prev != token.IMPORT {
+          p = err(p, p.pos, "imports must appear before other declarations")
+        }
         prev = p.tok
         let (p5, d) = parse_decl(p, DECL_START)
         p = p5
@@ -2138,8 +2383,21 @@ fn parse_file0(p0: P) -> (P, Node) {
       }
     }
   }
-  var f = Node.File { doc: doc, package_pos: pos, name: id, decls: decls, file_start: 0, file_end: 0, scope: None,
-    imports: p.imports, unresolved: [], comments: p.comments, go_version: p.go_version, unresolved_set: false, objects: [] }
+  var f = Node.File {
+    doc: doc,
+    package_pos: pos,
+    name: id,
+    decls: decls,
+    file_start: 0,
+    file_end: 0,
+    scope: None,
+    imports: p.imports,
+    unresolved: [],
+    comments: p.comments,
+    go_version: p.go_version,
+    unresolved_set: false,
+    objects: [],
+  }
   if p.mode & SKIP_OBJECT_RESOLUTION == 0 && !p.bail {
     let (p6, f2) = resolve_file(p, f, p.mode & DECLARATION_ERRORS != 0)
     p = p6
@@ -2149,18 +2407,41 @@ fn parse_file0(p0: P) -> (P, Node) {
 }
 
 fn pack_index_expr(x: Node, lbrack: Int, exprs: List<Node>, rbrack: Int) -> Node {
-  if len(exprs) == 1 { return Node.IndexExpr { x: x, lbrack: lbrack, index: exprs[0], rbrack: rbrack } }
+  if len(exprs) == 1 {
+    return Node.IndexExpr { x: x, lbrack: lbrack, index: exprs[0], rbrack: rbrack }
+  }
   Node.IndexListExpr { x: x, lbrack: lbrack, indices: exprs, rbrack: rbrack }
 }
 
 fn new_parser(file: token.File, src: List<Int>, mode: Int) -> P {
   let sc = unwrap(scanner.init(file, src, scanner.SCAN_COMMENTS))
-  let p = P { sc: scanner.Scanner { errors: [], ..sc }, errors: sc.errors, mode: mode, comments: [], lead: Nil, linec: Nil, top: true,
-    go_version: "", pos: 0, tok: token.ILLEGAL, lit: "", sync_pos: 0, sync_cnt: 0, expr_lev: 0, in_rhs: false, imports: [], bail: false }
+  let p = P {
+    sc: scanner.Scanner { errors: [], ..sc },
+    errors: sc.errors,
+    mode: mode,
+    comments: [],
+    lead: Nil,
+    linec: Nil,
+    top: true,
+    go_version: "",
+    pos: 0,
+    tok: token.ILLEGAL,
+    lit: "",
+    sync_pos: 0,
+    sync_cnt: 0,
+    expr_lev: 0,
+    in_rhs: false,
+    imports: [],
+    bail: false,
+  }
   next(p)
 }
 
-pub fn parse_file(fset0: token.FileSet, filename: Str, src: List<Int>, mode: Int) -> (token.FileSet, Node, List<scanner.Error>) {
+pub fn parse_file(fset0: token.FileSet, filename: Str, src: List<Int>, mode: Int) -> (
+  token.FileSet,
+  Node,
+  List<scanner.Error>,
+) {
   let (fset1, file) = unwrap(fset0.add_file(filename, -1, len(src)))
   let p0 = new_parser(file, src, mode)
   let (p, f0) = parse_file0(p0)
@@ -2168,15 +2449,44 @@ pub fn parse_file(fset0: token.FileSet, filename: Str, src: List<Int>, mode: Int
   if p.bail || f == Nil { f = empty_file() }
   let fset = fset1.set_file(p.sc.file)
   f = match f {
-    File { doc, package_pos, name, decls, scope, imports, unresolved, comments, go_version, unresolved_set, objects, .. } =>
-      Node.File { doc: doc, package_pos: package_pos, name: name, decls: decls, file_start: file.base, file_end: file.base + file.size,
-        scope: scope, imports: imports, unresolved: unresolved, comments: comments, go_version: go_version, unresolved_set: unresolved_set, objects: objects },
+    File {
+      doc,
+      package_pos,
+      name,
+      decls,
+      scope,
+      imports,
+      unresolved,
+      comments,
+      go_version,
+      unresolved_set,
+      objects,
+      ..
+    } => Node.File {
+      doc: doc,
+      package_pos: package_pos,
+      name: name,
+      decls: decls,
+      file_start: file.base,
+      file_end: file.base + file.size,
+      scope: scope,
+      imports: imports,
+      unresolved: unresolved,
+      comments: comments,
+      go_version: go_version,
+      unresolved_set: unresolved_set,
+      objects: objects,
+    },
     _ => f,
   }
   (fset, f, scanner.sort_errors(p.errors))
 }
 
-pub fn parse_expr_from(fset0: token.FileSet, filename: Str, src: List<Int>, mode: Int) -> (token.FileSet, Node, List<scanner.Error>) {
+pub fn parse_expr_from(fset0: token.FileSet, filename: Str, src: List<Int>, mode: Int) -> (
+  token.FileSet,
+  Node,
+  List<scanner.Error>,
+) {
   let (fset1, file) = unwrap(fset0.add_file(filename, -1, len(src)))
   var p = new_parser(file, src, mode)
   let (p1, e) = parse_rhs(p)
@@ -2209,17 +2519,30 @@ type R = {
   assign: Map<Str, Int>,
 }
 
-fn ikey(id: Node) -> Str { match id { Ident { name_pos, name, .. } => "{name_pos}:" + name, _ => "" } }
+fn ikey(id: Node) -> Str {
+  match id { Ident { name_pos, name, .. } => "{name_pos}:" + name, _ => "" }
+}
 fn iname(id: Node) -> Str { match id { Ident { name, .. } => name, _ => "" } }
 
-fn r_err(r: R, pos: Int, msg: Str) -> R { if r.decl_err { R { p: err(r.p, pos, msg), ..r } } else { r } }
+fn r_err(r: R, pos: Int, msg: Str) -> R {
+  if r.decl_err { R { p: err(r.p, pos, msg), ..r } } else { r }
+}
 
 fn open_scope(r: R, pos: Int) -> R {
   let d = r.depth + 1
   var r2 = R { depth: d, scopes: push(r.scopes, RScope { objects: Map() }), ..r }
   if d > 1000 && !r2.p.bail {
     let p = r2.p
-    r2 = R { p: bail_out(P { errors: push(p.errors, scanner.Error { pos: p.sc.file.position(pos), msg: "exceeded max scope depth during object resolution" }), ..p }), ..r2 }
+    r2 = R {
+      p: bail_out(P {
+        errors: push(p.errors, scanner.Error {
+          pos: p.sc.file.position(pos),
+          msg: "exceeded max scope depth during object resolution",
+        }),
+        ..p
+      }),
+      ..r2
+    }
   }
   r2
 }
@@ -2242,13 +2565,25 @@ fn scope_insert(r: R, which_label: Bool, name: Str, id: Int) -> (R, Int) {
 
 fn new_obj(r: R, kind: Int, name: Str, decl: Node, data: Option<Int>) -> (R, Int) {
   let id = len(r.objects)
-  (R { objects: push(r.objects, Object { kind: kind, name: name, decl: decl, data: data }), ..r }, id)
+  (
+    R { objects: push(r.objects, Object { kind: kind, name: name, decl: decl, data: data }), ..r },
+    id,
+  )
 }
 
-fn set_obj(r: R, id_node: Node, obj: Int) -> R { R { assign: set(r.assign, ikey(id_node), obj), ..r } }
+fn set_obj(r: R, id_node: Node, obj: Int) -> R {
+  R { assign: set(r.assign, ikey(id_node), obj), ..r }
+}
 
 // scope_kind：0 = 当前作用域，1 = 标签作用域，2 = 包作用域
-fn declare(r0: R, decl: Node, data: Option<Int>, scope_kind: Int, kind: Int, idents: List<Node>) -> R {
+fn declare(
+  r0: R,
+  decl: Node,
+  data: Option<Int>,
+  scope_kind: Int,
+  kind: Int,
+  idents: List<Node>,
+) -> R {
   var r = r0
   for id in idents {
     let name = iname(id)
@@ -2261,7 +2596,9 @@ fn declare(r0: R, decl: Node, data: Option<Int>, scope_kind: Int, kind: Int, ide
         let top = r.scopes[0]
         match get(top.objects, name) {
           Some(a) => { alt = a },
-          None => { r = R { scopes: set(r.scopes, 0, RScope { objects: set(top.objects, name, obj) }), ..r } },
+          None => {
+            r = R { scopes: set(r.scopes, 0, RScope { objects: set(top.objects, name, obj) }), ..r }
+          },
         }
       } else {
         let (r2, a) = scope_insert(r, scope_kind == 1, name, obj)
@@ -2372,7 +2709,11 @@ fn walk_tparams(r: R, fl: Node) -> R { resolve_list(declare_list(r, fl, ast.TYP)
 fn walk_body(r0: R, body: Node) -> R {
   match body {
     BlockStmt { list, .. } => {
-      var r = R { label_scopes: push(r0.label_scopes, RScope { objects: Map() }), targets: push(r0.targets, []), ..r0 }
+      var r = R {
+        label_scopes: push(r0.label_scopes, RScope { objects: Map() }),
+        targets: push(r0.targets, []),
+        ..r0
+      }
       r = walk_exprs(r, list)
       // closeLabelScope
       let n = len(r.targets) - 1
@@ -2406,7 +2747,11 @@ fn walk_recv(r0: R, recv: Node) -> R {
     _ => { resolve_exprs = [typ] },
   }
   for e in declare_exprs {
-    if e is Ident { .. } { r = declare(r, e, None, 0, ast.TYP, [e]) } else { resolve_exprs = push(resolve_exprs, e) }
+    if e is Ident { .. } {
+      r = declare(r, e, None, 0, ast.TYP, [e])
+    } else {
+      resolve_exprs = push(resolve_exprs, e)
+    }
   }
   for e in resolve_exprs { if e != Nil { r = rwalk(r, e) } }
   var i = 1
@@ -2435,7 +2780,9 @@ fn rwalk(r0: R, node: Node) -> R {
       close_scope(r)
     },
     SelectorExpr { x, .. } => rwalk(r, x),
-    StructType { fields, .. } => close_scope(walk_field_list(open_scope(r, ast.pos(node)), fields, ast.VAR)),
+    StructType { fields, .. } => close_scope(
+      walk_field_list(open_scope(r, ast.pos(node)), fields, ast.VAR),
+    ),
     FuncType { .. } => close_scope(walk_func_type(open_scope(r, ast.pos(node)), node)),
     CompositeLit { typ, elts, .. } => {
       if typ != Nil { r = rwalk(r, typ) }
@@ -2450,7 +2797,9 @@ fn rwalk(r0: R, node: Node) -> R {
       }
       r
     },
-    InterfaceType { methods, .. } => close_scope(walk_field_list(open_scope(r, ast.pos(node)), methods, ast.FUN)),
+    InterfaceType { methods, .. } => close_scope(
+      walk_field_list(open_scope(r, ast.pos(node)), methods, ast.FUN),
+    ),
     LabeledStmt { label, stmt, .. } => {
       r = declare(r, node, None, 1, ast.LBL, [label])
       rwalk(r, stmt)
@@ -2533,7 +2882,9 @@ fn rwalk(r0: R, node: Node) -> R {
       if value != Nil { lhs = push(lhs, value) }
       if len(lhs) > 0 {
         if tok == token.DEFINE {
-          let a = Node.AssignStmt { lhs: lhs, tok_pos: tok_pos, tok: token.DEFINE, rhs: [Node.UnaryExpr { op_pos: 0, op: token.RANGE, x: x }] }
+          let a = Node.AssignStmt { lhs: lhs, tok_pos: tok_pos, tok: token.DEFINE, rhs: [
+            Node.UnaryExpr { op_pos: 0, op: token.RANGE, x: x },
+          ] }
           r = walk_lhs(r, lhs)
           r = short_var_decl(r, a)
         } else {
@@ -2606,13 +2957,26 @@ fn apply(n: Node, m: Map<Str, Int>) -> Node {
   if len(m) == 0 { return n }
   match n {
     Nil => n,
-    Ident { name_pos, name, obj } => match get(m, "{name_pos}:" + name) { Some(o) => Node.Ident { name_pos: name_pos, name: name, obj: o }, None => n },
+    Ident { name_pos, name, obj } => match get(m, "{name_pos}:" + name) {
+      Some(o) => Node.Ident { name_pos: name_pos, name: name, obj: o },
+      None => n,
+    },
     _ => ast.map_children(n, (c) => apply(c, m)),
   }
 }
 
 fn resolve_file(p: P, f: Node, decl_err: Bool) -> (P, Node) {
-  var r = R { p: p, decl_err: decl_err, objects: [], scopes: [RScope { objects: Map() }], unresolved: [], depth: 1, label_scopes: [], targets: [], assign: Map() }
+  var r = R {
+    p: p,
+    decl_err: decl_err,
+    objects: [],
+    scopes: [RScope { objects: Map() }],
+    unresolved: [],
+    depth: 1,
+    label_scopes: [],
+    targets: [],
+    assign: Map(),
+  }
   let decls = match f { File { decls, .. } => decls, _ => [] }
   for d in decls { r = rwalk(r, d) }
   if r.p.bail { return (r.p, f) }
@@ -2621,7 +2985,11 @@ fn resolve_file(p: P, f: Node, decl_err: Bool) -> (P, Node) {
   for id in r.unresolved {
     match get(pkg.objects, iname(id)) {
       Some(o) => {
-        if r.objects[o].decl is Ident { .. } { unres = push(unres, id) } else { r = set_obj(r, id, o) }
+        if r.objects[o].decl is Ident { .. } {
+          unres = push(unres, id)
+        } else {
+          r = set_obj(r, id, o)
+        }
       },
       None => { unres = push(unres, id) },
     }
@@ -2630,10 +2998,32 @@ fn resolve_file(p: P, f: Node, decl_err: Bool) -> (P, Node) {
   let objs = map(r.objects, (o) => Object { decl: apply(o.decl, m), ..o })
   let unres2 = map(unres, (id) => apply(id, m))
   let out = match f {
-    File { doc, package_pos, name, decls, file_start, file_end, imports, comments, go_version, .. } =>
-      Node.File { doc: doc, package_pos: package_pos, name: name, decls: map(decls, (d) => apply(d, m)), file_start: file_start, file_end: file_end,
-        scope: Some(Scope { objects: pkg.objects }), imports: map(imports, (d) => apply(d, m)), unresolved: unres2, comments: comments,
-        go_version: go_version, unresolved_set: len(r.unresolved) > 0, objects: objs },
+    File {
+      doc,
+      package_pos,
+      name,
+      decls,
+      file_start,
+      file_end,
+      imports,
+      comments,
+      go_version,
+      ..
+    } => Node.File {
+      doc: doc,
+      package_pos: package_pos,
+      name: name,
+      decls: map(decls, (d) => apply(d, m)),
+      file_start: file_start,
+      file_end: file_end,
+      scope: Some(Scope { objects: pkg.objects }),
+      imports: map(imports, (d) => apply(d, m)),
+      unresolved: unres2,
+      comments: comments,
+      go_version: go_version,
+      unresolved_set: len(r.unresolved) > 0,
+      objects: objs,
+    },
     _ => f,
   }
   (r.p, out)

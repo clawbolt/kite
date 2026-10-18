@@ -5,7 +5,14 @@
 
 use std.crypto.hmac
 
-pub fn key(h: fn(List<Int>) -> List<Int>, block_size: Int, password: Str, salt: List<Int>, iter: Int, n: Int) -> Result<List<Int>, Str> {
+pub fn key(
+  h: fn(List<Int>) -> List<Int>,
+  block_size: Int,
+  password: Str,
+  salt: List<Int>,
+  iter: Int,
+  n: Int,
+) -> Result<List<Int>, Str> {
   if n <= 0 { return Err("pbkdf2: keyLength must be larger than 0") }
   let pw = __bytes(password)
   let hash_len = len(h([]))
@@ -13,7 +20,12 @@ pub fn key(h: fn(List<Int>) -> List<Int>, block_size: Int, password: Str, salt: 
   if blocks > 4294967295 { return Err("pbkdf2: keyLength too long") }
   var dk: List<Int> = []
   for block in 1..blocks + 1 {
-    var u = hmac.sum(h, block_size, pw, salt + [(block >> 24) & 255, (block >> 16) & 255, (block >> 8) & 255, block & 255])
+    var u = hmac.sum(h, block_size, pw, salt + [
+      (block >> 24) & 255,
+      (block >> 16) & 255,
+      (block >> 8) & 255,
+      block & 255,
+    ])
     var t = u
     for _ in 2..iter + 1 {
       u = hmac.sum(h, block_size, pw, u)

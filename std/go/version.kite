@@ -35,7 +35,15 @@ pub fn parse(x0: Str) -> Version {
   let (minor, r2, ok2) = cut_int(sub(x, 1, len(x)))
   if !ok2 { return empty() }
   x = r2
-  if x == "" { return Version { major: major, minor: minor, patch: if cmp_int(minor, "21") < 0 { "0" } else { "" }, kind: "", pre: "" } }
+  if x == "" {
+    return Version {
+      major: major,
+      minor: minor,
+      patch: if cmp_int(minor, "21") < 0 { "0" } else { "" },
+      kind: "",
+      pre: "",
+    }
+  }
   if sub(x, 0, 1) == "." {
     let (patch, r3, ok3) = cut_int(sub(x, 1, len(x)))
     if !ok3 || r3 != "" { return empty() }

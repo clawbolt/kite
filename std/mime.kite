@@ -53,7 +53,35 @@ fn gquote(s: Str) -> Str {
   var out = "\""
   for c in chars(s) {
     let o = __ord(c)
-    out = out + if c == "\"" { "\\\"" } else if c == "\\" { "\\\\" } else if o == 7 { "\\a" } else if o == 8 { "\\b" } else if o == 12 { "\\f" } else if o == 10 { "\\n" } else if o == 13 { "\\r" } else if o == 9 { "\\t" } else if o == 11 { "\\v" } else if is_print_rune(o) { c } else if o < 0x80 { "\\x" + hexc(o / 16) + hexc(o % 16) } else if o < 0x10000 { "\\u" + hexc(o >> 12) + hexc((o >> 8) & 15) + hexc((o >> 4) & 15) + hexc(o & 15) } else { "\\U00" + hexc(o >> 20) + hexc((o >> 16) & 15) + hexc((o >> 12) & 15) + hexc((o >> 8) & 15) + hexc((o >> 4) & 15) + hexc(o & 15) }
+    out = out + if c == "\"" {
+      "\\\""
+    } else if c == "\\" {
+      "\\\\"
+    } else if o == 7 {
+      "\\a"
+    } else if o == 8 {
+      "\\b"
+    } else if o == 12 {
+      "\\f"
+    } else if o == 10 {
+      "\\n"
+    } else if o == 13 {
+      "\\r"
+    } else if o == 9 {
+      "\\t"
+    } else if o == 11 {
+      "\\v"
+    } else if is_print_rune(o) {
+      c
+    } else if o < 0x80 {
+      "\\x" + hexc(o / 16) + hexc(o % 16)
+    } else if o < 0x10000 {
+      "\\u" + hexc(o >> 12) + hexc((o >> 8) & 15) + hexc((o >> 4) & 15) + hexc(o & 15)
+    } else {
+      "\\U00" + hexc(o >> 20) + hexc((o >> 16) & 15) + hexc((o >> 12) & 15) + hexc(
+        (o >> 8) & 15,
+      ) + hexc((o >> 4) & 15) + hexc(o & 15)
+    }
   }
   out + "\""
 }
@@ -62,7 +90,7 @@ fn gquote(s: Str) -> Str {
 fn lossy(bs: List<Int>) -> Str {
   match __from_bytes(bs) {
     Some(s) => { return s }
-    None    => {}
+    None => {}
   }
   var out: List<Int> = []
   var i = 0
@@ -221,7 +249,17 @@ fn consume_media_param(cs: List<Str>, i0: Int) -> (Str, Str, Int) {
 
 fn ishex(c: Int) -> Bool { (c >= 48 && c <= 57) || (c >= 97 && c <= 102) || (c >= 65 && c <= 70) }
 
-fn unhex(c: Int) -> Int { if c >= 48 && c <= 57 { c - 48 } else if c >= 97 && c <= 102 { c - 87 } else if c >= 65 && c <= 70 { c - 55 } else { 0 } }
+fn unhex(c: Int) -> Int {
+  if c >= 48 && c <= 57 {
+    c - 48
+  } else if c >= 97 && c <= 102 {
+    c - 87
+  } else if c >= 65 && c <= 70 {
+    c - 55
+  } else {
+    0
+  }
+}
 
 // Go 的 percentHexUnescape（错误时 Err，信息和 Go 相同）
 pub fn percent_hex_unescape(s: Str) -> Result<Str, Str> {
@@ -251,7 +289,7 @@ fn decode2231_enc(v: Str) -> Option<Str> {
   if charset == "" { return None }
   if charset != "us-ascii" && charset != "utf-8" { return None }
   match percent_hex_unescape(sv[2]) {
-    Ok(s)  => Some(s),
+    Ok(s) => Some(s),
     Err(_) => None,
   }
 }
@@ -282,10 +320,10 @@ pub fn parse_media_type(v: Str) -> (Str, Map<Str, Str>, Str) {
       let base_name = __str_slice(key, 0, star)
       let pmap = match get(cont, base_name) {
         Some(m) => m,
-        None    => {
+        None => {
           cont_order = push(cont_order, base_name)
           Map()
-        }
+        },
       }
       match get(pmap, key) {
         Some(old) => {
@@ -311,7 +349,7 @@ pub fn parse_media_type(v: Str) -> (Str, Map<Str, Str>, Str) {
       Some(sv) => {
         match decode2231_enc(sv) {
           Some(d) => { params = set(params, key, d) }
-          None    => {}
+          None => {}
         }
         continue
       }
@@ -336,11 +374,11 @@ pub fn parse_media_type(v: Str) -> (Str, Map<Str, Str>, Str) {
       if n == 0 {
         match decode2231_enc(ev) {
           Some(d) => { buf = buf + d }
-          None    => {}
+          None => {}
         }
       } else {
         match percent_hex_unescape(ev) {
-          Ok(d)  => { buf = buf + d }
+          Ok(d) => { buf = buf + d }
           Err(_) => {}
         }
       }
@@ -391,13 +429,15 @@ pub fn new_type_table(lower_ext: Map<Str, Str>, mix_ext: Map<Str, Str>) -> TypeT
 
 pub fn type_by_extension(ext: Str) -> Str { builtin_types().type_by_extension(ext) }
 
-pub fn extensions_by_type(typ: Str) -> Result<List<Str>, Str> { builtin_types().extensions_by_type(typ) }
+pub fn extensions_by_type(typ: Str) -> Result<List<Str>, Str> {
+  builtin_types().extensions_by_type(typ)
+}
 
 impl TypeTable {
   fn type_by_extension(self, ext: Str) -> Str {
     match get(self.types, ext) {
       Some(v) => { return v }
-      None    => {}
+      None => {}
     }
     let l = if __byte_len(ext) == len(ext) { ascii_lower(ext) } else { strings.to_lower(ext) }
     unwrap_or(get(self.lower, l), "")
@@ -410,7 +450,9 @@ impl TypeTable {
   }
 
   fn add_extension_type(self, ext: Str, typ: Str) -> Result<TypeTable, Str> {
-    if !starts_with(ext, ".") { return Err("mime: extension " + gquote(ext) + " missing leading dot") }
+    if !starts_with(ext, ".") {
+      return Err("mime: extension " + gquote(ext) + " missing leading dot")
+    }
     self.set_extension_type(ext, typ)
   }
 
@@ -425,7 +467,11 @@ impl TypeTable {
     let types = set(self.types, extension, mime_type)
     let lower = set(self.lower, ext_lower, mime_type)
     let cur = unwrap_or(get(self.exts, just), [])
-    let exts = if contains(cur, ext_lower) { self.exts } else { set(self.exts, just, push(cur, ext_lower)) }
+    let exts = if contains(cur, ext_lower) {
+      self.exts
+    } else {
+      set(self.exts, just, push(cur, ext_lower))
+    }
     Ok(TypeTable { types: types, lower: lower, exts: exts })
   }
 }
@@ -475,7 +521,9 @@ impl WordEncoder {
   fn b_encode(self, charset: Str, s: Str) -> Str {
     let enc = base64.std_encoding()
     let bs = __bytes(s)
-    if !is_utf8(charset) || enc.encoded_len(len(bs)) <= MAX_CONTENT_LEN { return enc.encode_to_string(bs) }
+    if !is_utf8(charset) || enc.encoded_len(len(bs)) <= MAX_CONTENT_LEN {
+      return enc.encode_to_string(bs)
+    }
     var out = ""
     var cur: List<Int> = []
     for c in chars(s) {
@@ -497,7 +545,11 @@ impl WordEncoder {
     for c in chars(s) {
       let cb = __bytes(c)
       let b = cb[0]
-      let enc_len = if b >= 32 && b <= 126 && b != 61 && b != 63 && b != 95 { 1 } else { 3 * len(cb) }
+      let enc_len = if b >= 32 && b <= 126 && b != 61 && b != 63 && b != 95 {
+        1
+      } else {
+        3 * len(cb)
+      }
       if cur + enc_len > MAX_CONTENT_LEN {
         out = out + self.split_word(charset)
         cur = 0
@@ -588,7 +640,12 @@ fn has_non_whitespace(bs: List<Int>) -> Bool {
 impl WordDecoder {
   fn decode(self, word: Str) -> Result<Str, Str> {
     let w = __bytes(word)
-    if len(w) < 8 || !starts_with(word, "=?") || !ends_with(word, "?=") || len(filter(w, (b) => b == 63)) != 4 { return Err(ERR_INVALID_WORD) }
+    if len(w) < 8
+      || !starts_with(word, "=?")
+      || !ends_with(word, "?=")
+      || len(filter(w, (b) => b == 63)) != 4 {
+      return Err(ERR_INVALID_WORD)
+    }
     let inner = w[2..len(w) - 2]
     let q1 = bfind(inner, [63], 0)
     let charset = inner[..q1]

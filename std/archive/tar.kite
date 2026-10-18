@@ -130,7 +130,13 @@ impl Time {
   fn is_zero(self) -> Bool { self.sec == ZERO_SEC && self.nsec == 0 }
 
   // Go 的 t.Round(time.Second)
-  fn round_second(self) -> Time { if self.nsec >= 500000000 { Time { sec: bits.wadd(self.sec, 1), nsec: 0 } } else { Time { sec: self.sec, nsec: 0 } } }
+  fn round_second(self) -> Time {
+    if self.nsec >= 500000000 {
+      Time { sec: bits.wadd(self.sec, 1), nsec: 0 }
+    } else {
+      Time { sec: self.sec, nsec: 0 }
+    }
+  }
 
   // Go 的 t.UTC().String()，例如 "2009-11-10 23:00:00.5 +0000 UTC"
   fn to_string(self) -> Str {
@@ -154,24 +160,54 @@ impl Time {
       while ends_with(ns, "0") { ns = __str_slice(ns, 0, len(ns) - 1) }
       frac = "." + ns
     }
-    ys + "-" + pad2(m) + "-" + pad2(d) + " " + pad2(rem / 3600) + ":" + pad2(rem / 60 % 60) + ":" + pad2(rem % 60) + frac + " +0000 UTC"
+    ys + "-" + pad2(m) + "-" + pad2(d) + " " + pad2(rem / 3600) + ":" + pad2(
+      rem / 60 % 60,
+    ) + ":" + pad2(rem % 60) + frac + " +0000 UTC"
   }
 }
 
 // ---------- Header ----------
 
 pub type Header = {
-  typeflag: Int, name: Str, linkname: Str, size: Int, mode: Int, uid: Int, gid: Int,
-  uname: Str, gname: Str, mod_time: Time, access_time: Time, change_time: Time,
-  devmajor: Int, devminor: Int, xattrs: Map<Str, Str>, pax_records: Map<Str, Str>, format: Int,
+  typeflag: Int,
+  name: Str,
+  linkname: Str,
+  size: Int,
+  mode: Int,
+  uid: Int,
+  gid: Int,
+  uname: Str,
+  gname: Str,
+  mod_time: Time,
+  access_time: Time,
+  change_time: Time,
+  devmajor: Int,
+  devminor: Int,
+  xattrs: Map<Str, Str>,
+  pax_records: Map<Str, Str>,
+  format: Int,
 }
 
 // 全零的 Header（相当于 Go 的 tar.Header{}）
 pub fn header() -> Header {
   Header {
-    typeflag: 0, name: "", linkname: "", size: 0, mode: 0, uid: 0, gid: 0, uname: "", gname: "",
-    mod_time: zero_time(), access_time: zero_time(), change_time: zero_time(), devmajor: 0, devminor: 0,
-    xattrs: Map(), pax_records: Map(), format: 0,
+    typeflag: 0,
+    name: "",
+    linkname: "",
+    size: 0,
+    mode: 0,
+    uid: 0,
+    gid: 0,
+    uname: "",
+    gname: "",
+    mod_time: zero_time(),
+    access_time: zero_time(),
+    change_time: zero_time(),
+    devmajor: 0,
+    devminor: 0,
+    xattrs: Map(),
+    pax_records: Map(),
+    format: 0,
   }
 }
 
@@ -183,21 +219,46 @@ pub fn format_string(f: Int) -> Str {
   var f2 = 1
   while f2 < FORMAT_MAX {
     if format_has(f, f2) {
-      let n = if f2 == FORMAT_V7 { "V7" } else if f2 == FORMAT_USTAR { "USTAR" } else if f2 == FORMAT_PAX { "PAX" } else if f2 == FORMAT_GNU { "GNU" } else { "STAR" }
+      let n = if f2 == FORMAT_V7 {
+        "V7"
+      } else if f2 == FORMAT_USTAR {
+        "USTAR"
+      } else if f2 == FORMAT_PAX {
+        "PAX"
+      } else if f2 == FORMAT_GNU {
+        "GNU"
+      } else {
+        "STAR"
+      }
       ss = push(ss, n)
     }
     f2 = f2 << 1
   }
-  if len(ss) == 0 { "<unknown>" } else if len(ss) == 1 { ss[0] } else { "(" + join(ss, " | ") + ")" }
+  if len(ss) == 0 {
+    "<unknown>"
+  } else if len(ss) == 1 {
+    ss[0]
+  } else {
+    "(" + join(ss, " | ") + ")"
+  }
 }
 
-fn is_header_only_type(flag: Int) -> Bool { flag == TYPE_LINK || flag == TYPE_SYMLINK || flag == TYPE_CHAR || flag == TYPE_BLOCK || flag == TYPE_DIR || flag == TYPE_FIFO }
+fn is_header_only_type(flag: Int) -> Bool {
+  flag == TYPE_LINK
+    || flag == TYPE_SYMLINK
+    || flag == TYPE_CHAR
+    || flag == TYPE_BLOCK
+    || flag == TYPE_DIR
+    || flag == TYPE_FIFO
+}
 
 // ---------- 字节工具 ----------
 
 fn zeros(n: Int) -> List<Int> { if n <= 0 { [] } else { [0; n] } }
 
-fn put(blk: List<Int>, off: Int, bs: List<Int>) -> List<Int> { blk[..off] + bs + blk[off + len(bs)..] }
+fn put(blk: List<Int>, off: Int, bs: List<Int>) -> List<Int> {
+  blk[..off] + bs + blk[off + len(bs)..]
+}
 
 fn field(blk: List<Int>, off: Int, n: Int) -> List<Int> { blk[off..off + n] }
 
@@ -220,13 +281,25 @@ fn last_index_byte(bs: List<Int>, c: Int) -> Int {
   -1
 }
 
-fn utf8_len(c: Int) -> Int { if c < 0x80 { 1 } else if c >= 0xc2 && c < 0xe0 { 2 } else if c >= 0xe0 && c < 0xf0 { 3 } else if c >= 0xf0 && c < 0xf5 { 4 } else { 0 } }
+fn utf8_len(c: Int) -> Int {
+  if c < 0x80 {
+    1
+  } else if c >= 0xc2 && c < 0xe0 {
+    2
+  } else if c >= 0xe0 && c < 0xf0 {
+    3
+  } else if c >= 0xf0 && c < 0xf5 {
+    4
+  } else {
+    0
+  }
+}
 
 // 字节转 Str；非法 UTF-8 字节换成 U+FFFD
 fn bytes_str(bs: List<Int>) -> Str {
   match __from_bytes(bs) {
     Some(s) => { return s }
-    None    => {}
+    None => {}
   }
   var out: List<Int> = []
   var i = 0
@@ -237,7 +310,7 @@ fn bytes_str(bs: List<Int>) -> Str {
     if ok && k > 1 {
       match __from_bytes(bs[i..i + k]) {
         Some(_) => {}
-        None    => { ok = false }
+        None => { ok = false }
       }
     }
     if ok {
@@ -258,7 +331,9 @@ fn is_ascii(bs: List<Int>) -> Bool {
   true
 }
 
-fn to_ascii(bs: List<Int>) -> List<Int> { if is_ascii(bs) { bs } else { filter(bs, (c) => c < 0x80 && c != 0) } }
+fn to_ascii(bs: List<Int>) -> List<Int> {
+  if is_ascii(bs) { bs } else { filter(bs, (c) => c < 0x80 && c != 0) }
+}
 
 fn has_nul(s: Str) -> Bool { contains(__bytes(s), 0) }
 
@@ -351,8 +426,7 @@ fn checksums(blk: List<Int>) -> (Int, Int) {
 
 fn set_format(blk: List<Int>, format: Int) -> List<Int> {
   var b = blk
-  if format_has(format, FORMAT_V7) {
-  } else if format_has(format, FORMAT_GNU) {
+  if format_has(format, FORMAT_V7) {} else if format_has(format, FORMAT_GNU) {
     b = put(b, 257, [117, 115, 116, 97, 114, 32, 32, 0])
   } else if format_has(format, FORMAT_STAR) {
     b = put(b, 257, [117, 115, 116, 97, 114, 0, 48, 48])
@@ -446,7 +520,11 @@ fn parse_int10(s: Str) -> Option<Int> {
 
 fn valid_pax_record(k: Str, v: Str) -> Bool {
   if k == "" || contains(__bytes(k), 61) { return false }
-  if k == "path" || k == "linkpath" || k == "uname" || k == "gname" { !has_nul(v) } else { !has_nul(k) }
+  if k == "path" || k == "linkpath" || k == "uname" || k == "gname" {
+    !has_nul(v)
+  } else {
+    !has_nul(k)
+  }
 }
 
 fn format_pax_record(k: Str, v: Str) -> Result<Str, Str> {
@@ -521,7 +599,12 @@ fn format_pax_time(ts: Time) -> Str {
   out
 }
 
-fn is_basic_key(k: Str) -> Bool { contains(["path", "linkpath", "size", "uid", "gid", "uname", "gname", "mtime", "atime", "ctime"], k) }
+fn is_basic_key(k: Str) -> Bool {
+  contains(
+    ["path", "linkpath", "size", "uid", "gid", "uname", "gname", "mtime", "atime", "ctime"],
+    k,
+  )
+}
 
 // ---------- path（Go 的 path.Split / Join / Clean） ----------
 
@@ -594,12 +677,19 @@ fn split_ustar_path(name: List<Int>) -> Option<(List<Int>, List<Int>)> {
 
 // ---------- 格式选择（Go 的 Header.allowedFormats） ----------
 
-type Allowed = { format: Int, pax: Map<Str, Str>, why_ustar: Str, why_pax: Str, why_gnu: Str, prefer_pax: Bool }
+type Allowed = {
+  format: Int,
+  pax: Map<Str, Str>,
+  why_ustar: Str,
+  why_pax: Str,
+  why_gnu: Str,
+  prefer_pax: Bool,
+}
 
 fn pax_match(a: Allowed, h: Header, key: Str, s: Str) -> Allowed {
   match get(h.pax_records, key) {
     Some(v) => { if v == s { return Allowed { pax: set(a.pax, key, v), ..a } } }
-    None    => {}
+    None => {}
   }
   a
 }
@@ -610,15 +700,27 @@ fn verify_string(a0: Allowed, h: Header, s: Str, size: Int, name: Str, key: Str)
   let too_long = len(b) > size
   let allow_long_gnu = key == "path" || key == "linkpath"
   if contains(b, 0) || (too_long && !allow_long_gnu) {
-    a = Allowed { why_gnu: "GNU cannot encode " + name + "=" + strconv.quote_go(s), format: a.format & ~FORMAT_GNU, ..a }
+    a = Allowed {
+      why_gnu: "GNU cannot encode " + name + "=" + strconv.quote_go(s),
+      format: a.format & ~FORMAT_GNU,
+      ..a
+    }
   }
   if !is_ascii(b) || too_long {
     let can_split = key == "path"
     if !can_split || is_none(split_ustar_path(b)) {
-      a = Allowed { why_ustar: "USTAR cannot encode " + name + "=" + strconv.quote_go(s), format: a.format & ~FORMAT_USTAR, ..a }
+      a = Allowed {
+        why_ustar: "USTAR cannot encode " + name + "=" + strconv.quote_go(s),
+        format: a.format & ~FORMAT_USTAR,
+        ..a
+      }
     }
     if key == "" {
-      a = Allowed { why_pax: "PAX cannot encode " + name + "=" + strconv.quote_go(s), format: a.format & ~FORMAT_PAX, ..a }
+      a = Allowed {
+        why_pax: "PAX cannot encode " + name + "=" + strconv.quote_go(s),
+        format: a.format & ~FORMAT_PAX,
+        ..a
+      }
     } else {
       a = Allowed { pax: set(a.pax, key, s), ..a }
     }
@@ -632,7 +734,11 @@ fn verify_numeric(a0: Allowed, h: Header, n: Int, size: Int, name: Str, key: Str
     a = Allowed { why_gnu: "GNU cannot encode {name}={n}", format: a.format & ~FORMAT_GNU, ..a }
   }
   if !fits_in_octal(size, n) {
-    a = Allowed { why_ustar: "USTAR cannot encode {name}={n}", format: a.format & ~FORMAT_USTAR, ..a }
+    a = Allowed {
+      why_ustar: "USTAR cannot encode {name}={n}",
+      format: a.format & ~FORMAT_USTAR,
+      ..a
+    }
     if key == "" {
       a = Allowed { why_pax: "PAX cannot encode {name}={n}", format: a.format & ~FORMAT_PAX, ..a }
     } else {
@@ -646,18 +752,30 @@ fn verify_time(a0: Allowed, h: Header, ts: Time, size: Int, name: Str, key: Str)
   if ts.is_zero() { return a0 }
   var a = a0
   if !fits_in_base256(size, ts.sec) {
-    a = Allowed { why_gnu: "GNU cannot encode " + name + "=" + ts.to_string(), format: a.format & ~FORMAT_GNU, ..a }
+    a = Allowed {
+      why_gnu: "GNU cannot encode " + name + "=" + ts.to_string(),
+      format: a.format & ~FORMAT_GNU,
+      ..a
+    }
   }
   let is_mtime = key == "mtime"
   let fits_octal = fits_in_octal(size, ts.sec)
   if (is_mtime && !fits_octal) || !is_mtime {
-    a = Allowed { why_ustar: "USTAR cannot encode " + name + "=" + ts.to_string(), format: a.format & ~FORMAT_USTAR, ..a }
+    a = Allowed {
+      why_ustar: "USTAR cannot encode " + name + "=" + ts.to_string(),
+      format: a.format & ~FORMAT_USTAR,
+      ..a
+    }
   }
   let needs_nano = ts.nsec != 0
   if !is_mtime || !fits_octal || needs_nano {
     a = Allowed { prefer_pax: true, ..a }
     if key == "" {
-      a = Allowed { why_pax: "PAX cannot encode " + name + "=" + ts.to_string(), format: a.format & ~FORMAT_PAX, ..a }
+      a = Allowed {
+        why_pax: "PAX cannot encode " + name + "=" + ts.to_string(),
+        format: a.format & ~FORMAT_PAX,
+        ..a
+      }
     } else {
       a = Allowed { pax: set(a.pax, key, format_pax_time(ts)), ..a }
     }
@@ -667,17 +785,38 @@ fn verify_time(a0: Allowed, h: Header, ts: Time, size: Int, name: Str, key: Str)
 
 fn header_error(parts: List<Str>) -> Str {
   let ss = filter(parts, (s) => s != "")
-  if len(ss) == 0 { "archive/tar: cannot encode header" } else { "archive/tar: cannot encode header: " + join(ss, "; and ") }
+  if len(ss) == 0 {
+    "archive/tar: cannot encode header"
+  } else {
+    "archive/tar: cannot encode header: " + join(ss, "; and ")
+  }
 }
 
 fn only_records(h: Header) -> Bool {
-  h.linkname == "" && h.size == 0 && h.mode == 0 && h.uid == 0 && h.gid == 0 && h.uname == "" && h.gname == "" &&
-  h.mod_time.is_zero() && h.access_time.is_zero() && h.change_time.is_zero() && h.devmajor == 0 && h.devminor == 0
+  h.linkname == ""
+    && h.size == 0
+    && h.mode == 0
+    && h.uid == 0
+    && h.gid == 0
+    && h.uname == ""
+    && h.gname == ""
+    && h.mod_time.is_zero()
+    && h.access_time.is_zero()
+    && h.change_time.is_zero()
+    && h.devmajor == 0
+    && h.devminor == 0
 }
 
 // (允许的格式, PAX 记录, 错误)；错误为 "" 表示没有
 fn allowed_formats(h: Header) -> (Int, Map<Str, Str>, Str) {
-  var a = Allowed { format: FORMAT_USTAR | FORMAT_PAX | FORMAT_GNU, pax: Map(), why_ustar: "", why_pax: "", why_gnu: "", prefer_pax: false }
+  var a = Allowed {
+    format: FORMAT_USTAR | FORMAT_PAX | FORMAT_GNU,
+    pax: Map(),
+    why_ustar: "",
+    why_pax: "",
+    why_gnu: "",
+    prefer_pax: false,
+  }
   a = verify_string(a, h, h.name, 100, "Name", "path")
   a = verify_string(a, h, h.linkname, 100, "Linkname", "linkpath")
   a = verify_string(a, h, h.uname, 32, "Uname", "uname")
@@ -698,15 +837,25 @@ fn allowed_formats(h: Header) -> (Int, Map<Str, Str>, Str) {
   var pax = a.pax
   let t = h.typeflag
   if t == TYPE_REG || t == TYPE_CHAR || t == TYPE_BLOCK || t == TYPE_FIFO || t == TYPE_GNU_SPARSE {
-    if ends_with(h.name, "/") { return (FORMAT_UNKNOWN, Map(), header_error(["filename may not have trailing slash"])) }
+    if ends_with(h.name, "/") {
+      return (FORMAT_UNKNOWN, Map(), header_error(["filename may not have trailing slash"]))
+    }
   } else if t == TYPE_XHEADER || t == TYPE_GNU_LONG_NAME || t == TYPE_GNU_LONG_LINK {
-    return (FORMAT_UNKNOWN, Map(), header_error(["cannot manually encode TypeXHeader, TypeGNULongName, or TypeGNULongLink headers"]))
+    return (FORMAT_UNKNOWN, Map(), header_error([
+      "cannot manually encode TypeXHeader, TypeGNULongName, or TypeGNULongLink headers",
+    ]))
   } else if t == TYPE_XGLOBAL_HEADER {
-    if !only_records(h) { return (FORMAT_UNKNOWN, Map(), header_error(["only PAXRecords should be set for TypeXGlobalHeader"])) }
+    if !only_records(h) {
+      return (FORMAT_UNKNOWN, Map(), header_error([
+        "only PAXRecords should be set for TypeXGlobalHeader",
+      ]))
+    }
     why_only_pax = "only PAX supports TypeXGlobalHeader"
     format = format & FORMAT_PAX
   }
-  if !is_header_only_type(t) && h.size < 0 { return (FORMAT_UNKNOWN, Map(), header_error(["negative size on header-only type"])) }
+  if !is_header_only_type(t) && h.size < 0 {
+    return (FORMAT_UNKNOWN, Map(), header_error(["negative size on header-only type"]))
+  }
 
   if len(h.xattrs) > 0 {
     for k in sort(keys(h.xattrs)) { pax = set(pax, "SCHILY.xattr." + k, unwrap(get(h.xattrs, k))) }
@@ -729,7 +878,11 @@ fn allowed_formats(h: Header) -> (Int, Map<Str, Str>, Str) {
   }
   for k in sort(keys(pax)) {
     let v = unwrap(get(pax, k))
-    if !valid_pax_record(k, v) { return (FORMAT_UNKNOWN, Map(), header_error(["invalid PAX record: " + strconv.quote_go(k + " = " + v)])) }
+    if !valid_pax_record(k, v) {
+      return (FORMAT_UNKNOWN, Map(), header_error([
+        "invalid PAX record: " + strconv.quote_go(k + " = " + v),
+      ]))
+    }
   }
 
   if h.format != FORMAT_UNKNOWN {
@@ -778,7 +931,9 @@ fn template_v7_plus(h: Header, name: List<Int>, ascii: Bool, gnu: Bool) -> List<
 }
 
 impl Writer {
-  fn emit(self, bs: List<Int>) -> Writer { if len(bs) == 0 { self } else { Writer { chunks: push(self.chunks, bs), ..self } } }
+  fn emit(self, bs: List<Int>) -> Writer {
+    if len(bs) == 0 { self } else { Writer { chunks: push(self.chunks, bs), ..self } }
+  }
 
   // 写出到目前为止的全部字节
   fn bytes(self) -> List<Int> {
@@ -849,7 +1004,9 @@ impl Writer {
         name = go_join([dir, "PaxHeaders.0", file])
       }
       let db = __bytes(data)
-      if len(db) > MAX_SPECIAL_FILE_SIZE { return (Writer { err: ERR_FIELD_TOO_LONG, ..w }, Err(ERR_FIELD_TOO_LONG)) }
+      if len(db) > MAX_SPECIAL_FILE_SIZE {
+        return (Writer { err: ERR_FIELD_TOO_LONG, ..w }, Err(ERR_FIELD_TOO_LONG))
+      }
       w = w.raw_file(name, db, flag, FORMAT_PAX)
       if is_global { return (w, Ok(())) }
     }
@@ -861,8 +1018,12 @@ impl Writer {
     var w = self
     let name = __bytes(h.name)
     let link = __bytes(h.linkname)
-    if len(name) > NAME_SIZE { w = w.raw_file("././@LongLink", name + [0], TYPE_GNU_LONG_NAME, FORMAT_GNU) }
-    if len(link) > NAME_SIZE { w = w.raw_file("././@LongLink", link + [0], TYPE_GNU_LONG_LINK, FORMAT_GNU) }
+    if len(name) > NAME_SIZE {
+      w = w.raw_file("././@LongLink", name + [0], TYPE_GNU_LONG_NAME, FORMAT_GNU)
+    }
+    if len(link) > NAME_SIZE {
+      w = w.raw_file("././@LongLink", link + [0], TYPE_GNU_LONG_LINK, FORMAT_GNU)
+    }
     var blk = template_v7_plus(h, name, false, true)
     if !h.access_time.is_zero() { blk = put(blk, 345, num_field(true, 12, h.access_time.sec)) }
     if !h.change_time.is_zero() { blk = put(blk, 357, num_field(true, 12, h.change_time.sec)) }
@@ -875,14 +1036,19 @@ impl Writer {
     let (w, fr) = self.flush()
     match fr {
       Err(e) => { return (self, Err(e)) }
-      Ok(_)  => {}
+      Ok(_) => {}
     }
     var h = hdr
     if h.typeflag == TYPE_REGA {
       h = Header { typeflag: if ends_with(h.name, "/") { TYPE_DIR } else { TYPE_REG }, ..h }
     }
     if h.format == FORMAT_UNKNOWN {
-      h = Header { mod_time: h.mod_time.round_second(), access_time: zero_time(), change_time: zero_time(), ..h }
+      h = Header {
+        mod_time: h.mod_time.round_second(),
+        access_time: zero_time(),
+        change_time: zero_time(),
+        ..h
+      }
     }
     let (allowed, pax, err) = allowed_formats(h)
     if format_has(allowed, FORMAT_USTAR) { return (w.write_ustar(h), Ok(())) }
@@ -909,7 +1075,7 @@ impl Writer {
     let (w, fr) = self.flush()
     match fr {
       Err(e) => { return (Writer { err: ERR_WRITE_AFTER_CLOSE, ..w }, Err(e)) }
-      Ok(_)  => {}
+      Ok(_) => {}
     }
     (Writer { err: ERR_WRITE_AFTER_CLOSE, ..w.emit(zeros(2 * BLOCK_SIZE)) }, Ok(()))
   }
@@ -918,9 +1084,20 @@ impl Writer {
 // ---------- Reader ----------
 
 // sparse 为 true 时 holes 是稀疏文件的空洞列表（偏移, 长度），spos 是逻辑位置
-pub type Reader = { data: List<Int>, pos: Int, nb: Int, pad: Int, err: Str, sparse: Bool, holes: List<(Int, Int)>, spos: Int }
+pub type Reader = {
+  data: List<Int>,
+  pos: Int,
+  nb: Int,
+  pad: Int,
+  err: Str,
+  sparse: Bool,
+  holes: List<(Int, Int)>,
+  spos: Int,
+}
 
-pub fn new_reader(data: List<Int>) -> Reader { Reader { data: data, pos: 0, nb: 0, pad: 0, err: "", sparse: false, holes: [], spos: 0 } }
+pub fn new_reader(data: List<Int>) -> Reader {
+  Reader { data: data, pos: 0, nb: 0, pad: 0, err: "", sparse: false, holes: [], spos: 0 }
+}
 
 fn get_format(blk: List<Int>) -> Int {
   let (value, perr) = parse_octal(field(blk, 148, 8))
@@ -953,13 +1130,25 @@ fn merge_pax(h0: Header, pax: Map<Str, Str>) -> Result<Header, Str> {
       h = Header { gname: v, ..h }
     } else if k == "uid" || k == "gid" || k == "size" {
       let Some(n) = parse_int10(v) else { return Err(ERR_HEADER) }
-      h = if k == "uid" { Header { uid: n, ..h } } else if k == "gid" { Header { gid: n, ..h } } else { Header { size: n, ..h } }
+      h = if k == "uid" {
+        Header { uid: n, ..h }
+      } else if k == "gid" {
+        Header { gid: n, ..h }
+      } else {
+        Header { size: n, ..h }
+      }
     } else if k == "atime" || k == "mtime" || k == "ctime" {
       let t = match parse_pax_time(v) {
-        Ok(t)  => t,
-        Err(_) => { return Err(ERR_HEADER) }
+        Ok(t) => t,
+        Err(_) => { return Err(ERR_HEADER) },
       }
-      h = if k == "atime" { Header { access_time: t, ..h } } else if k == "mtime" { Header { mod_time: t, ..h } } else { Header { change_time: t, ..h } }
+      h = if k == "atime" {
+        Header { access_time: t, ..h }
+      } else if k == "mtime" {
+        Header { mod_time: t, ..h }
+      } else {
+        Header { change_time: t, ..h }
+      }
     } else if starts_with(k, "SCHILY.xattr.") {
       h = Header { xattrs: set(h.xattrs, __str_slice(k, 13, len(k)), v), ..h }
     }
@@ -973,13 +1162,17 @@ fn parse_pax(buf: List<Int>) -> Result<Map<Str, Str>, Str> {
   var pax: Map<Str, Str> = Map()
   while len(s) > 0 {
     let (key, value, rest) = match parse_pax_record(s) {
-      Ok(t)  => t,
-      Err(_) => { return Err(ERR_HEADER) }
+      Ok(t) => t,
+      Err(_) => { return Err(ERR_HEADER) },
     }
     s = rest
     if key == "GNU.sparse.offset" || key == "GNU.sparse.numbytes" {
       let odd = len(sparse_map) % 2 == 1
-      if (!odd && key != "GNU.sparse.offset") || (odd && key != "GNU.sparse.numbytes") || __str_find(value, ",", 0) >= 0 { return Err(ERR_HEADER) }
+      if (!odd && key != "GNU.sparse.offset")
+        || (odd && key != "GNU.sparse.numbytes")
+        || __str_find(value, ",", 0) >= 0 {
+        return Err(ERR_HEADER)
+      }
       sparse_map = push(sparse_map, value)
     } else {
       pax = set(pax, key, value)
@@ -1022,7 +1215,7 @@ fn parse_sparse_pairs(toks: List<Str>) -> Result<List<(Int, Int)>, Str> {
     let b = parse_int10(toks[i + 1])
     match (a, b) {
       (Some(x), Some(y)) => { spd = push(spd, (x, y)) }
-      _                  => { return Err(ERR_HEADER) }
+      _ => { return Err(ERR_HEADER) }
     }
     i += 2
   }
@@ -1178,14 +1371,14 @@ impl Reader {
     let (r1, b1) = self.read_block()
     var r = r1
     let blk = match b1 {
-      Ok(b)  => b,
-      Err(e) => { return (r, Err(e)) }
+      Ok(b) => b,
+      Err(e) => { return (r, Err(e)) },
     }
     let zb = zeros(BLOCK_SIZE)
     if blk == zb {
       let (r2, b2) = r.read_block()
       match b2 {
-        Ok(b)  => { return (r2, Err(if b == zb { EOF } else { ERR_HEADER })) }
+        Ok(b) => { return (r2, Err(if b == zb { EOF } else { ERR_HEADER })) }
         Err(e) => { return (r2, Err(e)) }
       }
     }
@@ -1199,21 +1392,40 @@ impl Reader {
     let (mt, e5) = parse_numeric(field(blk, 136, 12))
     perr = e1 || e2 || e3 || e4 || e5
     var h = Header {
-      typeflag: blk[156], name: parse_string(field(blk, 0, 100)), linkname: parse_string(field(blk, 157, 100)),
-      size: size, mode: mode, uid: uid, gid: gid, mod_time: unix(mt, 0), ..header()
+      typeflag: blk[156],
+      name: parse_string(field(blk, 0, 100)),
+      linkname: parse_string(field(blk, 157, 100)),
+      size: size,
+      mode: mode,
+      uid: uid,
+      gid: gid,
+      mod_time: unix(mt, 0),
+      ..header()
     }
     var name_b = cut_nul(field(blk, 0, 100))
     if format > FORMAT_V7 {
       let (dmaj, e6) = parse_numeric(field(blk, 329, 8))
       let (dmin, e7) = parse_numeric(field(blk, 337, 8))
       perr = perr || e6 || e7
-      h = Header { uname: parse_string(field(blk, 265, 32)), gname: parse_string(field(blk, 297, 32)), devmajor: dmaj, devminor: dmin, ..h }
+      h = Header {
+        uname: parse_string(field(blk, 265, 32)),
+        gname: parse_string(field(blk, 297, 32)),
+        devmajor: dmaj,
+        devminor: dmin,
+        ..h
+      }
       var prefix: List<Int> = []
       if format_has(format, FORMAT_USTAR | FORMAT_PAX) {
         h = Header { format: format, ..h }
         prefix = cut_nul(field(blk, 345, 155))
         if any(blk, (c) => c >= 0x80) { h = Header { format: FORMAT_UNKNOWN, ..h } }
-        let nul_ok = blk[135] == 0 && blk[107] == 0 && blk[115] == 0 && blk[123] == 0 && blk[147] == 0 && blk[336] == 0 && blk[344] == 0
+        let nul_ok = blk[135] == 0
+          && blk[107] == 0
+          && blk[115] == 0
+          && blk[123] == 0
+          && blk[147] == 0
+          && blk[336] == 0
+          && blk[344] == 0
         if !nul_ok { h = Header { format: FORMAT_UNKNOWN, ..h } }
       } else if format_has(format, FORMAT_STAR) {
         prefix = cut_nul(field(blk, 345, 131))
@@ -1235,7 +1447,12 @@ impl Reader {
           h = Header { change_time: unix(ct, 0), ..h }
         }
         if p2 {
-          h = Header { access_time: zero_time(), change_time: zero_time(), format: FORMAT_UNKNOWN, ..h }
+          h = Header {
+            access_time: zero_time(),
+            change_time: zero_time(),
+            format: FORMAT_UNKNOWN,
+            ..h
+          }
           let s = cut_nul(field(blk, 345, 155))
           if is_ascii(s) { prefix = s }
         }
@@ -1255,7 +1472,10 @@ impl Reader {
     Ok(Reader { pad: block_padding(nb), nb: nb, sparse: false, holes: [], spos: 0, ..self })
   }
 
-  fn read_old_gnu_sparse_map(self, h: Header, blk0: List<Int>) -> (Reader, Result<(Header, List<(Int, Int)>), Str>) {
+  fn read_old_gnu_sparse_map(self, h: Header, blk0: List<Int>) -> (
+    Reader,
+    Result<(Header, List<(Int, Int)>), Str>,
+  ) {
     if get_format(blk0) != FORMAT_GNU { return (self, Err(ERR_HEADER)) }
     let (real, pe) = parse_numeric(field(blk0, 483, 12))
     if pe { return (self, Err(ERR_HEADER)) }
@@ -1325,7 +1545,10 @@ impl Reader {
     (r, parse_sparse_pairs(toks))
   }
 
-  fn read_gnu_sparse_pax_headers(self, h: Header) -> (Reader, Result<(Header, Option<List<(Int, Int)>>), Str>) {
+  fn read_gnu_sparse_pax_headers(self, h: Header) -> (
+    Reader,
+    Result<(Header, Option<List<(Int, Int)>>), Str>,
+  ) {
     let pr = h.pax_records
     let major = str_or(pr, "GNU.sparse.major")
     let minor = str_or(pr, "GNU.sparse.minor")
@@ -1354,12 +1577,12 @@ impl Reader {
       let (r, res) = self.read_gnu_sparse_map1x0()
       return match res {
         Ok(spd) => (r, Ok((hdr, Some(spd)))),
-        Err(e)  => (r, Err(e)),
+        Err(e) => (r, Err(e)),
       }
     }
     match read_gnu_sparse_map0x1(pr) {
       Ok(spd) => (self, Ok((hdr, Some(spd)))),
-      Err(e)  => (self, Err(e)),
+      Err(e) => (self, Err(e)),
     }
   }
 
@@ -1368,17 +1591,22 @@ impl Reader {
       let (r1, x) = self.read_old_gnu_sparse_map(h, blk)
       (r1, match x {
         Ok((hh, spd)) => Ok((hh, Some(spd))),
-        Err(e)        => Err(e),
+        Err(e) => Err(e),
       })
     } else {
       self.read_gnu_sparse_pax_headers(h)
     }
     match res {
-      Err(e)               => (r, Err(e)),
-      Ok((hdr, None))      => (r, Ok(hdr)),
+      Err(e) => (r, Err(e)),
+      Ok((hdr, None)) => (r, Ok(hdr)),
       Ok((hdr, Some(spd))) => {
-        if is_header_only_type(hdr.typeflag) || !validate_sparse_entries(spd, hdr.size) { return (r, Err(ERR_HEADER)) }
-        (Reader { sparse: true, holes: invert_sparse_entries(spd, hdr.size), spos: 0, ..r }, Ok(hdr))
+        if is_header_only_type(hdr.typeflag) || !validate_sparse_entries(spd, hdr.size) {
+          return (r, Err(ERR_HEADER))
+        }
+        (
+          Reader { sparse: true, holes: invert_sparse_entries(spd, hdr.size), spos: 0, ..r },
+          Ok(hdr),
+        )
       },
     }
   }
@@ -1391,7 +1619,9 @@ impl Reader {
     var format = FORMAT_USTAR | FORMAT_PAX | FORMAT_GNU
     loop {
       // 跳过当前条目剩下的数据和填充
-      if r.pos + r.nb > len(r.data) { return (Reader { pos: len(r.data), nb: 0, ..r }, Err(UNEXPECTED_EOF)) }
+      if r.pos + r.nb > len(r.data) {
+        return (Reader { pos: len(r.data), nb: 0, ..r }, Err(UNEXPECTED_EOF))
+      }
       r = Reader { pos: r.pos + r.nb, nb: 0, ..r }
       if r.pos + r.pad > len(r.data) { return (Reader { pos: len(r.data), pad: 0, ..r }, Err(EOF)) }
       r = Reader { pos: r.pos + r.pad, pad: 0, ..r }
@@ -1399,13 +1629,13 @@ impl Reader {
       let (r1, hres) = r.read_header()
       r = r1
       let (hdr0, raw) = match hres {
-        Ok(t)  => t,
-        Err(e) => { return (r, Err(e)) }
+        Ok(t) => t,
+        Err(e) => { return (r, Err(e)) },
       }
       var hdr = hdr0
       r = match r.handle_regular_file(hdr) {
-        Ok(x)  => x,
-        Err(e) => { return (r, Err(e)) }
+        Ok(x) => x,
+        Err(e) => { return (r, Err(e)) },
       }
       format = format & hdr.format
       let t = hdr.typeflag
@@ -1414,19 +1644,26 @@ impl Reader {
         let (r2, sres) = r.read_special()
         r = r2
         let buf = match sres {
-          Ok(b)  => b,
-          Err(e) => { return (r, Err(e)) }
+          Ok(b) => b,
+          Err(e) => { return (r, Err(e)) },
         }
         pax = match parse_pax(buf) {
-          Ok(m)  => m,
-          Err(e) => { return (r, Err(e)) }
+          Ok(m) => m,
+          Err(e) => { return (r, Err(e)) },
         }
         if t == TYPE_XGLOBAL_HEADER {
           let merged = match merge_pax(hdr, pax) {
-            Ok(m)  => m,
+            Ok(m) => m,
             Err(_) => Header { pax_records: Map(), ..hdr },
           }
-          return (r, Ok(Header { name: merged.name, typeflag: t, xattrs: merged.xattrs, pax_records: merged.pax_records, format: format, ..header() }))
+          return (r, Ok(Header {
+            name: merged.name,
+            typeflag: t,
+            xattrs: merged.xattrs,
+            pax_records: merged.pax_records,
+            format: format,
+            ..header()
+          }))
         }
         continue
       } else if t == TYPE_GNU_LONG_NAME || t == TYPE_GNU_LONG_LINK {
@@ -1434,15 +1671,19 @@ impl Reader {
         let (r2, sres) = r.read_special()
         r = r2
         let buf = match sres {
-          Ok(b)  => b,
-          Err(e) => { return (r, Err(e)) }
+          Ok(b) => b,
+          Err(e) => { return (r, Err(e)) },
         }
-        if t == TYPE_GNU_LONG_NAME { long_name = parse_string(buf) } else { long_link = parse_string(buf) }
+        if t == TYPE_GNU_LONG_NAME {
+          long_name = parse_string(buf)
+        } else {
+          long_link = parse_string(buf)
+        }
         continue
       }
       hdr = match merge_pax(hdr, pax) {
-        Ok(m)  => m,
-        Err(e) => { return (r, Err(e)) }
+        Ok(m) => m,
+        Err(e) => { return (r, Err(e)) },
       }
       if long_name != "" { hdr = Header { name: long_name, ..hdr } }
       if long_link != "" { hdr = Header { linkname: long_link, ..hdr } }
@@ -1450,16 +1691,18 @@ impl Reader {
         hdr = Header { typeflag: if ends_with(hdr.name, "/") { TYPE_DIR } else { TYPE_REG }, ..hdr }
       }
       r = match r.handle_regular_file(hdr) {
-        Ok(x)  => x,
-        Err(e) => { return (r, Err(e)) }
+        Ok(x) => x,
+        Err(e) => { return (r, Err(e)) },
       }
       let (r3, sres) = r.handle_sparse_file(hdr, raw)
       r = r3
       hdr = match sres {
-        Ok(x)  => x,
-        Err(e) => { return (r, Err(e)) }
+        Ok(x) => x,
+        Err(e) => { return (r, Err(e)) },
       }
-      if format_has(format, FORMAT_USTAR) && format_has(format, FORMAT_PAX) { format = format & FORMAT_USTAR }
+      if format_has(format, FORMAT_USTAR) && format_has(format, FORMAT_PAX) {
+        format = format & FORMAT_USTAR
+      }
       return (r, Ok(Header { format: format, ..hdr }))
     }
   }
@@ -1469,7 +1712,7 @@ impl Reader {
     if self.err != "" { return (self, Err(self.err)) }
     let (r, res) = self.next_inner()
     match res {
-      Ok(h)  => (Reader { err: "", ..r }, Ok(h)),
+      Ok(h) => (Reader { err: "", ..r }, Ok(h)),
       Err(e) => (Reader { err: e, ..r }, Err(e)),
     }
   }

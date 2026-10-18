@@ -3,9 +3,28 @@
 use std.encoding.json
 use std.encoding.hex
 
-const BASES: List<Str> = ["\{\"a\":1}", "[1,2.5,-3e10,true,false,null]", "\"he\\\"llo\\u00e9\\n\"", "\{\"k\":[\{},[]],\"z\":\"x\"}", " 0 ", "-0.5E+3",
-  "\{\"a\" : [ 1 , \{ \"b\" : null } ] }", "\"\\ud83d\\ude00 \\ud800\"", "[[[]]]", "\{\"\":\"\"}", "\"é<&>\\u2028\"", "123", "true",
-  "", "\{\"a\":1,\"a\":2}", "[1e400]", "\"\\/\\b\\f\\r\\t\"", "  [\n\t1\r\n]  ", "nul", "\{\"x\":tru}"]
+const BASES: List<Str> = [
+  "\{\"a\":1}",
+  "[1,2.5,-3e10,true,false,null]",
+  "\"he\\\"llo\\u00e9\\n\"",
+  "\{\"k\":[\{},[]],\"z\":\"x\"}",
+  " 0 ",
+  "-0.5E+3",
+  "\{\"a\" : [ 1 , \{ \"b\" : null } ] }",
+  "\"\\ud83d\\ude00 \\ud800\"",
+  "[[[]]]",
+  "\{\"\":\"\"}",
+  "\"é<&>\\u2028\"",
+  "123",
+  "true",
+  "",
+  "\{\"a\":1,\"a\":2}",
+  "[1e400]",
+  "\"\\/\\b\\f\\r\\t\"",
+  "  [\n\t1\r\n]  ",
+  "nul",
+  "\{\"x\":tru}",
+]
 
 const MUTS: List<Int> = [32, 34, 44, 125, 93, 120, 92, 48, 255]
 
@@ -48,11 +67,33 @@ fn main() {
       i += 3
     }
   }
-  print(unwrap(__from_bytes(unwrap(json.indent(__bytes("\{\"a\":[1,\{\"b\":[]}],\"c\":\{}" + "}"), "", "  ")))))
+  print(
+    unwrap(
+      __from_bytes(
+        unwrap(json.indent(__bytes("\{\"a\":[1,\{\"b\":[]}],\"c\":\{}" + "}"), "", "  ")),
+      ),
+    ),
+  )
   print(unwrap(__from_bytes(json.html_escape(__bytes("<a href=\"x&y\">\u{2028}\u{2029}</a>")))))
-  let m = JObj(Map([("b", JArr([JNum(1.0), JStr("s"), JNull, JBool(true)])), ("a", JObj(Map())), ("c", JArr([])), ("d", JNum(1e21)), ("e", JNum(0.0000001)), ("f", JNum(123456789.0)), ("g", JNum(0.1))]))
+  let m = JObj(Map([
+    ("b", JArr([JNum(1.0), JStr("s"), JNull, JBool(true)])),
+    ("a", JObj(Map())),
+    ("c", JArr([])),
+    ("d", JNum(1e21)),
+    ("e", JNum(0.0000001)),
+    ("f", JNum(123456789.0)),
+    ("g", JNum(0.1)),
+  ]))
   print(unwrap(__from_bytes(unwrap(json.marshal_indent(m, "#", " ")))))
-  for x in ["\{\"a\":\{\"b\":[1,1e999]}" + "}", "\{\"x\":1e999}", "[1e999,]", "\{\"a\":1e999,\"a\":1}", "-1e999", "[0.1e-400, 4.9e-324, 1e308, 123456789012345678901]", "\{\"\\u00e9\":[\"\\u2028\",\"\"]}"] {
+  for x in [
+    "\{\"a\":\{\"b\":[1,1e999]}" + "}",
+    "\{\"x\":1e999}",
+    "[1e999,]",
+    "\{\"a\":1e999,\"a\":1}",
+    "-1e999",
+    "[0.1e-400, 4.9e-324, 1e308, 123456789012345678901]",
+    "\{\"\\u00e9\":[\"\\u2028\",\"\"]}",
+  ] {
     match json.unmarshal(__bytes(x)) {
       Ok(v) => print(x + " | <nil> | " + unwrap(__from_bytes(unwrap(json.marshal(v))))),
       Err(e) => print(x + " | " + e + " | -"),

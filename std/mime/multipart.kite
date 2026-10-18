@@ -38,11 +38,27 @@ impl Part {
   }
 }
 
-pub type Reader = { data: List<Int>, pos: Int, nl: List<Int>, nl_dash: List<Int>, dash_dash: List<Int>, dash: List<Int>, parts_read: Int }
+pub type Reader = {
+  data: List<Int>,
+  pos: Int,
+  nl: List<Int>,
+  nl_dash: List<Int>,
+  dash_dash: List<Int>,
+  dash: List<Int>,
+  parts_read: Int,
+}
 
 pub fn new_reader(data: List<Int>, boundary: Str) -> Reader {
   let b = __bytes("\r\n--" + boundary + "--")
-  Reader { data: data, pos: 0, nl: b[..2], nl_dash: b[..len(b) - 2], dash_dash: b[2..], dash: b[2..len(b) - 2], parts_read: 0 }
+  Reader {
+    data: data,
+    pos: 0,
+    nl: b[..2],
+    nl_dash: b[..len(b) - 2],
+    dash_dash: b[2..],
+    dash: b[2..len(b) - 2],
+    parts_read: 0,
+  }
 }
 
 fn has_prefix(b: List<Int>, p: List<Int>) -> Bool { len(b) >= len(p) && b[..len(p)] == p }
@@ -68,7 +84,13 @@ fn match_after_prefix(buf: List<Int>, prefix: List<Int>, read_err: Str) -> Int {
   -1
 }
 
-fn scan_until_boundary(buf: List<Int>, dash: List<Int>, nl_dash: List<Int>, total: Int, read_err: Str) -> (Int, Str) {
+fn scan_until_boundary(
+  buf: List<Int>,
+  dash: List<Int>,
+  nl_dash: List<Int>,
+  total: Int,
+  read_err: Str,
+) -> (Int, Str) {
   if total == 0 {
     if has_prefix(buf, dash) {
       let m = match_after_prefix(buf, dash, read_err)
@@ -141,7 +163,9 @@ impl Reader {
       // isBoundaryDelimiterLine
       if has_prefix(line, r.dash) {
         let rest = skip_lwsp(line[len(r.dash)..])
-        if r.parts_read == 0 && rest == [10] { r = Reader { nl: r.nl[1..], nl_dash: r.nl_dash[1..], ..r } }
+        if r.parts_read == 0 && rest == [10] {
+          r = Reader { nl: r.nl[1..], nl_dash: r.nl_dash[1..], ..r }
+        }
         if rest == r.nl {
           r = Reader { parts_read: r.parts_read + 1, ..r }
           let tr = textproto.Reader { data: r.data, pos: r.pos }
@@ -162,13 +186,35 @@ impl Reader {
         }
       }
       if r.is_final(line) { return (r, Err("EOF")) }
-      if expect_new { return (r, Err("multipart: expecting a new Part; got line " + strconv.quote_bytes_with(line, 34, false, false))) }
+      if expect_new {
+        return (
+          r,
+          Err(
+            "multipart: expecting a new Part; got line " + strconv.quote_bytes_with(
+              line,
+              34,
+              false,
+              false,
+            ),
+          ),
+        )
+      }
       if r.parts_read == 0 { continue }
       if line == r.nl {
         expect_new = true
         continue
       }
-      return (r, Err("multipart: unexpected line in Next(): " + strconv.quote_bytes_with(line, 34, false, false)))
+      return (
+        r,
+        Err(
+          "multipart: unexpected line in Next(): " + strconv.quote_bytes_with(
+            line,
+            34,
+            false,
+            false,
+          ),
+        ),
+      )
     }
   }
 
@@ -230,7 +276,15 @@ impl Reader {
       }
       max_bytes -= mime_header_size(p.header) + 200 + 100
       if max_bytes < 0 { return Err("multipart: message too large") }
-      form = Form { file: add_kv(form.file, name, FileHeader { filename: filename, header: p.header, size: len(p.data), content: p.data }), ..form }
+      form = Form {
+        file: add_kv(form.file, name, FileHeader {
+          filename: filename,
+          header: p.header,
+          size: len(p.data),
+          content: p.data,
+        }),
+        ..form
+      }
     }
     Ok(form)
   }
@@ -240,19 +294,33 @@ impl Reader {
 
 pub type Writer = { out: List<Int>, boundary: Str, has_part: Bool }
 
-pub fn new_writer() -> Writer { Writer { out: [], boundary: hex.encode_bytes(crand.read(30)), has_part: false } }
+pub fn new_writer() -> Writer {
+  Writer { out: [], boundary: hex.encode_bytes(crand.read(30)), has_part: false }
+}
 
 fn escape_quotes(s: Str) -> Str {
   var o = ""
   for c in __bytes(s) {
-    o = o + (if c == 92 { "\\\\" } else if c == 34 { "\\\"" } else if c == 13 { "%0D" } else if c == 10 { "%0A" } else { "" })
+    o = o + (if c == 92 {
+      "\\\\"
+    } else if c == 34 {
+      "\\\""
+    } else if c == 13 {
+      "%0D"
+    } else if c == 10 {
+      "%0A"
+    } else {
+      ""
+    })
     if c != 92 && c != 34 && c != 13 && c != 10 { o = o + unwrap(__from_bytes([c])) }
   }
   o
 }
 
 pub fn file_content_disposition(fieldname: Str, filename: Str) -> Str {
-  "form-data; name=\"" + escape_quotes(fieldname) + "\"; filename=\"" + escape_quotes(filename) + "\""
+  "form-data; name=\"" + escape_quotes(fieldname) + "\"; filename=\"" + escape_quotes(
+    filename,
+  ) + "\""
 }
 
 impl Writer {
@@ -268,7 +336,20 @@ impl Writer {
     for i in 0..len(bs) {
       let c = bs[i]
       if (c >= 65 && c <= 90) || (c >= 97 && c <= 122) || (c >= 48 && c <= 57) { continue }
-      if c == 39 || c == 40 || c == 41 || c == 43 || c == 95 || c == 44 || c == 45 || c == 46 || c == 47 || c == 58 || c == 61 || c == 63 { continue }
+      if c == 39
+        || c == 40
+        || c == 41
+        || c == 43
+        || c == 95
+        || c == 44
+        || c == 45
+        || c == 46
+        || c == 47
+        || c == 58
+        || c == 61
+        || c == 63 {
+        continue
+      }
       if c == 32 && i != end { continue }
       return Err("mime: invalid boundary character")
     }
@@ -287,7 +368,11 @@ impl Writer {
   }
 
   pub fn create_part(self, h: MIMEHeader) -> Writer {
-    var s = if self.has_part { "\r\n--" + self.boundary + "\r\n" } else { "--" + self.boundary + "\r\n" }
+    var s = if self.has_part {
+      "\r\n--" + self.boundary + "\r\n"
+    } else {
+      "--" + self.boundary + "\r\n"
+    }
     for kv in h.sorted() { for v in kv.1 { s = s + kv.0 + ": " + v + "\r\n" } }
     s = s + "\r\n"
     Writer { out: self.out + __bytes(s), has_part: true, ..self }
@@ -296,14 +381,27 @@ impl Writer {
   pub fn write(self, d: List<Int>) -> Writer { Writer { out: self.out + d, ..self } }
 
   pub fn create_form_file(self, fieldname: Str, filename: Str) -> Writer {
-    self.create_part(textproto.new_header().set("Content-Disposition", file_content_disposition(fieldname, filename)).set("Content-Type", "application/octet-stream"))
+    self.create_part(
+      textproto
+        .new_header()
+        .set("Content-Disposition", file_content_disposition(fieldname, filename))
+        .set("Content-Type", "application/octet-stream"),
+    )
   }
 
   pub fn create_form_field(self, fieldname: Str) -> Writer {
-    self.create_part(textproto.new_header().set("Content-Disposition", "form-data; name=\"" + escape_quotes(fieldname) + "\""))
+    self.create_part(
+      textproto
+        .new_header()
+        .set("Content-Disposition", "form-data; name=\"" + escape_quotes(fieldname) + "\""),
+    )
   }
 
-  pub fn write_field(self, fieldname: Str, value: Str) -> Writer { self.create_form_field(fieldname).write(__bytes(value)) }
+  pub fn write_field(self, fieldname: Str, value: Str) -> Writer {
+    self.create_form_field(fieldname).write(__bytes(value))
+  }
 
-  pub fn close(self) -> Writer { Writer { out: self.out + __bytes("\r\n--" + self.boundary + "--\r\n"), has_part: false, ..self } }
+  pub fn close(self) -> Writer {
+    Writer { out: self.out + __bytes("\r\n--" + self.boundary + "--\r\n"), has_part: false, ..self }
+  }
 }

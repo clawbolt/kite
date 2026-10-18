@@ -20,7 +20,11 @@ fn meld<T>(less: fn(T, T) -> Bool, a: PNode<T>, b: PNode<T>) -> PNode<T> {
   match (a, b) {
     (PEmpty, _) => b,
     (_, PEmpty) => a,
-    (PTree(x, xs), PTree(y, ys)) => if less(y, x) { PTree(y, [a] + ys) } else { PTree(x, [b] + xs) },
+    (PTree(x, xs), PTree(y, ys)) => if less(y, x) {
+      PTree(y, [a] + ys)
+    } else {
+      PTree(x, [b] + xs)
+    },
   }
 }
 
@@ -41,9 +45,13 @@ fn merge_pairs<T>(less: fn(T, T) -> Bool, subs: List<PNode<T>>) -> PNode<T> {
   acc
 }
 
-pub fn insert<T>(h: Heap<T>, x: T) -> Heap<T> { Heap { root: meld(h.less, PTree(x, []), h.root), n: h.n + 1, ..h } }
+pub fn insert<T>(h: Heap<T>, x: T) -> Heap<T> {
+  Heap { root: meld(h.less, PTree(x, []), h.root), n: h.n + 1, ..h }
+}
 
-pub fn from_list<T>(less: fn(T, T) -> Bool, xs: List<T>) -> Heap<T> { fold(xs, new(less), (h, x) => insert(h, x)) }
+pub fn from_list<T>(less: fn(T, T) -> Bool, xs: List<T>) -> Heap<T> {
+  fold(xs, new(less), (h, x) => insert(h, x))
+}
 
 pub fn peek<T>(h: Heap<T>) -> Option<T> {
   match h.root {

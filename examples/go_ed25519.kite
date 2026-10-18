@@ -46,7 +46,10 @@ fn main() {
   {
     let priv = privs[0]
     let sig = unwrap(ed25519.sign(priv, []))
-    let l = [0xed, 0xd3, 0xf5, 0x5c, 0x1a, 0x63, 0x12, 0x58, 0xd6, 0x9c, 0xf7, 0xa2, 0xde, 0xf9, 0xde, 0x14, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0x10]
+    let l = [
+      0xed, 0xd3, 0xf5, 0x5c, 0x1a, 0x63, 0x12, 0x58, 0xd6, 0x9c, 0xf7, 0xa2, 0xde, 0xf9, 0xde,
+      0x14, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0x10,
+    ]
     var s2 = sig
     var c = 0
     for k in 0..32 {
@@ -54,10 +57,21 @@ fn main() {
       s2 = set(s2, 32 + k, v & 255)
       c = v >> 8
     }
-    print("SL " + hex.encode_bytes(s2) + " " + es(ed25519.verify_with_options(ed25519.public_key(priv), [], s2, opts(0, ""))))
+    print(
+      "SL " + hex.encode_bytes(s2) + " " + es(
+        ed25519.verify_with_options(ed25519.public_key(priv), [], s2, opts(0, "")),
+      ),
+    )
   }
   let ph = sha512.digest(__bytes("message"))
-  let os = [opts(7, ""), opts(7, "ctx"), opts(0, "foo"), opts(5, ""), opts(0, unwrap(__from_bytes(rep("x", 256)))), opts(7, unwrap(__from_bytes(rep("y", 256))))]
+  let os = [
+    opts(7, ""),
+    opts(7, "ctx"),
+    opts(0, "foo"),
+    opts(5, ""),
+    opts(0, unwrap(__from_bytes(rep("x", 256)))),
+    opts(7, unwrap(__from_bytes(rep("y", 256)))),
+  ]
   for i in 0..len(os) {
     let o = os[i]
     let priv = privs[i % len(privs)]
@@ -67,7 +81,11 @@ fn main() {
       Err(e) => print("O {i}  " + e),
       Ok(sig) => {
         print("O {i} " + hex.encode_bytes(sig) + " ok")
-        print("OV " + es(ed25519.verify_with_options(pub_, msg, sig, o)) + " " + es(ed25519.verify_with_options(pub_, msg, sig, opts(0, ""))))
+        print(
+          "OV " + es(ed25519.verify_with_options(pub_, msg, sig, o)) + " " + es(
+            ed25519.verify_with_options(pub_, msg, sig, opts(0, "")),
+          ),
+        )
         print("OV2 " + es(ed25519.verify_with_options(pub_, msg[..10], sig, o)))
       },
     }
@@ -90,8 +108,18 @@ fn main() {
   let sig0 = unwrap(ed25519.sign(privs[0], []))
   let s3 = set(sig0, 63, sig0[63] | 0x20)
   print(es(ed25519.verify_with_options(pub0, [], s3, opts(0, ""))))
-  for h in ["0200000000000000000000000000000000000000000000000000000000000000", "0100000000000000000000000000000000000000000000000000000000000080", "edffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7f", "eeffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff", "ecffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7f"] {
-    print("PK " + h + " " + es(ed25519.verify_with_options(unwrap(hex.decode(h)), [], sig0, opts(0, ""))))
+  for h in [
+    "0200000000000000000000000000000000000000000000000000000000000000",
+    "0100000000000000000000000000000000000000000000000000000000000080",
+    "edffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7f",
+    "eeffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "ecffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7f",
+  ] {
+    print(
+      "PK " + h + " " + es(
+        ed25519.verify_with_options(unwrap(hex.decode(h)), [], sig0, opts(0, "")),
+      ),
+    )
   }
   let bad = privs[0][..32] + privs[1][32..]
   print("BAD " + hex.encode_bytes(unwrap(ed25519.sign(bad, __bytes("x")))))

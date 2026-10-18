@@ -5,14 +5,14 @@ use std.net
 fn handler(req: http.Request) -> http.Response {
   match req.path {
     "/hello" => http.text(200, "你好，加密的 {req.method}"),
-    _        => http.text(404, "没有 {req.path}"),
+    _ => http.text(404, "没有 {req.path}"),
   }
 }
 
 fn show(r: Result<http.Response, Str>) -> Str {
   match r {
     Ok(resp) => "{resp.status} {resp.body}",
-    Err(e)   => "错误 {e}",
+    Err(e) => "错误 {e}",
   }
 }
 
@@ -32,13 +32,16 @@ fn main() {
         "{a} | {b}"
       },
       show(http.get(url + "/hello")),
-      show(http.request_with("GET", url + "/hello", Map(), "", net.TlsConfig { ca: "", verify: false })),
+      show(http.request_with("GET", url + "/hello", Map(), "", net.TlsConfig {
+        ca: "",
+        verify: false,
+      })),
     ],
   }
   for line in out { print(line) }
   l.close()
   match http.listen_tls(0, "tests/tls/missing.pem", "tests/tls/key.pem") {
-    Ok(_)  => print("不应该成功"),
+    Ok(_) => print("不应该成功"),
     Err(e) => print(e),
   }
 }

@@ -1,7 +1,44 @@
 use std.html
 fn main() {
-  let cases = ["", "plain", "a<b>c&d'e\"f", "&amp;&lt;&gt;&quot;&#39;&#34;", "&amp", "&ampx", "&amp;x", "&notit;", "&notin;", "&noti", "&copy2018", "&#65;&#x42;&#X43;&#x;&#;&#", "&#128;&#x9f;&#0;&#xD800;&#1114112;&#99999999999;", "&#12345", "&#x1F600;", "&NotEqualTilde;", "&nvlt;", "&acE;x", "&bogus;", "&&&", "&", "a&", "&;", "&#x41g", "&lt3", "&ltt;", "中&eacute;文&Eacute", "&AMP;&Amp;", "&thetasym;&ThickSpace;", "&#9;&#10;"]
+  let cases = [
+    "",
+    "plain",
+    "a<b>c&d'e\"f",
+    "&amp;&lt;&gt;&quot;&#39;&#34;",
+    "&amp",
+    "&ampx",
+    "&amp;x",
+    "&notit;",
+    "&notin;",
+    "&noti",
+    "&copy2018",
+    "&#65;&#x42;&#X43;&#x;&#;&#",
+    "&#128;&#x9f;&#0;&#xD800;&#1114112;&#99999999999;",
+    "&#12345",
+    "&#x1F600;",
+    "&NotEqualTilde;",
+    "&nvlt;",
+    "&acE;x",
+    "&bogus;",
+    "&&&",
+    "&",
+    "a&",
+    "&;",
+    "&#x41g",
+    "&lt3",
+    "&ltt;",
+    "中&eacute;文&Eacute",
+    "&AMP;&Amp;",
+    "&thetasym;&ThickSpace;",
+    "&#9;&#10;",
+  ]
   for c in cases {
-    print(html.escape_string(c), "|", html.unescape_string(c), "|", html.unescape_string(html.escape_string(c)) == c)
+    print(
+      html.escape_string(c),
+      "|",
+      html.unescape_string(c),
+      "|",
+      html.unescape_string(html.escape_string(c)) == c,
+    )
   }
 }

@@ -17,9 +17,18 @@
 //   GCM 用 Go 通用实现（4 位查表的 GHASH），结果和 Go 在任何平台上的结果相同。
 
 // is_aes：Go 1.24 起 crypto/cipher 对 *aes.Block 走 crypto/aes 自己的 CTR，panic 信息不同
-pub type Block = { size: Int, enc_fn: fn(List<Int>) -> List<Int>, dec_fn: fn(List<Int>) -> List<Int>, is_aes: Bool }
+pub type Block = {
+  size: Int,
+  enc_fn: fn(List<Int>) -> List<Int>,
+  dec_fn: fn(List<Int>) -> List<Int>,
+  is_aes: Bool,
+}
 
-pub fn new_block(size: Int, enc: fn(List<Int>) -> List<Int>, dec: fn(List<Int>) -> List<Int>) -> Block {
+pub fn new_block(
+  size: Int,
+  enc: fn(List<Int>) -> List<Int>,
+  dec: fn(List<Int>) -> List<Int>,
+) -> Block {
   Block { size: size, enc_fn: enc, dec_fn: dec, is_aes: false }
 }
 
@@ -106,10 +115,19 @@ const OFB: Int = 2
 
 // reg：CTR 是计数器，OFB 是上一个输出分组，CFB 是下一个要加密的分组（正在逐字节填充）
 // out：当前密钥流分组；used：out 里已经用掉的字节数
-pub type Stream = { kind: Int, b: Block, reg: List<Int>, out: List<Int>, used: Int, decrypting: Bool }
+pub type Stream = {
+  kind: Int,
+  b: Block,
+  reg: List<Int>,
+  out: List<Int>,
+  used: Int,
+  decrypting: Bool,
+}
 
 pub fn new_ctr(b: Block, iv: List<Int>) -> Stream {
-  if len(iv) != b.block_size() { panic(if b.is_aes { "bad IV length" } else { "cipher.NewCTR: IV length must equal block size" }) }
+  if len(iv) != b.block_size() {
+    panic(if b.is_aes { "bad IV length" } else { "cipher.NewCTR: IV length must equal block size" })
+  }
   Stream { kind: CTR, b: b, reg: iv, out: [], used: 0, decrypting: false }
 }
 
@@ -169,7 +187,13 @@ impl Stream {
   }
 
   fn xor_key_stream_into(self, dst: List<Int>, src: List<Int>) -> (Stream, List<Int>) {
-    if len(dst) < len(src) { panic(if self.kind == CTR && self.b.is_aes { "crypto/aes: len(dst) < len(src)" } else { "crypto/cipher: output smaller than input" }) }
+    if len(dst) < len(src) {
+      panic(if self.kind == CTR && self.b.is_aes {
+        "crypto/aes: len(dst) < len(src)"
+      } else {
+        "crypto/cipher: output smaller than input"
+      })
+    }
     let (s, out) = self.xor_key_stream(src)
     (s, overwrite(dst, out))
   }
@@ -187,15 +211,24 @@ const E1: Int = -2233785415175766016
 const LOW60: Int = 0xfffffffffffffff
 const LOW63: Int = 0x7fffffffffffffff
 
-const GCM_REDUCTION_TABLE: List<Int> = [0x0000, 0x1c20, 0x3840, 0x2460, 0x7080, 0x6ca0, 0x48c0, 0x54e0, 0xe100, 0xfd20, 0xd940, 0xc560, 0x9180, 0x8da0, 0xa9c0, 0xb5e0]
+const GCM_REDUCTION_TABLE: List<Int> = [
+  0x0000, 0x1c20, 0x3840, 0x2460, 0x7080, 0x6ca0, 0x48c0, 0x54e0, 0xe100, 0xfd20, 0xd940, 0xc560,
+  0x9180, 0x8da0, 0xa9c0, 0xb5e0,
+]
 
 pub type AEAD = { b: Block, nonce_sz: Int, tag_sz: Int, tlow: List<Int>, thigh: List<Int> }
 
-pub fn new_gcm(b: Block) -> Result<AEAD, Str> { new_gcm_with_nonce_and_tag_size(b, GCM_STANDARD_NONCE_SIZE, GCM_TAG_SIZE) }
+pub fn new_gcm(b: Block) -> Result<AEAD, Str> {
+  new_gcm_with_nonce_and_tag_size(b, GCM_STANDARD_NONCE_SIZE, GCM_TAG_SIZE)
+}
 
-pub fn new_gcm_with_nonce_size(b: Block, size: Int) -> Result<AEAD, Str> { new_gcm_with_nonce_and_tag_size(b, size, GCM_TAG_SIZE) }
+pub fn new_gcm_with_nonce_size(b: Block, size: Int) -> Result<AEAD, Str> {
+  new_gcm_with_nonce_and_tag_size(b, size, GCM_TAG_SIZE)
+}
 
-pub fn new_gcm_with_tag_size(b: Block, tag_size: Int) -> Result<AEAD, Str> { new_gcm_with_nonce_and_tag_size(b, GCM_STANDARD_NONCE_SIZE, tag_size) }
+pub fn new_gcm_with_tag_size(b: Block, tag_size: Int) -> Result<AEAD, Str> {
+  new_gcm_with_nonce_and_tag_size(b, GCM_STANDARD_NONCE_SIZE, tag_size)
+}
 
 fn reverse_bits(i0: Int) -> Int {
   let i = ((i0 << 2) & 0xc) | ((i0 >> 2) & 0x3)
@@ -219,7 +252,9 @@ fn put64(out: List<Int>, x: Int) -> List<Int> {
 }
 
 fn new_gcm_with_nonce_and_tag_size(b: Block, nonce_size: Int, tag_size: Int) -> Result<AEAD, Str> {
-  if tag_size < GCM_MINIMUM_TAG_SIZE || tag_size > GCM_BLOCK_SIZE { return Err("cipher: incorrect tag size given to GCM") }
+  if tag_size < GCM_MINIMUM_TAG_SIZE || tag_size > GCM_BLOCK_SIZE {
+    return Err("cipher: incorrect tag size given to GCM")
+  }
   if nonce_size <= 0 { return Err("cipher: the nonce can't have zero length") }
   if b.block_size() != GCM_BLOCK_SIZE { return Err("cipher: NewGCM requires 128-bit block cipher") }
   let key = b.encrypt([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0])
@@ -320,7 +355,13 @@ impl AEAD {
     out
   }
 
-  fn seal(self, dst: List<Int>, nonce: List<Int>, plaintext: List<Int>, additional: List<Int>) -> List<Int> {
+  fn seal(
+    self,
+    dst: List<Int>,
+    nonce: List<Int>,
+    plaintext: List<Int>,
+    additional: List<Int>,
+  ) -> List<Int> {
     if len(nonce) != self.nonce_sz { panic("crypto/cipher: incorrect nonce length given to GCM") }
     if len(plaintext) > 68719476704 { panic("crypto/cipher: message too large for GCM") }
     let counter = self.derive_counter(nonce)
@@ -330,7 +371,13 @@ impl AEAD {
     dst + out + tag[0..self.tag_sz]
   }
 
-  fn open(self, dst: List<Int>, nonce: List<Int>, ciphertext: List<Int>, additional: List<Int>) -> Result<List<Int>, Str> {
+  fn open(
+    self,
+    dst: List<Int>,
+    nonce: List<Int>,
+    ciphertext: List<Int>,
+    additional: List<Int>,
+  ) -> Result<List<Int>, Str> {
     if len(nonce) != self.nonce_sz { panic("crypto/cipher: incorrect nonce length given to GCM") }
     if self.tag_sz < GCM_MINIMUM_TAG_SIZE { panic("crypto/cipher: incorrect GCM tag size") }
     if len(ciphertext) < self.tag_sz { return Err(ERR_OPEN) }

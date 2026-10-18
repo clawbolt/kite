@@ -269,7 +269,12 @@ pub fn scan_nat(bs: List<Int>, pos0: Int, base: Int, frac_ok0: Bool) -> NatScan 
 }
 
 // 返回 (exp, base, err, pos)；err 为 "" 表示成功
-pub fn scan_exponent(bs: List<Int>, pos0: Int, base2ok: Bool, sep_ok: Bool) -> (Int, Int, Str, Int) {
+pub fn scan_exponent(bs: List<Int>, pos0: Int, base2ok: Bool, sep_ok: Bool) -> (
+  Int,
+  Int,
+  Str,
+  Int,
+) {
   var pos = pos0
   if pos >= len(bs) { return (0, 10, "", pos) }
   let c0 = bs[pos]
@@ -525,7 +530,11 @@ impl Rat {
   // 0 时 panic
   fn inv(self) -> Rat {
     if self.a.sign() == 0 { panic("division by zero") }
-    if self.a.sign() < 0 { Rat { a: self.b.negate(), b: self.a.abs_value() } } else { Rat { a: self.b, b: self.a } }
+    if self.a.sign() < 0 {
+      Rat { a: self.b.negate(), b: self.a.abs_value() }
+    } else {
+      Rat { a: self.b, b: self.a }
+    }
   }
 
   fn string(self) -> Str { "{self.a.string()}/{self.b.string()}" }

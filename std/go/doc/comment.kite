@@ -29,10 +29,12 @@ pub enum Block {
 pub type Doc = { content: List<Block>, links: List<LinkDef> }
 
 // std.go 里单段导入路径的标准库包（已排序）
-const STD_PKGS: List<Str> = ["bufio", "bytes", "cmp", "context", "crypto", "embed", "encoding", "errors", "expvar", "flag", "fmt",
-  "hash", "html", "image", "io", "iter", "log", "maps", "math", "mime", "net", "os", "path", "plugin", "reflect", "regexp",
-  "runtime", "slices", "sort", "strconv", "strings", "structs", "sync", "syscall", "testing", "time", "unicode", "unique",
-  "unsafe", "uuid", "weak"]
+const STD_PKGS: List<Str> = [
+  "bufio", "bytes", "cmp", "context", "crypto", "embed", "encoding", "errors", "expvar", "flag",
+  "fmt", "hash", "html", "image", "io", "iter", "log", "maps", "math", "mime", "net", "os", "path",
+  "plugin", "reflect", "regexp", "runtime", "slices", "sort", "strconv", "strings", "structs",
+  "sync", "syscall", "testing", "time", "unicode", "unique", "unsafe", "uuid", "weak",
+]
 
 pub fn is_std_pkg(path: Str) -> Bool {
   var lo = 0
@@ -243,10 +245,17 @@ fn is_list(line: List<Int>) -> Bool {
 
 fn ends_with_byte(b: List<Int>, c: Int) -> Bool { len(b) > 0 && b[len(b) - 1] == c }
 
-const OLD_HEADING_BAD: List<Int> = [59, 58, 33, 63, 43, 42, 47, 61, 91, 93, 123, 125, 95, 94, 0xB0, 38, 0xA7, 126, 37, 35, 64, 60, 34, 62, 92]
+const OLD_HEADING_BAD: List<Int> = [
+  59, 58, 33, 63, 43, 42, 47, 61, 91, 93, 123, 125, 95, 94, 0xB0, 38, 0xA7, 126, 37, 35, 64, 60, 34,
+  62, 92,
+]
 
 fn is_old_heading(line0: List<Int>, all: List<List<Int>>, off: Int) -> Bool {
-  if off <= 0 || len(all[off - 1]) != 0 || off + 2 >= len(all) || len(all[off + 1]) != 0 || leading_space(all[off + 2]) != 0 {
+  if off <= 0
+    || len(all[off - 1]) != 0
+    || off + 2 >= len(all)
+    || len(all[off + 1]) != 0
+    || leading_space(all[off + 2]) != 0 {
     return false
   }
   let line = trim_space(line0)
@@ -265,7 +274,10 @@ fn is_old_heading(line0: List<Int>, all: List<List<Int>>, off: Int) -> Bool {
   while i < len(line) {
     if line[i] == 39 {
       let rest = line[i + 1..len(line)]
-      if !(len(rest) == 1 && rest[0] == 115) && !(len(rest) >= 2 && rest[0] == 115 && rest[1] == 32) { return false }
+      if !(len(rest) == 1 && rest[0] == 115)
+        && !(len(rest) >= 2 && rest[0] == 115 && rest[1] == 32) {
+        return false
+      }
     }
     i += 1
   }
@@ -303,7 +315,11 @@ fn parse_spans(lines: List<List<Int>>) -> List<Span> {
     if i < force_indent || indented(lines[i]) {
       var unindented_list_ok = is_list(lines[i]) && i < force_indent
       i += 1
-      while i < nl && (len(lines[i]) == 0 || i < force_indent || indented(lines[i]) || (unindented_list_ok && is_list(lines[i]))) {
+      while i < nl
+        && (len(lines[i]) == 0
+          || i < force_indent
+          || indented(lines[i])
+          || (unindented_list_ok && is_list(lines[i]))) {
         if len(lines[i]) == 0 { unindented_list_ok = false }
         i += 1
       }
@@ -349,7 +365,13 @@ type PState = { links: List<LinkDef>, index: Map<Str, Int> }
 
 fn is_scheme(s: List<Int>) -> Bool {
   let t = bstr(s)
-  t == "file" || t == "ftp" || t == "gopher" || t == "http" || t == "https" || t == "mailto" || t == "nntp"
+  t == "file"
+    || t == "ftp"
+    || t == "gopher"
+    || t == "http"
+    || t == "https"
+    || t == "mailto"
+    || t == "nntp"
 }
 
 fn parse_link(line: List<Int>) -> Option<LinkDef> {
@@ -369,7 +391,9 @@ fn paragraph(p0: PState, lines: List<List<Int>>) -> (PState, Option<Block>) {
   for line in lines {
     match parse_link(line) {
       Some(d) => { defs = push(defs, d) },
-      None => { return (p0, Some(Block.Paragraph { text: [Text.Plain(bstr(join_lines(lines)))] })) },
+      None => {
+        return (p0, Some(Block.Paragraph { text: [Text.Plain(bstr(join_lines(lines)))] }))
+      },
     }
   }
   var p = p0
@@ -445,7 +469,11 @@ fn make_list(p0: PState, lines: List<List<Int>>, force_blank_before: Bool) -> (P
       None => {},
     }
   }
-  (p, Block.List { items: items, force_blank_before: force_blank_before, force_blank_between: between })
+  (p, Block.List {
+    items: items,
+    force_blank_before: force_blank_before,
+    force_blank_between: between,
+  })
 }
 
 // ---- 行内文本 ----
@@ -455,26 +483,44 @@ fn bit_in(c: Int, set: List<Int>) -> Bool {
   false
 }
 
-fn is_alnum_ascii(c: Int) -> Bool { (c >= 65 && c <= 90) || (c >= 97 && c <= 122) || (c >= 48 && c <= 57) }
+fn is_alnum_ascii(c: Int) -> Bool {
+  (c >= 65 && c <= 90) || (c >= 97 && c <= 122) || (c >= 48 && c <= 57)
+}
 
-fn is_host(c: Int) -> Bool { is_alnum_ascii(c) || c == 95 || c == 64 || c == 45 || c == 46 || c == 91 || c == 93 || c == 58 }
+fn is_host(c: Int) -> Bool {
+  is_alnum_ascii(c) || c == 95 || c == 64 || c == 45 || c == 46 || c == 91 || c == 93 || c == 58
+}
 
 fn is_punct_byte(c: Int) -> Bool { c == 46 || c == 44 || c == 58 || c == 59 || c == 63 || c == 33 }
 
-const PATH_EXTRA: List<Int> = [36, 39, 40, 41, 42, 43, 38, 35, 61, 64, 126, 95, 47, 45, 91, 93, 123, 125, 37]
+const PATH_EXTRA: List<Int> = [
+  36, 39, 40, 41, 42, 43, 38, 35, 61, 64, 126, 95, 47, 45, 91, 93, 123, 125, 37,
+]
 
 fn is_path(c: Int) -> Bool { is_alnum_ascii(c) || bit_in(c, PATH_EXTRA) }
 
 fn is_ident_ascii(c: Int) -> Bool { is_alnum_ascii(c) || c == 95 }
 
-fn import_path_ok(c: Int) -> Bool { is_alnum_ascii(c) || c == 45 || c == 46 || c == 126 || c == 95 || c == 43 }
+fn import_path_ok(c: Int) -> Bool {
+  is_alnum_ascii(c) || c == 45 || c == 46 || c == 126 || c == 95 || c == 43
+}
 
 // autoURL(s[off:])：返回 URL 的字节长度，0 表示不是 URL
 fn auto_url(s: List<Int>, off: Int) -> Int {
   let n = len(s) - off
   if n < 7 { return 0 }
   var i = 0
-  if s[off + 3] == 58 { i = 3 } else if s[off + 4] == 58 { i = 4 } else if s[off + 5] == 58 { i = 5 } else if s[off + 6] == 58 { i = 6 } else { return 0 }
+  if s[off + 3] == 58 {
+    i = 3
+  } else if s[off + 4] == 58 {
+    i = 4
+  } else if s[off + 5] == 58 {
+    i = 5
+  } else if s[off + 6] == 58 {
+    i = 6
+  } else {
+    return 0
+  }
   if i + 3 > n || s[off + i] != 58 || s[off + i + 1] != 47 || s[off + i + 2] != 47 { return 0 }
   if !is_scheme(s[off..off + i]) { return 0 }
   i += 3
@@ -495,7 +541,13 @@ fn auto_url(s: List<Int>, off: Int) -> Int {
       continue
     }
     if !is_path(c) { break }
-    if c == 40 { stk = push(stk, 41) } else if c == 123 { stk = push(stk, 125) } else if c == 91 { stk = push(stk, 93) } else if c == 41 || c == 125 || c == 93 {
+    if c == 40 {
+      stk = push(stk, 41)
+    } else if c == 123 {
+      stk = push(stk, 125)
+    } else if c == 91 {
+      stk = push(stk, 93)
+    } else if c == 41 || c == 125 || c == 93 {
       if len(stk) == 0 || stk[len(stk) - 1] != c { break }
       stk = stk[0..len(stk) - 1]
     }
@@ -674,14 +726,23 @@ fn parse_linked_text(p0: PState, text: List<Int>) -> (PState, List<Text>) {
             let d = p.links[k]
             p = PState { links: set(p.links, k, LinkDef { used: true, ..d }), ..p }
             if wrote < start { out = parse_text(out, text[wrote..start], true) }
-            out = push(out, Text.Link { auto: false, text: parse_text([], text[start + 1..i], false), url: d.url })
+            out = push(out, Text.Link {
+              auto: false,
+              text: parse_text([], text[start + 1..i], false),
+              url: d.url,
+            })
             wrote = i + 1
           },
           None => {
             match doc_link(text, start + 1, i) {
               Some((ip, recv, name)) => {
                 if wrote < start { out = parse_text(out, text[wrote..start], true) }
-                out = push(out, Text.DocLink { text: parse_text([], text[start + 1..i], false), import_path: ip, recv: recv, name: name })
+                out = push(out, Text.DocLink {
+                  text: parse_text([], text[start + 1..i], false),
+                  import_path: ip,
+                  recv: recv,
+                  name: name,
+                })
                 wrote = i + 1
               },
               None => {},
@@ -722,7 +783,9 @@ pub fn parse(text: Str) -> Doc {
     } else if s.kind == SPAN_CODE {
       content = push(content, code_block(ls))
     } else if s.kind == SPAN_OLD_HEADING {
-      content = push(content, Block.Heading { text: [Text.Plain(bstr(trim_space(lines[s.start])))] })
+      content = push(content, Block.Heading { text: [Text.Plain(bstr(trim_space(lines[
+        s.start
+      ])))] })
     } else if s.kind == SPAN_HEADING {
       let l = lines[s.start]
       content = push(content, Block.Heading { text: [Text.Plain(bstr(trim_space(l[1..len(l)])))] })
@@ -740,7 +803,9 @@ pub fn parse(text: Str) -> Doc {
   var out: List<Block> = []
   for b in content {
     match b {
-      Paragraph { text } => {
+      Paragraph {
+        text
+      } => {
         let (p2, t) = parse_linked_text(p, plain_bytes(text))
         p = p2
         out = push(out, Block.Paragraph { text: t })
@@ -751,7 +816,9 @@ pub fn parse(text: Str) -> Doc {
           var cs: List<Block> = []
           for c in it.content {
             match c {
-              Paragraph { text } => {
+              Paragraph {
+                text
+              } => {
                 let (p2, t) = parse_linked_text(p, plain_bytes(text))
                 p = p2
                 cs = push(cs, Block.Paragraph { text: t })
@@ -761,7 +828,11 @@ pub fn parse(text: Str) -> Doc {
           }
           its = push(its, ListItem { content: cs, ..it })
         }
-        out = push(out, Block.List { items: its, force_blank_before: force_blank_before, force_blank_between: force_blank_between })
+        out = push(out, Block.List {
+          items: its,
+          force_blank_before: force_blank_before,
+          force_blank_between: force_blank_between,
+        })
       },
       _ => { out = push(out, b) },
     }
@@ -819,7 +890,11 @@ fn text_str(ind: Str, xs: List<Text>) -> Str {
       Plain(s) => { out = push(out, indent_str(s, ind)) },
       Italic(s) => { out = push(out, indent_str(s, ind)) },
       Link { auto, text, .. } => {
-        if auto { out = push(out, text_str(ind, text)) } else { out = push(out, "[" + text_str(ind, text) + "]") }
+        if auto {
+          out = push(out, text_str(ind, text))
+        } else {
+          out = push(out, "[" + text_str(ind, text) + "]")
+        }
       },
       DocLink { text, .. } => { out = push(out, "[" + text_str(ind, text) + "]") },
     }
@@ -831,7 +906,9 @@ fn block_str(x: Block) -> Str {
   match x {
     Paragraph { text } => text_str("", text) + "\n",
     Heading { text } => "# " + text_str("", text) + "\n",
-    Code { text } => {
+    Code {
+      text
+    } => {
       var out: List<Str> = []
       if text != "" {
         var parts = split(text, "\n")

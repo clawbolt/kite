@@ -38,7 +38,7 @@ pub fn err_header_not_present() -> Str { "mail: header not in message" }
 fn bstr(bs: List<Int>) -> Str {
   match __from_bytes(bs) {
     Some(s) => s,
-    None    => lossy(bs),
+    None => lossy(bs),
   }
 }
 
@@ -85,7 +85,20 @@ fn is_wsp(c: Int) -> Bool { c == 32 || c == 9 }
 
 fn is_atext(c: Int, dot: Bool) -> Bool {
   if c == 46 { return dot }
-  if c == 40 || c == 41 || c == 60 || c == 62 || c == 91 || c == 93 || c == 58 || c == 59 || c == 64 || c == 92 || c == 44 || c == 34 { return false }
+  if c == 40
+    || c == 41
+    || c == 60
+    || c == 62
+    || c == 91
+    || c == 93
+    || c == 58
+    || c == 59
+    || c == 64
+    || c == 92
+    || c == 44
+    || c == 34 {
+    return false
+  }
   is_vchar(c)
 }
 
@@ -129,7 +142,9 @@ pub fn parse_address(address: Str) -> Result<Address, Str> {
   let (addrs, i0) = parse_addr(s, 0, true)?
   let (ok, i) = skip_cfws(s, i0)
   if !ok { return Err(misformatted()) }
-  if i < len(s) { return Err("mail: expected single address, got " + strconv.quote_go(bstr(s[i..]))) }
+  if i < len(s) {
+    return Err("mail: expected single address, got " + strconv.quote_go(bstr(s[i..])))
+  }
   if len(addrs) == 0 { return Err("mail: empty group") }
   if len(addrs) > 1 { return Err("mail: group with multiple addresses") }
   Ok(addrs[0])
@@ -336,7 +351,9 @@ fn consume_quoted_string(s: List<Int>, i0: Int) -> Result<(Str, Int), Str> {
       continue
     }
     if escaped {
-      if !is_vchar(c) && !is_wsp(c) { return Err("mail: bad character in quoted-string: " + strconv.quote_rune(c)) }
+      if !is_vchar(c) && !is_wsp(c) {
+        return Err("mail: bad character in quoted-string: " + strconv.quote_rune(c))
+      }
       out = push(out, c)
       escaped = false
     } else if is_qtext(c) || is_wsp(c) {
@@ -384,7 +401,9 @@ fn consume_domain_literal(s: List<Int>, i0: Int) -> Result<(Str, Int), Str> {
       i += sz
       continue
     }
-    if !is_dtext(c) { return Err("mail: bad character in domain-literal: " + strconv.quote_rune(c)) }
+    if !is_dtext(c) {
+      return Err("mail: bad character in domain-literal: " + strconv.quote_rune(c))
+    }
     dt = push(dt, c)
     i += 1
   }
@@ -394,7 +413,10 @@ fn consume_domain_literal(s: List<Int>, i0: Int) -> Result<(Str, Int), Str> {
     let ok6 = match netip.parse_addr(d[5..]) { Ok(a) => a.zone() == "", Err(_) => false }
     if !ok6 { return Err("mail: invalid IPv6 address in domain-literal: " + strconv.quote_go(d)) }
   } else {
-    let ok4 = match netip.parse_addr(d) { Ok(a) => a.zone() == "" && (a.is4() || a.is4in6()), Err(_) => false }
+    let ok4 = match netip.parse_addr(d) {
+      Ok(a) => a.zone() == "" && (a.is4() || a.is4in6()),
+      Err(_) => false,
+    }
     if !ok4 { return Err("mail: invalid IP address in domain-literal: " + strconv.quote_go(d)) }
   }
   Ok(("[" + d + "]", i + 1))
@@ -485,7 +507,7 @@ fn decode_rfc2047_word(w: Str) -> Result<(Str, Bool), Str> {
   } else if e == 81 || e == 113 {
     match q_decode(text) {
       Some(bs) => { content = bs }
-      None     => { return Ok((w, false)) }
+      None => { return Ok((w, false)) }
     }
   } else {
     return Ok((w, false))
@@ -508,7 +530,15 @@ fn decode_rfc2047_word(w: Str) -> Result<(Str, Bool), Str> {
 }
 
 fn from_hex(c: Int) -> Int {
-  if c >= 48 && c <= 57 { c - 48 } else if c >= 65 && c <= 70 { c - 55 } else if c >= 97 && c <= 102 { c - 87 } else { -1 }
+  if c >= 48 && c <= 57 {
+    c - 48
+  } else if c >= 65 && c <= 70 {
+    c - 55
+  } else if c >= 97 && c <= 102 {
+    c - 87
+  } else {
+    -1
+  }
 }
 
 fn q_decode(s: List<Int>) -> Option<List<Int>> {
@@ -670,7 +700,29 @@ impl Address {
     if printable { return quote_string(nb) + " " + sp }
     var special = false
     for c in nb {
-      if c == 34 || c == 35 || c == 36 || c == 37 || c == 38 || c == 39 || c == 40 || c == 41 || c == 44 || c == 46 || c == 58 || c == 59 || c == 60 || c == 62 || c == 64 || c == 91 || c == 93 || c == 94 || c == 96 || c == 123 || c == 124 || c == 125 || c == 126 {
+      if c == 34
+        || c == 35
+        || c == 36
+        || c == 37
+        || c == 38
+        || c == 39
+        || c == 40
+        || c == 41
+        || c == 44
+        || c == 46
+        || c == 58
+        || c == 59
+        || c == 60
+        || c == 62
+        || c == 64
+        || c == 91
+        || c == 93
+        || c == 94
+        || c == 96
+        || c == 123
+        || c == 124
+        || c == 125
+        || c == 126 {
         special = true
         break
       }
@@ -684,16 +736,64 @@ impl Address {
 
 fn valid_header_field_byte(c: Int) -> Bool {
   if (c >= 48 && c <= 57) || (c >= 65 && c <= 90) || (c >= 97 && c <= 122) { return true }
-  c == 33 || c == 35 || c == 36 || c == 37 || c == 38 || c == 39 || c == 42 || c == 43 || c == 45 || c == 46 || c == 94 || c == 95 || c == 96 || c == 124 || c == 126
+  c == 33
+    || c == 35
+    || c == 36
+    || c == 37
+    || c == 38
+    || c == 39
+    || c == 42
+    || c == 43
+    || c == 45
+    || c == 46
+    || c == 94
+    || c == 95
+    || c == 96
+    || c == 124
+    || c == 126
 }
 
 fn common_headers() -> List<Str> {
   [
-    "Accept", "Accept-Charset", "Accept-Encoding", "Accept-Language", "Accept-Ranges", "Cache-Control", "Cc", "Connection",
-    "Content-Id", "Content-Language", "Content-Length", "Content-Transfer-Encoding", "Content-Type", "Cookie", "Date",
-    "Dkim-Signature", "Etag", "Expires", "From", "Host", "If-Modified-Since", "If-None-Match", "In-Reply-To", "Last-Modified",
-    "Location", "Message-Id", "Mime-Version", "Pragma", "Received", "Return-Path", "Server", "Set-Cookie", "Subject", "To",
-    "User-Agent", "Via", "X-Forwarded-For", "X-Imforwards", "X-Powered-By",
+    "Accept",
+    "Accept-Charset",
+    "Accept-Encoding",
+    "Accept-Language",
+    "Accept-Ranges",
+    "Cache-Control",
+    "Cc",
+    "Connection",
+    "Content-Id",
+    "Content-Language",
+    "Content-Length",
+    "Content-Transfer-Encoding",
+    "Content-Type",
+    "Cookie",
+    "Date",
+    "Dkim-Signature",
+    "Etag",
+    "Expires",
+    "From",
+    "Host",
+    "If-Modified-Since",
+    "If-None-Match",
+    "In-Reply-To",
+    "Last-Modified",
+    "Location",
+    "Message-Id",
+    "Mime-Version",
+    "Pragma",
+    "Received",
+    "Return-Path",
+    "Server",
+    "Set-Cookie",
+    "Subject",
+    "To",
+    "User-Agent",
+    "Via",
+    "X-Forwarded-For",
+    "X-Imforwards",
+    "X-Powered-By",
   ]
 }
 
@@ -799,7 +899,9 @@ impl Header {
     if len(vs) == 0 { "" } else { vs[0] }
   }
 
-  fn values(self, key: Str) -> List<Str> { unwrap_or(get(self.m, canonical_mime_header_key(key)), []) }
+  fn values(self, key: Str) -> List<Str> {
+    unwrap_or(get(self.m, canonical_mime_header_key(key)), [])
+  }
 
   fn keys(self) -> List<Str> { sort(keys(self.m)) }
 
@@ -1180,7 +1282,7 @@ pub fn parse_date(date0: Str) -> Result<Time, Str> {
   for layout in date_layouts() {
     match time_parse(layout, date) {
       Some(t) => { return Ok(t) }
-      None    => {}
+      None => {}
     }
   }
   Err("mail: header could not be parsed")

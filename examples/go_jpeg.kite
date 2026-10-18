@@ -15,31 +15,74 @@ fn sum(b: List<Int>) -> Int {
 fn desc(m: Image) -> Str {
   let r = m.rect.string()
   if m.kind == image.GRAY { return "Gray {r} {m.stride} {len(m.pix)} {sum(m.pix)}" }
-  if m.kind == image.YCBCR { return "YCbCr {r} {image.ratio_string(m.ratio)} {m.y_stride} {m.c_stride} {len(m.y)} {len(m.cb)} {sum(m.y)} {sum(m.cb)} {sum(m.cr)}" }
+  if m.kind == image.YCBCR {
+    return "YCbCr {r} {image.ratio_string(m.ratio)} {m.y_stride} {m.c_stride} {len(m.y)} {len(m.cb)} {sum(m.y)} {sum(m.cb)} {sum(m.cr)}"
+  }
   if m.kind == image.RGBA { return "RGBA {r} {m.stride} {len(m.pix)} {sum(m.pix)}" }
   if m.kind == image.CMYK { return "CMYK {r} {m.stride} {len(m.pix)} {sum(m.pix)}" }
-  if m.kind == image.PALETTED { return "Paletted {r} {m.stride} {len(m.pix)} {sum(m.pix)} {len(m.palette)}" }
+  if m.kind == image.PALETTED {
+    return "Paletted {r} {m.stride} {len(m.pix)} {sum(m.pix)} {len(m.palette)}"
+  }
   "?"
 }
 
 fn model(m: Int) -> Str {
-  if m == color.GRAY_MODEL { "Gray" } else if m == color.YCBCR_MODEL { "YCbCr" } else if m == color.RGBA_MODEL { "RGBA" } else if m == color.CMYK_MODEL { "CMYK" } else { "?" }
+  if m == color.GRAY_MODEL {
+    "Gray"
+  } else if m == color.YCBCR_MODEL {
+    "YCbCr"
+  } else if m == color.RGBA_MODEL {
+    "RGBA"
+  } else if m == color.CMYK_MODEL {
+    "CMYK"
+  } else {
+    "?"
+  }
 }
 
 fn gl(b: List<Int>) -> Str { "[" + join(map(b, (x) => str(x)), " ") + "]" }
 
 fn main() {
-  let files = ["video-001.221212", "video-001.cmyk", "video-001", "video-001.progressive", "video-001.progressive.truncated",
-    "video-001.q50.121121", "video-001.q50.211211", "video-001.q50.221122", "video-001.q50.222112", "video-001.q50.410", "video-001.q50.410.progressive",
-    "video-001.q50.411", "video-001.q50.411.progressive", "video-001.q50.420", "video-001.q50.420.progressive", "video-001.q50.422", "video-001.q50.422.progressive",
-    "video-001.q50.440", "video-001.q50.440.progressive", "video-001.q50.444", "video-001.q50.444.progressive", "video-001.restart2", "video-001.rgb",
-    "video-001.separate.dc.progression", "video-001.separate.dc.progression.progressive", "video-005.gray", "video-005.gray.q50.2x2",
-    "video-005.gray.q50.2x2.progressive", "video-005.gray.q50", "video-005.gray.q50.progressive"]
+  let files = [
+    "video-001.221212",
+    "video-001.cmyk",
+    "video-001",
+    "video-001.progressive",
+    "video-001.progressive.truncated",
+    "video-001.q50.121121",
+    "video-001.q50.211211",
+    "video-001.q50.221122",
+    "video-001.q50.222112",
+    "video-001.q50.410",
+    "video-001.q50.410.progressive",
+    "video-001.q50.411",
+    "video-001.q50.411.progressive",
+    "video-001.q50.420",
+    "video-001.q50.420.progressive",
+    "video-001.q50.422",
+    "video-001.q50.422.progressive",
+    "video-001.q50.440",
+    "video-001.q50.440.progressive",
+    "video-001.q50.444",
+    "video-001.q50.444.progressive",
+    "video-001.restart2",
+    "video-001.rgb",
+    "video-001.separate.dc.progression",
+    "video-001.separate.dc.progression.progressive",
+    "video-005.gray",
+    "video-005.gray.q50.2x2",
+    "video-005.gray.q50.2x2.progressive",
+    "video-005.gray.q50",
+    "video-005.gray.q50.progressive",
+  ]
   var keep: Option<Image> = None
   var keep_gray: Option<Image> = None
   for f in files {
     let bs = unwrap(__read_bytes("tests/go/testdata/" + f + ".jpeg"))
-    let (cm, cw, ch, ce) = match jpeg.decode_config(bs) { Ok(c) => (model(c.model), c.width, c.height, "<nil>"), Err(e) => ("?", 0, 0, e) }
+    let (cm, cw, ch, ce) = match jpeg.decode_config(bs) {
+      Ok(c) => (model(c.model), c.width, c.height, "<nil>"),
+      Err(e) => ("?", 0, 0, e),
+    }
     match jpeg.decode(bs) {
       Err(e) => print("{f} {e} {cm} {cw} {ch} {ce}"),
       Ok(m) => {
@@ -51,7 +94,10 @@ fn main() {
   }
   let bs = unwrap(__read_bytes("tests/go/testdata/video-001.q50.420.jpeg"))
   for n in [0, 1, 2, 3, 10, 100, 300, 600, 700, 1000, 2000, 3000, 3400] {
-    match jpeg.decode(bs[0..n]) { Ok(_) => print("trunc {n} <nil>"), Err(e) => print("trunc {n} {e}") }
+    match jpeg.decode(bs[0..n]) {
+      Ok(_) => print("trunc {n} <nil>"),
+      Err(e) => print("trunc {n} {e}"),
+    }
   }
   for i in [2, 3, 5, 20, 25, 90, 160, 165, 170, 200, 400, 600, 610, 620, 630, 1500, 3000] {
     var b = bs
@@ -70,15 +116,27 @@ fn main() {
   rgba = Image { pix: map(0..len(rgba.pix), (i) => (i * i / 7 + i) & 255), ..rgba }
   let re = unwrap(jpeg.encode(rgba, jpeg.DEFAULT_QUALITY))
   print("rgba {len(re)} {sum(re)} {gl(re[600..640])}")
-  var pal = unwrap(image.new_paletted(image.rect(0, 0, 20, 9), [Color.RGBA(255, 0, 0, 255), Color.RGBA(0, 0, 255, 255), Color.RGBA(30, 200, 40, 255)]))
+  var pal = unwrap(image.new_paletted(image.rect(0, 0, 20, 9), [
+    Color.RGBA(255, 0, 0, 255),
+    Color.RGBA(0, 0, 255, 255),
+    Color.RGBA(30, 200, 40, 255),
+  ]))
   pal = Image { pix: map(0..len(pal.pix), (i) => i % 3), ..pal }
   let pe = unwrap(jpeg.encode(pal, 90))
   print("pal {len(pe)} {sum(pe)}")
-  for f in ["triangle-001", "video-001.5bpp", "video-001", "video-001.interlaced", "video-005.gray"] {
+  for f in [
+    "triangle-001",
+    "video-001.5bpp",
+    "video-001",
+    "video-001.interlaced",
+    "video-005.gray",
+  ] {
     let gb = unwrap(__read_bytes("tests/go/testdata/" + f + ".gif"))
     match gif.decode_all(gb) {
       Err(e) => print("{f} {e}"),
-      Ok(g) => print("{f} {len(g.images)} {g.loop_count} {gl(g.delay)} {gl(g.disposal)} {g.config.width} {g.config.height} {g.background_index} {desc(g.images[0])}"),
+      Ok(g) => print(
+        "{f} {len(g.images)} {g.loop_count} {gl(g.delay)} {gl(g.disposal)} {g.config.width} {g.config.height} {g.background_index} {desc(g.images[0])}",
+      ),
     }
   }
 }

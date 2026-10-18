@@ -132,7 +132,9 @@ pub fn trailing_zeros64(x: Int) -> Int {
 
 pub fn trailing_zeros32(x: Int) -> Int { if x & M32 == 0 { 32 } else { trailing_zeros64(x & M32) } }
 
-pub fn trailing_zeros16(x: Int) -> Int { if x & 0xffff == 0 { 16 } else { trailing_zeros64(x & 0xffff) } }
+pub fn trailing_zeros16(x: Int) -> Int {
+  if x & 0xffff == 0 { 16 } else { trailing_zeros64(x & 0xffff) }
+}
 
 pub fn trailing_zeros8(x: Int) -> Int { if x & 0xff == 0 { 8 } else { trailing_zeros64(x & 0xff) } }
 

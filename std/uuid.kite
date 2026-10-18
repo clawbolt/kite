@@ -46,7 +46,9 @@ pub fn unmarshal_text(bs: List<Int>) -> Result<UUID, Str> {
   }
   if len(b) != 36 { return invalid }
   if b[8] != 45 || b[13] != 45 || b[18] != 45 || b[23] != 45 { return invalid }
-  let Some(s) = __from_bytes(b[0..8] + b[9..13] + b[14..18] + b[19..23] + b[24..36]) else { return invalid }
+  let Some(s) = __from_bytes(b[0..8] + b[9..13] + b[14..18] + b[19..23] + b[24..36]) else {
+    return invalid
+  }
   if len(chars(s)) != 32 { return invalid }
   let Some(d) = hx(s) else { return invalid }
   Ok(UUID { b: d })

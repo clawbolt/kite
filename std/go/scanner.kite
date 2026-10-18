@@ -24,7 +24,9 @@ pub fn error_string(e: Error) -> Str {
 }
 
 // sort.Sort 不稳定，但比较键包含了全部字段，结果唯一
-pub fn sort_errors(es: List<Error>) -> List<Error> { sort_by(es, (e) => (e.pos.filename, e.pos.line, e.pos.column, e.msg)) }
+pub fn sort_errors(es: List<Error>) -> List<Error> {
+  sort_by(es, (e) => (e.pos.filename, e.pos.line, e.pos.column, e.msg))
+}
 
 pub fn remove_multiples(es0: List<Error>) -> List<Error> {
   let es = sort_errors(es0)
@@ -111,7 +113,10 @@ pub fn decode_rune(p: List<Int>, i: Int) -> (Int, Int) {
   if n < 2 || p[i + 1] < lo || p[i + 1] > hi { return (65533, 1) }
   if n < 3 || p[i + 2] & 0xC0 != 0x80 { return (65533, 1) }
   if n < 4 || p[i + 3] & 0xC0 != 0x80 { return (65533, 1) }
-  (((b0 & 0x07) << 18) | ((p[i + 1] & 0x3F) << 12) | ((p[i + 2] & 0x3F) << 6) | (p[i + 3] & 0x3F), 4)
+  (
+    ((b0 & 0x07) << 18) | ((p[i + 1] & 0x3F) << 12) | ((p[i + 2] & 0x3F) << 6) | (p[i + 3] & 0x3F),
+    4,
+  )
 }
 
 fn err_at(s: Scanner, offs: Int, msg: Str) -> Scanner {
@@ -135,7 +140,9 @@ fn next(s0: Scanner) -> Scanner {
       w = w2
       if r == 65533 && w == 1 {
         let n = len(s.src) - off
-        if off == 0 && n >= 2 && (s.src[0] == 0xFF && s.src[1] == 0xFE || s.src[0] == 0xFE && s.src[1] == 0xFF) {
+        if off == 0
+          && n >= 2
+          && (s.src[0] == 0xFF && s.src[1] == 0xFE || s.src[0] == 0xFE && s.src[1] == 0xFF) {
           s = err_at(s, off, "illegal UTF-8 encoding (got UTF-16)")
           w = n
         } else {
@@ -156,10 +163,26 @@ fn peek(s: Scanner) -> Int { if s.rd < len(s.src) { s.src[s.rd] } else { 0 } }
 
 // Go 的 Init 在 file.Size() != len(src) 时 panic，这里返回 Err
 pub fn init(file: token.File, src: List<Int>, mode: Int) -> Result<Scanner, Str> {
-  if file.size != len(src) { return Err("file size ({file.size}) does not match src len ({len(src)})") }
+  if file.size != len(src) {
+    return Err("file size ({file.size}) does not match src len ({len(src)})")
+  }
   let (dir, _) = path.split(file.name)
-  var s = Scanner { file: file, dir: dir, src: src, mode: mode, ch: 32, offset: 0, rd: 0, line_offset: 0, insert_semi: false,
-    nl_pos: 0, end_pos_valid: true, end_pos: 0, error_count: 0, errors: [] }
+  var s = Scanner {
+    file: file,
+    dir: dir,
+    src: src,
+    mode: mode,
+    ch: 32,
+    offset: 0,
+    rd: 0,
+    line_offset: 0,
+    insert_semi: false,
+    nl_pos: 0,
+    end_pos_valid: true,
+    end_pos: 0,
+    error_count: 0,
+    errors: [],
+  }
   s = next(s)
   if s.ch == BOM { s = next(s) }
   Ok(s)
@@ -170,10 +193,14 @@ fn is_decimal(ch: Int) -> Bool { ch >= 48 && ch <= 57 }
 fn is_hex(ch: Int) -> Bool { ch >= 48 && ch <= 57 || lower(ch) >= 97 && lower(ch) <= 102 }
 
 fn is_letter(ch: Int) -> Bool {
-  lower(ch) >= 97 && lower(ch) <= 122 || ch == 95 || ch >= 128 && ch <= 1114111 && unicode.is_letter(__chr(safe(ch)))
+  lower(ch) >= 97 && lower(ch) <= 122
+    || ch == 95
+    || ch >= 128 && ch <= 1114111 && unicode.is_letter(__chr(safe(ch)))
 }
 
-fn is_digit(ch: Int) -> Bool { is_decimal(ch) || ch >= 128 && ch <= 1114111 && unicode.is_digit(__chr(safe(ch))) }
+fn is_digit(ch: Int) -> Bool {
+  is_decimal(ch) || ch >= 128 && ch <= 1114111 && unicode.is_digit(__chr(safe(ch)))
+}
 
 fn safe(r: Int) -> Int { if r >= 55296 && r <= 57343 { 65533 } else { r } }
 
@@ -188,11 +215,15 @@ fn fmt_u(r: Int) -> Str {
   h = upper_ascii(h)
   while len(h) < 4 { h = "0" + h }
   var s = (if r < 0 { "U+-" } else { "U+" }) + h
-  if r >= 0 && r <= 1114111 && !(r >= 55296 && r <= 57343) && unicode.is_print(__chr(r)) { s = s + " '" + __chr(r) + "'" }
+  if r >= 0 && r <= 1114111 && !(r >= 55296 && r <= 57343) && unicode.is_print(__chr(r)) {
+    s = s + " '" + __chr(r) + "'"
+  }
   s
 }
 
-fn upper_ascii(s: Str) -> Str { join(map(chars(s), (c) => if c >= "a" && c <= "z" { __chr(__ord(c) - 32) } else { c }), "") }
+fn upper_ascii(s: Str) -> Str {
+  join(map(chars(s), (c) => if c >= "a" && c <= "z" { __chr(__ord(c) - 32) } else { c }), "")
+}
 
 fn starts_with_bytes(bs: List<Int>, from: Int, p: List<Int>) -> Bool {
   if len(bs) - from < len(p) { return false }
@@ -240,7 +271,9 @@ fn scan_comment(s0: Scanner) -> (Scanner, Str, Int) {
     lit = lit[0..len(lit) - 1]
     num_cr -= 1
   }
-  if nxt >= 0 && (lit[1] == 42 || offs == s.line_offset) && starts_with_bytes(lit, 2, [108, 105, 110, 101, 32]) {
+  if nxt >= 0
+    && (lit[1] == 42 || offs == s.line_offset)
+    && starts_with_bytes(lit, 2, [108, 105, 110, 101, 32]) {
     s = update_line_info(s, nxt, offs, lit)
   }
   if num_cr > 0 { lit = strip_cr(lit, lit[1] == 42) }
@@ -282,12 +315,16 @@ fn update_line_info(s: Scanner, nxt: Int, offs0: Int, text0: List<Int>) -> Scann
     i2 = t
     line = n2
     col = n
-    if col == 0 || col > max_lc { return err_at(s, offs + i2, "invalid column number: " + bytes_str(text[i2..])) }
+    if col == 0 || col > max_lc {
+      return err_at(s, offs + i2, "invalid column number: " + bytes_str(text[i2..]))
+    }
     text = text[0..i2 - 1]
   } else {
     line = n
   }
-  if line == 0 || line > max_lc { return err_at(s, offs + i, "invalid line number: " + bytes_str(text[i..])) }
+  if line == 0 || line > max_lc {
+    return err_at(s, offs + i, "invalid line number: " + bytes_str(text[i..]))
+  }
   var filename = bytes_str(text[0..i - 1])
   if filename == "" && ok2 {
     filename = s.file.position(s.file.pos(offs)).filename
@@ -303,7 +340,10 @@ fn strip_cr(b: List<Int>, comment: Bool) -> List<Int> {
   var j = 0
   while j < len(b) {
     let ch = b[j]
-    if ch != 13 || comment && len(c) > 2 && c[len(c) - 1] == 42 && j + 1 < len(b) && b[j + 1] == 47 { c = push(c, ch) }
+    if ch != 13
+      || comment && len(c) > 2 && c[len(c) - 1] == 42 && j + 1 < len(b) && b[j + 1] == 47 {
+      c = push(c, ch)
+    }
     j += 1
   }
   c
@@ -316,7 +356,9 @@ fn scan_identifier(s0: Scanner) -> (Scanner, Str) {
   let n = len(s.src)
   while k < n {
     let b = s.src[k]
-    if b >= 97 && b <= 122 || b >= 65 && b <= 90 || b == 95 || b >= 48 && b <= 57 { k += 1; continue }
+    if b >= 97 && b <= 122 || b >= 65 && b <= 90 || b == 95 || b >= 48 && b <= 57 {
+      k += 1; continue
+    }
     if 0 < b && b < 128 {
       s = Scanner { ch: b, offset: k, rd: k + 1, ..s }
       return (s, bytes_str(s.src[offs..s.offset]))
@@ -399,10 +441,15 @@ fn scan_number(s0: Scanner) -> (Scanner, Int, Str) {
     if s.ch == 48 {
       s = next(s)
       let l = lower(s.ch)
-      if l == 120 { s = next(s); base = 16; prefix = 120 }
-      else if l == 111 { s = next(s); base = 8; prefix = 111 }
-      else if l == 98 { s = next(s); base = 2; prefix = 98 }
-      else { base = 8; prefix = 48; digsep = 1 }
+      if l == 120 {
+        s = next(s); base = 16; prefix = 120
+      } else if l == 111 {
+        s = next(s); base = 8; prefix = 111
+      } else if l == 98 {
+        s = next(s); base = 2; prefix = 98
+      } else {
+        base = 8; prefix = 48; digsep = 1
+      }
     }
     let (s2, ds, inv) = digits(s, base, invalid)
     s = s2
@@ -411,7 +458,9 @@ fn scan_number(s0: Scanner) -> (Scanner, Int, Str) {
   }
   if s.ch == 46 {
     tok = token.FLOAT
-    if prefix == 111 || prefix == 98 { s = err_at(s, s.offset, "invalid radix point in " + litname(prefix)) }
+    if prefix == 111 || prefix == 98 {
+      s = err_at(s, s.offset, "invalid radix point in " + litname(prefix))
+    }
     s = next(s)
     let (s2, ds, inv) = digits(s, base, invalid)
     s = s2
@@ -442,7 +491,11 @@ fn scan_number(s0: Scanner) -> (Scanner, Int, Str) {
   }
   let litb = s.src[offs..s.offset]
   if tok == token.INT && invalid >= 0 {
-    s = err_at(s, invalid, "invalid digit " + strconv.quote_rune(litb[invalid - offs]) + " in " + litname(prefix))
+    s = err_at(
+      s,
+      invalid,
+      "invalid digit " + strconv.quote_rune(litb[invalid - offs]) + " in " + litname(prefix),
+    )
   }
   if digsep & 2 != 0 {
     let i = invalid_sep(litb)
@@ -458,14 +511,26 @@ fn scan_escape(s0: Scanner, quote: Int) -> (Scanner, Bool) {
   var base = 0
   var mx = 0
   let c = s.ch
-  if c == 97 || c == 98 || c == 102 || c == 110 || c == 114 || c == 116 || c == 118 || c == 92 || c == quote {
+  if c == 97
+    || c == 98
+    || c == 102
+    || c == 110
+    || c == 114
+    || c == 116
+    || c == 118
+    || c == 92
+    || c == quote {
     return (next(s), true)
   }
-  if c >= 48 && c <= 55 { n = 3; base = 8; mx = 255 }
-  else if c == 120 { s = next(s); n = 2; base = 16; mx = 255 }
-  else if c == 117 { s = next(s); n = 4; base = 16; mx = 1114111 }
-  else if c == 85 { s = next(s); n = 8; base = 16; mx = 1114111 }
-  else {
+  if c >= 48 && c <= 55 {
+    n = 3; base = 8; mx = 255
+  } else if c == 120 {
+    s = next(s); n = 2; base = 16; mx = 255
+  } else if c == 117 {
+    s = next(s); n = 4; base = 16; mx = 1114111
+  } else if c == 85 {
+    s = next(s); n = 8; base = 16; mx = 1114111
+  } else {
     let msg = if s.ch < 0 { "escape sequence not terminated" } else { "unknown escape sequence" }
     return (err_at(s, offs, msg), false)
   }
@@ -473,14 +538,20 @@ fn scan_escape(s0: Scanner, quote: Int) -> (Scanner, Bool) {
   while n > 0 {
     let d = if s.ch < 0 { 16 } else { digit_val(s.ch) }
     if d >= base {
-      let msg = if s.ch < 0 { "escape sequence not terminated" } else { "illegal character " + fmt_u(s.ch) + " in escape sequence" }
+      let msg = if s.ch < 0 {
+        "escape sequence not terminated"
+      } else {
+        "illegal character " + fmt_u(s.ch) + " in escape sequence"
+      }
       return (err_at(s, s.offset, msg), false)
     }
     x = (x * base + d) % 4294967296
     s = next(s)
     n -= 1
   }
-  if x > mx || 55296 <= x && x < 57344 { return (err_at(s, offs, "escape sequence is invalid Unicode code point"), false) }
+  if x > mx || 55296 <= x && x < 57344 {
+    return (err_at(s, offs, "escape sequence is invalid Unicode code point"), false)
+  }
   (s, true)
 }
 
@@ -578,7 +649,9 @@ fn switch4(s0: Scanner, t0: Int, t1: Int, ch2: Int, t2: Int, t3: Int) -> (Scanne
 }
 
 impl Scanner {
-  pub fn end(self) -> Int { if self.end_pos_valid { self.end_pos } else { self.file.pos(self.offset) } }
+  pub fn end(self) -> Int {
+    if self.end_pos_valid { self.end_pos } else { self.file.pos(self.offset) }
+  }
 
   pub fn scan(self) -> (Scanner, Int, Int, Str) {
     var s = self
@@ -602,7 +675,13 @@ impl Scanner {
         lit = l
         if len(__bytes(lit)) > 1 {
           tok = token.lookup(lit)
-          if tok == token.IDENT || tok == token.BREAK || tok == token.CONTINUE || tok == token.FALLTHROUGH || tok == token.RETURN { insert_semi = true }
+          if tok == token.IDENT
+            || tok == token.BREAK
+            || tok == token.CONTINUE
+            || tok == token.FALLTHROUGH
+            || tok == token.RETURN {
+            insert_semi = true
+          }
         } else {
           insert_semi = true
           tok = token.IDENT
@@ -616,7 +695,9 @@ impl Scanner {
       } else {
         s = next(s)
         if ch == EOF_CH {
-          if s.insert_semi { return (Scanner { insert_semi: false, ..s }, pos, token.SEMICOLON, "\n") }
+          if s.insert_semi {
+            return (Scanner { insert_semi: false, ..s }, pos, token.SEMICOLON, "\n")
+          }
           tok = token.EOF
         } else if ch == 10 {
           return (Scanner { insert_semi: false, ..s }, pos, token.SEMICOLON, "\n")
@@ -646,15 +727,23 @@ impl Scanner {
             s = next(next(s))
             tok = token.ELLIPSIS
           }
-        } else if ch == 44 { tok = token.COMMA }
-        else if ch == 59 { tok = token.SEMICOLON; lit = ";" }
-        else if ch == 40 { tok = token.LPAREN }
-        else if ch == 41 { insert_semi = true; tok = token.RPAREN }
-        else if ch == 91 { tok = token.LBRACK }
-        else if ch == 93 { insert_semi = true; tok = token.RBRACK }
-        else if ch == 123 { tok = token.LBRACE }
-        else if ch == 125 { insert_semi = true; tok = token.RBRACE }
-        else if ch == 43 {
+        } else if ch == 44 {
+          tok = token.COMMA
+        } else if ch == 59 {
+          tok = token.SEMICOLON; lit = ";"
+        } else if ch == 40 {
+          tok = token.LPAREN
+        } else if ch == 41 {
+          insert_semi = true; tok = token.RPAREN
+        } else if ch == 91 {
+          tok = token.LBRACK
+        } else if ch == 93 {
+          insert_semi = true; tok = token.RBRACK
+        } else if ch == 123 {
+          tok = token.LBRACE
+        } else if ch == 125 {
+          insert_semi = true; tok = token.RBRACE
+        } else if ch == 43 {
           let (s2, t) = switch3(s, token.ADD, token.ADD_ASSIGN, 43, token.INC); s = s2; tok = t
           if tok == token.INC { insert_semi = true }
         } else if ch == 45 {
@@ -680,31 +769,46 @@ impl Scanner {
           } else {
             let (s2, t) = switch2(s, token.QUO, token.QUO_ASSIGN); s = s2; tok = t
           }
-        } else if ch == 37 { let (s2, t) = switch2(s, token.REM, token.REM_ASSIGN); s = s2; tok = t }
-        else if ch == 94 { let (s2, t) = switch2(s, token.XOR, token.XOR_ASSIGN); s = s2; tok = t }
-        else if ch == 60 {
+        } else if ch == 37 {
+          let (s2, t) = switch2(s, token.REM, token.REM_ASSIGN); s = s2; tok = t
+        } else if ch == 94 {
+          let (s2, t) = switch2(s, token.XOR, token.XOR_ASSIGN); s = s2; tok = t
+        } else if ch == 60 {
           if s.ch == 45 {
             s = next(s)
             tok = token.ARROW
           } else {
-            let (s2, t) = switch4(s, token.LSS, token.LEQ, 60, token.SHL, token.SHL_ASSIGN); s = s2; tok = t
+            let (s2, t) = switch4(s, token.LSS, token.LEQ, 60, token.SHL, token.SHL_ASSIGN); s =
+              s2; tok = t
           }
-        } else if ch == 62 { let (s2, t) = switch4(s, token.GTR, token.GEQ, 62, token.SHR, token.SHR_ASSIGN); s = s2; tok = t }
-        else if ch == 61 { let (s2, t) = switch2(s, token.ASSIGN, token.EQL); s = s2; tok = t }
-        else if ch == 33 { let (s2, t) = switch2(s, token.NOT, token.NEQ); s = s2; tok = t }
-        else if ch == 38 {
+        } else if ch == 62 {
+          let (s2, t) = switch4(s, token.GTR, token.GEQ, 62, token.SHR, token.SHR_ASSIGN); s =
+            s2; tok = t
+        } else if ch == 61 {
+          let (s2, t) = switch2(s, token.ASSIGN, token.EQL); s = s2; tok = t
+        } else if ch == 33 {
+          let (s2, t) = switch2(s, token.NOT, token.NEQ); s = s2; tok = t
+        } else if ch == 38 {
           if s.ch == 94 {
             s = next(s)
             let (s2, t) = switch2(s, token.AND_NOT, token.AND_NOT_ASSIGN); s = s2; tok = t
           } else {
             let (s2, t) = switch3(s, token.AND, token.AND_ASSIGN, 38, token.LAND); s = s2; tok = t
           }
-        } else if ch == 124 { let (s2, t) = switch3(s, token.OR, token.OR_ASSIGN, 124, token.LOR); s = s2; tok = t }
-        else if ch == 126 { tok = token.TILDE }
-        else {
+        } else if ch == 124 {
+          let (s2, t) = switch3(s, token.OR, token.OR_ASSIGN, 124, token.LOR); s = s2; tok = t
+        } else if ch == 126 {
+          tok = token.TILDE
+        } else {
           if ch != BOM {
             if ch == 8220 || ch == 8221 {
-              s = err_at(s, s.file.offset(pos), "curly quotation mark " + strconv.quote_rune(ch) + " (use neutral " + strconv.quote_rune(34) + ")")
+              s = err_at(
+                s,
+                s.file.offset(pos),
+                "curly quotation mark " + strconv
+                  .quote_rune(ch) + " (use neutral " + strconv
+                  .quote_rune(34) + ")",
+              )
             } else {
               s = err_at(s, s.file.offset(pos), "illegal character " + fmt_u(ch))
             }

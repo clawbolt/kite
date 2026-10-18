@@ -34,7 +34,15 @@ use std.unicode
 
 fn digit_val(c: Str) -> Int {
   let o = __ord(c)
-  if o >= 48 && o <= 57 { o - 48 } else if o >= 97 && o <= 122 { o - 87 } else if o >= 65 && o <= 90 { o - 55 } else { 99 }
+  if o >= 48 && o <= 57 {
+    o - 48
+  } else if o >= 97 && o <= 122 {
+    o - 87
+  } else if o >= 65 && o <= 90 {
+    o - 55
+  } else {
+    99
+  }
 }
 
 pub fn itoa(n: Int) -> Str { "{n}" }
@@ -79,7 +87,13 @@ pub fn parse_int_base(s: Str, base: Int) -> Result<Int, Str> {
     prev = c
   }
   if prev == "_" { return Err(bad) }
-  if neg { Ok(r) } else if r == -9223372036854775807 - 1 { Err("超出 Int 范围: {s}") } else { Ok(-r) }
+  if neg {
+    Ok(r)
+  } else if r == -9223372036854775807 - 1 {
+    Err("超出 Int 范围: {s}")
+  } else {
+    Ok(-r)
+  }
 }
 
 // 按 base（2 到 36）格式化，字母用小写
@@ -99,8 +113,12 @@ pub fn format_int(n: Int, base: Int) -> Str {
 }
 
 pub fn parse_bool(s: Str) -> Result<Bool, Str> {
-  if s == "1" || s == "t" || s == "T" || s == "true" || s == "TRUE" || s == "True" { return Ok(true) }
-  if s == "0" || s == "f" || s == "F" || s == "false" || s == "FALSE" || s == "False" { return Ok(false) }
+  if s == "1" || s == "t" || s == "T" || s == "true" || s == "TRUE" || s == "True" {
+    return Ok(true)
+  }
+  if s == "0" || s == "f" || s == "F" || s == "false" || s == "FALSE" || s == "False" {
+    return Ok(false)
+  }
   Err("无法解析为布尔值: {s}")
 }
 
@@ -119,7 +137,21 @@ pub fn quote(s: Str) -> Str {
   var out = "\""
   for c in chars(s) {
     let o = __ord(c)
-    out = out + if c == "\"" { "\\\"" } else if c == "\\" { "\\\\" } else if o == 10 { "\\n" } else if o == 9 { "\\t" } else if o == 13 { "\\r" } else if o < 32 || o == 127 { "\\u" + hex4(o) } else { c }
+    out = out + if c == "\"" {
+      "\\\""
+    } else if c == "\\" {
+      "\\\\"
+    } else if o == 10 {
+      "\\n"
+    } else if o == 9 {
+      "\\t"
+    } else if o == 13 {
+      "\\r"
+    } else if o < 32 || o == 127 {
+      "\\u" + hex4(o)
+    } else {
+      c
+    }
   }
   out + "\""
 }
@@ -142,7 +174,21 @@ pub fn unquote(s: Str) -> Result<Str, Str> {
     }
     if i + 1 >= n - 1 { return Err("转义序列不完整") }
     let e = cs[i + 1]
-    if e == "n" { out = out + "\n" } else if e == "t" { out = out + "\t" } else if e == "r" { out = out + __chr(13) } else if e == "\\" { out = out + "\\" } else if e == "\"" { out = out + "\"" } else if e == "'" { out = out + "'" } else if e == "0" { out = out + __chr(0) } else if e == "u" {
+    if e == "n" {
+      out = out + "\n"
+    } else if e == "t" {
+      out = out + "\t"
+    } else if e == "r" {
+      out = out + __chr(13)
+    } else if e == "\\" {
+      out = out + "\\"
+    } else if e == "\"" {
+      out = out + "\""
+    } else if e == "'" {
+      out = out + "'"
+    } else if e == "0" {
+      out = out + __chr(0)
+    } else if e == "u" {
       var j = i + 2
       var v = 0
       if j < n - 1 && cs[j] == "\{" {
@@ -315,9 +361,74 @@ const MAX_SHIFT: Int = 59
 
 type Dec = { d: List<Int>, dp: Int, neg: Bool, trunc: Bool }
 
-const LC_DELTA: List<Int> = [0, 1, 1, 1, 2, 2, 2, 3, 3, 3, 4, 4, 4, 4, 5, 5, 5, 6, 6, 6, 7, 7, 7, 7, 8, 8, 8, 9, 9, 9, 10, 10, 10, 10, 11, 11, 11, 12, 12, 12, 13, 13, 13, 13, 14, 14, 14, 15, 15, 15, 16, 16, 16, 16, 17, 17, 17, 18, 18, 18]
+const LC_DELTA: List<Int> = [
+  0, 1, 1, 1, 2, 2, 2, 3, 3, 3, 4, 4, 4, 4, 5, 5, 5, 6, 6, 6, 7, 7, 7, 7, 8, 8, 8, 9, 9, 9, 10, 10,
+  10, 10, 11, 11, 11, 12, 12, 12, 13, 13, 13, 13, 14, 14, 14, 15, 15, 15, 16, 16, 16, 16, 17, 17,
+  17, 18, 18, 18,
+]
 
-const LC_CUT: List<Str> = ["", "5", "25", "125", "625", "3125", "15625", "78125", "390625", "1953125", "9765625", "48828125", "244140625", "1220703125", "6103515625", "30517578125", "152587890625", "762939453125", "3814697265625", "19073486328125", "95367431640625", "476837158203125", "2384185791015625", "11920928955078125", "59604644775390625", "298023223876953125", "1490116119384765625", "7450580596923828125", "37252902984619140625", "186264514923095703125", "931322574615478515625", "4656612873077392578125", "23283064365386962890625", "116415321826934814453125", "582076609134674072265625", "2910383045673370361328125", "14551915228366851806640625", "72759576141834259033203125", "363797880709171295166015625", "1818989403545856475830078125", "9094947017729282379150390625", "45474735088646411895751953125", "227373675443232059478759765625", "1136868377216160297393798828125", "5684341886080801486968994140625", "28421709430404007434844970703125", "142108547152020037174224853515625", "710542735760100185871124267578125", "3552713678800500929355621337890625", "17763568394002504646778106689453125", "88817841970012523233890533447265625", "444089209850062616169452667236328125", "2220446049250313080847263336181640625", "11102230246251565404236316680908203125", "55511151231257827021181583404541015625", "277555756156289135105907917022705078125", "1387778780781445675529539585113525390625", "6938893903907228377647697925567626953125", "34694469519536141888238489627838134765625", "173472347597680709441192448139190673828125"]
+const LC_CUT: List<Str> = [
+  "",
+  "5",
+  "25",
+  "125",
+  "625",
+  "3125",
+  "15625",
+  "78125",
+  "390625",
+  "1953125",
+  "9765625",
+  "48828125",
+  "244140625",
+  "1220703125",
+  "6103515625",
+  "30517578125",
+  "152587890625",
+  "762939453125",
+  "3814697265625",
+  "19073486328125",
+  "95367431640625",
+  "476837158203125",
+  "2384185791015625",
+  "11920928955078125",
+  "59604644775390625",
+  "298023223876953125",
+  "1490116119384765625",
+  "7450580596923828125",
+  "37252902984619140625",
+  "186264514923095703125",
+  "931322574615478515625",
+  "4656612873077392578125",
+  "23283064365386962890625",
+  "116415321826934814453125",
+  "582076609134674072265625",
+  "2910383045673370361328125",
+  "14551915228366851806640625",
+  "72759576141834259033203125",
+  "363797880709171295166015625",
+  "1818989403545856475830078125",
+  "9094947017729282379150390625",
+  "45474735088646411895751953125",
+  "227373675443232059478759765625",
+  "1136868377216160297393798828125",
+  "5684341886080801486968994140625",
+  "28421709430404007434844970703125",
+  "142108547152020037174224853515625",
+  "710542735760100185871124267578125",
+  "3552713678800500929355621337890625",
+  "17763568394002504646778106689453125",
+  "88817841970012523233890533447265625",
+  "444089209850062616169452667236328125",
+  "2220446049250313080847263336181640625",
+  "11102230246251565404236316680908203125",
+  "55511151231257827021181583404541015625",
+  "277555756156289135105907917022705078125",
+  "1387778780781445675529539585113525390625",
+  "6938893903907228377647697925567626953125",
+  "34694469519536141888238489627838134765625",
+  "173472347597680709441192448139190673828125",
+]
 
 fn dec_mk(d: List<Int>, dp: Int, neg: Bool, trunc: Bool) -> Dec {
   var n = len(d)
@@ -490,7 +601,11 @@ fn limbs_mul_big(a: List<Int>, m: Int) -> List<Int> {
   var carry = 0
   var i = 0
   while i < len(lo) || i < len(hi) + 1 || carry > 0 {
-    let x = (if i < len(lo) { lo[i] } else { 0 }) + (if i >= 1 && i - 1 < len(hi) { hi[i - 1] } else { 0 }) + carry
+    let x = (if i < len(lo) { lo[i] } else { 0 }) + (if i >= 1 && i - 1 < len(hi) {
+      hi[i - 1]
+    } else {
+      0
+    }) + carry
     out = push(out, x % LIMB)
     carry = x / LIMB
     i += 1
@@ -597,7 +712,11 @@ fn round_shortest(d: Dec, mant: Int, exp: Int, flt: FltInfo) -> Dec {
   let e2 = exp - flt.mantbits - 2
   let pw = pow_limbs(e2)
   let upper = dec_exact_with(pw, (mant * 2 + 1) * 2, e2)
-  let lower = dec_exact_with(pw, if explo == exp { (mantlo * 2 + 1) * 2 } else { mantlo * 2 + 1 }, e2)
+  let lower = dec_exact_with(
+    pw,
+    if explo == exp { (mantlo * 2 + 1) * 2 } else { mantlo * 2 + 1 },
+    e2,
+  )
   let inclusive = mant % 2 == 0
   var upperdelta = 0
   var ui = 0
@@ -764,7 +883,10 @@ fn fmt_x(prec: Int, fmtc: Int, neg: Bool, mant0: Int, exp0: Int, flt: FltInfo) -
   } else if exp < 1000 {
     out = push(push(push(out, 48 + exp / 100), 48 + (exp / 10) % 10), 48 + exp % 10)
   } else {
-    out = push(push(push(push(out, 48 + exp / 1000), 48 + (exp / 100) % 10), 48 + (exp / 10) % 10), 48 + exp % 10)
+    out = push(
+      push(push(push(out, 48 + exp / 1000), 48 + (exp / 100) % 10), 48 + (exp / 10) % 10),
+      48 + exp % 10,
+    )
   }
   out
 }
@@ -792,7 +914,13 @@ fn format_digits(shortest: Bool, neg: Bool, d: Dec, prec0: Int, fmtc: Int) -> Li
 
 // 拆出 (neg, mant, exp)，exp 已经加上 bias；inf/nan 时返回对应文本
 fn float_parts(val: Float, bitsize: Int) -> (Bool, Int, Int, FltInfo, Str) {
-  let flt = if bitsize == 32 { f32info() } else if bitsize == 64 { f64info() } else { panic("strconv: illegal AppendFloat/FormatFloat bitSize") }
+  let flt = if bitsize == 32 {
+    f32info()
+  } else if bitsize == 64 {
+    f64info()
+  } else {
+    panic("strconv: illegal AppendFloat/FormatFloat bitSize")
+  }
   let b = if bitsize == 32 { float32_bits(val) } else { float64_bits(val) }
   let neg = if bitsize == 32 { (b & 0x80000000) != 0 } else { b < 0 }
   var exp = (b >> flt.mantbits) & ((1 << flt.expbits) - 1)
@@ -871,7 +999,9 @@ fn special_float(s: List<Int>) -> (Float, Int, Bool) {
     if n == 3 || n == 8 { return (if c == 45 { -math.inf } else { math.inf }, nsign + n, true) }
     return (0.0, 0, false)
   }
-  if (c == 110 || c == 78) && common_prefix_len_ignore_case(s, 0, "nan") == 3 { return (math.nan, 3, true) }
+  if (c == 110 || c == 78) && common_prefix_len_ignore_case(s, 0, "nan") == 3 {
+    return (math.nan, 3, true)
+  }
   (0.0, 0, false)
 }
 
@@ -881,7 +1011,9 @@ fn underscore_ok(s0: List<Int>) -> Bool {
   var i = 0
   if len(s) >= 1 && (s[0] == 45 || s[0] == 43) { s = s[1..] }
   var hex = false
-  if len(s) >= 2 && s[0] == 48 && (lower_b(s[1]) == 98 || lower_b(s[1]) == 111 || lower_b(s[1]) == 120) {
+  if len(s) >= 2
+    && s[0] == 48
+    && (lower_b(s[1]) == 98 || lower_b(s[1]) == 111 || lower_b(s[1]) == 120) {
     i = 2
     saw = 48
     hex = lower_b(s[1]) == 120
@@ -1098,7 +1230,13 @@ fn dec_float_bits(d0: Dec, flt: FltInfo) -> (Int, Bool) {
       exp += n
     }
     while d.dp < 0 || (d.dp == 0 && d.d[0] < 5) {
-      let n = if 0 - d.dp >= 18 { 59 } else if 0 - d.dp >= len(POWTAB) { 27 } else { POWTAB[0 - d.dp] }
+      let n = if 0 - d.dp >= 18 {
+        59
+      } else if 0 - d.dp >= len(POWTAB) {
+        27
+      } else {
+        POWTAB[0 - d.dp]
+      }
       d = dec_shift(d, n)
       exp -= n
     }
@@ -1131,7 +1269,9 @@ fn dec_float_bits(d0: Dec, flt: FltInfo) -> (Int, Bool) {
   (b, overflow)
 }
 
-fn bits_to_float(b: Int, flt: FltInfo) -> Float { if flt.mantbits == 23 { float32_from_bits(b) } else { float64_from_bits(b) } }
+fn bits_to_float(b: Int, flt: FltInfo) -> Float {
+  if flt.mantbits == 23 { float32_from_bits(b) } else { float64_from_bits(b) }
+}
 
 // (值, 是否溢出)
 fn atof_hex(flt: FltInfo, mant0: Int, exp0: Int, neg: Bool, trunc: Bool) -> (Float, Bool) {
@@ -1176,7 +1316,10 @@ fn atof_hex(flt: FltInfo, mant0: Int, exp0: Int, neg: Bool, trunc: Bool) -> (Flo
   (bits_to_float(b, flt), ovf)
 }
 
-const F64POW10: List<Float> = [1e0, 1e1, 1e2, 1e3, 1e4, 1e5, 1e6, 1e7, 1e8, 1e9, 1e10, 1e11, 1e12, 1e13, 1e14, 1e15, 1e16, 1e17, 1e18, 1e19, 1e20, 1e21, 1e22]
+const F64POW10: List<Float> = [
+  1e0, 1e1, 1e2, 1e3, 1e4, 1e5, 1e6, 1e7, 1e8, 1e9, 1e10, 1e11, 1e12, 1e13, 1e14, 1e15, 1e16, 1e17,
+  1e18, 1e19, 1e20, 1e21, 1e22,
+]
 
 // Go 的 atof64exact / atof32exact：尾数和 10 的幂都能精确表示时，一次浮点乘除就是正确舍入的结果。
 // float32 用双精度算完再舍入到 float32（24 位有效数字的一次乘除，二次舍入不会出错）
@@ -1207,7 +1350,9 @@ fn atof_exact(mant: Int, exp0: Int, neg: Bool, is32: Bool) -> Option<Float> {
   Some(if is32 { round_float32(r) } else { r })
 }
 
-fn num_error(fname: Str, s: Str, msg: Str) -> Str { "strconv." + fname + ": parsing " + quote_go(s) + ": " + msg }
+fn num_error(fname: Str, s: Str, msg: Str) -> Str {
+  "strconv." + fname + ": parsing " + quote_go(s) + ": " + msg
+}
 
 // Go 的 strconv.ParseFloat：返回 (值, 错误信息)，没有错误时错误信息是 ""。
 // 和 Go 一样，超出范围时值是 ±Inf，同时报 "value out of range"
@@ -1267,7 +1412,12 @@ pub fn is_print(r: Int) -> Bool {
 }
 
 fn is_in_graphic_list(r: Int) -> Bool {
-  r == 0xa0 || r == 0x1680 || (r >= 0x2000 && r <= 0x200a) || r == 0x202f || r == 0x205f || r == 0x3000
+  r == 0xa0
+    || r == 0x1680
+    || (r >= 0x2000 && r <= 0x200a)
+    || r == 0x202f
+    || r == 0x205f
+    || r == 0x3000
 }
 
 // 同 Go 的 strconv.IsGraphic
@@ -1275,7 +1425,13 @@ pub fn is_graphic(r: Int) -> Bool { is_print(r) || is_in_graphic_list(r) }
 
 fn valid_rune(r: Int) -> Bool { (0 <= r && r < 0xd800) || (0xdfff < r && r <= 0x10ffff) }
 
-fn append_escaped_rune(buf: List<Int>, r0: Int, quote: Int, ascii_only: Bool, graphic_only: Bool) -> List<Int> {
+fn append_escaped_rune(
+  buf: List<Int>,
+  r0: Int,
+  quote: Int,
+  ascii_only: Bool,
+  graphic_only: Bool,
+) -> List<Int> {
   var r = r0
   if r == quote || r == 92 { return push(push(buf, 92), r) }
   if ascii_only {
@@ -1361,7 +1517,9 @@ pub fn quote_to_graphic(s: Str) -> Str { quote_bytes_with(__bytes(s), 34, false,
 
 fn quote_rune_with(r0: Int, quote: Int, ascii_only: Bool, graphic_only: Bool) -> Str {
   let r = if valid_rune(r0) { r0 } else { 0xfffd }
-  unwrap(__from_bytes(push(append_escaped_rune([quote], r, quote, ascii_only, graphic_only), quote)))
+  unwrap(
+    __from_bytes(push(append_escaped_rune([quote], r, quote, ascii_only, graphic_only), quote)),
+  )
 }
 
 pub fn quote_rune(r: Int) -> Str { quote_rune_with(r, 39, false, false) }
@@ -1380,7 +1538,15 @@ pub fn can_backquote(s: Str) -> Bool {
 }
 
 fn unhex(c: Int) -> Int {
-  if 48 <= c && c <= 57 { c - 48 } else if 97 <= c && c <= 102 { c - 87 } else if 65 <= c && c <= 70 { c - 55 } else { -1 }
+  if 48 <= c && c <= 57 {
+    c - 48
+  } else if 97 <= c && c <= 102 {
+    c - 87
+  } else if 65 <= c && c <= 70 {
+    c - 55
+  } else {
+    -1
+  }
 }
 
 // UnquoteChar：从 s 的第 i 个字节开始解一个字符，返回 Some((值, 是否多字节, 新位置))
@@ -1497,7 +1663,7 @@ pub fn unquote_bytes(s: Str) -> Result<List<Int>, Str> {
   let bs = __bytes(s)
   match unquote_bytes_impl(bs, true) {
     Some((out, rest)) => if rest == len(bs) { Ok(out) } else { Err("invalid syntax") },
-    None              => Err("invalid syntax"),
+    None => Err("invalid syntax"),
   }
 }
 
@@ -1506,7 +1672,7 @@ pub fn unquote_go(s: Str) -> Result<Str, Str> {
   let out = unquote_bytes(s)?
   match __from_bytes(out) {
     Some(t) => Ok(t),
-    None    => Err("invalid syntax"),
+    None => Err("invalid syntax"),
   }
 }
 
@@ -1514,6 +1680,6 @@ pub fn unquote_go(s: Str) -> Result<Str, Str> {
 pub fn quoted_prefix(s: Str) -> Result<Str, Str> {
   match unquote_bytes_impl(__bytes(s), false) {
     Some((out, _)) => Ok(unwrap(__from_bytes(out))),
-    None           => Err("invalid syntax"),
+    None => Err("invalid syntax"),
   }
 }

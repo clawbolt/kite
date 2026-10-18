@@ -42,11 +42,20 @@ pub const BEST_COMPRESSION: Int = -3
 
 pub type Color = { r: Int, g: Int, b: Int, a: Int }
 
-pub type Image = { kind: Int, width: Int, height: Int, stride: Int, pix: List<Int>, palette: List<Color> }
+pub type Image = {
+  kind: Int,
+  width: Int,
+  height: Int,
+  stride: Int,
+  pix: List<Int>,
+  palette: List<Color>,
+}
 
 pub type Config = { model: Int, width: Int, height: Int, palette: List<Color> }
 
-pub fn kind_name(kind: Int) -> Str { ["Gray", "Gray16", "NRGBA", "NRGBA64", "RGBA", "RGBA64", "Paletted"][kind] }
+pub fn kind_name(kind: Int) -> Str {
+  ["Gray", "Gray16", "NRGBA", "NRGBA64", "RGBA", "RGBA64", "Paletted"][kind]
+}
 
 fn kind_bpp(kind: Int) -> Int { [1, 2, 4, 8, 4, 8, 1][kind] }
 
@@ -67,7 +76,9 @@ pub fn new_image(kind: Int, w: Int, h: Int) -> Image {
   Image { kind: kind, width: w, height: h, stride: s, pix: zeros(s * h), palette: [] }
 }
 
-pub fn new_paletted(w: Int, h: Int, palette: List<Color>) -> Image { Image { palette: palette, ..new_image(PALETTED, w, h) } }
+pub fn new_paletted(w: Int, h: Int, palette: List<Color>) -> Image {
+  Image { palette: palette, ..new_image(PALETTED, w, h) }
+}
 
 fn nrgba_rgba(c: Color) -> (Int, Int, Int, Int) {
   let a = c.a
@@ -161,16 +172,28 @@ fn crc32(bs: List<Int>) -> Int {
   c ^ 0xffffffff
 }
 
-fn be32_at(bs: List<Int>, i: Int) -> Int { (bs[i] << 24) | (bs[i + 1] << 16) | (bs[i + 2] << 8) | bs[i + 3] }
+fn be32_at(bs: List<Int>, i: Int) -> Int {
+  (bs[i] << 24) | (bs[i + 1] << 16) | (bs[i + 2] << 8) | bs[i + 3]
+}
 
 fn be32(x: Int) -> List<Int> { [(x >> 24) & 255, (x >> 16) & 255, (x >> 8) & 255, x & 255] }
 
 // ───────────── 内置 inflate（截断时保留已解出的数据）─────────────
 
-const LEN_BASE: List<Int> = [3, 4, 5, 6, 7, 8, 9, 10, 11, 13, 15, 17, 19, 23, 27, 31, 35, 43, 51, 59, 67, 83, 99, 115, 131, 163, 195, 227, 258]
-const LEN_EXTRA: List<Int> = [0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 2, 2, 2, 2, 3, 3, 3, 3, 4, 4, 4, 4, 5, 5, 5, 5, 0]
-const DIST_BASE: List<Int> = [1, 2, 3, 4, 5, 7, 9, 13, 17, 25, 33, 49, 65, 97, 129, 193, 257, 385, 513, 769, 1025, 1537, 2049, 3073, 4097, 6145, 8193, 12289, 16385, 24577]
-const DIST_EXTRA: List<Int> = [0, 0, 0, 0, 1, 1, 2, 2, 3, 3, 4, 4, 5, 5, 6, 6, 7, 7, 8, 8, 9, 9, 10, 10, 11, 11, 12, 12, 13, 13]
+const LEN_BASE: List<Int> = [
+  3, 4, 5, 6, 7, 8, 9, 10, 11, 13, 15, 17, 19, 23, 27, 31, 35, 43, 51, 59, 67, 83, 99, 115, 131,
+  163, 195, 227, 258,
+]
+const LEN_EXTRA: List<Int> = [
+  0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 2, 2, 2, 2, 3, 3, 3, 3, 4, 4, 4, 4, 5, 5, 5, 5, 0,
+]
+const DIST_BASE: List<Int> = [
+  1, 2, 3, 4, 5, 7, 9, 13, 17, 25, 33, 49, 65, 97, 129, 193, 257, 385, 513, 769, 1025, 1537, 2049,
+  3073, 4097, 6145, 8193, 12289, 16385, 24577,
+]
+const DIST_EXTRA: List<Int> = [
+  0, 0, 0, 0, 1, 1, 2, 2, 3, 3, 4, 4, 5, 5, 6, 6, 7, 7, 8, 8, 9, 9, 10, 10, 11, 11, 12, 12, 13, 13,
+]
 const CL_ORDER: List<Int> = [16, 17, 18, 0, 8, 7, 9, 6, 10, 5, 11, 4, 12, 3, 13, 2, 14, 1, 15]
 
 // 规范 Huffman 表：每种码长的个数 + 按码排序的符号
@@ -202,7 +225,9 @@ fn huff(lens: List<Int>) -> Option<Huff> {
 
 fn fixed_tables() -> (Huff, Huff) {
   var fl: List<Int> = []
-  for i in 0..288 { fl = push(fl, if i < 144 { 8 } else if i < 256 { 9 } else if i < 280 { 7 } else { 8 }) }
+  for i in 0..288 {
+    fl = push(fl, if i < 144 { 8 } else if i < 256 { 9 } else if i < 280 { 7 } else { 8 })
+  }
   var fd: List<Int> = []
   for _ in 0..30 { fd = push(fd, 5) }
   (unwrap(huff(fl)), unwrap(huff(fd)))
@@ -247,7 +272,11 @@ fn decsym(bs: List<Int>, pos: Int, h: Huff) -> (Int, Int) {
 
 fn inf_done(out: List<Int>, status: Int, pos: Int, start: Int) -> Inf {
   let off = (pos + 7) / 8 - start
-  Inf { out: out, status: status, end: (pos + 7) / 8, msg: if status == 2 { "flate: corrupt input before offset {off}" } else { "" } }
+  Inf { out: out, status: status, end: (pos + 7) / 8, msg: if status == 2 {
+    "flate: corrupt input before offset {off}"
+  } else {
+    ""
+  } }
 }
 
 fn inflate(bs: List<Int>, start: Int) -> Inf {
@@ -392,7 +421,15 @@ const DS_IDAT: Int = 4
 const DS_IEND: Int = 5
 
 // Adam7：(xFactor, yFactor, xOffset, yOffset)
-const PASSES: List<(Int, Int, Int, Int)> = [(8, 8, 0, 0), (8, 8, 4, 0), (4, 8, 0, 4), (4, 4, 2, 0), (2, 4, 0, 2), (2, 2, 1, 0), (1, 2, 0, 1)]
+const PASSES: List<(Int, Int, Int, Int)> = [
+  (8, 8, 0, 0),
+  (8, 8, 4, 0),
+  (4, 8, 0, 4),
+  (4, 4, 2, 0),
+  (2, 4, 0, 2),
+  (2, 2, 1, 0),
+  (1, 2, 0, 1),
+]
 
 fn is_paletted(cb: Int) -> Bool { cb >= CB_P1 && cb <= CB_P8 }
 
@@ -415,7 +452,21 @@ type Dec = {
 }
 
 fn new_dec(bs: List<Int>) -> Dec {
-  Dec { bs: bs, pos: 0, width: 0, height: 0, depth: 0, cb: CB_INVALID, stage: DS_START, interlace: 0, pal: [], pal_len: 0, use_trans: false, trans: [0, 0, 0, 0, 0, 0], img: None }
+  Dec {
+    bs: bs,
+    pos: 0,
+    width: 0,
+    height: 0,
+    depth: 0,
+    cb: CB_INVALID,
+    stage: DS_START,
+    interlace: 0,
+    pal: [],
+    pal_len: 0,
+    use_trans: false,
+    trans: [0, 0, 0, 0, 0, 0],
+    img: None,
+  }
 }
 
 // 校验从 t0（块类型的位置）到 end（数据结束）的 CRC，CRC 本身在 end 处
@@ -441,7 +492,9 @@ fn parse_ihdr(d: Dec, length: Int) -> Result<Dec, Str> {
   let w = be32_at(bs, s)
   let h = be32_at(bs, s + 4)
   // int32 解释：最高位为 1 是负数
-  if w == 0 || h == 0 || w >= 0x80000000 || h >= 0x80000000 { return Err(fmt_err("non-positive dimension")) }
+  if w == 0 || h == 0 || w >= 0x80000000 || h >= 0x80000000 {
+    return Err(fmt_err("non-positive dimension"))
+  }
   let depth = bs[s + 8]
   let ct = bs[s + 9]
   var cb = CB_INVALID
@@ -452,9 +505,27 @@ fn parse_ihdr(d: Dec, length: Int) -> Result<Dec, Str> {
   } else if depth == 4 {
     if ct == 0 { cb = CB_G4 } else if ct == 3 { cb = CB_P4 }
   } else if depth == 8 {
-    if ct == 0 { cb = CB_G8 } else if ct == 2 { cb = CB_TC8 } else if ct == 3 { cb = CB_P8 } else if ct == 4 { cb = CB_GA8 } else if ct == 6 { cb = CB_TCA8 }
+    if ct == 0 {
+      cb = CB_G8
+    } else if ct == 2 {
+      cb = CB_TC8
+    } else if ct == 3 {
+      cb = CB_P8
+    } else if ct == 4 {
+      cb = CB_GA8
+    } else if ct == 6 {
+      cb = CB_TCA8
+    }
   } else if depth == 16 {
-    if ct == 0 { cb = CB_G16 } else if ct == 2 { cb = CB_TC16 } else if ct == 4 { cb = CB_GA16 } else if ct == 6 { cb = CB_TCA16 }
+    if ct == 0 {
+      cb = CB_G16
+    } else if ct == 2 {
+      cb = CB_TC16
+    } else if ct == 4 {
+      cb = CB_GA16
+    } else if ct == 6 {
+      cb = CB_TCA16
+    }
   }
   if cb == CB_INVALID { return Err(unsup_err("bit depth {depth}, color type {ct}")) }
   let d2 = Dec { width: w, height: h, depth: depth, cb: cb, interlace: bs[s + 12], ..d }
@@ -463,7 +534,9 @@ fn parse_ihdr(d: Dec, length: Int) -> Result<Dec, Str> {
 
 fn parse_plte(d: Dec, length: Int) -> Result<Dec, Str> {
   let np = length / 3
-  if length % 3 != 0 || np <= 0 || np > 256 || np > (1 << d.depth) { return Err(fmt_err("bad PLTE length")) }
+  if length % 3 != 0 || np <= 0 || np > 256 || np > (1 << d.depth) {
+    return Err(fmt_err("bad PLTE length"))
+  }
   let s = d.pos
   need(d, s, 3 * np)?
   let cb = d.cb
@@ -472,7 +545,12 @@ fn parse_plte(d: Dec, length: Int) -> Result<Dec, Str> {
     var pal: List<Color> = []
     for i in 0..256 {
       if i < np {
-        pal = push(pal, Color { r: d.bs[s + 3 * i], g: d.bs[s + 3 * i + 1], b: d.bs[s + 3 * i + 2], a: 0xff })
+        pal = push(pal, Color {
+          r: d.bs[s + 3 * i],
+          g: d.bs[s + 3 * i + 1],
+          b: d.bs[s + 3 * i + 2],
+          a: 0xff,
+        })
       } else {
         pal = push(pal, Color { r: 0, g: 0, b: 0, a: 0xff })
       }
@@ -494,8 +572,18 @@ fn parse_trns(d: Dec, length: Int) -> Result<Dec, Str> {
     if length != 2 { return Err(fmt_err("bad tRNS length")) }
     need(d, s, 2)?
     var t1 = bs[s + 1]
-    if cb == CB_G1 { t1 = (t1 * 0xff) & 255 } else if cb == CB_G2 { t1 = (t1 * 0x55) & 255 } else if cb == CB_G4 { t1 = (t1 * 0x11) & 255 }
-    let d2 = Dec { trans: [bs[s], t1, d.trans[2], d.trans[3], d.trans[4], d.trans[5]], use_trans: true, ..d }
+    if cb == CB_G1 {
+      t1 = (t1 * 0xff) & 255
+    } else if cb == CB_G2 {
+      t1 = (t1 * 0x55) & 255
+    } else if cb == CB_G4 {
+      t1 = (t1 * 0x11) & 255
+    }
+    let d2 = Dec {
+      trans: [bs[s], t1, d.trans[2], d.trans[3], d.trans[4], d.trans[5]],
+      use_trans: true,
+      ..d
+    }
     return verify(d2, s - 4, s + 2)
   }
   if cb == CB_TC8 || cb == CB_TC16 {
@@ -584,7 +672,10 @@ fn unfilter(ft: Int, raw: List<Int>, prev: List<Int>, bpp: Int) -> List<Int> {
 }
 
 // 把一行解滤波后的字节转换成目标图像的像素字节，追加到 pix；返回 (pix, 调色板长度)
-fn convert_row(d: Dec, cdat: List<Int>, width: Int, pix0: List<Int>, plen0: Int) -> (List<Int>, Int) {
+fn convert_row(d: Dec, cdat: List<Int>, width: Int, pix0: List<Int>, plen0: Int) -> (
+  List<Int>,
+  Int,
+) {
   var pix = pix0
   var plen = plen0
   let cb = d.cb
@@ -670,9 +761,13 @@ fn convert_row(d: Dec, cdat: List<Int>, width: Int, pix0: List<Int>, plen0: Int)
 }
 
 // 读取结束（数据不够）时的错误：end_err 为 "" 表示底层是 EOF
-fn short_err(end_err: Str) -> Str { if end_err == "" { fmt_err("not enough pixel data") } else { end_err } }
+fn short_err(end_err: Str) -> Str {
+  if end_err == "" { fmt_err("not enough pixel data") } else { end_err }
+}
 
-fn final_err(end_err: Str) -> Str { if end_err == "" { fmt_err(EOF_ERR) } else { fmt_err(end_err) } }
+fn final_err(end_err: Str) -> Str {
+  if end_err == "" { fmt_err(EOF_ERR) } else { fmt_err(end_err) }
+}
 
 // 解码 IDAT 数据。返回 (图像, 下一个块的位置)
 fn parse_idat(d: Dec, length0: Int) -> Result<(Image, Int), Str> {
@@ -721,7 +816,9 @@ fn parse_idat(d: Dec, length0: Int) -> Result<(Image, Int), Str> {
   if len(data) < 2 { return Err(if end_err == "" { EOF_ERR } else { end_err }) }
   let h0 = data[0]
   let h1 = data[1]
-  if h0 & 15 != 8 || (h0 >> 4) > 7 || ((h0 << 8) | h1) % 31 != 0 { return Err("zlib: invalid header") }
+  if h0 & 15 != 8 || (h0 >> 4) > 7 || ((h0 << 8) | h1) % 31 != 0 {
+    return Err("zlib: invalid header")
+  }
   if h1 & 0x20 != 0 {
     if len(data) < 6 { return Err(if end_err == "" { EOF_ERR } else { end_err }) }
     return Err("zlib: invalid dictionary")
@@ -739,7 +836,13 @@ fn parse_idat(d: Dec, length0: Int) -> Result<(Image, Int), Str> {
   }
   // 数据提前结束时 io.ReadFull 得到的错误
   let row_err = if inf.status == 0 {
-    if adler == 1 { short_err(end_err) } else if adler == 2 { "zlib: invalid checksum" } else { fmt_err("not enough pixel data") }
+    if adler == 1 {
+      short_err(end_err)
+    } else if adler == 2 {
+      "zlib: invalid checksum"
+    } else {
+      fmt_err("not enough pixel data")
+    }
   } else if inf.status == 1 {
     short_err(end_err)
   } else {
@@ -809,11 +912,21 @@ fn parse_idat(d: Dec, length0: Int) -> Result<(Image, Int), Str> {
       }
     }
   }
-  let img = Image { kind: kind, width: w, height: hgt, stride: w * kbpp, pix: full, palette: if kind == PALETTED { d.pal[0..plen] } else { [] } }
+  let img = Image {
+    kind: kind,
+    width: w,
+    height: hgt,
+    stride: w * kbpp,
+    pix: full,
+    palette: if kind == PALETTED { d.pal[0..plen] } else { [] },
+  }
   // zlib 流结束于哪个块：Go 读到那个块为止，然后校验它的 CRC
   let last = inf.end + 4 - 1
   var k = 0
-  while k + 1 < len(chunks) && !(last >= chunks[k].cstart && last < chunks[k].cstart + chunks[k].clen) { k += 1 }
+  while k + 1 < len(chunks)
+    && !(last >= chunks[k].cstart && last < chunks[k].cstart + chunks[k].clen) {
+    k += 1
+  }
   let c = chunks[k]
   if c.after < 0 { return Err(EOF_ERR) }
   if !c.crc_ok { return Err(fmt_err("invalid checksum")) }
@@ -848,7 +961,9 @@ fn parse_chunk(d: Dec, config_only: Bool) -> Result<Dec, Str> {
   }
   var ignore = true
   if name == [73, 68, 65, 84] {
-    if d.stage < DS_IHDR || d.stage > DS_IDAT || (d.stage == DS_IHDR && is_paletted(d.cb)) { return Err(order) }
+    if d.stage < DS_IHDR || d.stage > DS_IDAT || (d.stage == DS_IHDR && is_paletted(d.cb)) {
+      return Err(order)
+    }
     if d.stage != DS_IDAT {
       let d2 = Dec { stage: DS_IDAT, ..d1 }
       if config_only { return Ok(d2) }
@@ -877,7 +992,7 @@ pub fn decode(bs: List<Int>) -> Result<Image, Str> {
   while d.stage != DS_IEND { d = parse_chunk(d, false)? }
   match d.img {
     Some(img) => Ok(img),
-    None      => Err(fmt_err("missing image")),
+    None => Err(fmt_err("missing image")),
   }
 }
 
@@ -893,8 +1008,26 @@ pub fn decode_config(bs: List<Int>) -> Result<Config, Str> {
     }
   }
   let cb = d.cb
-  let model = if cb <= CB_G8 { GRAY } else if cb == CB_GA8 || cb == CB_TCA8 { NRGBA } else if cb == CB_TC8 { RGBA } else if is_paletted(cb) { PALETTED } else if cb == CB_G16 { GRAY16 } else if cb == CB_TC16 { RGBA64 } else { NRGBA64 }
-  Ok(Config { model: model, width: d.width, height: d.height, palette: if is_paletted(cb) { d.pal[0..d.pal_len] } else { [] } })
+  let model = if cb <= CB_G8 {
+    GRAY
+  } else if cb == CB_GA8 || cb == CB_TCA8 {
+    NRGBA
+  } else if cb == CB_TC8 {
+    RGBA
+  } else if is_paletted(cb) {
+    PALETTED
+  } else if cb == CB_G16 {
+    GRAY16
+  } else if cb == CB_TC16 {
+    RGBA64
+  } else {
+    NRGBA64
+  }
+  Ok(Config { model: model, width: d.width, height: d.height, palette: if is_paletted(cb) {
+    d.pal[0..d.pal_len]
+  } else {
+    []
+  } })
 }
 
 // ───────────── 编码 ─────────────
@@ -936,7 +1069,11 @@ fn choose_filter(cdat0: List<Int>, pdat: List<Int>, bpp: Int) -> (Int, List<Int>
   sum = 0
   var i = 0
   while i < n {
-    let v = if i < bpp { (cdat0[i] - pdat[i]) & 255 } else { (cdat0[i] - paeth(cdat0[i - bpp], pdat[i], pdat[i - bpp])) & 255 }
+    let v = if i < bpp {
+      (cdat0[i] - pdat[i]) & 255
+    } else {
+      (cdat0[i] - paeth(cdat0[i - bpp], pdat[i], pdat[i - bpp])) & 255
+    }
     pa = push(pa, v)
     sum += abs8(v)
     i += 1
@@ -981,7 +1118,11 @@ fn choose_filter(cdat0: List<Int>, pdat: List<Int>, bpp: Int) -> (Int, List<Int>
   sum = 0
   i = 0
   while i < n {
-    let v = if i < bpp { (cdat0[i] - pdat[i] / 2) & 255 } else { (cdat0[i] - (cdat0[i - bpp] + pdat[i]) / 2) & 255 }
+    let v = if i < bpp {
+      (cdat0[i] - pdat[i] / 2) & 255
+    } else {
+      (cdat0[i] - (cdat0[i - bpp] + pdat[i]) / 2) & 255
+    }
     av = push(av, v)
     sum += abs8(v)
     i += 1
@@ -1045,7 +1186,12 @@ fn row_bytes(m: Image, cb: Int, y: Int) -> List<Int> {
       } else {
         let mm = 0x101 * 0xffff
         let a = a8 * 0x101
-        out = push_all(out, [((p[j] * mm / a) >> 8) & 255, ((p[j + 1] * mm / a) >> 8) & 255, ((p[j + 2] * mm / a) >> 8) & 255, a8])
+        out = push_all(out, [
+          ((p[j] * mm / a) >> 8) & 255,
+          ((p[j + 1] * mm / a) >> 8) & 255,
+          ((p[j + 2] * mm / a) >> 8) & 255,
+          a8,
+        ])
       }
     }
     return out
@@ -1125,7 +1271,9 @@ pub fn encode(m: Image) -> Result<List<Int>, Str> { encode_level(m, DEFAULT_COMP
 pub fn encode_level(m: Image, level: Int) -> Result<List<Int>, Str> {
   let w = m.width
   let h = m.height
-  if w <= 0 || h <= 0 || w >= 0x100000000 || h >= 0x100000000 { return Err(fmt_err("invalid image size: {w}x{h}")) }
+  if w <= 0 || h <= 0 || w >= 0x100000000 || h >= 0x100000000 {
+    return Err(fmt_err("invalid image size: {w}x{h}"))
+  }
   let k = m.kind
   var cb = 0
   if k == PALETTED {

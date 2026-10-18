@@ -8,7 +8,14 @@ use std.hash.adler32
 use std.crypto.hmac
 use std.crypto.subtle
 fn main() {
-  var inputs = ["", "a", "abc", "message digest", "The quick brown fox jumps over the lazy dog", "你好，世界"]
+  var inputs = [
+    "",
+    "a",
+    "abc",
+    "message digest",
+    "The quick brown fox jumps over the lazy dog",
+    "你好，世界",
+  ]
   var big = ""
   for i in 0..300 { big = big + "{i}," }
   inputs = push(inputs, big)
@@ -21,16 +28,41 @@ fn main() {
     print(md5.sum(s), sha1.sum(s), sha256.sum224(s))
     print(sha512.sum(s), sha512.sum384(s))
     print(sha512.sum512_224(s), sha512.sum512_256(s))
-    print(crc64.checksum(b, iso), crc64.checksum(b, ecma), crc32.checksum_ieee(b), crc32.checksum_with(b, cast), crc32.checksum_with(b, koop), adler32.checksum(b))
+    print(
+      crc64.checksum(b, iso),
+      crc64.checksum(b, ecma),
+      crc32.checksum_ieee(b),
+      crc32.checksum_with(b, cast),
+      crc32.checksum_with(b, koop),
+      adler32.checksum(b),
+    )
     let m1 = hmac.sum(md5.digest, md5.BLOCK_SIZE, __bytes("key"), b)
     let m2 = hmac.sum(sha512.digest, sha512.BLOCK_SIZE, __bytes(big), b)
     let m3 = hmac.sum(sha1.digest, sha1.BLOCK_SIZE, b, __bytes("msg"))
     print(m1, m2, m3, hmac.equal(m1, m1), hmac.equal(m1, m3))
   }
-  print(crc64.update(crc64.checksum(__bytes("hello "), iso), iso, __bytes("world")), crc64.checksum_str("hello world", iso))
-  print(subtle.constant_time_compare([1, 2, 3], [1, 2, 3]), subtle.constant_time_compare([1, 2, 3], [1, 2, 4]), subtle.constant_time_compare([1], [1, 2]))
-  print(subtle.constant_time_select(1, 5, 9), subtle.constant_time_select(0, 5, 9), subtle.constant_time_byte_eq(7, 7), subtle.constant_time_byte_eq(7, 8), subtle.constant_time_eq(-3, -3), subtle.constant_time_eq(1, 2))
-  print(subtle.constant_time_copy(1, [1, 2], [3, 4]), subtle.constant_time_copy(0, [1, 2], [3, 4]), subtle.xor_bytes([255, 15, 1], [15, 15]))
+  print(
+    crc64.update(crc64.checksum(__bytes("hello "), iso), iso, __bytes("world")),
+    crc64.checksum_str("hello world", iso),
+  )
+  print(
+    subtle.constant_time_compare([1, 2, 3], [1, 2, 3]),
+    subtle.constant_time_compare([1, 2, 3], [1, 2, 4]),
+    subtle.constant_time_compare([1], [1, 2]),
+  )
+  print(
+    subtle.constant_time_select(1, 5, 9),
+    subtle.constant_time_select(0, 5, 9),
+    subtle.constant_time_byte_eq(7, 7),
+    subtle.constant_time_byte_eq(7, 8),
+    subtle.constant_time_eq(-3, -3),
+    subtle.constant_time_eq(1, 2),
+  )
+  print(
+    subtle.constant_time_copy(1, [1, 2], [3, 4]),
+    subtle.constant_time_copy(0, [1, 2], [3, 4]),
+    subtle.xor_bytes([255, 15, 1], [15, 15]),
+  )
   for p in [(0, 0), (1, 2), (2, 1), (5, 5), (-1, 3), (3, -1), (2147483647, -2147483648)] {
     print(subtle.constant_time_less_or_eq(p.0, p.1))
   }

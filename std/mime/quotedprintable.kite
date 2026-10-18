@@ -34,7 +34,9 @@ impl Writer {
 
   fn insert_crlf(self) -> Writer { Writer { line: self.line + [13, 10], ..self }.flush() }
 
-  fn insert_soft_line_break(self) -> Writer { Writer { line: push(self.line, 61), ..self }.insert_crlf() }
+  fn insert_soft_line_break(self) -> Writer {
+    Writer { line: push(self.line, 61), ..self }.insert_crlf()
+  }
 
   fn encode(self, b: Int) -> Writer {
     let w = if LINE_MAX_LEN - 1 - len(self.line) < 3 { self.insert_soft_line_break() } else { self }
@@ -77,12 +79,14 @@ impl Writer {
 }
 
 // 一次性编码
-pub fn encode(p: List<Int>, binary: Bool) -> List<Int> { new_writer().with_binary(binary).write(p).close().output() }
+pub fn encode(p: List<Int>, binary: Bool) -> List<Int> {
+  new_writer().with_binary(binary).write(p).close().output()
+}
 
 fn bytes_to_str(bs: List<Int>) -> Str {
   match __from_bytes(bs) {
     Some(s) => s,
-    None    => {
+    None => {
       var out = ""
       var i = 0
       while i < len(bs) {
@@ -99,13 +103,22 @@ fn decode_rune_at(p: List<Int>, i: Int) -> (Int, Int) {
   let n = len(p) - i
   let b0 = p[i]
   if b0 < 0x80 { return (b0, 1) }
-  if b0 >= 0xc2 && b0 <= 0xdf && n >= 2 && (p[i + 1] & 0xc0) == 0x80 { return (((b0 & 0x1f) << 6) | (p[i + 1] & 0x3f), 2) }
+  if b0 >= 0xc2 && b0 <= 0xdf && n >= 2 && (p[i + 1] & 0xc0) == 0x80 {
+    return (((b0 & 0x1f) << 6) | (p[i + 1] & 0x3f), 2)
+  }
   if b0 >= 0xe0 && b0 <= 0xef && n >= 3 && (p[i + 1] & 0xc0) == 0x80 && (p[i + 2] & 0xc0) == 0x80 {
     let r = ((b0 & 0xf) << 12) | ((p[i + 1] & 0x3f) << 6) | (p[i + 2] & 0x3f)
     if r >= 0x800 && (r < 0xd800 || r > 0xdfff) { return (r, 3) }
   }
-  if b0 >= 0xf0 && b0 <= 0xf4 && n >= 4 && (p[i + 1] & 0xc0) == 0x80 && (p[i + 2] & 0xc0) == 0x80 && (p[i + 3] & 0xc0) == 0x80 {
-    let r = ((b0 & 7) << 18) | ((p[i + 1] & 0x3f) << 12) | ((p[i + 2] & 0x3f) << 6) | (p[i + 3] & 0x3f)
+  if b0 >= 0xf0
+    && b0 <= 0xf4
+    && n >= 4
+    && (p[i + 1] & 0xc0) == 0x80
+    && (p[i + 2] & 0xc0) == 0x80
+    && (p[i + 3] & 0xc0) == 0x80 {
+    let r = ((b0 & 7) << 18) | ((p[i + 1] & 0x3f) << 12) | ((p[i + 2] & 0x3f) << 6) | (
+      p[i + 3] & 0x3f
+    )
     if r >= 0x10000 && r <= 0x10ffff { return (r, 4) }
   }
   (0xfffd, 1)
@@ -116,7 +129,9 @@ pub type Reader = { src: List<Int> }
 
 pub fn new_reader(src: List<Int>) -> Reader { Reader { src: src } }
 
-fn hex2(b: Int) -> Str { __str_slice(LOWERHEX, b >> 4, (b >> 4) + 1) + __str_slice(LOWERHEX, b & 15, (b & 15) + 1) }
+fn hex2(b: Int) -> Str {
+  __str_slice(LOWERHEX, b >> 4, (b >> 4) + 1) + __str_slice(LOWERHEX, b & 15, (b & 15) + 1)
+}
 
 fn from_hex(b: Int) -> Result<Int, Str> {
   if b >= 48 && b <= 57 { return Ok(b - 48) }
@@ -131,7 +146,15 @@ fn is_discard_ws(b: Int) -> Bool { b == 10 || b == 13 || b == 32 || b == 9 }
 fn quote_ws(bs: List<Int>) -> Str {
   var out = "\""
   for b in bs {
-    out = out + if b == 10 { "\\n" } else if b == 13 { "\\r" } else if b == 9 { "\\t" } else { __chr(b) }
+    out = out + if b == 10 {
+      "\\n"
+    } else if b == 13 {
+      "\\r"
+    } else if b == 9 {
+      "\\t"
+    } else {
+      __chr(b)
+    }
   }
   out + "\""
 }

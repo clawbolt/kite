@@ -10,11 +10,15 @@ pub type Header = { name: Str, comment: Str, mtime: Int, os: Int }
 
 fn le32(x: Int) -> List<Int> { [x & 255, (x >> 8) & 255, (x >> 16) & 255, (x >> 24) & 255] }
 
-fn rd32(bs: List<Int>, i: Int) -> Int { bs[i] | (bs[i + 1] << 8) | (bs[i + 2] << 16) | (bs[i + 3] << 24) }
+fn rd32(bs: List<Int>, i: Int) -> Int {
+  bs[i] | (bs[i + 1] << 8) | (bs[i + 2] << 16) | (bs[i + 3] << 24)
+}
 
 pub fn compress_level(bs: List<Int>, level: Int) -> List<Int> {
   let xfl = if level >= 9 { 2 } else if level == 1 { 4 } else { 0 }
-  [31, 139, 8, 0, 0, 0, 0, 0, xfl, 255] + flate.compress(bs, level) + le32(crc32.checksum_bytes(bs)) + le32(len(bs) & 4294967295)
+  [31, 139, 8, 0, 0, 0, 0, 0, xfl, 255] + flate.compress(bs, level) + le32(
+    crc32.checksum_bytes(bs),
+  ) + le32(len(bs) & 4294967295)
 }
 
 pub fn compress(bs: List<Int>) -> List<Int> { compress_level(bs, 6) }
@@ -31,7 +35,9 @@ fn zstr(bs: List<Int>, i: Int) -> Result<(Str, Int), Str> {
 
 // 解析一个成员的头部：(头部, 压缩数据的起点)
 fn parse_header(bs: List<Int>, start: Int) -> Result<(Header, Int), Str> {
-  if start + 10 > len(bs) || bs[start] != 31 || bs[start + 1] != 139 { return Err("gzip: 不是 gzip 数据") }
+  if start + 10 > len(bs) || bs[start] != 31 || bs[start + 1] != 139 {
+    return Err("gzip: 不是 gzip 数据")
+  }
   if bs[start + 2] != 8 { return Err("gzip: 不支持的压缩方法 {bs[start + 2]}") }
   let flg = bs[start + 3]
   var i = start + 10

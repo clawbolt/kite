@@ -18,11 +18,11 @@ fn fstr(x: Float) -> Str {
 fn av(a: A) -> Str {
   match a {
     R(i, _) => "v{i}",
-    CI(i)   => "{i}",
-    CF(x)   => fstr(x),
-    CB(b)   => if b { "true" } else { "false" },
-    CS(s)   => "S" + cs(s),
-    CU      => "()",
+    CI(i) => "{i}",
+    CF(x) => fstr(x),
+    CB(b) => if b { "true" } else { "false" },
+    CS(s) => "S" + cs(s),
+    CU => "()",
   }
 }
 
@@ -30,26 +30,28 @@ fn rs(f: KF, a: A) -> Str {
   let i = kir.rid(a)
   "v{i}:" + kir.aty(a) + (match get(f.rn, i) {
     Some(n) => ":" + n,
-    None    => "",
+    None => "",
   })
 }
 
 fn xs(f: KF, op: Str, x: X) -> Str {
   match x {
-    XN          => "",
-    XS(s)       => s,
-    XI(i)       => "{i}",
-    XR(i, t)    => rs(f, R(i, t)),
-    XL(i)       => f.lams[i].name,
-    XST(n, fs)  => n + " " + join(fs, ","),
-    XP(ps)      => join(map(ps, (p) => if p.0 { cs(p.1) } else { "_" }), ","),
+    XN => "",
+    XS(s) => s,
+    XI(i) => "{i}",
+    XR(i, t) => rs(f, R(i, t)),
+    XL(i) => f.lams[i].name,
+    XST(n, fs) => n + " " + join(fs, ","),
+    XP(ps) => join(map(ps, (p) => if p.0 { cs(p.1) } else { "_" }), ","),
   }
 }
 
 fn dump_fn(f: KF, lamf: KF, out0: List<Str>) -> List<Str> {
   var out = out0
   var hdr = "fn " + f.name + " (" + join(map(f.params, (p) => rs(f, p)), ", ") + ") -> " + f.ret
-  if f.closure { hdr = hdr + " closure " + f.label + " caps " + join(map(f.caps, (c) => rs(f, c)), " ") }
+  if f.closure {
+    hdr = hdr + " closure " + f.label + " caps " + join(map(f.caps, (c) => rs(f, c)), " ")
+  }
   hdr = hdr + " npb {f.npb} ndefer {f.ndefer} line {f.line}"
   out = push(out, hdr)
   var i = 0
@@ -62,25 +64,31 @@ fn dump_fn(f: KF, lamf: KF, out0: List<Str>) -> List<Str> {
     for ins in b.ins {
       let lhs = match ins.d {
         Some(d) => rs(f, d) + " = ",
-        None    => "",
+        None => "",
       }
       let ex = xs(lamf, ins.op, ins.x)
-      let exs = if ins.op == "next" { match ins.x {
-        XR(ri, rt) => rs(f, R(ri, rt)),
-        _          => ex,
-      } } else { ex }
-      out = push(out, "  L{ins.ln} " + lhs + ins.op + " " + join(map(ins.args, av), ", ") + (if exs != "" { " | " + exs } else { "" }))
+      let exs = if ins.op == "next" {
+        match ins.x {
+          XR(ri, rt) => rs(f, R(ri, rt)),
+          _ => ex,
+        }
+      } else {
+        ex
+      }
+      out = push(out, "  L{ins.ln} " + lhs + ins.op + " " + join(map(ins.args, av), ", ") + (
+        if exs != "" { " | " + exs } else { "" }
+      ))
     }
     out = push(out, match b.t {
-      TNone              => "  unreachable",
-      TUnr               => "  unreachable",
-      TBr(x)             => "  br b{x}",
-      TCbr(c, x, y)      => "  cbr " + av(c) + ", b{x}, b{y}",
-      TRet(None)         => "  ret",
-      TRet(Some(v))      => "  ret " + av(v),
-      TPanic(m, v, ln)   => "  panic L{ln} " + cs(m) + (match v {
+      TNone => "  unreachable",
+      TUnr => "  unreachable",
+      TBr(x) => "  br b{x}",
+      TCbr(c, x, y) => "  cbr " + av(c) + ", b{x}, b{y}",
+      TRet(None) => "  ret",
+      TRet(Some(v)) => "  ret " + av(v),
+      TPanic(m, v, ln) => "  panic L{ln} " + cs(m) + (match v {
         Some(x) => " " + av(x) + ":" + kir.aty(x),
-        None    => "",
+        None => "",
       }),
     })
   }

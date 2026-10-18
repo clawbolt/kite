@@ -19,7 +19,9 @@ fn read(rand: List<Int>, pos: Int, n: Int) -> Result<List<Int>, Str> {
 }
 
 pub fn generate_key(params: Parameters, rand: List<Int>) -> Result<PrivateKey, Str> {
-  if params.p.sign() == 0 || params.q.sign() == 0 || params.g.sign() == 0 { return Err("crypto/dsa: parameters not set up before generating key") }
+  if params.p.sign() == 0 || params.q.sign() == 0 || params.g.sign() == 0 {
+    return Err("crypto/dsa: parameters not set up before generating key")
+  }
   let n = params.q.bit_len() / 8
   var pos = 0
   loop {
@@ -27,7 +29,10 @@ pub fn generate_key(params: Parameters, rand: List<Int>) -> Result<PrivateKey, S
     pos += n
     let x = big.set_bytes(b)
     if x.sign() != 0 && x.cmp(params.q) < 0 {
-      return Ok(PrivateKey { pub_: PublicKey { params: params, y: unwrap(params.g.exp(x, params.p)) }, x: x })
+      return Ok(PrivateKey {
+        pub_: PublicKey { params: params, y: unwrap(params.g.exp(x, params.p)) },
+        x: x,
+      })
     }
   }
 }
@@ -35,7 +40,9 @@ pub fn generate_key(params: Parameters, rand: List<Int>) -> Result<PrivateKey, S
 pub fn sign(rand: List<Int>, priv: PrivateKey, hash: List<Int>) -> Result<(BigInt, BigInt), Str> {
   let pr = priv.pub_.params
   var n = pr.q.bit_len()
-  if pr.q.sign() <= 0 || pr.p.sign() <= 0 || pr.g.sign() <= 0 || priv.x.sign() <= 0 || n % 8 != 0 { return Err(ERR_INVALID_PUBLIC_KEY) }
+  if pr.q.sign() <= 0 || pr.p.sign() <= 0 || pr.g.sign() <= 0 || priv.x.sign() <= 0 || n % 8 != 0 {
+    return Err(ERR_INVALID_PUBLIC_KEY)
+  }
   n = n / 8
   var pos = 0
   var attempts = 10

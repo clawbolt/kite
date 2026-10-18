@@ -16,12 +16,32 @@ pub fn rune_count(s: Str) -> Int { len(s) }
 
 // 码点编码成 UTF-8 需要几个字节；无效码点为 -1
 pub fn rune_len(cp: Int) -> Int {
-  if cp < 0 || cp > 1114111 || (cp >= 55296 && cp <= 57343) { -1 } else if cp < 128 { 1 } else if cp < 2048 { 2 } else if cp < 65536 { 3 } else { 4 }
+  if cp < 0 || cp > 1114111 || (cp >= 55296 && cp <= 57343) {
+    -1
+  } else if cp < 128 {
+    1
+  } else if cp < 2048 {
+    2
+  } else if cp < 65536 {
+    3
+  } else {
+    4
+  }
 }
 
 pub fn encode_rune(cp: Int) -> List<Int> {
   let n = rune_len(cp)
-  if n == 1 { [cp] } else if n == 2 { [192 | (cp >> 6), 128 | (cp & 63)] } else if n == 3 { [224 | (cp >> 12), 128 | ((cp >> 6) & 63), 128 | (cp & 63)] } else if n == 4 { [240 | (cp >> 18), 128 | ((cp >> 12) & 63), 128 | ((cp >> 6) & 63), 128 | (cp & 63)] } else { [239, 191, 189] }
+  if n == 1 {
+    [cp]
+  } else if n == 2 {
+    [192 | (cp >> 6), 128 | (cp & 63)]
+  } else if n == 3 {
+    [224 | (cp >> 12), 128 | ((cp >> 6) & 63), 128 | (cp & 63)]
+  } else if n == 4 {
+    [240 | (cp >> 18), 128 | ((cp >> 12) & 63), 128 | ((cp >> 6) & 63), 128 | (cp & 63)]
+  } else {
+    [239, 191, 189]
+  }
 }
 
 // 每个字符的码点
@@ -47,7 +67,23 @@ pub fn append_rune(bs: List<Int>, r: Int) -> List<Int> { bs + encode_rune(r) }
 
 // 第二个字节的合法范围
 fn accept(b0: Int) -> (Int, Int, Int) {
-  if b0 >= 0xc2 && b0 <= 0xdf { (2, 0x80, 0xbf) } else if b0 == 0xe0 { (3, 0xa0, 0xbf) } else if b0 == 0xed { (3, 0x80, 0x9f) } else if b0 >= 0xe1 && b0 <= 0xef { (3, 0x80, 0xbf) } else if b0 == 0xf0 { (4, 0x90, 0xbf) } else if b0 == 0xf4 { (4, 0x80, 0x8f) } else if b0 >= 0xf1 && b0 <= 0xf3 { (4, 0x80, 0xbf) } else { (0, 0, 0) }
+  if b0 >= 0xc2 && b0 <= 0xdf {
+    (2, 0x80, 0xbf)
+  } else if b0 == 0xe0 {
+    (3, 0xa0, 0xbf)
+  } else if b0 == 0xed {
+    (3, 0x80, 0x9f)
+  } else if b0 >= 0xe1 && b0 <= 0xef {
+    (3, 0x80, 0xbf)
+  } else if b0 == 0xf0 {
+    (4, 0x90, 0xbf)
+  } else if b0 == 0xf4 {
+    (4, 0x80, 0x8f)
+  } else if b0 >= 0xf1 && b0 <= 0xf3 {
+    (4, 0x80, 0xbf)
+  } else {
+    (0, 0, 0)
+  }
 }
 
 // 从第 i 个字节开始解一个码点：(码点, 字节数)；无效时 (RUNE_ERROR, 1)，到结尾时 (RUNE_ERROR, 0)

@@ -14,12 +14,23 @@ fn zeros(n: Int) -> List<Int> {
   out
 }
 
-pub fn extract(h: fn(List<Int>) -> List<Int>, block_size: Int, secret: List<Int>, salt: List<Int>) -> Result<List<Int>, Str> {
+pub fn extract(
+  h: fn(List<Int>) -> List<Int>,
+  block_size: Int,
+  secret: List<Int>,
+  salt: List<Int>,
+) -> Result<List<Int>, Str> {
   let s = if len(salt) == 0 { zeros(len(h([]))) } else { salt }
   Ok(hmac.sum(h, block_size, s, secret))
 }
 
-fn expand_raw(h: fn(List<Int>) -> List<Int>, block_size: Int, prk: List<Int>, ib: List<Int>, n: Int) -> List<Int> {
+fn expand_raw(
+  h: fn(List<Int>) -> List<Int>,
+  block_size: Int,
+  prk: List<Int>,
+  ib: List<Int>,
+  n: Int,
+) -> List<Int> {
   var out: List<Int> = []
   var t: List<Int> = []
   var counter = 1
@@ -31,24 +42,50 @@ fn expand_raw(h: fn(List<Int>) -> List<Int>, block_size: Int, prk: List<Int>, ib
   out[..n]
 }
 
-pub fn expand(h: fn(List<Int>) -> List<Int>, block_size: Int, prk: List<Int>, info: Str, n: Int) -> Result<List<Int>, Str> {
+pub fn expand(
+  h: fn(List<Int>) -> List<Int>,
+  block_size: Int,
+  prk: List<Int>,
+  info: Str,
+  n: Int,
+) -> Result<List<Int>, Str> {
   if n > len(h([])) * 255 { return Err("hkdf: requested key length too large") }
   Ok(expand_raw(h, block_size, prk, __bytes(info), n))
 }
 
-pub fn key(h: fn(List<Int>) -> List<Int>, block_size: Int, secret: List<Int>, salt: List<Int>, info: Str, n: Int) -> Result<List<Int>, Str> {
+pub fn key(
+  h: fn(List<Int>) -> List<Int>,
+  block_size: Int,
+  secret: List<Int>,
+  salt: List<Int>,
+  info: Str,
+  n: Int,
+) -> Result<List<Int>, Str> {
   if n > len(h([])) * 255 { return Err("hkdf: requested key length too large") }
   let prk = extract(h, block_size, secret, salt)?
   Ok(expand_raw(h, block_size, prk, __bytes(info), n))
 }
 
 // info 是任意字节（Go 的 info string 可以不是合法 UTF-8，Kite 的 Str 不行）
-pub fn expand_bytes(h: fn(List<Int>) -> List<Int>, block_size: Int, prk: List<Int>, info: List<Int>, n: Int) -> Result<List<Int>, Str> {
+pub fn expand_bytes(
+  h: fn(List<Int>) -> List<Int>,
+  block_size: Int,
+  prk: List<Int>,
+  info: List<Int>,
+  n: Int,
+) -> Result<List<Int>, Str> {
   if n > len(h([])) * 255 { return Err("hkdf: requested key length too large") }
   Ok(expand_raw(h, block_size, prk, info, n))
 }
 
-pub fn key_bytes(h: fn(List<Int>) -> List<Int>, block_size: Int, secret: List<Int>, salt: List<Int>, info: List<Int>, n: Int) -> Result<List<Int>, Str> {
+pub fn key_bytes(
+  h: fn(List<Int>) -> List<Int>,
+  block_size: Int,
+  secret: List<Int>,
+  salt: List<Int>,
+  info: List<Int>,
+  n: Int,
+) -> Result<List<Int>, Str> {
   if n > len(h([])) * 255 { return Err("hkdf: requested key length too large") }
   let prk = extract(h, block_size, secret, salt)?
   Ok(expand_raw(h, block_size, prk, info, n))

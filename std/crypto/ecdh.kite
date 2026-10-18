@@ -17,9 +17,13 @@ pub type PrivateKey = { curve: Int, d: List<Int>, pub_: List<Int> }
 
 pub type PublicKey = { curve: Int, q: List<Int> }
 
-pub fn curve_name(c: Int) -> Str { if c == 0 { "X25519" } else if c == 1 { "P-256" } else if c == 2 { "P-384" } else { "P-521" } }
+pub fn curve_name(c: Int) -> Str {
+  if c == 0 { "X25519" } else if c == 1 { "P-256" } else if c == 2 { "P-384" } else { "P-521" }
+}
 
-fn nist(c: Int) -> Curve { if c == P256 { nistec.p256() } else if c == P384 { nistec.p384() } else { nistec.p521() } }
+fn nist(c: Int) -> Curve {
+  if c == P256 { nistec.p256() } else if c == P384 { nistec.p384() } else { nistec.p521() }
+}
 
 // ── X25519（RFC 7748） ──
 
@@ -78,10 +82,16 @@ fn is_zero(b: List<Int>) -> Bool { all(b, (x) => x == 0) }
 pub fn new_private_key(curve: Int, key: List<Int>) -> Result<PrivateKey, Str> {
   if curve == X25519 {
     if len(key) != 32 { return Err("crypto/ecdh: invalid private key size") }
-    return Ok(PrivateKey { curve: curve, d: key, pub_: x25519(key, set(map(0..32, (_) => 0), 0, 9)) })
+    return Ok(PrivateKey {
+      curve: curve,
+      d: key,
+      pub_: x25519(key, set(map(0..32, (_) => 0), 0, 9)),
+    })
   }
   let c = nist(curve)
-  if len(key) != c.size || is_zero(key) || big.set_bytes(key).cmp(c.n) >= 0 { return Err("crypto/ecdh: invalid private key") }
+  if len(key) != c.size || is_zero(key) || big.set_bytes(key).cmp(c.n) >= 0 {
+    return Err("crypto/ecdh: invalid private key")
+  }
   let p = nistec.scalar_mult(c, nistec.generator(c), key)
   Ok(PrivateKey { curve: curve, d: key, pub_: nistec.encode(c, p) })
 }
@@ -100,7 +110,9 @@ pub fn new_public_key(curve: Int, key: List<Int>) -> Result<PublicKey, Str> {
 pub fn public_key(k: PrivateKey) -> PublicKey { PublicKey { curve: k.curve, q: k.pub_ } }
 
 pub fn ecdh(k: PrivateKey, remote: PublicKey) -> Result<List<Int>, Str> {
-  if k.curve != remote.curve { return Err("crypto/ecdh: private key and public key curves do not match") }
+  if k.curve != remote.curve {
+    return Err("crypto/ecdh: private key and public key curves do not match")
+  }
   if k.curve == X25519 {
     let out = x25519(k.d, remote.q)
     if is_zero(out) { return Err("crypto/ecdh: bad X25519 remote ECDH input: low order point") }

@@ -16,12 +16,12 @@ fn main() {
   let xs = [1, 2, 3]
   for f in [() => xs[7], () => unwrap(parse_int("abc")), () => { panic("自定义"); 0 }] {
     match recover(f) {
-      Ok(v)  => print("值", v)
+      Ok(v) => print("值", v)
       Err(p) => match p.kind {
         IndexOutOfRange => print("越界:", p.message)
-        UnwrapFailed    => print("unwrap 失败")
-        PanicCalled     => print("panic:", p.message)
-        _               => repanic(p)
+        UnwrapFailed => print("unwrap 失败")
+        PanicCalled => print("panic:", p.message)
+        _ => repanic(p)
       }
     }
   }
@@ -45,7 +45,7 @@ fn main() {
   })
   match r {
     Err(p) => print(p.kind, p.message, unwrap(recv(log)))
-    Ok(_)  => print("不会到这里")
+    Ok(_) => print("不会到这里")
   }
 
   // 3. supervise：失败就重来
@@ -70,7 +70,7 @@ fn main() {
   let transient = (p: Panic) => p.kind == PanicCalled
   match recover(() => supervise_if(5, transient, flaky)) {
     Err(p) => print("尝试 {tries} 次后放弃:", p.kind)
-    Ok(v)  => print(v)
+    Ok(v) => print(v)
   }
 
   // 5. one_for_one：每个子任务各自监督，一个重启不影响另一个
@@ -110,19 +110,24 @@ fn main() {
   print(p, q)
 
   // 6. 受监督的 actor：坏消息让它崩溃并重启（状态清零），之后继续工作
-  let (_, total) = actor_supervised(0, (sum: Int, s: Str) => {
-    let n = unwrap(parse_int(s))
-    sum + n
-    }, 2, acc => {
+  let (_, total) = actor_supervised(
+    0,
+    (sum: Int, s: Str) => {
+      let n = unwrap(parse_int(s))
+      sum + n
+    },
+    2,
+    acc => {
       for s in ["10", "20", "坏数据", "5", "7"] { tell(acc, s) }
-  })
+    },
+  )
   print("重启后累计", total)
 
   // 7. 时间窗口：10 秒内最多重启 2 次，第 3 次失败就升级
   let always = restart_policy(2, 10000)
   match recover(() => supervise_with(always, e => true, () => panic("一直失败"))) {
     Err(p) => print("窗口内超限，升级:", p.message)
-    Ok(_)  => print("不会到这里")
+    Ok(_) => print("不会到这里")
   }
 
   // 窗口过期：每 20 毫秒最多 1 次，但每次失败间隔 60 毫秒，旧的重启已经出窗，所以一直能重启
@@ -147,8 +152,13 @@ fn main() {
   print(r8, "等待至少 110 毫秒:", now_ms() - t0 >= 110)
 
   // 9. 带策略的 actor：坏消息触发退避重启，好消息让连续失败计数归零
-  let (_, sum) = actor_supervised_with(0, (acc: Int, s: Str) => acc + unwrap(parse_int(s)), backoff, a => {
-    for s in ["1", "x", "y", "2", "z", "3", "4"] { tell(a, s) }
-  })
+  let (_, sum) = actor_supervised_with(
+    0,
+    (acc: Int, s: Str) => acc + unwrap(parse_int(s)),
+    backoff,
+    a => {
+      for s in ["1", "x", "y", "2", "z", "3", "4"] { tell(a, s) }
+    },
+  )
   print("actor 最终状态", sum)
 }

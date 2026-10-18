@@ -7,10 +7,22 @@ use std.time
 
 pub type Logger = { prefix: Str, with_time: Bool, min_level: Int }
 
-pub fn new(prefix: Str, with_time: Bool) -> Logger { Logger { prefix: prefix, with_time: with_time, min_level: 0 } }
+pub fn new(prefix: Str, with_time: Bool) -> Logger {
+  Logger { prefix: prefix, with_time: with_time, min_level: 0 }
+}
 
 fn level_of(name: Str) -> Int {
-  if name == "DEBUG" { 0 } else if name == "INFO" { 1 } else if name == "WARN" { 2 } else if name == "ERROR" { 3 } else { 4 }
+  if name == "DEBUG" {
+    0
+  } else if name == "INFO" {
+    1
+  } else if name == "WARN" {
+    2
+  } else if name == "ERROR" {
+    3
+  } else {
+    4
+  }
 }
 
 // 只记录 level（DEBUG / INFO / WARN / ERROR）及以上的日志

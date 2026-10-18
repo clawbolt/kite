@@ -59,10 +59,38 @@ pub enum Arg {
 }
 
 // fmt 结构体的标志 + 打印器状态（erroring、是否 Errorf）
-type Fl = { wid_p: Bool, prec_p: Bool, minus: Bool, plus: Bool, sharp: Bool, space: Bool, zero: Bool, plus_v: Bool, sharp_v: Bool, wid: Int, prec: Int, erroring: Bool, wrap: Bool }
+type Fl = {
+  wid_p: Bool,
+  prec_p: Bool,
+  minus: Bool,
+  plus: Bool,
+  sharp: Bool,
+  space: Bool,
+  zero: Bool,
+  plus_v: Bool,
+  sharp_v: Bool,
+  wid: Int,
+  prec: Int,
+  erroring: Bool,
+  wrap: Bool,
+}
 
 fn clear_flags(wrap: Bool) -> Fl {
-  Fl { wid_p: false, prec_p: false, minus: false, plus: false, sharp: false, space: false, zero: false, plus_v: false, sharp_v: false, wid: 0, prec: 0, erroring: false, wrap: wrap }
+  Fl {
+    wid_p: false,
+    prec_p: false,
+    minus: false,
+    plus: false,
+    sharp: false,
+    space: false,
+    zero: false,
+    plus_v: false,
+    sharp_v: false,
+    wid: 0,
+    prec: 0,
+    erroring: false,
+    wrap: wrap,
+  }
 }
 
 const MAX_RUNE: Int = 1114111
@@ -72,14 +100,14 @@ const MAX_RUNE: Int = 1114111
 fn untyped(a: Arg) -> Arg {
   match a {
     VTyped(_, x) => untyped(x),
-    _            => a,
+    _ => a,
   }
 }
 
 fn is_nil(a: Arg) -> Bool {
   match untyped(a) {
     VNil => true,
-    _    => false,
+    _ => false,
   }
 }
 
@@ -95,21 +123,23 @@ fn common_type(ts: List<Str>) -> Str {
 // 同 reflect.TypeOf(x).String()
 pub fn go_type(a: Arg) -> Str {
   match a {
-    VTyped(t, _)      => t,
-    VInt(_)           => "int",
-    VUint(_)          => "uint64",
-    VByte(_)          => "uint8",
-    VRune(_)          => "int32",
-    VFloat(_)         => "float64",
-    VF32(_)           => "float32",
-    VComplex(_, _)    => "complex128",
-    VC64(_, _)        => "complex64",
-    VStr(_)           => "string",
-    VBool(_)          => "bool",
-    VBytes(_)         => "[]uint8",
-    VList(xs)         => "[]" + common_type(map(xs, (x) => go_type(x))),
-    VArray(xs)        => "[{len(xs)}]" + common_type(map(xs, (x) => go_type(x))),
-    VMap(ps)          => "map[" + common_type(map(ps, (p) => go_type(p.0))) + "]" + common_type(map(ps, (p) => go_type(p.1))),
+    VTyped(t, _) => t,
+    VInt(_) => "int",
+    VUint(_) => "uint64",
+    VByte(_) => "uint8",
+    VRune(_) => "int32",
+    VFloat(_) => "float64",
+    VF32(_) => "float32",
+    VComplex(_, _) => "complex128",
+    VC64(_, _) => "complex64",
+    VStr(_) => "string",
+    VBool(_) => "bool",
+    VBytes(_) => "[]uint8",
+    VList(xs) => "[]" + common_type(map(xs, (x) => go_type(x))),
+    VArray(xs) => "[{len(xs)}]" + common_type(map(xs, (x) => go_type(x))),
+    VMap(ps) => "map[" + common_type(map(ps, (p) => go_type(p.0))) + "]" + common_type(
+      map(ps, (p) => go_type(p.1)),
+    ),
     VStruct(name, fs) => {
       if name != "" { return name }
       if len(fs) == 0 { return "struct \{}" }
@@ -117,7 +147,7 @@ pub fn go_type(a: Arg) -> Str {
     },
     VPtr(x) => "*" + go_type(x),
     VErr(_) => "*errors.errorString",
-    VNil    => "interface \{}",
+    VNil => "interface \{}",
   }
 }
 
@@ -219,7 +249,7 @@ fn truncate_bytes(f: Fl, b: List<Int>) -> List<Int> {
 fn bytes_str(b: List<Int>) -> Str {
   match __from_bytes(b) {
     Some(s) => s,
-    None    => {
+    None => {
       var out: List<Str> = []
       var i = 0
       while i < len(b) {
@@ -236,8 +266,12 @@ fn fmt_s(f: Fl, s: Str) -> Str { pad(f, truncate_string(f, s)) }
 
 fn fmt_bs(f: Fl, b: List<Int>) -> Str { pad(f, bytes_str(truncate_bytes(f, b))) }
 
-const LDIGITS: List<Str> = ["0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "a", "b", "c", "d", "e", "f", "x"]
-const UDIGITS: List<Str> = ["0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "A", "B", "C", "D", "E", "F", "X"]
+const LDIGITS: List<Str> = [
+  "0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "a", "b", "c", "d", "e", "f", "x",
+]
+const UDIGITS: List<Str> = [
+  "0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "A", "B", "C", "D", "E", "F", "X",
+]
 
 fn fmt_sbx(f: Fl, b: List<Int>, up: Bool) -> Str {
   let digits = if up { UDIGITS } else { LDIGITS }
@@ -303,7 +337,9 @@ fn fmt_float(f: Fl, v: Float, size: Int, verb: Str, prec0: Int) -> Str {
   let s = strconv.format_float_go(v, verb, prec, size)
   let first = __str_slice(s, 0, 1)
   var num = if first == "-" || first == "+" { s } else { "+" + s }
-  if f.space && __str_slice(num, 0, 1) == "+" && !f.plus { num = " " + __str_slice(num, 1, len(num)) }
+  if f.space && __str_slice(num, 0, 1) == "+" && !f.plus {
+    num = " " + __str_slice(num, 1, len(num))
+  }
   let c1 = __str_slice(num, 1, 2)
   if c1 == "I" || c1 == "N" {
     var n2 = num
@@ -365,11 +401,17 @@ fn fmt_bool(f: Fl, v: Bool, verb: Str, a: Arg) -> Str {
   if verb == "t" || verb == "v" { fmt_boolean(f, v) } else { bad_verb(f, verb, a) }
 }
 
-fn fmt0x64(f: Fl, v: Int, leading: Bool) -> Str { fmt_integer(Fl { sharp: leading, ..f }, v, 16, false, "v", false) }
+fn fmt0x64(f: Fl, v: Int, leading: Bool) -> Str {
+  fmt_integer(Fl { sharp: leading, ..f }, v, 16, false, "v", false)
+}
 
 fn fmt_int_verb(f: Fl, v: Int, is_signed: Bool, verb: Str, a: Arg) -> Str {
   if verb == "v" {
-    if f.sharp_v && !is_signed { fmt0x64(f, v, true) } else { fmt_integer(f, v, 10, is_signed, verb, false) }
+    if f.sharp_v && !is_signed {
+      fmt0x64(f, v, true)
+    } else {
+      fmt_integer(f, v, 10, is_signed, verb, false)
+    }
   } else if verb == "d" {
     fmt_integer(f, v, 10, is_signed, verb, false)
   } else if verb == "b" {
@@ -392,7 +434,16 @@ fn fmt_int_verb(f: Fl, v: Int, is_signed: Bool, verb: Str, a: Arg) -> Str {
 }
 
 fn float_verb_ok(verb: Str) -> Bool {
-  verb == "v" || verb == "b" || verb == "g" || verb == "G" || verb == "x" || verb == "X" || verb == "f" || verb == "F" || verb == "e" || verb == "E"
+  verb == "v"
+    || verb == "b"
+    || verb == "g"
+    || verb == "G"
+    || verb == "x"
+    || verb == "X"
+    || verb == "f"
+    || verb == "F"
+    || verb == "e"
+    || verb == "E"
 }
 
 // 调用前已检查 float_verb_ok
@@ -446,7 +497,7 @@ fn handle_methods(f: Fl, a: Arg, verb0: Str) -> Option<Str> {
   if f.erroring { return None }
   let msg = match untyped(a) {
     VErr(m) => Some(m),
-    _       => None,
+    _ => None,
   }
   var verb = verb0
   if verb == "w" {
@@ -455,7 +506,9 @@ fn handle_methods(f: Fl, a: Arg, verb0: Str) -> Option<Str> {
   }
   let Some(m) = msg else { return None }
   if f.sharp_v { return None }
-  if verb == "v" || verb == "s" || verb == "x" || verb == "X" || verb == "q" { return Some(fmt_string(f, m, verb, a)) }
+  if verb == "v" || verb == "s" || verb == "x" || verb == "X" || verb == "q" {
+    return Some(fmt_string(f, m, verb, a))
+  }
   None
 }
 
@@ -468,25 +521,25 @@ fn print_arg(f: Fl, a: Arg, verb: Str) -> Str {
   if verb == "p" { return bad_verb(f, verb, a) }
   match a {
     VBytes(bs) => { return fmt_bytes(f, bs, verb, "[]byte", 0) },
-    _          => {},
+    _ => {},
   }
   match handle_methods(f, a, verb) {
     Some(s) => s,
-    None    => print_value(f, a, verb, 0),
+    None => print_value(f, a, verb, 0),
   }
 }
 
 fn is_byte_elem(x: Arg) -> Bool {
   match untyped(x) {
     VByte(_) => true,
-    _        => false,
+    _ => false,
   }
 }
 
 fn byte_val(x: Arg) -> Int {
   match untyped(x) {
     VByte(b) => b,
-    _        => 0,
+    _ => 0,
   }
 }
 
@@ -512,29 +565,52 @@ fn print_value(f: Fl, a: Arg, verb: Str, depth: Int) -> Str {
       if depth == 0 { return "<invalid reflect.Value>" }
       if f.sharp_v { t + "(nil)" } else { "<nil>" }
     },
-    VBool(b)         => fmt_bool(f, b, verb, a),
-    VInt(n)          => fmt_int_verb(f, n, true, verb, a),
-    VRune(n)         => fmt_int_verb(f, n, true, verb, a),
-    VUint(n)         => fmt_int_verb(f, n, false, verb, a),
-    VByte(n)         => fmt_int_verb(f, n, false, verb, a),
-    VFloat(x)        => if float_verb_ok(verb) { fmt_float_verb(f, x, 64, verb) } else { bad_verb(f, verb, a) },
-    VF32(x)          => if float_verb_ok(verb) { fmt_float_verb(f, x, 32, verb) } else { bad_verb(f, verb, a) },
+    VBool(b) => fmt_bool(f, b, verb, a),
+    VInt(n) => fmt_int_verb(f, n, true, verb, a),
+    VRune(n) => fmt_int_verb(f, n, true, verb, a),
+    VUint(n) => fmt_int_verb(f, n, false, verb, a),
+    VByte(n) => fmt_int_verb(f, n, false, verb, a),
+    VFloat(x) => if float_verb_ok(verb) {
+      fmt_float_verb(f, x, 64, verb)
+    } else {
+      bad_verb(f, verb, a)
+    },
+    VF32(x) => if float_verb_ok(verb) {
+      fmt_float_verb(f, x, 32, verb)
+    } else {
+      bad_verb(f, verb, a)
+    },
     VComplex(re, im) => {
       if !float_verb_ok(verb) { return bad_verb(f, verb, a) }
-      "(" + fmt_float_verb(f, re, 64, verb) + fmt_float_verb(Fl { plus: true, ..f }, im, 64, verb) + "i)"
+      "(" + fmt_float_verb(f, re, 64, verb) + fmt_float_verb(
+        Fl { plus: true, ..f },
+        im,
+        64,
+        verb,
+      ) + "i)"
     },
     VC64(re, im) => {
       if !float_verb_ok(verb) { return bad_verb(f, verb, a) }
-      "(" + fmt_float_verb(f, re, 32, verb) + fmt_float_verb(Fl { plus: true, ..f }, im, 32, verb) + "i)"
+      "(" + fmt_float_verb(f, re, 32, verb) + fmt_float_verb(
+        Fl { plus: true, ..f },
+        im,
+        32,
+        verb,
+      ) + "i)"
     },
-    VStr(s)    => fmt_string(f, s, verb, a),
+    VStr(s) => fmt_string(f, s, verb, a),
     VBytes(bs) => print_list(f, map(bs, (c) => VByte(c)), t, verb, depth),
-    VList(xs)  => print_list(f, xs, t, verb, depth),
+    VList(xs) => print_list(f, xs, t, verb, depth),
     VArray(xs) => print_list(f, xs, t, verb, depth),
-    VMap(ps)   => {
+    VMap(ps) => {
       let sorted = sort_with(ps, (x, y) => compare(x.0, y.0))
       var out: List<Str> = []
-      for p in sorted { out = push(out, print_value(f, p.0, verb, depth + 1) + ":" + print_value(f, p.1, verb, depth + 1)) }
+      for p in sorted {
+        out = push(
+          out,
+          print_value(f, p.0, verb, depth + 1) + ":" + print_value(f, p.1, verb, depth + 1),
+        )
+      }
       if f.sharp_v { t + "\{" + join(out, ", ") + "}" } else { "map[" + join(out, " ") + "]" }
     },
     VStruct(_, fs) => {
@@ -545,8 +621,13 @@ fn print_value(f: Fl, a: Arg, verb: Str, depth: Int) -> Str {
       }
       if f.sharp_v { t + "\{" + join(out, ", ") + "}" } else { "\{" + join(out, " ") + "}" }
     },
-    VPtr(x)      => "&" + print_value(f, x, verb, depth + 1),
-    VErr(m)      => "&" + print_value(f, VStruct("errors.errorString", [("s", VStr(m))]), verb, depth + 1),
+    VPtr(x) => "&" + print_value(f, x, verb, depth + 1),
+    VErr(m) => "&" + print_value(
+      f,
+      VStruct("errors.errorString", [("s", VStr(m))]),
+      verb,
+      depth + 1,
+    ),
     VTyped(_, _) => "",
   }
 }
@@ -555,20 +636,20 @@ fn print_value(f: Fl, a: Arg, verb: Str, depth: Int) -> Str {
 
 fn kind_rank(a: Arg) -> Int {
   match a {
-    VNil           => 0,
-    VBool(_)       => 1,
-    VInt(_)        => 2,
-    VRune(_)       => 3,
-    VUint(_)       => 4,
-    VByte(_)       => 5,
-    VFloat(_)      => 6,
-    VF32(_)        => 7,
+    VNil => 0,
+    VBool(_) => 1,
+    VInt(_) => 2,
+    VRune(_) => 3,
+    VUint(_) => 4,
+    VByte(_) => 5,
+    VFloat(_) => 6,
+    VF32(_) => 7,
     VComplex(_, _) => 8,
-    VC64(_, _)     => 8,
-    VStr(_)        => 9,
-    VArray(_)      => 10,
-    VStruct(_, _)  => 11,
-    _              => 12,
+    VC64(_, _) => 8,
+    VStr(_) => 9,
+    VArray(_) => 10,
+    VStruct(_, _) => 11,
+    _ => 12,
   }
 }
 
@@ -602,13 +683,13 @@ fn compare(a0: Arg, b0: Arg) -> Int {
   let rb = kind_rank(b)
   if ra != rb { return cmp_int(ra, rb) }
   match (a, b) {
-    (VBool(x), VBool(y))                 => if x == y { 0 } else if !x { -1 } else { 1 },
-    (VInt(x), VInt(y))                   => cmp_int(x, y),
-    (VRune(x), VRune(y))                 => cmp_int(x, y),
-    (VUint(x), VUint(y))                 => bits.ucmp(x, y),
-    (VByte(x), VByte(y))                 => cmp_int(x, y),
-    (VFloat(x), VFloat(y))               => cmp_float(x, y),
-    (VF32(x), VF32(y))                   => cmp_float(x, y),
+    (VBool(x), VBool(y)) => if x == y { 0 } else if !x { -1 } else { 1 },
+    (VInt(x), VInt(y)) => cmp_int(x, y),
+    (VRune(x), VRune(y)) => cmp_int(x, y),
+    (VUint(x), VUint(y)) => bits.ucmp(x, y),
+    (VByte(x), VByte(y)) => cmp_int(x, y),
+    (VFloat(x), VFloat(y)) => cmp_float(x, y),
+    (VF32(x), VF32(y)) => cmp_float(x, y),
     (VComplex(xr, xi), VComplex(yr, yi)) => {
       let c = cmp_float(xr, yr)
       if c != 0 { c } else { cmp_float(xi, yi) }
@@ -617,10 +698,10 @@ fn compare(a0: Arg, b0: Arg) -> Int {
       let c = cmp_float(xr, yr)
       if c != 0 { c } else { cmp_float(xi, yi) }
     },
-    (VStr(x), VStr(y))               => if x < y { -1 } else if x > y { 1 } else { 0 },
-    (VArray(xs), VArray(ys))         => compare_lists(xs, ys),
+    (VStr(x), VStr(y)) => if x < y { -1 } else if x > y { 1 } else { 0 },
+    (VArray(xs), VArray(ys)) => compare_lists(xs, ys),
     (VStruct(_, xs), VStruct(_, ys)) => compare_lists(map(xs, (p) => p.1), map(ys, (p) => p.1)),
-    _                                => 0,
+    _ => 0,
   }
 }
 
@@ -690,14 +771,28 @@ fn parse_arg_number(cs: List<Str>, i: Int, end: Int) -> (Int, Int, Bool) {
 
 type ArgNum = { arg_num: Int, i: Int, found: Bool, reordered: Bool, good: Bool }
 
-fn arg_number(arg_num: Int, cs: List<Str>, i: Int, end: Int, num_args: Int, reordered: Bool, good: Bool) -> ArgNum {
-  if end <= i || cs[i] != "[" { return ArgNum { arg_num: arg_num, i: i, found: false, reordered: reordered, good: good } }
+fn arg_number(
+  arg_num: Int,
+  cs: List<Str>,
+  i: Int,
+  end: Int,
+  num_args: Int,
+  reordered: Bool,
+  good: Bool,
+) -> ArgNum {
+  if end <= i || cs[i] != "[" {
+    return ArgNum { arg_num: arg_num, i: i, found: false, reordered: reordered, good: good }
+  }
   let (index, wid, ok) = parse_arg_number(cs, i, end)
-  if ok && 0 <= index && index < num_args { return ArgNum { arg_num: index, i: i + wid, found: true, reordered: true, good: good } }
+  if ok && 0 <= index && index < num_args {
+    return ArgNum { arg_num: index, i: i + wid, found: true, reordered: true, good: good }
+  }
   ArgNum { arg_num: arg_num, i: i + wid, found: ok, reordered: true, good: false }
 }
 
-fn set_v_flags(f: Fl) -> Fl { Fl { sharp_v: f.sharp, sharp: false, plus_v: f.plus, plus: false, ..f } }
+fn set_v_flags(f: Fl) -> Fl {
+  Fl { sharp_v: f.sharp, sharp: false, plus_v: f.plus, plus: false, ..f }
+}
 
 fn is_lower(c: Str) -> Bool { c >= "a" && c <= "z" && len(c) == 1 }
 
@@ -833,7 +928,7 @@ fn do_printf(format: Str, a: List<Arg>, wrap: Bool) -> Str {
 fn is_string_arg(a: Arg) -> Bool {
   match untyped(a) {
     VStr(_) => true,
-    _       => false,
+    _ => false,
   }
 }
 
@@ -864,7 +959,11 @@ pub fn sprintln(args: List<Arg>) -> Str {
 }
 
 fn print_trim(s: Str) {
-  if len(s) > 0 && __str_slice(s, len(s) - 1, len(s)) == "\n" { print(__str_slice(s, 0, len(s) - 1)) } else { print(s) }
+  if len(s) > 0 && __str_slice(s, len(s) - 1, len(s)) == "\n" {
+    print(__str_slice(s, 0, len(s) - 1))
+  } else {
+    print(s)
+  }
 }
 
 // 结果以 "\n" 结尾时去掉一个（Kite 的 print 会补上）

@@ -9,7 +9,13 @@ use std.crypto.rand as crand
 const Q: Int = 3329
 const N: Int = 256
 
-pub type EncapsulationKey = { k: Int, t: List<List<Int>>, rho: List<Int>, h: List<Int>, a: List<List<Int>> }
+pub type EncapsulationKey = {
+  k: Int,
+  t: List<List<Int>>,
+  rho: List<Int>,
+  h: List<Int>,
+  a: List<List<Int>>,
+}
 
 pub type DecapsulationKey = { d: List<Int>, z: List<Int>, ek: EncapsulationKey, s: List<List<Int>> }
 
@@ -174,7 +180,9 @@ fn byte_decode12(b: List<Int>) -> Result<List<Int>, Str> {
   Ok(f)
 }
 
-fn ek_bytes(ek: EncapsulationKey) -> List<Int> { fold(ek.t, [], (acc, t) => acc + encode_bits(t, 12)) + ek.rho }
+fn ek_bytes(ek: EncapsulationKey) -> List<Int> {
+  fold(ek.t, [], (acc, t) => acc + encode_bits(t, 12)) + ek.rho
+}
 
 impl EncapsulationKey {
   pub fn bytes(self) -> List<Int> { ek_bytes(self) }
@@ -257,12 +265,18 @@ fn pke_encrypt(ek: EncapsulationKey, m: List<Int>, rnd: List<Int>) -> List<Int> 
 
 // mlkemtest.Encapsulate768/1024：(共享密钥, 密文)
 pub fn encapsulate_with(ek: EncapsulationKey, m: List<Int>) -> Result<(List<Int>, List<Int>), Str> {
-  if len(m) != 32 { return Err("mlkemtest: Encapsulate{if ek.k == 3 { 768 } else { 1024 }}: random must be 32 bytes") }
+  if len(m) != 32 {
+    return Err(
+      "mlkemtest: Encapsulate{if ek.k == 3 { 768 } else { 1024 }}: random must be 32 bytes",
+    )
+  }
   let g = sha3.sum512(m + ek.h)
   Ok((g[..32], pke_encrypt(ek, m, g[32..])))
 }
 
-pub fn encapsulate(ek: EncapsulationKey) -> (List<Int>, List<Int>) { unwrap(encapsulate_with(ek, crand.read(32))) }
+pub fn encapsulate(ek: EncapsulationKey) -> (List<Int>, List<Int>) {
+  unwrap(encapsulate_with(ek, crand.read(32)))
+}
 
 impl DecapsulationKey {
   pub fn bytes(self) -> List<Int> { self.d + self.z }

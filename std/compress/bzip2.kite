@@ -16,7 +16,12 @@ const BLOCK_MAGIC: Int = 0x314159265359
 
 const FINAL_MAGIC: Int = 0x177245385090
 
-const CAPS: List<Int> = [512, 896, 1408, 2048, 3072, 4096, 5376, 6912, 9472, 12288, 16384, 21760, 28672, 40960, 57344, 73728, 98304, 131072, 172032, 221184, 278528, 352256, 442368, 557056, 704512, 884736, 1114112, 1400832, 1753088, 2195456, 2752512, 3448832, 4317184, 5398528, 6750208, 8445952, 10559488, 13205504, 16515072, 20652032, 25821184, 32284672, 40361984, 50454528, 63070208, 78839808]
+const CAPS: List<Int> = [
+  512, 896, 1408, 2048, 3072, 4096, 5376, 6912, 9472, 12288, 16384, 21760, 28672, 40960, 57344,
+  73728, 98304, 131072, 172032, 221184, 278528, 352256, 442368, 557056, 704512, 884736, 1114112,
+  1400832, 1753088, 2195456, 2752512, 3448832, 4317184, 5398528, 6750208, 8445952, 10559488,
+  13205504, 16515072, 20652032, 25821184, 32284672, 40361984, 50454528, 63070208, 78839808,
+]
 
 fn structural(s: Str) -> Str { "bzip2 data invalid: " + s }
 
@@ -85,7 +90,9 @@ pub fn update_crc(val: Int, bs: List<Int>) -> Int {
 
 const INVALID: Int = 0xffff
 
-fn build_node(cc: List<Int>, cv: List<Int>, lo: Int, hi: Int, level: Int, nd: List<Int>) -> Result<(List<Int>, Int), Str> {
+fn build_node(cc: List<Int>, cv: List<Int>, lo: Int, hi: Int, level: Int, nd: List<Int>) -> Result<(
+  List<Int>, Int
+), Str> {
   let test = 1 << (31 - level)
   var first_right = hi
   var i = lo
@@ -213,7 +220,9 @@ fn read_block(br0: Br, block_size: Int, file_crc0: Int) -> (Br, Result<Block, St
   if len(symbols) == 0 { return (br, Err(structural("no symbols in input")), file_crc, want) }
   let (b6, num_trees) = read_bits(br, 3)
   br = b6
-  if num_trees < 2 || num_trees > 6 { return (br, Err(structural("invalid number of Huffman trees")), file_crc, want) }
+  if num_trees < 2 || num_trees > 6 {
+    return (br, Err(structural("invalid number of Huffman trees")), file_crc, want)
+  }
   let (b7, num_selectors) = read_bits(br, 15)
   br = b7
   var tmtf: List<Int> = []
@@ -242,7 +251,9 @@ fn read_block(br0: Br, block_size: Int, file_crc0: Int) -> (Br, Result<Block, St
     var lengths: List<Int> = []
     for _ in 0..num_symbols {
       loop {
-        if length < 1 || length > 20 { return (br, Err(structural("Huffman length out of range")), file_crc, want) }
+        if length < 1 || length > 20 {
+          return (br, Err(structural("Huffman length out of range")), file_crc, want)
+        }
         let (b10, x) = read_bits(br, 1)
         br = b10
         if x == 0 { break }
@@ -253,11 +264,13 @@ fn read_block(br0: Br, block_size: Int, file_crc0: Int) -> (Br, Result<Block, St
       lengths = push(lengths, length)
     }
     match new_tree(lengths) {
-      Ok(t)  => { trees = push(trees, t) },
+      Ok(t) => { trees = push(trees, t) },
       Err(e) => { return (br, Err(e), file_crc, want) },
     }
   }
-  if len(tree_indexes) == 0 { return (br, Err(structural("no tree selectors given")), file_crc, want) }
+  if len(tree_indexes) == 0 {
+    return (br, Err(structural("no tree selectors given")), file_crc, want)
+  }
   var selector_index = 1
   var cur = trees[tree_indexes[0]]
   var tt: List<Int> = []
@@ -267,7 +280,12 @@ fn read_block(br0: Br, block_size: Int, file_crc0: Int) -> (Br, Result<Block, St
   loop {
     if decoded == 50 {
       if selector_index >= num_selectors {
-        return (br, Err(structural("insufficient selector indices for number of symbols")), file_crc, want)
+        return (
+          br,
+          Err(structural("insufficient selector indices for number of symbols")),
+          file_crc,
+          want,
+        )
       }
       cur = trees[tree_indexes[selector_index]]
       selector_index += 1
@@ -280,11 +298,15 @@ fn read_block(br0: Br, block_size: Int, file_crc0: Int) -> (Br, Result<Block, St
       if repeat == 0 { repeat_power = 1 }
       repeat += repeat_power << v
       repeat_power = repeat_power << 1
-      if repeat > 2 * 1024 * 1024 { return (br, Err(structural("repeat count too large")), file_crc, want) }
+      if repeat > 2 * 1024 * 1024 {
+        return (br, Err(structural("repeat count too large")), file_crc, want)
+      }
       continue
     }
     if repeat > 0 {
-      if repeat > block_size - len(tt) { return (br, Err(structural("repeats past end of block")), file_crc, want) }
+      if repeat > block_size - len(tt) {
+        return (br, Err(structural("repeats past end of block")), file_crc, want)
+      }
       let f = mtf[0]
       for _ in 0..repeat { tt = push(tt, f) }
       repeat = 0
@@ -292,7 +314,9 @@ fn read_block(br0: Br, block_size: Int, file_crc0: Int) -> (Br, Result<Block, St
     if v == num_symbols - 1 { break }
     let b = mtf[v - 1]
     mtf = mtf_decode(mtf, v - 1)
-    if len(tt) >= block_size { return (br, Err(structural("data exceeds block size")), file_crc, want) }
+    if len(tt) >= block_size {
+      return (br, Err(structural("data exceeds block size")), file_crc, want)
+    }
     tt = push(tt, b)
   }
   if orig_ptr >= len(tt) { return (br, Err(structural("origPtr out of bounds")), file_crc, want) }
@@ -383,7 +407,7 @@ pub fn read_all(bs: List<Int>) -> (List<Int>, Str) {
       file_crc = fc
       want_crc = want
       match res {
-        Err(e)  => { return (out, sticky(br, e)) },
+        Err(e) => { return (out, sticky(br, e)) },
         Ok(blk) => {
           if br.err != "" {
             // 块在读取出错的状态下解完：这次 Read 只能交出缓冲区剩余空间那么多字节
@@ -432,6 +456,6 @@ pub fn decompress_str(bs: List<Int>) -> Result<Str, Str> {
   let out = decompress(bs)?
   match __from_bytes(out) {
     Some(s) => Ok(s),
-    None    => Err("bzip2: output is not valid UTF-8"),
+    None => Err("bzip2: output is not valid UTF-8"),
   }
 }

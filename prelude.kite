@@ -28,7 +28,7 @@ fn __panic_kind(i: Int) -> PanicKind {
 
 fn recover<T>(f: fn() -> T) -> Result<T, Panic> {
   match __recover_raw(f) {
-    Ok(v)            => Ok(v)
+    Ok(v) => Ok(v)
     Err((k, m, loc)) => Err(Panic { kind: __panic_kind(k), message: m, location: loc })
   }
 }
@@ -36,7 +36,7 @@ fn recover<T>(f: fn() -> T) -> Result<T, Panic> {
 fn repanic(p: Panic) -> Never {
   let raw = match p.kind {
     PanicCalled => "panic: {p.message}"
-    _           => p.message
+    _ => p.message
   }
   __repanic(raw, p.location)
 }
@@ -47,7 +47,7 @@ fn supervise_if<T>(n: Int, restart: fn(Panic) -> Bool, f: fn() -> T) -> T {
 
 fn __supervise_from<T>(k: Int, n: Int, restart: fn(Panic) -> Bool, f: fn() -> T) -> T {
   match recover(f) {
-    Ok(v)  => v
+    Ok(v) => v
     Err(p) => {
       if k >= n || !restart(p) { repanic(p) }
       __restart_log("supervise", k + 1, n, p.message)
@@ -61,11 +61,21 @@ fn __supervise_from<T>(k: Int, n: Int, restart: fn(Panic) -> Bool, f: fn() -> T)
 type RestartPolicy = { max_restarts: Int, within_ms: Int, backoff_ms: Int, max_backoff_ms: Int }
 
 fn restart_policy(max_restarts: Int, within_ms: Int) -> RestartPolicy {
-  RestartPolicy { max_restarts: max_restarts, within_ms: within_ms, backoff_ms: 0, max_backoff_ms: 0 }
+  RestartPolicy {
+    max_restarts: max_restarts,
+    within_ms: within_ms,
+    backoff_ms: 0,
+    max_backoff_ms: 0,
+  }
 }
 
 fn with_backoff(p: RestartPolicy, base_ms: Int, max_ms: Int) -> RestartPolicy {
-  RestartPolicy { max_restarts: p.max_restarts, within_ms: p.within_ms, backoff_ms: base_ms, max_backoff_ms: max_ms }
+  RestartPolicy {
+    max_restarts: p.max_restarts,
+    within_ms: p.within_ms,
+    backoff_ms: base_ms,
+    max_backoff_ms: max_ms,
+  }
 }
 
 fn __backoff_from(d: Int, k: Int, cap: Int) -> Int {
@@ -73,7 +83,11 @@ fn __backoff_from(d: Int, k: Int, cap: Int) -> Int {
 }
 
 fn __backoff(p: RestartPolicy, k: Int) -> Int {
-  if p.backoff_ms <= 0 { 0 } else { __backoff_from(p.backoff_ms, k, max(p.max_backoff_ms, p.backoff_ms)) }
+  if p.backoff_ms <= 0 {
+    0
+  } else {
+    __backoff_from(p.backoff_ms, k, max(p.max_backoff_ms, p.backoff_ms))
+  }
 }
 
 fn __on_failure(who: Str, p: RestartPolicy, times: List<Int>, k: Int, e: Panic) -> List<Int> {
@@ -90,9 +104,15 @@ fn supervise_with<T>(p: RestartPolicy, restart: fn(Panic) -> Bool, f: fn() -> T)
   __supervise_loop(p, restart, f, [], 0)
 }
 
-fn __supervise_loop<T>(p: RestartPolicy, restart: fn(Panic) -> Bool, f: fn() -> T, times: List<Int>, k: Int) -> T {
+fn __supervise_loop<T>(
+  p: RestartPolicy,
+  restart: fn(Panic) -> Bool,
+  f: fn() -> T,
+  times: List<Int>,
+  k: Int,
+) -> T {
   match recover(f) {
-    Ok(v)  => v
+    Ok(v) => v
     Err(e) => {
       if !restart(e) { repanic(e) }
       __supervise_loop(p, restart, f, __on_failure("supervise", p, times, k + 1, e), k + 1)
@@ -100,7 +120,12 @@ fn __supervise_loop<T>(p: RestartPolicy, restart: fn(Panic) -> Bool, f: fn() -> 
   }
 }
 
-fn actor_supervised_with<S, M, R>(init: S, handler: fn(S, M) -> S, p: RestartPolicy, body: fn(Actor<M>) -> R) -> (R, S) {
+fn actor_supervised_with<S, M, R>(
+  init: S,
+  handler: fn(S, M) -> S,
+  p: RestartPolicy,
+  body: fn(Actor<M>) -> R,
+) -> (R, S) {
   let wrapped = (st, m) => {
     let (s, times, k) = st
     match recover(() => handler(s, m)) {

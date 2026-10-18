@@ -28,9 +28,13 @@ pub fn response(status: Int, content_type: Str, body: Str) -> Response {
   Response { status: status, headers: Map([("content-type", content_type)]), body: body }
 }
 
-pub fn text(status: Int, body: Str) -> Response { response(status, "text/plain; charset=utf-8", body) }
+pub fn text(status: Int, body: Str) -> Response {
+  response(status, "text/plain; charset=utf-8", body)
+}
 
-pub fn html(status: Int, body: Str) -> Response { response(status, "text/html; charset=utf-8", body) }
+pub fn html(status: Int, body: Str) -> Response {
+  response(status, "text/html; charset=utf-8", body)
+}
 
 pub fn json(status: Int, body: Str) -> Response { response(status, "application/json", body) }
 
@@ -57,7 +61,7 @@ pub fn reason(status: Int) -> Str {
     500 => "Internal Server Error",
     502 => "Bad Gateway",
     503 => "Service Unavailable",
-    _   => "Unknown",
+    _ => "Unknown",
   }
 }
 
@@ -68,8 +72,14 @@ fn read_headers(c: net.Conn) -> Result<Map<Str, Str>, Str> {
     let line = c.read_line()?
     if line == "" { return Ok(h) }
     match strings.find(line, ":") {
-      Some(i) => { h = set(h, lower(trim(strings.slice(line, 0, i))), trim(strings.slice(line, i + 1, len(line)))) },
-      None    => { return Err("无效的头部：{line}") },
+      Some(i) => {
+        h = set(
+          h,
+          lower(trim(strings.slice(line, 0, i))),
+          trim(strings.slice(line, i + 1, len(line))),
+        )
+      },
+      None => { return Err("无效的头部：{line}") },
     }
   }
   Ok(h)
@@ -105,7 +115,7 @@ fn read_body(c: net.Conn, h: Map<Str, Str>, to_eof: Bool) -> Result<Str, Str> {
   }
   match lookup(h, "content-length") {
     Some(n) => match parse_int(n) {
-      Ok(k)  => c.read_bytes(k),
+      Ok(k) => c.read_bytes(k),
       Err(_) => Err("无效的 Content-Length：{n}"),
     },
     None => if to_eof { c.read_all() } else { Ok("") },
@@ -126,26 +136,38 @@ type Url = { host: Str, port: Int, hostport: Str, path: Str, tls: Bool }
 fn parse_url(url: Str) -> Result<Url, Str> {
   let (rest, tls) = match strings.strip_prefix(url, "http://") {
     Some(r) => (r, false),
-    None    => match strings.strip_prefix(url, "https://") {
+    None => match strings.strip_prefix(url, "https://") {
       Some(r) => (r, true),
-      None    => { return Err("无效的 URL：{url}") },
+      None => { return Err("无效的 URL：{url}") },
     },
   }
   let slash = strings.find(rest, "/")
   let hostport = match slash {
     Some(i) => strings.slice(rest, 0, i),
-    None    => rest,
+    None => rest,
   }
   let path = match slash {
     Some(i) => strings.slice(rest, i, len(rest)),
-    None    => "/",
+    None => "/",
   }
   match strings.find(hostport, ":") {
     Some(i) => match parse_int(strings.slice(hostport, i + 1, len(hostport))) {
-      Ok(p)  => Ok(Url { host: strings.slice(hostport, 0, i), port: p, hostport: hostport, path: path, tls: tls }),
+      Ok(p) => Ok(Url {
+        host: strings.slice(hostport, 0, i),
+        port: p,
+        hostport: hostport,
+        path: path,
+        tls: tls,
+      }),
       Err(_) => Err("无效的 URL：{url}"),
     },
-    None => Ok(Url { host: hostport, port: if tls { 443 } else { 80 }, hostport: hostport, path: path, tls: tls }),
+    None => Ok(Url {
+      host: hostport,
+      port: if tls { 443 } else { 80 },
+      hostport: hostport,
+      path: path,
+      tls: tls,
+    }),
   }
 }
 
@@ -153,27 +175,50 @@ fn dial(host: Str, port: Int, tls: Bool, cfg: net.TlsConfig) -> Result<net.Conn,
   if tls { net.connect_tls_with(host, port, cfg) } else { net.connect(host, port) }
 }
 
-fn wants_close(h: Map<Str, Str>) -> Bool { contains(lower(unwrap_or(lookup(h, "connection"), "")), "close") }
+fn wants_close(h: Map<Str, Str>) -> Bool {
+  contains(lower(unwrap_or(lookup(h, "connection"), "")), "close")
+}
 
 // 在 c 上发一个请求并读完响应；返回 (响应, 这个连接还能不能继续用)
-fn exchange(c: net.Conn, method: Str, hostport: Str, path: Str, headers: Map<Str, Str>, body: Str, keep: Bool) -> Result<(Response, Bool), Str> {
+fn exchange(
+  c: net.Conn,
+  method: Str,
+  hostport: Str,
+  path: Str,
+  headers: Map<Str, Str>,
+  body: Str,
+  keep: Bool,
+) -> Result<(Response, Bool), Str> {
   var lower_h = Map()
   for (k, v) in headers { lower_h = set(lower_h, lower(k), v) }
   let conn = if keep { "keep-alive" } else { "close" }
-  let head = "{method} {path} HTTP/1.1\r\nHost: {hostport}\r\nConnection: {conn}\r\nContent-Length: {__byte_len(body)}\r\n"
+  let head =
+    "{method} {path} HTTP/1.1\r\nHost: {hostport}\r\nConnection: {conn}\r\nContent-Length: {__byte_len(body)}\r\n"
   c.write(head + head_lines(lower_h, ["host", "connection", "content-length"]) + "\r\n" + body)?
   let status_line = c.read_line()?
   let parts = split(status_line, " ")
   if len(parts) < 2 || !starts_with(parts[0], "HTTP/") { return Err("无效的响应：{status_line}") }
   let status = match parse_int(parts[1]) {
-    Ok(s)  => s,
+    Ok(s) => s,
     Err(_) => { return Err("无效的响应：{status_line}") },
   }
   let h = read_headers(c)?
-  let framed = method == "HEAD" || status == 204 || status == 304 || contains(h, "content-length")
+  let framed = method == "HEAD"
+    || status == 204
+    || status == 304
+    || contains(h, "content-length")
     || contains(lower(unwrap_or(lookup(h, "transfer-encoding"), "")), "chunked")
-  let b = if method == "HEAD" || status == 204 || status == 304 { "" } else { read_body(c, h, true)? }
-  Ok((Response { status: status, headers: h, body: b }, keep && framed && !wants_close(h) && parts[0] == "HTTP/1.1"))
+  let b = if method == "HEAD" || status == 204 || status == 304 {
+    ""
+  } else {
+    read_body(c, h, true)?
+  }
+  Ok(
+    (
+      Response { status: status, headers: h, body: b },
+      keep && framed && !wants_close(h) && parts[0] == "HTTP/1.1",
+    ),
+  )
 }
 
 // 一次性请求：新建连接，用完关闭
@@ -182,7 +227,13 @@ pub fn request(method: Str, url: Str, headers: Map<Str, Str>, body: Str) -> Resu
 }
 
 // 同 request，但 https 用给定的 TLS 选项（自定义 CA、关闭校验）
-pub fn request_with(method: Str, url: Str, headers: Map<Str, Str>, body: Str, tls: net.TlsConfig) -> Result<Response, Str> {
+pub fn request_with(
+  method: Str,
+  url: Str,
+  headers: Map<Str, Str>,
+  body: Str,
+  tls: net.TlsConfig,
+) -> Result<Response, Str> {
   let u = parse_url(url)?
   let c = dial(u.host, u.port, u.tls, tls)?
   defer { c.close() }
@@ -198,7 +249,14 @@ pub fn post(url: Str, body: Str, content_type: Str) -> Result<Response, Str> {
 
 // 复用连接的客户端。slot 是容量为 1 的通道，当作可变的连接槽：取出连接 → 用 → 放回，
 // 所以多个任务共用一个 Client 也是安全的（请求会排队）
-pub type Client = { host: Str, port: Int, hostport: Str, tls: Bool, cfg: net.TlsConfig, slot: Chan<Option<net.Conn>> }
+pub type Client = {
+  host: Str,
+  port: Int,
+  hostport: Str,
+  tls: Bool,
+  cfg: net.TlsConfig,
+  slot: Chan<Option<net.Conn>>,
+}
 
 // url 只取 http(s)://主机:端口 部分；连接在第一次请求时才建立
 pub fn client(url: Str) -> Result<Client, Str> { client_with(url, net.tls_config()) }
@@ -213,8 +271,8 @@ pub fn client_with(url: Str, tls: net.TlsConfig) -> Result<Client, Str> {
 fn take_conn(cl: Client) -> Result<(net.Conn, Bool), Str> {
   match recv(cl.slot) {
     Some(Some(c)) => Ok((c, true)),
-    _             => match dial(cl.host, cl.port, cl.tls, cl.cfg) {
-      Ok(c)  => Ok((c, false)),
+    _ => match dial(cl.host, cl.port, cl.tls, cl.cfg) {
+      Ok(c) => Ok((c, false)),
       Err(e) => {
         send(cl.slot, None)
         Err(e)
@@ -224,11 +282,19 @@ fn take_conn(cl: Client) -> Result<(net.Conn, Bool), Str> {
 }
 
 impl Client {
-  fn request(self, method: Str, path: Str, headers: Map<Str, Str>, body: Str) -> Result<Response, Str> {
+  fn request(
+    self,
+    method: Str,
+    path: Str,
+    headers: Map<Str, Str>,
+    body: Str,
+  ) -> Result<Response, Str> {
     let (c, reused) = take_conn(self)?
     match exchange(c, method, self.hostport, path, headers, body, true) {
       Ok((resp, alive)) => {
-        if alive { send(self.slot, Some(c)) } else {
+        if alive {
+          send(self.slot, Some(c))
+        } else {
           c.close()
           send(self.slot, None)
         }
@@ -244,7 +310,9 @@ impl Client {
         match dial(self.host, self.port, self.tls, self.cfg) {
           Ok(c2) => match exchange(c2, method, self.hostport, path, headers, body, true) {
             Ok((resp, alive)) => {
-              if alive { send(self.slot, Some(c2)) } else {
+              if alive {
+                send(self.slot, Some(c2))
+              } else {
                 c2.close()
                 send(self.slot, None)
               }
@@ -274,7 +342,7 @@ impl Client {
   fn close(self) {
     match recv(self.slot) {
       Some(Some(c)) => c.close(),
-      _             => {},
+      _ => {},
     }
     send(self.slot, None)
   }
@@ -285,11 +353,14 @@ impl Client {
 pub fn listen(port: Int) -> Result<net.Listener, Str> { net.listen("0.0.0.0", port) }
 
 // HTTPS 服务器：cert / key 是 PEM 文件
-pub fn listen_tls(port: Int, cert: Str, key: Str) -> Result<net.Listener, Str> { net.listen_tls("0.0.0.0", port, cert, key) }
+pub fn listen_tls(port: Int, cert: Str, key: Str) -> Result<net.Listener, Str> {
+  net.listen_tls("0.0.0.0", port, cert, key)
+}
 
 fn send_response(c: net.Conn, r: Response, keep: Bool) -> Result<Unit, Str> {
   let conn = if keep { "keep-alive" } else { "close" }
-  let head = "HTTP/1.1 {r.status} {reason(r.status)}\r\nContent-Length: {__byte_len(r.body)}\r\nConnection: {conn}\r\n"
+  let head =
+    "HTTP/1.1 {r.status} {reason(r.status)}\r\nContent-Length: {__byte_len(r.body)}\r\nConnection: {conn}\r\n"
   c.write(head + head_lines(r.headers, ["content-length", "connection"]) + "\r\n" + r.body)
 }
 
@@ -305,7 +376,7 @@ fn serve_conn(c: net.Conn, handler: fn(Request) -> Response) -> Result<Unit, Str
   while true {
     let line = match c.read_line_within(if n == 0 { 10000 } else { 5000 })? {
       Some(l) => l,
-      None    => { return Ok(()) },
+      None => { return Ok(()) },
     }
     if line != "" {
       let parts = split(line, " ")
@@ -313,13 +384,13 @@ fn serve_conn(c: net.Conn, handler: fn(Request) -> Response) -> Result<Unit, Str
       let target = parts[1]
       let (path, query) = match strings.find(target, "?") {
         Some(i) => (strings.slice(target, 0, i), strings.slice(target, i + 1, len(target))),
-        None    => (target, ""),
+        None => (target, ""),
       }
       let h = read_headers(c)?
       let body = read_body(c, h, false)?
       let req = Request { method: parts[0], path: path, query: query, headers: h, body: body }
       let resp = match recover(() => handler(req)) {
-        Ok(r)  => r,
+        Ok(r) => r,
         Err(_) => text(500, "Internal Server Error"),
       }
       n += 1
@@ -358,8 +429,14 @@ pub fn parse_query(q: Str) -> Map<Str, Str> {
   for part in split(q, "&") {
     if part != "" {
       match strings.find(part, "=") {
-        Some(i) => { m = set(m, url_decode(strings.slice(part, 0, i)), url_decode(strings.slice(part, i + 1, len(part)))) },
-        None    => { m = set(m, url_decode(part), "") },
+        Some(i) => {
+          m = set(
+            m,
+            url_decode(strings.slice(part, 0, i)),
+            url_decode(strings.slice(part, i + 1, len(part))),
+          )
+        },
+        None => { m = set(m, url_decode(part), "") },
       }
     }
   }
@@ -391,7 +468,17 @@ fn utf8(bs: List<Int>) -> Str {
   var i = 0
   while i < len(bs) {
     let b = bs[i]
-    let n = if b < 128 { 1 } else if b >= 240 { 4 } else if b >= 224 { 3 } else if b >= 192 { 2 } else { 0 }
+    let n = if b < 128 {
+      1
+    } else if b >= 240 {
+      4
+    } else if b >= 224 {
+      3
+    } else if b >= 192 {
+      2
+    } else {
+      0
+    }
     if n == 0 || i + n > len(bs) {
       out = out + strings.chr(65533)
       i += 1

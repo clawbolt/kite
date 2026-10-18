@@ -11,7 +11,7 @@ enum Account {
 
 fn bank(bal: Int, msg: Account) -> Int {
   match msg {
-    Deposit(n)         => bal + n,
+    Deposit(n) => bal + n,
     Withdraw(n, reply) => {
       if n <= bal {
         send(reply, true)
@@ -35,7 +35,7 @@ enum Log {
 
 fn logger(lines: List<Str>, msg: Log) -> List<Str> {
   match msg {
-    Line(s)  => push(lines, s),
+    Line(s) => push(lines, s),
     Count(r) => {
       send(r, len(lines))
       lines
@@ -59,21 +59,29 @@ fn main() {
 
   // 3. actor 之间协作：账户把每笔大额存款记到日志 actor（内层 actor 结束时已处理完所有存款）
   let ((total, n), lines) = actor([], logger, log => {
-    let (_, total) = actor(0, (bal: Int, amt: Int) => {
-      if amt >= 100 { tell(log, Line("大额存款 {amt}")) }
-      bal + amt
-      }, acct => {
+    let (_, total) = actor(
+      0,
+      (bal: Int, amt: Int) => {
+        if amt >= 100 { tell(log, Line("大额存款 {amt}")) }
+        bal + amt
+      },
+      acct => {
         for x in [5, 120, 30, 300] { tell(acct, x) }
-    })
+      },
+    )
     (total, ask(log, r => Count(r)))
   })
   print(total, n, lines)
 
   // 4. 和取消配合：ask 超时
-  let (answer, handled) = actor(0, (s: Int, r: Chan<Int>) => {
-    sleep(200)
-    send(r, 1)
-    s + 1
-    }, a => timeout(10, () => ask(a, r => r)))
+  let (answer, handled) = actor(
+    0,
+    (s: Int, r: Chan<Int>) => {
+      sleep(200)
+      send(r, 1)
+      s + 1
+    },
+    a => timeout(10, () => ask(a, r => r)),
+  )
   print("超时的 ask:", answer, "actor 仍处理了", handled, "条")
 }

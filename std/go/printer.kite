@@ -8,7 +8,7 @@
 
 use std.go.token as token
 use std.go.ast as ast
-use std.go.ast.{Node}
+use std.go.ast.{ Node }
 use std.go.doc.comment as dc
 use std.go.build.constraint
 use std.text.tabwriter
@@ -95,7 +95,9 @@ type P = {
   sizes: Map<Str, Int>,
 }
 
-fn npos(line: Int, column: Int) -> token.Position { token.Position { filename: "", offset: 0, line: line, column: column } }
+fn npos(line: Int, column: Int) -> token.Position {
+  token.Position { filename: "", offset: 0, line: line, column: column }
+}
 
 fn pos_for(p: P, x: Int) -> token.Position { p.fset.position_for(x, false) }
 fn line_for(p: P, x: Int) -> Int { p.fset.position_for(x, false).line }
@@ -115,7 +117,9 @@ fn output_bytes(p: P) -> List<Int> {
   out
 }
 
-fn new_slot(p: P) -> (P, Int) { (P { nslot: p.nslot + 1, lines: set(p.lines, p.nslot, 0), ..p }, p.nslot) }
+fn new_slot(p: P) -> (P, Int) {
+  (P { nslot: p.nslot + 1, lines: set(p.lines, p.nslot, 0), ..p }, p.nslot)
+}
 fn slot(p: P, s: Int) -> Int { unwrap(get(p.lines, s)) }
 
 // ── 注释 ──
@@ -142,7 +146,12 @@ fn next_comment(p0: P) -> P {
     p = P { cindex: p.cindex + 1, ..p }
     let list = group_list(c)
     if len(list) > 0 {
-      return P { comment: c, comment_offset: pos_for(p, ast.pos(list[0])).offset, comment_newline: comments_have_newline(p, list), ..p }
+      return P {
+        comment: c,
+        comment_offset: pos_for(p, ast.pos(list[0])).offset,
+        comment_newline: comments_have_newline(p, list),
+        ..p
+      }
     }
   }
   P { comment_offset: INFINITY, ..p }
@@ -171,7 +180,12 @@ fn write_line_directive(p0: P, pos: Position) -> P {
   if pos.is_valid() && (p.outp.line != pos.line || p.outp.filename != pos.filename) {
     if __str_find(pos.filename, "\r", 0) >= 0 || __str_find(pos.filename, "\n", 0) >= 0 {
       if p.source_pos_err == "" {
-        p = P { source_pos_err: "go/printer: source filename contains unexpected newline character: " + strconv.quote_go(pos.filename), ..p }
+        p = P {
+          source_pos_err: "go/printer: source filename contains unexpected newline character: " + strconv.quote_go(
+            pos.filename,
+          ),
+          ..p
+        }
       }
       return p
     }
@@ -187,15 +201,20 @@ fn write_indent(p0: P) -> P {
   var i = 0
   while i < n { bs = push(bs, 9); i += 1 }
   let p = emit(p0, bs)
-  P { pos: token.Position { offset: p.pos.offset + n, column: p.pos.column + n, ..p.pos }, outp: token.Position { column: p.outp.column + n, ..p.outp }, ..p }
+  P {
+    pos: token.Position { offset: p.pos.offset + n, column: p.pos.column + n, ..p.pos },
+    outp: token.Position { column: p.outp.column + n, ..p.outp },
+    ..p
+  }
 }
 
 fn write_byte(p0: P, ch0: Int, n: Int) -> P {
   var p = p0
   var ch = ch0
   if p.end_alignment {
-    if ch == 9 || ch == 11 { ch = 32 }
-    else if ch == 10 || ch == 12 {
+    if ch == 9 || ch == 11 {
+      ch = 32
+    } else if ch == 10 || ch == 12 {
       ch = 12
       p = P { end_alignment: false, ..p }
     }
@@ -206,10 +225,17 @@ fn write_byte(p0: P, ch0: Int, n: Int) -> P {
   while i < n { bs = push(bs, ch); i += 1 }
   p = emit(p, bs)
   if ch == 10 || ch == 12 {
-    return P { pos: token.Position { offset: p.pos.offset + n, line: p.pos.line + n, column: 1, ..p.pos },
-      outp: token.Position { line: p.outp.line + n, column: 1, ..p.outp }, ..p }
+    return P {
+      pos: token.Position { offset: p.pos.offset + n, line: p.pos.line + n, column: 1, ..p.pos },
+      outp: token.Position { line: p.outp.line + n, column: 1, ..p.outp },
+      ..p
+    }
   }
-  P { pos: token.Position { offset: p.pos.offset + n, column: p.pos.column + n, ..p.pos }, outp: token.Position { column: p.outp.column + n, ..p.outp }, ..p }
+  P {
+    pos: token.Position { offset: p.pos.offset + n, column: p.pos.column + n, ..p.pos },
+    outp: token.Position { column: p.outp.column + n, ..p.outp },
+    ..p
+  }
 }
 
 fn write_string(p0: P, pos: Position, s: Str, is_lit: Bool) -> P {
@@ -235,10 +261,22 @@ fn write_string(p0: P, pos: Position, s: Str, is_lit: Bool) -> P {
   let n = len(bs)
   if nlines > 0 {
     let c = n - li
-    p = P { pos: token.Position { offset: p.pos.offset + n, line: p.pos.line + nlines, column: c, ..p.pos },
-      outp: token.Position { line: p.outp.line + nlines, column: c, ..p.outp }, ..p }
+    p = P {
+      pos: token.Position {
+        offset: p.pos.offset + n,
+        line: p.pos.line + nlines,
+        column: c,
+        ..p.pos
+      },
+      outp: token.Position { line: p.outp.line + nlines, column: c, ..p.outp },
+      ..p
+    }
   } else {
-    p = P { pos: token.Position { offset: p.pos.offset + n, column: p.pos.column + n, ..p.pos }, outp: token.Position { column: p.outp.column + n, ..p.outp }, ..p }
+    p = P {
+      pos: token.Position { offset: p.pos.offset + n, column: p.pos.column + n, ..p.pos },
+      outp: token.Position { column: p.outp.column + n, ..p.outp },
+      ..p
+    }
   }
   P { last: p.pos, ..p }
 }
@@ -337,7 +375,9 @@ fn trim_right(s: Str) -> Str {
   __str_slice(rs, 0, n)
 }
 
-fn bstr_trim_suffix(s: Str, suf: Str) -> Str { if ends_with(s, suf) { __str_slice(s, 0, len(s) - len(suf)) } else { s } }
+fn bstr_trim_suffix(s: Str, suf: Str) -> Str {
+  if ends_with(s, suf) { __str_slice(s, 0, len(s) - len(suf)) } else { s }
+}
 
 fn strip_common_prefix(lines0: List<Str>) -> List<Str> {
   var lines = lines0
@@ -430,8 +470,11 @@ fn write_comment(p0: P, c: Node) -> P {
     p = P { indent: 0, ..p }
   }
   if byte_at(text, 1) == 47 {
-    if constraint.is_go_build(text) { p = P { go_build: push(p.go_build, p.olen), ..p } }
-    else if constraint.is_plus_build(text) { p = P { plus_build: push(p.plus_build, p.olen), ..p } }
+    if constraint.is_go_build(text) {
+      p = P { go_build: push(p.go_build, p.olen), ..p }
+    } else if constraint.is_plus_build(text) {
+      p = P { plus_build: push(p.plus_build, p.olen), ..p }
+    }
     p = write_string(p, pos, trim_right(text), true)
     if restore { p = P { indent: saved_indent, ..p } }
     return p
@@ -492,7 +535,9 @@ fn contains_linebreak(p: P) -> Bool {
 
 // go/printer/comment.go
 fn is_directive(c: Str) -> Bool {
-  if starts_with(c, "line ") || starts_with(c, "extern ") || starts_with(c, "export ") { return true }
+  if starts_with(c, "line ") || starts_with(c, "extern ") || starts_with(c, "export ") {
+    return true
+  }
   let bs = __bytes(c)
   var colon = -1
   var i = 0
@@ -545,7 +590,11 @@ fn format_doc_comment(list: List<Node>) -> List<Node> {
         directives = push(directives, c)
         continue
       }
-      parts = push(parts, if starts_with(after, " ") { __str_slice(after, 1, len(after)) } else { after })
+      parts = push(parts, if starts_with(after, " ") {
+        __str_slice(after, 1, len(after))
+      } else {
+        after
+      })
       parts = push(parts, "\n")
     }
     text = join(parts, "")
@@ -567,7 +616,13 @@ fn format_doc_comment(list: List<Node>) -> List<Node> {
     } else {
       rest = ""
     }
-    if line == "" { line = "//" } else if starts_with(line, "\t") { line = "//" + line } else { line = "// " + line }
+    if line == "" {
+      line = "//"
+    } else if starts_with(line, "\t") {
+      line = "//" + line
+    } else {
+      line = "// " + line
+    }
     out = push(out, mk_comment(slash, line))
   }
   if len(directives) > 0 {
@@ -584,8 +639,10 @@ fn intersperse_comments(p0: P, next: Position, tok: Int) -> (P, Bool, Bool) {
     let orig = group_list(p.comment)
     var list = orig
     var changed = false
-    if tok != token.IDENT && p.last_tok != token.IMPORT && pos_for(p, ast.pos(p.comment)).column == 1 &&
-       pos_for(p, ast.end(p.comment) + 1) == next {
+    if tok != token.IDENT
+      && p.last_tok != token.IMPORT
+      && pos_for(p, ast.pos(p.comment)).column == 1
+      && pos_for(p, ast.end(p.comment) + 1) == next {
       list = format_doc_comment(list)
       changed = true
       if len(orig) > 0 && len(list) == 0 {
@@ -610,15 +667,23 @@ fn intersperse_comments(p0: P, next: Position, tok: Int) -> (P, Bool, Bool) {
   if last != Nil {
     var needs_linebreak = false
     let lt = ctext(last)
-    if p.mode & NO_EXTRA_BLANK == 0 && byte_at(lt, 1) == 42 && line_for(p, ast.pos(last)) == next.line && tok != token.COMMA &&
-       (tok != token.RPAREN || p.prev_open == token.LPAREN) && (tok != token.RBRACK || p.prev_open == token.LBRACK) {
+    if p.mode & NO_EXTRA_BLANK == 0
+      && byte_at(lt, 1) == 42
+      && line_for(p, ast.pos(last)) == next.line
+      && tok != token.COMMA
+      && (tok != token.RPAREN || p.prev_open == token.LPAREN)
+      && (tok != token.RBRACK || p.prev_open == token.LBRACK) {
       if contains_linebreak(p) && p.mode & NO_EXTRA_LINEBREAK == 0 && p.level == 0 {
         needs_linebreak = true
       } else {
         p = write_byte(p, 32, 1)
       }
     }
-    if byte_at(lt, 1) == 47 || tok == token.EOF || tok == token.RBRACE && p.mode & NO_EXTRA_LINEBREAK == 0 { needs_linebreak = true }
+    if byte_at(lt, 1) == 47
+      || tok == token.EOF
+      || tok == token.RBRACE && p.mode & NO_EXTRA_LINEBREAK == 0 {
+      needs_linebreak = true
+    }
     return write_comment_suffix(p, needs_linebreak)
   }
   (p, false, false)
@@ -630,8 +695,7 @@ fn write_whitespace(p0: P, n: Int) -> P {
   var i = 0
   while i < n {
     let ch = ws[i]
-    if ch == IGNORE {
-    } else if ch == INDENT {
+    if ch == IGNORE {} else if ch == INDENT {
       p = P { indent: p.indent + 1, ..p }
     } else if ch == UNINDENT {
       p = P { indent: if p.indent - 1 < 0 { 0 } else { p.indent - 1 }, ..p }
@@ -666,8 +730,8 @@ fn pr(p0: P, args: List<A>) -> P {
     var data = ""
     var is_lit = false
     var implied_semi = false
-    if p.last_tok == token.ILLEGAL {
-    } else if p.last_tok == token.LPAREN || p.last_tok == token.LBRACK {
+    if p.last_tok == token.ILLEGAL {} else if p.last_tok == token.LPAREN
+      || p.last_tok == token.LBRACK {
       p = P { prev_open: p.last_tok, ..p }
     } else {
       p = P { prev_open: token.ILLEGAL, ..p }
@@ -700,8 +764,17 @@ fn pr(p0: P, args: List<A>) -> P {
         let s = token.token_string(x)
         if may_combine(p.last_tok, byte_at(s, 0)) { p = P { wsbuf: [BLANK], ..p } }
         data = s
-        if x == token.BREAK || x == token.CONTINUE || x == token.FALLTHROUGH || x == token.RETURN || x == token.INC || x == token.DEC ||
-           x == token.RPAREN || x == token.RBRACK || x == token.RBRACE { implied_semi = true }
+        if x == token.BREAK
+          || x == token.CONTINUE
+          || x == token.FALLTHROUGH
+          || x == token.RETURN
+          || x == token.INC
+          || x == token.DEC
+          || x == token.RPAREN
+          || x == token.RBRACK
+          || x == token.RBRACE {
+          implied_semi = true
+        }
         p = P { last_tok: x, ..p }
       },
       S(s) => {
@@ -756,7 +829,9 @@ fn linebreak(p0: P, line: Int, min: Int, ws: Int, new_section: Bool) -> (P, Int)
   (p, nbreaks)
 }
 
-fn lb(p: P, line: Int, min: Int, ws: Int, new_section: Bool) -> P { let (p2, _) = linebreak(p, line, min, ws, new_section); p2 }
+fn lb(p: P, line: Int, min: Int, ws: Int, new_section: Bool) -> P {
+  let (p2, _) = linebreak(p, line, min, ws, new_section); p2
+}
 
 fn set_comment(p0: P, g: Node) -> P {
   var p = p0
@@ -798,7 +873,15 @@ fn exp2ish(x: Float) -> Float {
 
 fn is_kv(x: Node) -> Bool { x is KeyValueExpr { .. } }
 
-fn expr_list(p0: P, prev0: Int, list: List<Node>, depth: Int, mode: Int, next0: Int, is_incomplete: Bool) -> P {
+fn expr_list(
+  p0: P,
+  prev0: Int,
+  list: List<Node>,
+  depth: Int,
+  mode: Int,
+  next0: Int,
+  is_incomplete: Bool,
+) -> P {
   var p = p0
   if len(list) == 0 {
     if is_incomplete {
@@ -827,7 +910,9 @@ fn expr_list(p0: P, prev0: Int, list: List<Node>, depth: Int, mode: Int, next0: 
       p = expr0(p, x, depth)
       i += 1
     }
-    if is_incomplete { p = pr(p, [A.T(token.COMMA), A.W(BLANK), A.S("/* " + FILTERED_MSG + " */")]) }
+    if is_incomplete {
+      p = pr(p, [A.T(token.COMMA), A.W(BLANK), A.S("/* " + FILTERED_MSG + " */")])
+    }
     return p
   }
   var ws = if mode & NO_INDENT == 0 { INDENT } else { IGNORE }
@@ -930,7 +1015,9 @@ fn expr_list(p0: P, prev0: Int, list: List<Node>, depth: Int, mode: Int, next0: 
   p
 }
 
-fn fl_parts(fl: Node) -> (Int, List<Node>, Int) { match fl { FieldList { opening, list, closing } => (opening, list, closing), _ => (0, [], 0) } }
+fn fl_parts(fl: Node) -> (Int, List<Node>, Int) {
+  match fl { FieldList { opening, list, closing } => (opening, list, closing), _ => (0, [], 0) }
+}
 fn f_names(f: Node) -> List<Node> { match f { Field { names, .. } => names, _ => [] } }
 fn f_type(f: Node) -> Node { match f { Field { typ, .. } => typ, _ => Nil } }
 
@@ -976,7 +1063,9 @@ fn parameters(p0: P, fields: Node, mode: Int) -> P {
     if 0 < prev_line && prev_line < cl {
       p = t(p, token.COMMA)
       p = lb(p, cl, 0, IGNORE, true)
-    } else if mode == TYPE_TPARAM && ast.num_fields(fields) == 1 && combines_with_name(strip_parens_always(f_type(list[0]))) {
+    } else if mode == TYPE_TPARAM
+      && ast.num_fields(fields) == 1
+      && combines_with_name(strip_parens_always(f_type(list[0]))) {
       p = t(p, token.COMMA)
     }
     if ws == IGNORE { p = w(p, UNINDENT) }
@@ -1014,7 +1103,11 @@ fn signature(p0: P, sig: Node) -> P {
   match sig {
     FuncType { type_params, params, results, .. } => {
       if type_params != Nil { p = parameters(p, type_params, FUNC_TPARAM) }
-      if params != Nil { p = parameters(p, params, FUNC_PARAM) } else { p = pr(p, [A.T(token.LPAREN), A.T(token.RPAREN)]) }
+      if params != Nil {
+        p = parameters(p, params, FUNC_PARAM)
+      } else {
+        p = pr(p, [A.T(token.LPAREN), A.T(token.RPAREN)])
+      }
       let n = ast.num_fields(results)
       if n > 0 {
         p = w(p, BLANK)
@@ -1057,7 +1150,9 @@ fn is_one_line_field_list(p0: P, list: List<Node>) -> (P, Bool) {
   }
 }
 
-fn set_line_comment(p: P, text: Str) -> P { set_comment(p, Node.CommentGroup { list: [mk_comment(0, text)] }) }
+fn set_line_comment(p: P, text: Str) -> P {
+  set_comment(p, Node.CommentGroup { list: [mk_comment(0, text)] })
+}
 
 fn field_list(p0: P, fields: Node, is_struct: Bool, is_incomplete: Bool) -> P {
   var p = p0
@@ -1217,8 +1312,11 @@ fn walk_binary(e: Node) -> (Bool, Bool, Int) {
         StarExpr { .. } => { if op == token.QUO { max_problem = 5 } },
         UnaryExpr { op: uop, .. } => {
           let s = token.token_string(op) + token.token_string(uop)
-          if s == "/*" || s == "&&" || s == "&^" { max_problem = 5 }
-          else if s == "++" || s == "--" { if max_problem < 4 { max_problem = 4 } }
+          if s == "/*" || s == "&&" || s == "&^" {
+            max_problem = 5
+          } else if s == "++" || s == "--" {
+            if max_problem < 4 { max_problem = 4 }
+          }
         },
         _ => {},
       }
@@ -1278,7 +1376,9 @@ fn binary_expr(p0: P, e: Node, prec1: Int, cut: Int, depth: Int) -> P {
 
 fn is_binary(x: Node) -> Bool { x is BinaryExpr { .. } }
 
-fn lit_arg(x: Node) -> A { match x { BasicLit { value, kind, .. } => A.L(value, kind), _ => A.S("") } }
+fn lit_arg(x: Node) -> A {
+  match x { BasicLit { value, kind, .. } => A.L(value, kind), _ => A.S("") }
+}
 fn id_arg(x: Node) -> A { match x { Ident { name, .. } => A.I(name), _ => A.I("") } }
 
 fn expr1(p0: P, e: Node, prec1: Int, depth0: Int) -> P {
@@ -1287,7 +1387,13 @@ fn expr1(p0: P, e: Node, prec1: Int, depth0: Int) -> P {
   match e {
     BadExpr { .. } => pr(p, [A.S("BadExpr")]),
     Ident { .. } => pr(p, [id_arg(e)]),
-    BinaryExpr { .. } => binary_expr(p, e, prec1, cutoff(e, if depth < 1 { 1 } else { depth }), if depth < 1 { 1 } else { depth }),
+    BinaryExpr { .. } => binary_expr(
+      p,
+      e,
+      prec1,
+      cutoff(e, if depth < 1 { 1 } else { depth }),
+      if depth < 1 { 1 } else { depth },
+    ),
     KeyValueExpr { key, colon, value } => {
       p = expr(p, key)
       p = set_pos(p, colon)
@@ -1395,7 +1501,11 @@ fn expr1(p0: P, e: Node, prec1: Int, depth0: Int) -> P {
     },
     CallExpr { fun, lparen, args, ellipsis, rparen } => {
       if len(args) > 1 { depth += 1 }
-      let paren = match fun { FuncType { .. } => true, ChanType { dir, .. } => dir == ast.RECV, _ => false }
+      let paren = match fun {
+        FuncType { .. } => true,
+        ChanType { dir, .. } => dir == ast.RECV,
+        _ => false,
+      }
       if paren { p = t(p, token.LPAREN) }
       let (p1, was_indented) = possible_selector_expr(p, fun, token.HIGHEST_PREC, depth)
       p = p1
@@ -1406,7 +1516,9 @@ fn expr1(p0: P, e: Node, prec1: Int, depth0: Int) -> P {
         p = expr_list(p, lparen, args, depth, 0, ellipsis, false)
         p = set_pos(p, ellipsis)
         p = t(p, token.ELLIPSIS)
-        if rparen != 0 && line_for(p, ellipsis) < line_for(p, rparen) { p = pr(p, [A.T(token.COMMA), A.W(FORMFEED)]) }
+        if rparen != 0 && line_for(p, ellipsis) < line_for(p, rparen) {
+          p = pr(p, [A.T(token.COMMA), A.W(FORMFEED)])
+        }
       } else {
         p = expr_list(p, lparen, args, depth, COMMA_TERM, rparen, false)
       }
@@ -1508,7 +1620,9 @@ fn normalized_number(lit: Node) -> Node {
         let i = last_index_byte(x, 69)
         if i >= 0 {
           x = set(x, i, 101)
-        } else if x[len(x) - 1] == 105 && last_index_byte(x, 46) < 0 && last_index_byte(x, 101) < 0 {
+        } else if x[len(x) - 1] == 105
+          && last_index_byte(x, 46) < 0
+          && last_index_byte(x, 101) < 0 {
           var k = 0
           while k < len(x) && (x[k] == 48 || x[k] == 95) { k += 1 }
           x = x[k..len(x)]
@@ -1559,7 +1673,15 @@ fn stmt_list(p0: P, list: List<Node>, nindent: Int, next_is_rbrace: Bool) -> P {
   var k = 0
   for s in list {
     if !(s is EmptyStmt { .. }) {
-      if p.olen > 0 { p = lb(p, line_for(p, ast.pos(s)), 1, IGNORE, i == 0 || nindent == 0 || lines_from(p, slot(p, sl)) > 0) }
+      if p.olen > 0 {
+        p = lb(
+          p,
+          line_for(p, ast.pos(s)),
+          1,
+          IGNORE,
+          i == 0 || nindent == 0 || lines_from(p, slot(p, sl)) > 0,
+        )
+      }
       p = record_line(p, sl)
       p = stmt(p, s, next_is_rbrace && k == len(list) - 1)
       var tt = s
@@ -1921,7 +2043,9 @@ fn sanitize_import_path(lit: Node) -> Node {
       if s == "" { return lit }
       let illegal = "!" + __chr(34) + "#$%&'()*,:;<=>?[\\]^{{|}}`" + __chr(65533)
       for r in s {
-        if !unicode.is_graphic(r) || unicode.is_space(r) || __str_find(illegal, r, 0) >= 0 { return lit }
+        if !unicode.is_graphic(r) || unicode.is_space(r) || __str_find(illegal, r, 0) >= 0 {
+          return lit
+        }
       }
       let q = strconv.quote_go(s)
       if q == value { return lit }
@@ -1989,7 +2113,9 @@ fn gen_decl(p0: P, d: Node) -> P {
             let keep = keep_type_column(specs)
             var i = 0
             for s in specs {
-              if i > 0 { p = lb(p, line_for(p, ast.pos(s)), 1, IGNORE, lines_from(p, slot(p, sl)) > 0) }
+              if i > 0 {
+                p = lb(p, line_for(p, ast.pos(s)), 1, IGNORE, lines_from(p, slot(p, sl)) > 0)
+              }
               p = record_line(p, sl)
               p = value_spec(p, s, keep[i])
               i += 1
@@ -1997,7 +2123,9 @@ fn gen_decl(p0: P, d: Node) -> P {
           } else {
             var i = 0
             for s in specs {
-              if i > 0 { p = lb(p, line_for(p, ast.pos(s)), 1, IGNORE, lines_from(p, slot(p, sl)) > 0) }
+              if i > 0 {
+                p = lb(p, line_for(p, ast.pos(s)), 1, IGNORE, lines_from(p, slot(p, sl)) > 0)
+              }
               p = record_line(p, sl)
               p = spec(p, s, n, false)
               i += 1
@@ -2054,7 +2182,9 @@ fn body_size(p0: P, b: Node, max_size: Int) -> (P, Int) {
   match b {
     BlockStmt { list, rbrace, .. } => {
       let pos1 = ast.pos(b)
-      if pos1 != 0 && rbrace != 0 && line_for(p, pos1) != line_for(p, rbrace) { return (p, max_size + 1) }
+      if pos1 != 0 && rbrace != 0 && line_for(p, pos1) != line_for(p, rbrace) {
+        return (p, max_size + 1)
+      }
       if len(list) > 5 { return (p, max_size + 1) }
       var bs = comment_size_before(p, pos_for(p, rbrace))
       var i = 0
@@ -2109,7 +2239,9 @@ fn func_body(p0: P, header_size: Int, sep: Int, b: Node) -> P {
 }
 
 fn distance_from(p: P, start_pos: Int, start_out_col: Int) -> Int {
-  if start_pos != 0 && p.pos.is_valid() && pos_for(p, start_pos).line == p.pos.line { return p.outp.column - start_out_col }
+  if start_pos != 0 && p.pos.is_valid() && pos_for(p, start_pos).line == p.pos.line {
+    return p.outp.column - start_out_col
+  }
   INFINITY
 }
 
@@ -2189,12 +2321,54 @@ fn file(p0: P, f: Node) -> P {
   }
 }
 
-const EXPR_KINDS: List<Str> = ["BadExpr", "Ident", "Ellipsis", "BasicLit", "FuncLit", "CompositeLit", "ParenExpr", "SelectorExpr", "IndexExpr",
-  "IndexListExpr", "SliceExpr", "TypeAssertExpr", "CallExpr", "StarExpr", "UnaryExpr", "BinaryExpr", "KeyValueExpr", "ArrayType",
-  "StructType", "FuncType", "InterfaceType", "MapType", "ChanType"]
-const STMT_KINDS: List<Str> = ["BadStmt", "DeclStmt", "EmptyStmt", "LabeledStmt", "ExprStmt", "SendStmt", "IncDecStmt", "AssignStmt", "GoStmt",
-  "DeferStmt", "ReturnStmt", "BranchStmt", "BlockStmt", "IfStmt", "CaseClause", "SwitchStmt", "TypeSwitchStmt", "CommClause", "SelectStmt",
-  "ForStmt", "RangeStmt"]
+const EXPR_KINDS: List<Str> = [
+  "BadExpr",
+  "Ident",
+  "Ellipsis",
+  "BasicLit",
+  "FuncLit",
+  "CompositeLit",
+  "ParenExpr",
+  "SelectorExpr",
+  "IndexExpr",
+  "IndexListExpr",
+  "SliceExpr",
+  "TypeAssertExpr",
+  "CallExpr",
+  "StarExpr",
+  "UnaryExpr",
+  "BinaryExpr",
+  "KeyValueExpr",
+  "ArrayType",
+  "StructType",
+  "FuncType",
+  "InterfaceType",
+  "MapType",
+  "ChanType",
+]
+const STMT_KINDS: List<Str> = [
+  "BadStmt",
+  "DeclStmt",
+  "EmptyStmt",
+  "LabeledStmt",
+  "ExprStmt",
+  "SendStmt",
+  "IncDecStmt",
+  "AssignStmt",
+  "GoStmt",
+  "DeferStmt",
+  "ReturnStmt",
+  "BranchStmt",
+  "BlockStmt",
+  "IfStmt",
+  "CaseClause",
+  "SwitchStmt",
+  "TypeSwitchStmt",
+  "CommClause",
+  "SelectStmt",
+  "ForStmt",
+  "RangeStmt",
+]
 
 fn print_node(p0: P, node: Node) -> Result<P, Str> {
   var p = p0
@@ -2294,7 +2468,11 @@ fn comment_text_at(out: List<Int>, start0: Int) -> Str {
 
 fn append_lines(x: List<Int>, y0: List<Int>) -> List<Int> {
   var y = y0
-  if len(y) > 0 && is_nl(y[0]) && (len(x) == 0 || len(x) >= 2 && is_nl(x[len(x) - 1]) && is_nl(x[len(x) - 2])) { y = y[1..len(y)] }
+  if len(y) > 0
+    && is_nl(y[0])
+    && (len(x) == 0 || len(x) >= 2 && is_nl(x[len(x) - 1]) && is_nl(x[len(x) - 2])) {
+    y = y[1..len(y)]
+  }
   x + y
 }
 
@@ -2313,8 +2491,11 @@ fn fix_go_build_lines(out: List<Int>, go_build: List<Int>, plus_build: List<Int>
     pos += 1
     if blank { insert = pos }
   }
-  if len(go_build) > 0 && go_build[0] < insert { insert = go_build[0] }
-  else if len(plus_build) > 0 && plus_build[0] < insert { insert = plus_build[0] }
+  if len(go_build) > 0 && go_build[0] < insert {
+    insert = go_build[0]
+  } else if len(plus_build) > 0 && plus_build[0] < insert {
+    insert = plus_build[0]
+  }
   var x: Option<constraint.Expr> = None
   if len(go_build) == 0 {
     for p in plus_build {
@@ -2324,7 +2505,10 @@ fn fix_go_build_lines(out: List<Int>, go_build: List<Int>, plus_build: List<Int>
       }
     }
   } else if len(go_build) == 1 {
-    x = match constraint.parse(comment_text_at(out, go_build[0])) { Ok(y) => Some(y), Err(_) => None }
+    x = match constraint.parse(comment_text_at(out, go_build[0])) {
+      Ok(y) => Some(y),
+      Err(_) => None,
+    }
   }
   var blk: List<Int> = []
   match x {
@@ -2335,7 +2519,9 @@ fn fix_go_build_lines(out: List<Int>, go_build: List<Int>, plus_build: List<Int>
     Some(e) => {
       blk = [ESC] + __bytes("//go:build " + constraint.string(e)) + [ESC, 10]
       if len(plus_build) > 0 {
-        let lines = match constraint.plus_build_lines(e) { Ok(ls) => ls, Err(m) => ["// +build error: " + m] }
+        let lines = match constraint.plus_build_lines(e) { Ok(ls) => ls, Err(m) => [
+          "// +build error: " + m,
+        ] }
         for l in lines { blk = blk + [ESC] + __bytes(l) + [ESC, 10] }
       }
     },
@@ -2356,17 +2542,50 @@ fn fix_go_build_lines(out: List<Int>, go_build: List<Int>, plus_build: List<Int>
 }
 
 fn new_printer(cfg: Config, fset: token.FileSet, sizes: Map<Str, Int>) -> P {
-  P { cfg: cfg, fset: fset, out: Map(), nchunks: 0, olen: 0, indent: 0, level: 0, mode: 0, end_alignment: false, implied_semi: false,
-    last_tok: token.ILLEGAL, prev_open: token.ILLEGAL, wsbuf: [], go_build: [], plus_build: [], pos: npos(1, 1), outp: npos(1, 1),
-    last: npos(0, 0), line_ptr: -1, lines: Map(), nslot: 0, source_pos_err: "", comments: [], use_node_comments: false,
-    cindex: 0, comment: Nil, comment_offset: 0, comment_newline: false, sizes: sizes }
+  P {
+    cfg: cfg,
+    fset: fset,
+    out: Map(),
+    nchunks: 0,
+    olen: 0,
+    indent: 0,
+    level: 0,
+    mode: 0,
+    end_alignment: false,
+    implied_semi: false,
+    last_tok: token.ILLEGAL,
+    prev_open: token.ILLEGAL,
+    wsbuf: [],
+    go_build: [],
+    plus_build: [],
+    pos: npos(1, 1),
+    outp: npos(1, 1),
+    last: npos(0, 0),
+    line_ptr: -1,
+    lines: Map(),
+    nslot: 0,
+    source_pos_err: "",
+    comments: [],
+    use_node_comments: false,
+    cindex: 0,
+    comment: Nil,
+    comment_offset: 0,
+    comment_newline: false,
+    sizes: sizes,
+  }
 }
 
 // 返回 (trimmer 之后、tabwriter 之前的字节；RawFormat 时就是最终结果, 节点长度缓存)
-fn fprint_internal(cfg: Config, fset: token.FileSet, node: Node, sizes: Map<Str, Int>) -> Result<(List<Int>, Map<Str, Int>), Str> {
+fn fprint_internal(cfg: Config, fset: token.FileSet, node: Node, sizes: Map<Str, Int>) -> Result<(
+  List<Int>, Map<Str, Int>
+), Str> {
   let p0 = new_printer(cfg, fset, sizes)
   let p1 = print_node(p0, node)?
-  let (p, _, _) = flush(P { implied_semi: false, ..p1 }, token.Position { filename: "", offset: INFINITY, line: INFINITY, column: 0 }, token.EOF)
+  let (p, _, _) = flush(
+    P { implied_semi: false, ..p1 },
+    token.Position { filename: "", offset: INFINITY, line: INFINITY, column: 0 },
+    token.EOF,
+  )
   let out = fix_go_build_lines(output_bytes(p), p.go_build, p.plus_build)
   if cfg.mode & RAW_FORMAT != 0 { return Ok((trim_bytes(out), p.sizes)) }
   var minwidth = cfg.tabwidth

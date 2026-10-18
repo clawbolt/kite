@@ -34,17 +34,21 @@ fn tok_str(t: xml.Token) -> Str {
       for a in se.attr { s = s + " " + nm(a.name) + "=" + show(__bytes(a.value)) }
       s + ">"
     },
-    XEnd(n)                 => "E </" + nm(n) + ">",
-    XCharData(b)            => "C " + show(b),
-    XComment(b)             => "M " + show(b),
+    XEnd(n) => "E </" + nm(n) + ">",
+    XCharData(b) => "C " + show(b),
+    XComment(b) => "M " + show(b),
     XProcInst(target, inst) => "P " + target + " " + show(inst),
-    XDirective(b)           => "D " + show(b),
+    XDirective(b) => "D " + show(b),
   }
 }
 
-fn err_str(e: xml.XmlError) -> Str { if e.kind == xml.EOF { "EOF" } else { "ERR " + show(__bytes(e.error())) } }
+fn err_str(e: xml.XmlError) -> Str {
+  if e.kind == xml.EOF { "EOF" } else { "ERR " + show(__bytes(e.error())) }
+}
 
-fn next(d: xml.Decoder, raw: Bool) -> (xml.Decoder, Result<xml.Token, xml.XmlError>) { if raw { d.raw_token() } else { d.token() } }
+fn next(d: xml.Decoder, raw: Bool) -> (xml.Decoder, Result<xml.Token, xml.XmlError>) {
+  if raw { d.raw_token() } else { d.token() }
+}
 
 fn run_doc(d0: xml.Decoder, raw: Bool) {
   var d = d0
@@ -53,13 +57,13 @@ fn run_doc(d0: xml.Decoder, raw: Bool) {
     let (d2, r) = next(d, raw)
     d = d2
     match r {
-      Ok(t)  => { print("  " + tok_str(t)) },
+      Ok(t) => { print("  " + tok_str(t)) },
       Err(e) => {
         print("  " + err_str(e))
         let (d3, r2) = next(d, raw)
         d = d3
         match r2 {
-          Ok(_)   => { print("  again ?") },
+          Ok(_) => { print("  again ?") },
           Err(e2) => { print("  again " + err_str(e2)) },
         }
         break
@@ -75,7 +79,7 @@ fn step(r: (xml.Encoder, Option<Str>)) -> xml.Encoder {
   let (e, err) = r
   match err {
     Some(m) => { print("  err " + show(__bytes(m)) + " {len(e.output_bytes())}") },
-    None    => { print("  ok {len(e.output_bytes())}") },
+    None => { print("  ok {len(e.output_bytes())}") },
   }
   e
 }
@@ -92,18 +96,39 @@ fn latin1(charset: Str, b: List<Int>) -> Result<List<Int>, Str> {
 fn opt_el(o: Option<xml.Element>) -> Str {
   match o {
     Some(e) => "found " + nm(e.name) + " " + show(__bytes(e.text())),
-    None    => "none",
+    None => "none",
   }
 }
 
 fn main() {
   print("== Token")
   print("doc 0")
-  run_doc(xml.new_decoder(__bytes("\n<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<!DOCTYPE html PUBLIC \"-//W3C//DTD XHTML 1.0 Transitional//EN\"\n  \"http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd\">\n<body xmlns:foo=\"ns1\" xmlns=\"ns2\" xmlns:tag=\"ns3\" \r\n\t  >\n  <hello lang=\"en\">World &lt;&gt;&apos;&quot; &#x767d;&#40300;翔</hello>\n  <query>&何; &is-it;</query>\n  <goodbye />\n  <outer foo:attr=\"value\" xmlns:tag=\"ns4\">\n    <inner/>\n  </outer>\n  <tag:name>\n    <![CDATA[Some text here.]]>\n  </tag:name>\n</body><!-- missing final newline -->")), false)
+  run_doc(
+    xml.new_decoder(
+      __bytes(
+        "\n<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<!DOCTYPE html PUBLIC \"-//W3C//DTD XHTML 1.0 Transitional//EN\"\n  \"http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd\">\n<body xmlns:foo=\"ns1\" xmlns=\"ns2\" xmlns:tag=\"ns3\" \r\n\t  >\n  <hello lang=\"en\">World &lt;&gt;&apos;&quot; &#x767d;&#40300;翔</hello>\n  <query>&何; &is-it;</query>\n  <goodbye />\n  <outer foo:attr=\"value\" xmlns:tag=\"ns4\">\n    <inner/>\n  </outer>\n  <tag:name>\n    <![CDATA[Some text here.]]>\n  </tag:name>\n</body><!-- missing final newline -->",
+      ),
+    ),
+    false,
+  )
   print("doc 1")
-  run_doc(xml.new_decoder(__bytes("\n<!DOCTYPE [<!-- a comment --><!ENTITY rdf \"http://www.w3.org/1999/02/22-rdf-syntax-ns#\">]>\n<!DOCTYPE [<!ENTITY go \"Golang\"><!-- a comment-->]>\n<!DOCTYPE <!-> <!> <!----> <!-->--> <!--->--> [<!ENTITY go \"Golang\"><!-- a comment-->]>\n")), false)
+  run_doc(
+    xml.new_decoder(
+      __bytes(
+        "\n<!DOCTYPE [<!-- a comment --><!ENTITY rdf \"http://www.w3.org/1999/02/22-rdf-syntax-ns#\">]>\n<!DOCTYPE [<!ENTITY go \"Golang\"><!-- a comment-->]>\n<!DOCTYPE <!-> <!> <!----> <!-->--> <!--->--> [<!ENTITY go \"Golang\"><!-- a comment-->]>\n",
+      ),
+    ),
+    false,
+  )
   print("doc 2")
-  run_doc(xml.new_decoder(__bytes("\n<tag>non&entity</tag>\n<tag>&unknown;entity</tag>\n<tag>&#123</tag>\n<tag>&#zzz;</tag>\n<tag>&なまえ3;</tag>\n<tag>&lt-gt;</tag>\n<tag>&;</tag>\n<tag>&0a;</tag>\n")), false)
+  run_doc(
+    xml.new_decoder(
+      __bytes(
+        "\n<tag>non&entity</tag>\n<tag>&unknown;entity</tag>\n<tag>&#123</tag>\n<tag>&#zzz;</tag>\n<tag>&なまえ3;</tag>\n<tag>&lt-gt;</tag>\n<tag>&;</tag>\n<tag>&0a;</tag>\n",
+      ),
+    ),
+    false,
+  )
   print("doc 3")
   run_doc(xml.new_decoder(__bytes("<")), false)
   print("doc 4")
@@ -193,9 +218,15 @@ fn main() {
   print("doc 46")
   run_doc(xml.new_decoder(__bytes("\u{fffe}<doc/>")), false)
   print("doc 47")
-  run_doc(xml.new_decoder(__bytes("<?xml version=\"1.0\"?><doc>\r\n<hiya/>\u{7}<toots/></doc>")), false)
+  run_doc(
+    xml.new_decoder(__bytes("<?xml version=\"1.0\"?><doc>\r\n<hiya/>\u{7}<toots/></doc>")),
+    false,
+  )
   print("doc 48")
-  run_doc(xml.new_decoder(__bytes("<?xml version=\"1.0\"?><doc \u{12}='value'>what's up</doc>")), false)
+  run_doc(
+    xml.new_decoder(__bytes("<?xml version=\"1.0\"?><doc \u{12}='value'>what's up</doc>")),
+    false,
+  )
   print("doc 49")
   run_doc(xml.new_decoder(__bytes("<doc>&abc\u{1};</doc>")), false)
   print("doc 50")
@@ -355,9 +386,15 @@ fn main() {
   print("doc 127")
   run_doc(xml.new_decoder(__bytes("  \n ")), false)
   print("doc 128")
-  run_doc(xml.new_decoder(__bytes("<a xmlns='u1'><b xmlns:p='u2' p:c='1' c='2'><p:d/></b><p:e/></a>")), false)
+  run_doc(
+    xml.new_decoder(__bytes("<a xmlns='u1'><b xmlns:p='u2' p:c='1' c='2'><p:d/></b><p:e/></a>")),
+    false,
+  )
   print("doc 129")
-  run_doc(xml.new_decoder(__bytes("<a xmlns:p='u1'><p:b xmlns:p='u2'><p:c/></p:b><p:d/></a>")), false)
+  run_doc(
+    xml.new_decoder(__bytes("<a xmlns:p='u1'><p:b xmlns:p='u2'><p:c/></p:b><p:d/></a>")),
+    false,
+  )
   print("doc 130")
   run_doc(xml.new_decoder(__bytes("<a xml:lang='en' xmlns:xml='bogus'><xml:b/></a>")), false)
   print("doc 131")
@@ -392,11 +429,32 @@ fn main() {
   run_doc(xml.new_decoder(__bytes("<a>\u{0}</a>")), false)
   print("== RawToken")
   print("raw 0")
-  run_doc(xml.new_decoder(__bytes("\n<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<!DOCTYPE html PUBLIC \"-//W3C//DTD XHTML 1.0 Transitional//EN\"\n  \"http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd\">\n<body xmlns:foo=\"ns1\" xmlns=\"ns2\" xmlns:tag=\"ns3\" \r\n\t  >\n  <hello lang=\"en\">World &lt;&gt;&apos;&quot; &#x767d;&#40300;翔</hello>\n  <query>&何; &is-it;</query>\n  <goodbye />\n  <outer foo:attr=\"value\" xmlns:tag=\"ns4\">\n    <inner/>\n  </outer>\n  <tag:name>\n    <![CDATA[Some text here.]]>\n  </tag:name>\n</body><!-- missing final newline -->")), true)
+  run_doc(
+    xml.new_decoder(
+      __bytes(
+        "\n<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<!DOCTYPE html PUBLIC \"-//W3C//DTD XHTML 1.0 Transitional//EN\"\n  \"http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd\">\n<body xmlns:foo=\"ns1\" xmlns=\"ns2\" xmlns:tag=\"ns3\" \r\n\t  >\n  <hello lang=\"en\">World &lt;&gt;&apos;&quot; &#x767d;&#40300;翔</hello>\n  <query>&何; &is-it;</query>\n  <goodbye />\n  <outer foo:attr=\"value\" xmlns:tag=\"ns4\">\n    <inner/>\n  </outer>\n  <tag:name>\n    <![CDATA[Some text here.]]>\n  </tag:name>\n</body><!-- missing final newline -->",
+      ),
+    ),
+    true,
+  )
   print("raw 1")
-  run_doc(xml.new_decoder(__bytes("\n<!DOCTYPE [<!-- a comment --><!ENTITY rdf \"http://www.w3.org/1999/02/22-rdf-syntax-ns#\">]>\n<!DOCTYPE [<!ENTITY go \"Golang\"><!-- a comment-->]>\n<!DOCTYPE <!-> <!> <!----> <!-->--> <!--->--> [<!ENTITY go \"Golang\"><!-- a comment-->]>\n")), true)
+  run_doc(
+    xml.new_decoder(
+      __bytes(
+        "\n<!DOCTYPE [<!-- a comment --><!ENTITY rdf \"http://www.w3.org/1999/02/22-rdf-syntax-ns#\">]>\n<!DOCTYPE [<!ENTITY go \"Golang\"><!-- a comment-->]>\n<!DOCTYPE <!-> <!> <!----> <!-->--> <!--->--> [<!ENTITY go \"Golang\"><!-- a comment-->]>\n",
+      ),
+    ),
+    true,
+  )
   print("raw 2")
-  run_doc(xml.new_decoder(__bytes("\n<tag>non&entity</tag>\n<tag>&unknown;entity</tag>\n<tag>&#123</tag>\n<tag>&#zzz;</tag>\n<tag>&なまえ3;</tag>\n<tag>&lt-gt;</tag>\n<tag>&;</tag>\n<tag>&0a;</tag>\n")), true)
+  run_doc(
+    xml.new_decoder(
+      __bytes(
+        "\n<tag>non&entity</tag>\n<tag>&unknown;entity</tag>\n<tag>&#123</tag>\n<tag>&#zzz;</tag>\n<tag>&なまえ3;</tag>\n<tag>&lt-gt;</tag>\n<tag>&;</tag>\n<tag>&0a;</tag>\n",
+      ),
+    ),
+    true,
+  )
   print("raw 3")
   run_doc(xml.new_decoder(__bytes("<a></b><c><d/></e>")), true)
   print("raw 4")
@@ -484,113 +542,396 @@ fn main() {
   print("raw 45")
   run_doc(xml.new_decoder(__bytes("<!0 >")), true)
   print("== entity map")
-  run_doc(xml.new_decoder(__bytes("\n<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<!DOCTYPE html PUBLIC \"-//W3C//DTD XHTML 1.0 Transitional//EN\"\n  \"http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd\">\n<body xmlns:foo=\"ns1\" xmlns=\"ns2\" xmlns:tag=\"ns3\" \r\n\t  >\n  <hello lang=\"en\">World &lt;&gt;&apos;&quot; &#x767d;&#40300;翔</hello>\n  <query>&何; &is-it;</query>\n  <goodbye />\n  <outer foo:attr=\"value\" xmlns:tag=\"ns4\">\n    <inner/>\n  </outer>\n  <tag:name>\n    <![CDATA[Some text here.]]>\n  </tag:name>\n</body><!-- missing final newline -->")).with_entity(Map([("何", "What"), ("is-it", "is it?")])), false)
+  run_doc(
+    xml
+      .new_decoder(
+        __bytes(
+          "\n<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<!DOCTYPE html PUBLIC \"-//W3C//DTD XHTML 1.0 Transitional//EN\"\n  \"http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd\">\n<body xmlns:foo=\"ns1\" xmlns=\"ns2\" xmlns:tag=\"ns3\" \r\n\t  >\n  <hello lang=\"en\">World &lt;&gt;&apos;&quot; &#x767d;&#40300;翔</hello>\n  <query>&何; &is-it;</query>\n  <goodbye />\n  <outer foo:attr=\"value\" xmlns:tag=\"ns4\">\n    <inner/>\n  </outer>\n  <tag:name>\n    <![CDATA[Some text here.]]>\n  </tag:name>\n</body><!-- missing final newline -->",
+        ),
+      )
+      .with_entity(Map([("何", "What"), ("is-it", "is it?")])),
+    false,
+  )
   print("== non-strict")
   print("ns 0 0")
-  run_doc(xml.new_decoder(__bytes("\n<tag>non&entity</tag>\n<tag>&unknown;entity</tag>\n<tag>&#123</tag>\n<tag>&#zzz;</tag>\n<tag>&なまえ3;</tag>\n<tag>&lt-gt;</tag>\n<tag>&;</tag>\n<tag>&0a;</tag>\n")).with_strict(false), false)
+  run_doc(
+    xml
+      .new_decoder(
+        __bytes(
+          "\n<tag>non&entity</tag>\n<tag>&unknown;entity</tag>\n<tag>&#123</tag>\n<tag>&#zzz;</tag>\n<tag>&なまえ3;</tag>\n<tag>&lt-gt;</tag>\n<tag>&;</tag>\n<tag>&0a;</tag>\n",
+        ),
+      )
+      .with_strict(false),
+    false,
+  )
   print("ns 0 1")
-  run_doc(xml.new_decoder(__bytes("\n<tag>non&entity</tag>\n<tag>&unknown;entity</tag>\n<tag>&#123</tag>\n<tag>&#zzz;</tag>\n<tag>&なまえ3;</tag>\n<tag>&lt-gt;</tag>\n<tag>&;</tag>\n<tag>&0a;</tag>\n")).with_strict(false).with_auto_close(xml.html_auto_close()).with_entity(xml.html_entity()), false)
+  run_doc(
+    xml
+      .new_decoder(
+        __bytes(
+          "\n<tag>non&entity</tag>\n<tag>&unknown;entity</tag>\n<tag>&#123</tag>\n<tag>&#zzz;</tag>\n<tag>&なまえ3;</tag>\n<tag>&lt-gt;</tag>\n<tag>&;</tag>\n<tag>&0a;</tag>\n",
+        ),
+      )
+      .with_strict(false)
+      .with_auto_close(xml.html_auto_close())
+      .with_entity(xml.html_entity()),
+    false,
+  )
   print("ns 0 2")
-  run_doc(xml.new_decoder(__bytes("\n<tag>non&entity</tag>\n<tag>&unknown;entity</tag>\n<tag>&#123</tag>\n<tag>&#zzz;</tag>\n<tag>&なまえ3;</tag>\n<tag>&lt-gt;</tag>\n<tag>&;</tag>\n<tag>&0a;</tag>\n")).with_strict(false).with_auto_close(xml.html_auto_close()).with_entity(xml.html_entity()), true)
+  run_doc(
+    xml
+      .new_decoder(
+        __bytes(
+          "\n<tag>non&entity</tag>\n<tag>&unknown;entity</tag>\n<tag>&#123</tag>\n<tag>&#zzz;</tag>\n<tag>&なまえ3;</tag>\n<tag>&lt-gt;</tag>\n<tag>&;</tag>\n<tag>&0a;</tag>\n",
+        ),
+      )
+      .with_strict(false)
+      .with_auto_close(xml.html_auto_close())
+      .with_entity(xml.html_entity()),
+    true,
+  )
   print("ns 1 0")
-  run_doc(xml.new_decoder(__bytes("<p>Hello<br>World&nbsp;&copy; &eacute;t&eacute; &euro;<img src=x alt>done</p>")).with_strict(false), false)
+  run_doc(
+    xml
+      .new_decoder(
+        __bytes("<p>Hello<br>World&nbsp;&copy; &eacute;t&eacute; &euro;<img src=x alt>done</p>"),
+      )
+      .with_strict(false),
+    false,
+  )
   print("ns 1 1")
-  run_doc(xml.new_decoder(__bytes("<p>Hello<br>World&nbsp;&copy; &eacute;t&eacute; &euro;<img src=x alt>done</p>")).with_strict(false).with_auto_close(xml.html_auto_close()).with_entity(xml.html_entity()), false)
+  run_doc(
+    xml
+      .new_decoder(
+        __bytes("<p>Hello<br>World&nbsp;&copy; &eacute;t&eacute; &euro;<img src=x alt>done</p>"),
+      )
+      .with_strict(false)
+      .with_auto_close(xml.html_auto_close())
+      .with_entity(xml.html_entity()),
+    false,
+  )
   print("ns 1 2")
-  run_doc(xml.new_decoder(__bytes("<p>Hello<br>World&nbsp;&copy; &eacute;t&eacute; &euro;<img src=x alt>done</p>")).with_strict(false).with_auto_close(xml.html_auto_close()).with_entity(xml.html_entity()), true)
+  run_doc(
+    xml
+      .new_decoder(
+        __bytes("<p>Hello<br>World&nbsp;&copy; &eacute;t&eacute; &euro;<img src=x alt>done</p>"),
+      )
+      .with_strict(false)
+      .with_auto_close(xml.html_auto_close())
+      .with_entity(xml.html_entity()),
+    true,
+  )
   print("ns 2 0")
-  run_doc(xml.new_decoder(__bytes("<html><body><p>one<p>two</body></html>")).with_strict(false), false)
+  run_doc(
+    xml.new_decoder(__bytes("<html><body><p>one<p>two</body></html>")).with_strict(false),
+    false,
+  )
   print("ns 2 1")
-  run_doc(xml.new_decoder(__bytes("<html><body><p>one<p>two</body></html>")).with_strict(false).with_auto_close(xml.html_auto_close()).with_entity(xml.html_entity()), false)
+  run_doc(
+    xml
+      .new_decoder(__bytes("<html><body><p>one<p>two</body></html>"))
+      .with_strict(false)
+      .with_auto_close(xml.html_auto_close())
+      .with_entity(xml.html_entity()),
+    false,
+  )
   print("ns 2 2")
-  run_doc(xml.new_decoder(__bytes("<html><body><p>one<p>two</body></html>")).with_strict(false).with_auto_close(xml.html_auto_close()).with_entity(xml.html_entity()), true)
+  run_doc(
+    xml
+      .new_decoder(__bytes("<html><body><p>one<p>two</body></html>"))
+      .with_strict(false)
+      .with_auto_close(xml.html_auto_close())
+      .with_entity(xml.html_entity()),
+    true,
+  )
   print("ns 3 0")
   run_doc(xml.new_decoder(__bytes("<a><b></a>")).with_strict(false), false)
   print("ns 3 1")
-  run_doc(xml.new_decoder(__bytes("<a><b></a>")).with_strict(false).with_auto_close(xml.html_auto_close()).with_entity(xml.html_entity()), false)
+  run_doc(
+    xml
+      .new_decoder(__bytes("<a><b></a>"))
+      .with_strict(false)
+      .with_auto_close(xml.html_auto_close())
+      .with_entity(xml.html_entity()),
+    false,
+  )
   print("ns 3 2")
-  run_doc(xml.new_decoder(__bytes("<a><b></a>")).with_strict(false).with_auto_close(xml.html_auto_close()).with_entity(xml.html_entity()), true)
+  run_doc(
+    xml
+      .new_decoder(__bytes("<a><b></a>"))
+      .with_strict(false)
+      .with_auto_close(xml.html_auto_close())
+      .with_entity(xml.html_entity()),
+    true,
+  )
   print("ns 4 0")
   run_doc(xml.new_decoder(__bytes("<a><b><c></a>more")).with_strict(false), false)
   print("ns 4 1")
-  run_doc(xml.new_decoder(__bytes("<a><b><c></a>more")).with_strict(false).with_auto_close(xml.html_auto_close()).with_entity(xml.html_entity()), false)
+  run_doc(
+    xml
+      .new_decoder(__bytes("<a><b><c></a>more"))
+      .with_strict(false)
+      .with_auto_close(xml.html_auto_close())
+      .with_entity(xml.html_entity()),
+    false,
+  )
   print("ns 4 2")
-  run_doc(xml.new_decoder(__bytes("<a><b><c></a>more")).with_strict(false).with_auto_close(xml.html_auto_close()).with_entity(xml.html_entity()), true)
+  run_doc(
+    xml
+      .new_decoder(__bytes("<a><b><c></a>more"))
+      .with_strict(false)
+      .with_auto_close(xml.html_auto_close())
+      .with_entity(xml.html_entity()),
+    true,
+  )
   print("ns 5 0")
   run_doc(xml.new_decoder(__bytes("<A x=1 y>t</a>")).with_strict(false), false)
   print("ns 5 1")
-  run_doc(xml.new_decoder(__bytes("<A x=1 y>t</a>")).with_strict(false).with_auto_close(xml.html_auto_close()).with_entity(xml.html_entity()), false)
+  run_doc(
+    xml
+      .new_decoder(__bytes("<A x=1 y>t</a>"))
+      .with_strict(false)
+      .with_auto_close(xml.html_auto_close())
+      .with_entity(xml.html_entity()),
+    false,
+  )
   print("ns 5 2")
-  run_doc(xml.new_decoder(__bytes("<A x=1 y>t</a>")).with_strict(false).with_auto_close(xml.html_auto_close()).with_entity(xml.html_entity()), true)
+  run_doc(
+    xml
+      .new_decoder(__bytes("<A x=1 y>t</a>"))
+      .with_strict(false)
+      .with_auto_close(xml.html_auto_close())
+      .with_entity(xml.html_entity()),
+    true,
+  )
   print("ns 6 0")
   run_doc(xml.new_decoder(__bytes("<a x=1/>")).with_strict(false), false)
   print("ns 6 1")
-  run_doc(xml.new_decoder(__bytes("<a x=1/>")).with_strict(false).with_auto_close(xml.html_auto_close()).with_entity(xml.html_entity()), false)
+  run_doc(
+    xml
+      .new_decoder(__bytes("<a x=1/>"))
+      .with_strict(false)
+      .with_auto_close(xml.html_auto_close())
+      .with_entity(xml.html_entity()),
+    false,
+  )
   print("ns 6 2")
-  run_doc(xml.new_decoder(__bytes("<a x=1/>")).with_strict(false).with_auto_close(xml.html_auto_close()).with_entity(xml.html_entity()), true)
+  run_doc(
+    xml
+      .new_decoder(__bytes("<a x=1/>"))
+      .with_strict(false)
+      .with_auto_close(xml.html_auto_close())
+      .with_entity(xml.html_entity()),
+    true,
+  )
   print("ns 7 0")
   run_doc(xml.new_decoder(__bytes("<a x=>")).with_strict(false), false)
   print("ns 7 1")
-  run_doc(xml.new_decoder(__bytes("<a x=>")).with_strict(false).with_auto_close(xml.html_auto_close()).with_entity(xml.html_entity()), false)
+  run_doc(
+    xml
+      .new_decoder(__bytes("<a x=>"))
+      .with_strict(false)
+      .with_auto_close(xml.html_auto_close())
+      .with_entity(xml.html_entity()),
+    false,
+  )
   print("ns 7 2")
-  run_doc(xml.new_decoder(__bytes("<a x=>")).with_strict(false).with_auto_close(xml.html_auto_close()).with_entity(xml.html_entity()), true)
+  run_doc(
+    xml
+      .new_decoder(__bytes("<a x=>"))
+      .with_strict(false)
+      .with_auto_close(xml.html_auto_close())
+      .with_entity(xml.html_entity()),
+    true,
+  )
   print("ns 8 0")
   run_doc(xml.new_decoder(__bytes("<a x='1' y=b-c:d_e>z</a>")).with_strict(false), false)
   print("ns 8 1")
-  run_doc(xml.new_decoder(__bytes("<a x='1' y=b-c:d_e>z</a>")).with_strict(false).with_auto_close(xml.html_auto_close()).with_entity(xml.html_entity()), false)
+  run_doc(
+    xml
+      .new_decoder(__bytes("<a x='1' y=b-c:d_e>z</a>"))
+      .with_strict(false)
+      .with_auto_close(xml.html_auto_close())
+      .with_entity(xml.html_entity()),
+    false,
+  )
   print("ns 8 2")
-  run_doc(xml.new_decoder(__bytes("<a x='1' y=b-c:d_e>z</a>")).with_strict(false).with_auto_close(xml.html_auto_close()).with_entity(xml.html_entity()), true)
+  run_doc(
+    xml
+      .new_decoder(__bytes("<a x='1' y=b-c:d_e>z</a>"))
+      .with_strict(false)
+      .with_auto_close(xml.html_auto_close())
+      .with_entity(xml.html_entity()),
+    true,
+  )
   print("ns 9 0")
   run_doc(xml.new_decoder(__bytes("<ul><li>1<li>2<LI>3</ul>")).with_strict(false), false)
   print("ns 9 1")
-  run_doc(xml.new_decoder(__bytes("<ul><li>1<li>2<LI>3</ul>")).with_strict(false).with_auto_close(xml.html_auto_close()).with_entity(xml.html_entity()), false)
+  run_doc(
+    xml
+      .new_decoder(__bytes("<ul><li>1<li>2<LI>3</ul>"))
+      .with_strict(false)
+      .with_auto_close(xml.html_auto_close())
+      .with_entity(xml.html_entity()),
+    false,
+  )
   print("ns 9 2")
-  run_doc(xml.new_decoder(__bytes("<ul><li>1<li>2<LI>3</ul>")).with_strict(false).with_auto_close(xml.html_auto_close()).with_entity(xml.html_entity()), true)
+  run_doc(
+    xml
+      .new_decoder(__bytes("<ul><li>1<li>2<LI>3</ul>"))
+      .with_strict(false)
+      .with_auto_close(xml.html_auto_close())
+      .with_entity(xml.html_entity()),
+    true,
+  )
   print("ns 10 0")
   run_doc(xml.new_decoder(__bytes("<input type=text><br/><hr></hr>end")).with_strict(false), false)
   print("ns 10 1")
-  run_doc(xml.new_decoder(__bytes("<input type=text><br/><hr></hr>end")).with_strict(false).with_auto_close(xml.html_auto_close()).with_entity(xml.html_entity()), false)
+  run_doc(
+    xml
+      .new_decoder(__bytes("<input type=text><br/><hr></hr>end"))
+      .with_strict(false)
+      .with_auto_close(xml.html_auto_close())
+      .with_entity(xml.html_entity()),
+    false,
+  )
   print("ns 10 2")
-  run_doc(xml.new_decoder(__bytes("<input type=text><br/><hr></hr>end")).with_strict(false).with_auto_close(xml.html_auto_close()).with_entity(xml.html_entity()), true)
+  run_doc(
+    xml
+      .new_decoder(__bytes("<input type=text><br/><hr></hr>end"))
+      .with_strict(false)
+      .with_auto_close(xml.html_auto_close())
+      .with_entity(xml.html_entity()),
+    true,
+  )
   print("ns 11 0")
   run_doc(xml.new_decoder(__bytes("<a>&foo; &#zz; &#12 &amp</a>")).with_strict(false), false)
   print("ns 11 1")
-  run_doc(xml.new_decoder(__bytes("<a>&foo; &#zz; &#12 &amp</a>")).with_strict(false).with_auto_close(xml.html_auto_close()).with_entity(xml.html_entity()), false)
+  run_doc(
+    xml
+      .new_decoder(__bytes("<a>&foo; &#zz; &#12 &amp</a>"))
+      .with_strict(false)
+      .with_auto_close(xml.html_auto_close())
+      .with_entity(xml.html_entity()),
+    false,
+  )
   print("ns 11 2")
-  run_doc(xml.new_decoder(__bytes("<a>&foo; &#zz; &#12 &amp</a>")).with_strict(false).with_auto_close(xml.html_auto_close()).with_entity(xml.html_entity()), true)
+  run_doc(
+    xml
+      .new_decoder(__bytes("<a>&foo; &#zz; &#12 &amp</a>"))
+      .with_strict(false)
+      .with_auto_close(xml.html_auto_close())
+      .with_entity(xml.html_entity()),
+    true,
+  )
   print("ns 12 0")
   run_doc(xml.new_decoder(__bytes("<p>x<BR>y</P>")).with_strict(false), false)
   print("ns 12 1")
-  run_doc(xml.new_decoder(__bytes("<p>x<BR>y</P>")).with_strict(false).with_auto_close(xml.html_auto_close()).with_entity(xml.html_entity()), false)
+  run_doc(
+    xml
+      .new_decoder(__bytes("<p>x<BR>y</P>"))
+      .with_strict(false)
+      .with_auto_close(xml.html_auto_close())
+      .with_entity(xml.html_entity()),
+    false,
+  )
   print("ns 12 2")
-  run_doc(xml.new_decoder(__bytes("<p>x<BR>y</P>")).with_strict(false).with_auto_close(xml.html_auto_close()).with_entity(xml.html_entity()), true)
+  run_doc(
+    xml
+      .new_decoder(__bytes("<p>x<BR>y</P>"))
+      .with_strict(false)
+      .with_auto_close(xml.html_auto_close())
+      .with_entity(xml.html_entity()),
+    true,
+  )
   print("ns 13 0")
   run_doc(xml.new_decoder(__bytes("<a><b></b>")).with_strict(false), false)
   print("ns 13 1")
-  run_doc(xml.new_decoder(__bytes("<a><b></b>")).with_strict(false).with_auto_close(xml.html_auto_close()).with_entity(xml.html_entity()), false)
+  run_doc(
+    xml
+      .new_decoder(__bytes("<a><b></b>"))
+      .with_strict(false)
+      .with_auto_close(xml.html_auto_close())
+      .with_entity(xml.html_entity()),
+    false,
+  )
   print("ns 13 2")
-  run_doc(xml.new_decoder(__bytes("<a><b></b>")).with_strict(false).with_auto_close(xml.html_auto_close()).with_entity(xml.html_entity()), true)
+  run_doc(
+    xml
+      .new_decoder(__bytes("<a><b></b>"))
+      .with_strict(false)
+      .with_auto_close(xml.html_auto_close())
+      .with_entity(xml.html_entity()),
+    true,
+  )
   print("ns 14 0")
   run_doc(xml.new_decoder(__bytes("</a>")).with_strict(false), false)
   print("ns 14 1")
-  run_doc(xml.new_decoder(__bytes("</a>")).with_strict(false).with_auto_close(xml.html_auto_close()).with_entity(xml.html_entity()), false)
+  run_doc(
+    xml
+      .new_decoder(__bytes("</a>"))
+      .with_strict(false)
+      .with_auto_close(xml.html_auto_close())
+      .with_entity(xml.html_entity()),
+    false,
+  )
   print("ns 14 2")
-  run_doc(xml.new_decoder(__bytes("</a>")).with_strict(false).with_auto_close(xml.html_auto_close()).with_entity(xml.html_entity()), true)
+  run_doc(
+    xml
+      .new_decoder(__bytes("</a>"))
+      .with_strict(false)
+      .with_auto_close(xml.html_auto_close())
+      .with_entity(xml.html_entity()),
+    true,
+  )
   print("== html entity strict")
-  run_doc(xml.new_decoder_str("<p>&nbsp;&hearts;&Omega;&bogus;</p>").with_entity(xml.html_entity()), false)
+  run_doc(
+    xml.new_decoder_str("<p>&nbsp;&hearts;&Omega;&bogus;</p>").with_entity(xml.html_entity()),
+    false,
+  )
   print("{len(xml.html_entity())} {len(xml.html_auto_close())}")
   print("defspace 0")
-  run_doc(xml.new_decoder(__bytes("<a xmlns:p='u'><b/><p:c x='1' p:y='2'/><d xmlns='v'><e/></d></a>")).with_default_space("dflt"), false)
+  run_doc(
+    xml
+      .new_decoder(__bytes("<a xmlns:p='u'><b/><p:c x='1' p:y='2'/><d xmlns='v'><e/></d></a>"))
+      .with_default_space("dflt"),
+    false,
+  )
   print("defspace 1")
   run_doc(xml.new_decoder(__bytes("<x:a/>")).with_default_space("dflt"), false)
   print("charset 0")
-  run_doc(xml.new_decoder([60, 63, 120, 109, 108, 32, 118, 101, 114, 115, 105, 111, 110, 61, 39, 49, 46, 48, 39, 32, 101, 110, 99, 111, 100, 105, 110, 103, 61, 39, 108, 97, 116, 105, 110, 49, 39, 63, 62, 60, 97, 32, 98, 61, 39, 233, 39, 62, 99, 97, 102, 233, 60, 47, 97, 62]).with_charset_reader(latin1), false)
+  run_doc(
+    xml
+      .new_decoder([
+        60, 63, 120, 109, 108, 32, 118, 101, 114, 115, 105, 111, 110, 61, 39, 49, 46, 48, 39, 32,
+        101, 110, 99, 111, 100, 105, 110, 103, 61, 39, 108, 97, 116, 105, 110, 49, 39, 63, 62, 60,
+        97, 32, 98, 61, 39, 233, 39, 62, 99, 97, 102, 233, 60, 47, 97, 62,
+      ])
+      .with_charset_reader(latin1),
+    false,
+  )
   print("charset 1")
-  run_doc(xml.new_decoder(__bytes("<?xml encoding='ebcdic'?><a/>")).with_charset_reader(latin1), false)
+  run_doc(
+    xml.new_decoder(__bytes("<?xml encoding='ebcdic'?><a/>")).with_charset_reader(latin1),
+    false,
+  )
   print("charset 2")
-  run_doc(xml.new_decoder(__bytes("<?xml encoding=\"utf-8\"?><a>é</a>")).with_charset_reader(latin1), false)
+  run_doc(
+    xml.new_decoder(__bytes("<?xml encoding=\"utf-8\"?><a>é</a>")).with_charset_reader(latin1),
+    false,
+  )
   print("charset 3")
-  run_doc(xml.new_decoder([60, 63, 120, 109, 108, 32, 118, 101, 114, 115, 105, 111, 110, 61, 39, 49, 46, 48, 39, 32, 101, 110, 99, 111, 100, 105, 110, 103, 61, 39, 76, 65, 84, 73, 78, 49, 39, 32, 115, 116, 97, 110, 100, 97, 108, 111, 110, 101, 61, 39, 121, 101, 115, 39, 63, 62, 10, 60, 114, 62, 255, 10, 60, 47, 114, 62]).with_charset_reader(latin1), false)
+  run_doc(
+    xml
+      .new_decoder([
+        60, 63, 120, 109, 108, 32, 118, 101, 114, 115, 105, 111, 110, 61, 39, 49, 46, 48, 39, 32,
+        101, 110, 99, 111, 100, 105, 110, 103, 61, 39, 76, 65, 84, 73, 78, 49, 39, 32, 115, 116, 97,
+        110, 100, 97, 108, 111, 110, 101, 61, 39, 121, 101, 115, 39, 63, 62, 10, 60, 114, 62, 255,
+        10, 60, 47, 114, 62,
+      ])
+      .with_charset_reader(latin1),
+    false,
+  )
   print("== Encoder")
   print("enc ns")
   var e_ns = xml.new_encoder().indent("", "")
@@ -627,7 +968,9 @@ fn main() {
   print("enc directive")
   var e_directive = xml.new_encoder().indent("", "")
   e_directive = step(e_directive.encode_token(xml.directive("foo")))
-  e_directive = step(e_directive.encode_token(xml.directive("DOCTYPE doc [ <!ELEMENT doc '>'> <!-- com>ment --> ]")))
+  e_directive = step(
+    e_directive.encode_token(xml.directive("DOCTYPE doc [ <!ELEMENT doc '>'> <!-- com>ment --> ]")),
+  )
   e_directive = step(e_directive.encode_token(xml.directive("foo>")))
   print("  out " + show(e_directive.flush().output_bytes()))
   print("enc dirs")
@@ -635,8 +978,16 @@ fn main() {
   e_dirs = step(e_dirs.encode_token(xml.directive("<>")))
   e_dirs = step(e_dirs.encode_token(xml.directive("< < > >")))
   e_dirs = step(e_dirs.encode_token(xml.directive("<!DOCTYPE '<' '>' '>' <!--nothing-->>")))
-  e_dirs = step(e_dirs.encode_token(xml.directive("<!DOCTYPE doc [ <!ELEMENT doc \"ANY> '<' <!E\" LEMENT '>' doc ANY> ]>")))
-  e_dirs = step(e_dirs.encode_token(xml.directive("<!DOCTYPE doc <!-- just>>>> a < comment --> [ <!ITEM anything> ] >")))
+  e_dirs = step(
+    e_dirs.encode_token(
+      xml.directive("<!DOCTYPE doc [ <!ELEMENT doc \"ANY> '<' <!E\" LEMENT '>' doc ANY> ]>"),
+    ),
+  )
+  e_dirs = step(
+    e_dirs.encode_token(
+      xml.directive("<!DOCTYPE doc <!-- just>>>> a < comment --> [ <!ITEM anything> ] >"),
+    ),
+  )
   e_dirs = step(e_dirs.encode_token(xml.directive("<")))
   e_dirs = step(e_dirs.encode_token(xml.directive(">")))
   e_dirs = step(e_dirs.encode_token(xml.directive("<!--")))
@@ -663,60 +1014,113 @@ fn main() {
   print("  out " + show(e_mismatchns.flush().output_bytes()))
   print("enc explicitns")
   var e_explicitns = xml.new_encoder().indent("", "")
-  e_explicitns = step(e_explicitns.encode_token(xml.start(xml.name("space", "local"), [xml.attr(xml.name("xmlns", "x"), "space"), xml.attr(xml.name("space", "foo"), "value")])))
+  e_explicitns = step(e_explicitns.encode_token(xml.start(xml.name("space", "local"), [
+    xml.attr(xml.name("xmlns", "x"), "space"),
+    xml.attr(xml.name("space", "foo"), "value"),
+  ])))
   print("  out " + show(e_explicitns.flush().output_bytes()))
   print("enc collide")
   var e_collide = xml.new_encoder().indent("", "")
-  e_collide = step(e_collide.encode_token(xml.start(xml.name("space", "local"), [xml.attr(xml.name("xmlns", "x"), "space"), xml.attr(xml.name("space", "foo"), "value"), xml.attr(xml.name("x", "bar"), "other")])))
+  e_collide = step(e_collide.encode_token(xml.start(xml.name("space", "local"), [
+    xml.attr(xml.name("xmlns", "x"), "space"),
+    xml.attr(xml.name("space", "foo"), "value"),
+    xml.attr(xml.name("x", "bar"), "other"),
+  ])))
   print("  out " + show(e_collide.flush().output_bytes()))
   print("enc prevns")
   var e_prevns = xml.new_encoder().indent("", "")
-  e_prevns = step(e_prevns.encode_token(xml.start(xml.name("", "local"), [xml.attr(xml.name("xmlns", "x"), "space")])))
-  e_prevns = step(e_prevns.encode_token(xml.start(xml.name("space", "foo"), [xml.attr(xml.name("space", "x"), "y")])))
+  e_prevns = step(e_prevns.encode_token(xml.start(xml.name("", "local"), [
+    xml.attr(xml.name("xmlns", "x"), "space"),
+  ])))
+  e_prevns = step(e_prevns.encode_token(xml.start(xml.name("space", "foo"), [
+    xml.attr(xml.name("space", "x"), "y"),
+  ])))
   print("  out " + show(e_prevns.flush().output_bytes()))
   print("enc nested")
   var e_nested = xml.new_encoder().indent("", "")
-  e_nested = step(e_nested.encode_token(xml.start(xml.name("", "foo"), [xml.attr(xml.name("xmlns", "x"), "space1")])))
-  e_nested = step(e_nested.encode_token(xml.start(xml.name("", "foo"), [xml.attr(xml.name("xmlns", "x"), "space2")])))
-  e_nested = step(e_nested.encode_token(xml.start(xml.name("", "foo"), [xml.attr(xml.name("space1", "a"), "space1 value"), xml.attr(xml.name("space2", "b"), "space2 value")])))
+  e_nested = step(e_nested.encode_token(xml.start(xml.name("", "foo"), [
+    xml.attr(xml.name("xmlns", "x"), "space1"),
+  ])))
+  e_nested = step(e_nested.encode_token(xml.start(xml.name("", "foo"), [
+    xml.attr(xml.name("xmlns", "x"), "space2"),
+  ])))
+  e_nested = step(e_nested.encode_token(xml.start(xml.name("", "foo"), [
+    xml.attr(xml.name("space1", "a"), "space1 value"),
+    xml.attr(xml.name("space2", "b"), "space2 value"),
+  ])))
   e_nested = step(e_nested.encode_token(xml.end(xml.name("", "foo"))))
   e_nested = step(e_nested.encode_token(xml.end(xml.name("", "foo"))))
-  e_nested = step(e_nested.encode_token(xml.start(xml.name("", "foo"), [xml.attr(xml.name("space1", "a"), "space1 value"), xml.attr(xml.name("space2", "b"), "space2 value")])))
+  e_nested = step(e_nested.encode_token(xml.start(xml.name("", "foo"), [
+    xml.attr(xml.name("space1", "a"), "space1 value"),
+    xml.attr(xml.name("space2", "b"), "space2 value"),
+  ])))
   print("  out " + show(e_nested.flush().output_bytes()))
   print("enc several")
   var e_several = xml.new_encoder().indent("", "")
-  e_several = step(e_several.encode_token(xml.start(xml.name("space", "foo"), [xml.attr(xml.name("xmlns", "a"), "space"), xml.attr(xml.name("xmlns", "b"), "space"), xml.attr(xml.name("space", "x"), "value")])))
+  e_several = step(e_several.encode_token(xml.start(xml.name("space", "foo"), [
+    xml.attr(xml.name("xmlns", "a"), "space"),
+    xml.attr(xml.name("xmlns", "b"), "space"),
+    xml.attr(xml.name("space", "x"), "value"),
+  ])))
   print("  out " + show(e_several.flush().output_bytes()))
   print("enc redefine")
   var e_redefine = xml.new_encoder().indent("", "")
-  e_redefine = step(e_redefine.encode_token(xml.start(xml.name("", "foo"), [xml.attr(xml.name("foo", "xmlns"), "space")])))
+  e_redefine = step(e_redefine.encode_token(xml.start(xml.name("", "foo"), [
+    xml.attr(xml.name("foo", "xmlns"), "space"),
+  ])))
   print("  out " + show(e_redefine.flush().output_bytes()))
   print("enc xmlxmlns")
   var e_xmlxmlns = xml.new_encoder().indent("", "")
-  e_xmlxmlns = step(e_xmlxmlns.encode_token(xml.start(xml.name("space", "foo"), [xml.attr(xml.name("xml", "xmlns"), "space")])))
-  e_xmlxmlns = step(e_xmlxmlns.encode_token(xml.start(xml.name("space", "foo"), [xml.attr(xml.name("http://www.w3.org/XML/1998/namespace", "xmlns"), "space")])))
+  e_xmlxmlns = step(e_xmlxmlns.encode_token(xml.start(xml.name("space", "foo"), [
+    xml.attr(xml.name("xml", "xmlns"), "space"),
+  ])))
+  e_xmlxmlns = step(e_xmlxmlns.encode_token(xml.start(xml.name("space", "foo"), [
+    xml.attr(xml.name("http://www.w3.org/XML/1998/namespace", "xmlns"), "space"),
+  ])))
   print("  out " + show(e_xmlxmlns.flush().output_bytes()))
   print("enc emptyattr")
   var e_emptyattr = xml.new_encoder().indent("", "")
-  e_emptyattr = step(e_emptyattr.encode_token(xml.start(xml.name("", "foo"), [xml.attr(xml.name("", ""), "value"), xml.attr(xml.name("xmlns", "foo"), "")])))
+  e_emptyattr = step(e_emptyattr.encode_token(xml.start(xml.name("", "foo"), [
+    xml.attr(xml.name("", ""), "value"),
+    xml.attr(xml.name("xmlns", "foo"), ""),
+  ])))
   print("  out " + show(e_emptyattr.flush().output_bytes()))
   print("enc badurl")
   var e_badurl = xml.new_encoder().indent("", "")
-  e_badurl = step(e_badurl.encode_token(xml.start(xml.name("/34", "foo"), [xml.attr(xml.name("/34", "x"), "value"), xml.attr(xml.name("a/b/", "y"), "1"), xml.attr(xml.name("u:v", "z"), "2"), xml.attr(xml.name("http://x/1abc", "w"), "3")])))
+  e_badurl = step(e_badurl.encode_token(xml.start(xml.name("/34", "foo"), [
+    xml.attr(xml.name("/34", "x"), "value"),
+    xml.attr(xml.name("a/b/", "y"), "1"),
+    xml.attr(xml.name("u:v", "z"), "2"),
+    xml.attr(xml.name("http://x/1abc", "w"), "3"),
+  ])))
   print("  out " + show(e_badurl.flush().output_bytes()))
   print("enc reserved")
   var e_reserved = xml.new_encoder().indent("", "")
-  e_reserved = step(e_reserved.encode_token(xml.start(xml.name("", "foo"), [xml.attr(xml.name("http://www.w3.org/2001/xmlSchema-instance", "nil"), "true"), xml.attr(xml.name("http://www.w3.org/2001/XMLSchema-instance", "nil"), "true"), xml.attr(xml.name("http://w/XmL", "a"), "1"), xml.attr(xml.name("http://w/xm", "b"), "2")])))
+  e_reserved = step(e_reserved.encode_token(xml.start(xml.name("", "foo"), [
+    xml.attr(xml.name("http://www.w3.org/2001/xmlSchema-instance", "nil"), "true"),
+    xml.attr(xml.name("http://www.w3.org/2001/XMLSchema-instance", "nil"), "true"),
+    xml.attr(xml.name("http://w/XmL", "a"), "1"),
+    xml.attr(xml.name("http://w/xm", "b"), "2"),
+  ])))
   print("  out " + show(e_reserved.flush().output_bytes()))
   print("enc seq")
   var e_seq = xml.new_encoder().indent("", "")
-  e_seq = step(e_seq.encode_token(xml.start(xml.name("", "r"), [xml.attr(xml.name("http://a/p", "x"), "1"), xml.attr(xml.name("http://b/p", "y"), "2"), xml.attr(xml.name("http://c/p", "z"), "3"), xml.attr(xml.name("p", "w"), "4")])))
+  e_seq = step(e_seq.encode_token(xml.start(xml.name("", "r"), [
+    xml.attr(xml.name("http://a/p", "x"), "1"),
+    xml.attr(xml.name("http://b/p", "y"), "2"),
+    xml.attr(xml.name("http://c/p", "z"), "3"),
+    xml.attr(xml.name("p", "w"), "4"),
+  ])))
   e_seq = step(e_seq.encode_token(xml.end(xml.name("", "r"))))
-  e_seq = step(e_seq.encode_token(xml.start(xml.name("", "r"), [xml.attr(xml.name("http://d/p", "x"), "1")])))
+  e_seq = step(e_seq.encode_token(xml.start(xml.name("", "r"), [
+    xml.attr(xml.name("http://d/p", "x"), "1"),
+  ])))
   print("  out " + show(e_seq.flush().output_bytes()))
   print("enc attrescape")
   var e_attrescape = xml.new_encoder().indent("", "")
-  e_attrescape = step(e_attrescape.encode_token(xml.start(xml.name("sp&ce\"", "a"), [xml.attr(xml.name("", "v"), "<\"&'\t\n\r>")])))
+  e_attrescape = step(e_attrescape.encode_token(xml.start(xml.name("sp&ce\"", "a"), [
+    xml.attr(xml.name("", "v"), "<\"&'\t\n\r>"),
+  ])))
   print("  out " + show(e_attrescape.flush().output_bytes()))
   print("enc indent")
   var e_indent = xml.new_encoder().indent("", "  ")
@@ -736,7 +1140,9 @@ fn main() {
   print("  out " + show(e_indent.flush().output_bytes()))
   print("enc prefix")
   var e_prefix = xml.new_encoder().indent(">>", "\t")
-  e_prefix = step(e_prefix.encode_token(xml.start(xml.name("", "a"), [xml.attr(xml.name("", "x"), "1")])))
+  e_prefix = step(e_prefix.encode_token(xml.start(xml.name("", "a"), [
+    xml.attr(xml.name("", "x"), "1"),
+  ])))
   e_prefix = step(e_prefix.encode_token(xml.start(xml.name("u", "b"), [])))
   e_prefix = step(e_prefix.encode_token(xml.end(xml.name("u", "b"))))
   e_prefix = step(e_prefix.encode_token(xml.end(xml.name("", "a"))))
@@ -788,7 +1194,11 @@ fn main() {
   e_bigdirect = step(e_bigdirect.encode_token(xml.start(xml.name("", "a"), [])))
   print("  out " + show(e_bigdirect.flush().output_bytes()))
   print("== roundtrip")
-  var rd = xml.new_decoder(__bytes("\n<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<!DOCTYPE html PUBLIC \"-//W3C//DTD XHTML 1.0 Transitional//EN\"\n  \"http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd\">\n<body xmlns:foo=\"ns1\" xmlns=\"ns2\" xmlns:tag=\"ns3\" \r\n\t  >\n  <hello lang=\"en\">World &lt;&gt;&apos;&quot; &#x767d;&#40300;翔</hello>\n  <query>q</query>\n  <goodbye />\n  <outer foo:attr=\"value\" xmlns:tag=\"ns4\">\n    <inner/>\n  </outer>\n  <tag:name>\n    <![CDATA[Some text here.]]>\n  </tag:name>\n</body><!-- missing final newline -->"))
+  var rd = xml.new_decoder(
+    __bytes(
+      "\n<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<!DOCTYPE html PUBLIC \"-//W3C//DTD XHTML 1.0 Transitional//EN\"\n  \"http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd\">\n<body xmlns:foo=\"ns1\" xmlns=\"ns2\" xmlns:tag=\"ns3\" \r\n\t  >\n  <hello lang=\"en\">World &lt;&gt;&apos;&quot; &#x767d;&#40300;翔</hello>\n  <query>q</query>\n  <goodbye />\n  <outer foo:attr=\"value\" xmlns:tag=\"ns4\">\n    <inner/>\n  </outer>\n  <tag:name>\n    <![CDATA[Some text here.]]>\n  </tag:name>\n</body><!-- missing final newline -->",
+    ),
+  )
   var re = xml.new_encoder()
   loop {
     let (d2, r) = rd.token()
@@ -803,7 +1213,7 @@ fn main() {
         re = e2
         match err {
           Some(m) => { print("  enc " + m) },
-          None    => {},
+          None => {},
         }
       },
     }
@@ -812,17 +1222,31 @@ fn main() {
   print("== escape")
   print("  " + show(xml.escape_text(__bytes(""))) + " " + show(xml.escape(__bytes(""))))
   print("  " + show(xml.escape_text(__bytes("plain"))) + " " + show(xml.escape(__bytes("plain"))))
-  print("  " + show(xml.escape_text(__bytes("<a href=\"x\">&'</a>"))) + " " + show(xml.escape(__bytes("<a href=\"x\">&'</a>"))))
+  print(
+    "  " + show(xml.escape_text(__bytes("<a href=\"x\">&'</a>"))) + " " + show(
+      xml.escape(__bytes("<a href=\"x\">&'</a>")),
+    ),
+  )
   print("  " + show(xml.escape_text(__bytes("\t\n\r"))) + " " + show(xml.escape(__bytes("\t\n\r"))))
-  print("  " + show(xml.escape_text(__bytes("\u{0}\u{1}\u{1f}"))) + " " + show(xml.escape(__bytes("\u{0}\u{1}\u{1f}"))))
-  print("  " + show(xml.escape_text(__bytes("퟿�\u{fffe}\u{ffff}"))) + " " + show(xml.escape(__bytes("퟿�\u{fffe}\u{ffff}"))))
+  print(
+    "  " + show(xml.escape_text(__bytes("\u{0}\u{1}\u{1f}"))) + " " + show(
+      xml.escape(__bytes("\u{0}\u{1}\u{1f}")),
+    ),
+  )
+  print(
+    "  " + show(xml.escape_text(__bytes("퟿�\u{fffe}\u{ffff}"))) + " " + show(
+      xml.escape(__bytes("퟿�\u{fffe}\u{ffff}")),
+    ),
+  )
   print("  " + show(xml.escape_text(__bytes("é😀"))) + " " + show(xml.escape(__bytes("é😀"))))
   print("  " + show(xml.escape_text([255])) + " " + show(xml.escape([255])))
   print("  " + show(xml.escape_text([97, 195])) + " " + show(xml.escape([97, 195])))
   print("  " + show(xml.escape_text([237, 160, 128])) + " " + show(xml.escape([237, 160, 128])))
   print("== tree")
   print("tree 0")
-  match xml.parse("<root a='1'>hello <b>bold</b> world<!--c--><i x='y'/><![CDATA[cd&]]> end</root>") {
+  match xml.parse(
+    "<root a='1'>hello <b>bold</b> world<!--c--><i x='y'/><![CDATA[cd&]]> end</root>",
+  ) {
     Err(e) => { print("  error " + show(__bytes(e.error()))) },
     Ok(el) => {
       print("  " + show(__bytes(unwrap_or(xml.marshal(el), "?"))))
@@ -834,12 +1258,18 @@ fn main() {
       }
       for k in ["a", "x", "xmlns"] {
         let v = el.attr_value(k)
-        print("  attr " + k + " " + (if is_some(v) { "true" } else { "false" }) + " " + show(__bytes(unwrap_or(v, ""))))
+        print(
+          "  attr " + k + " " + (if is_some(v) { "true" } else { "false" }) + " " + show(
+            __bytes(unwrap_or(v, "")),
+          ),
+        )
       }
     },
   }
   print("tree 1")
-  match xml.parse("<?xml version='1.0'?>\n<!-- pre -->\n<list xmlns='urn:x' xmlns:q='urn:q'>\n  <item q:id='1'>one</item>\n  <item q:id='2'>two &amp; more</item>\n</list>\n") {
+  match xml.parse(
+    "<?xml version='1.0'?>\n<!-- pre -->\n<list xmlns='urn:x' xmlns:q='urn:q'>\n  <item q:id='1'>one</item>\n  <item q:id='2'>two &amp; more</item>\n</list>\n",
+  ) {
     Err(e) => { print("  error " + show(__bytes(e.error()))) },
     Ok(el) => {
       print("  " + show(__bytes(unwrap_or(xml.marshal(el), "?"))))
@@ -851,7 +1281,11 @@ fn main() {
       }
       for k in ["a", "x", "xmlns"] {
         let v = el.attr_value(k)
-        print("  attr " + k + " " + (if is_some(v) { "true" } else { "false" }) + " " + show(__bytes(unwrap_or(v, ""))))
+        print(
+          "  attr " + k + " " + (if is_some(v) { "true" } else { "false" }) + " " + show(
+            __bytes(unwrap_or(v, "")),
+          ),
+        )
       }
     },
   }
@@ -868,7 +1302,11 @@ fn main() {
       }
       for k in ["a", "x", "xmlns"] {
         let v = el.attr_value(k)
-        print("  attr " + k + " " + (if is_some(v) { "true" } else { "false" }) + " " + show(__bytes(unwrap_or(v, ""))))
+        print(
+          "  attr " + k + " " + (if is_some(v) { "true" } else { "false" }) + " " + show(
+            __bytes(unwrap_or(v, "")),
+          ),
+        )
       }
     },
   }
@@ -885,7 +1323,11 @@ fn main() {
       }
       for k in ["a", "x", "xmlns"] {
         let v = el.attr_value(k)
-        print("  attr " + k + " " + (if is_some(v) { "true" } else { "false" }) + " " + show(__bytes(unwrap_or(v, ""))))
+        print(
+          "  attr " + k + " " + (if is_some(v) { "true" } else { "false" }) + " " + show(
+            __bytes(unwrap_or(v, "")),
+          ),
+        )
       }
     },
   }
@@ -902,7 +1344,11 @@ fn main() {
       }
       for k in ["a", "x", "xmlns"] {
         let v = el.attr_value(k)
-        print("  attr " + k + " " + (if is_some(v) { "true" } else { "false" }) + " " + show(__bytes(unwrap_or(v, ""))))
+        print(
+          "  attr " + k + " " + (if is_some(v) { "true" } else { "false" }) + " " + show(
+            __bytes(unwrap_or(v, "")),
+          ),
+        )
       }
     },
   }
@@ -919,7 +1365,11 @@ fn main() {
       }
       for k in ["a", "x", "xmlns"] {
         let v = el.attr_value(k)
-        print("  attr " + k + " " + (if is_some(v) { "true" } else { "false" }) + " " + show(__bytes(unwrap_or(v, ""))))
+        print(
+          "  attr " + k + " " + (if is_some(v) { "true" } else { "false" }) + " " + show(
+            __bytes(unwrap_or(v, "")),
+          ),
+        )
       }
     },
   }
@@ -936,7 +1386,11 @@ fn main() {
       }
       for k in ["a", "x", "xmlns"] {
         let v = el.attr_value(k)
-        print("  attr " + k + " " + (if is_some(v) { "true" } else { "false" }) + " " + show(__bytes(unwrap_or(v, ""))))
+        print(
+          "  attr " + k + " " + (if is_some(v) { "true" } else { "false" }) + " " + show(
+            __bytes(unwrap_or(v, "")),
+          ),
+        )
       }
     },
   }
@@ -953,13 +1407,19 @@ fn main() {
       }
       for k in ["a", "x", "xmlns"] {
         let v = el.attr_value(k)
-        print("  attr " + k + " " + (if is_some(v) { "true" } else { "false" }) + " " + show(__bytes(unwrap_or(v, ""))))
+        print(
+          "  attr " + k + " " + (if is_some(v) { "true" } else { "false" }) + " " + show(
+            __bytes(unwrap_or(v, "")),
+          ),
+        )
       }
     },
   }
   print("== build")
   let el = xml.element(xml.name("", "doc"), [xml.attr(xml.name("", "v"), "1 < 2")], [
-    XElem(xml.element(xml.name("urn:a", "x"), [xml.attr(xml.name("urn:b", "y"), "q")], [XText("t&t")])),
+    XElem(xml.element(xml.name("urn:a", "x"), [xml.attr(xml.name("urn:b", "y"), "q")], [
+      XText("t&t"),
+    ])),
     XComm(__bytes(" hi ")),
     XElem(xml.element(xml.name("", "empty"), [], [])),
     XText("tail"),
@@ -967,11 +1427,11 @@ fn main() {
   print("  " + show(__bytes(unwrap_or(xml.marshal(el), "?"))) + " <nil>")
   print("  " + show(__bytes(unwrap_or(xml.marshal_indent(el, "> ", "\t"), "?"))) + " <nil>")
   match xml.marshal(xml.element(xml.name("", "a"), [], [XComm(__bytes("x-->"))])) {
-    Ok(_)  => { print("?") },
+    Ok(_) => { print("?") },
     Err(m) => { print("  " + m) },
   }
   match xml.marshal(xml.element(xml.name("", ""), [], [])) {
-    Ok(_)  => { print("?") },
+    Ok(_) => { print("?") },
     Err(m) => { print("  " + m) },
   }
 }

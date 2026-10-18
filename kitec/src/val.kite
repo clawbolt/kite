@@ -17,24 +17,18 @@ pub enum V {
   VN(Str, Int, Map<Str, V>),
 }
 
-
-
-
-
-
-
 pub fn sv(v: V) -> Str {
   match v {
-    VS(s)    => s,
+    VS(s) => s,
     VQ(s, _) => s,
-    _        => "",
+    _ => "",
   }
 }
 
 pub fn iv(v: V) -> Int {
   match v {
     VI(i) => i,
-    _     => 0,
+    _ => 0,
   }
 }
 
@@ -43,24 +37,23 @@ pub fn items(v: V) -> List<V> {
     VL(xs) => xs,
     VR(xs) => xs,
     VT(xs) => xs,
-    _      => [],
+    _ => [],
   }
 }
 
 pub fn is_nil(v: V) -> Bool {
   match v {
     VNil => true,
-    _    => false,
+    _ => false,
   }
 }
 
 pub fn opt(s: Str?) -> V {
   match s {
     Some(x) => VS(x),
-    None    => VNil,
+    None => VNil,
   }
 }
-
 
 pub fn strs(xs: List<Str>) -> V { VL(map(xs, (s) => VS(s))) }
 
@@ -70,9 +63,21 @@ fn quote(s: Str) -> Str {
   var out = "\""
   for c in chars(s) {
     let o = __ord(c)
-    out = out + (if c == "\"" { "\\\"" } else if c == "\\" { "\\\\" } else if c == "\n" { "\\n" } else if c == "\t" {
+    out = out + (if c == "\"" {
+      "\\\""
+    } else if c == "\\" {
+      "\\\\"
+    } else if c == "\n" {
+      "\\n"
+    } else if c == "\t" {
       "\\t"
-      } else if c == "\r" { "\\r" } else if o < 32 || o == 127 { "\\u\{{__hex(o)}}" } else { c })
+    } else if c == "\r" {
+      "\\r"
+    } else if o < 32 || o == 127 {
+      "\\u\{{__hex(o)}}"
+    } else {
+      c
+    })
   }
   out + "\""
 }
@@ -87,25 +92,27 @@ fn seq(xs: List<V>) -> Str { join(map(xs, dump), " ") }
 
 pub fn dump(v: V) -> Str {
   match v {
-    VNil        => "~",
-    VB(b)       => if b { "T" } else { "F" },
-    VS(s)       => quote(s),
+    VNil => "~",
+    VB(b) => if b { "T" } else { "F" },
+    VS(s) => quote(s),
     VQ(s, qual) => "Q" + quote(s) + "/" + (match qual {
       Some(x) => quote(x),
-      None    => "~",
+      None => "~",
     }),
-    VI(i)       => "{i}",
-    VBig(t)     => t,
-    VF(f)       => "f{f}",
+    VI(i) => "{i}",
+    VBig(t) => t,
+    VF(f) => "f{f}",
     VN(k, l, m) => {
       var parts = ["\{{k}@{l}"]
-      for key in sort(keys(m)) { if !starts_with(key, "_") { parts = push(parts, " {key}=" + dump(unwrap(get(m, key)))) } }
+      for key in sort(keys(m)) {
+        if !starts_with(key, "_") { parts = push(parts, " {key}=" + dump(unwrap(get(m, key)))) }
+      }
       parts = push(parts, "}")
       join(parts, "")
     },
-    VL(xs)  => "[" + seq(xs) + "]",
-    VR(xs)  => "R[" + seq(xs) + "]",
-    VT(xs)  => "<" + seq(xs) + ">",
+    VL(xs) => "[" + seq(xs) + "]",
+    VR(xs) => "R[" + seq(xs) + "]",
+    VT(xs) => "<" + seq(xs) + ">",
     VD(kvs) => "D\{" + join(map(kvs, (kv) => quote(kv.0) + ":" + dump(kv.1)), " ") + "}",
   }
 }
@@ -113,11 +120,9 @@ pub fn dump(v: V) -> Str {
 pub fn truthy(v: V) -> Bool {
   match v {
     VB(b) => b,
-    _     => false,
+    _ => false,
   }
 }
-
-
 
 // 节点的输出形式：{种类@行号 字段=值 …}
 pub fn nd(kind: Str, line: Int, fs: List<(Str, V)>) -> V {

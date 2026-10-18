@@ -9,14 +9,14 @@ enum Tree<T> {
 
 fn insert(t: Tree<Int>, x: Int) -> Tree<Int> {
   match t {
-    Leaf          => Node(Leaf, x, Leaf)
+    Leaf => Node(Leaf, x, Leaf)
     Node(l, v, r) => if x < v { Node(insert(l, x), v, r) } else { Node(l, v, insert(r, x)) }
   }
 }
 
 fn to_list<T>(t: Tree<T>) -> List<T> {
   match t {
-    Leaf          => []
+    Leaf => []
     Node(l, v, r) => to_list(l) + [v] + to_list(r)
   }
 }

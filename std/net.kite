@@ -31,12 +31,14 @@ pub fn connect(host: Str, port: Int) -> Result<Conn, Str> {
 }
 
 // TLS 客户端：校验证书链与主机名（SNI 也用 host）
-pub fn connect_tls(host: Str, port: Int) -> Result<Conn, Str> { connect_tls_with(host, port, tls_config()) }
+pub fn connect_tls(host: Str, port: Int) -> Result<Conn, Str> {
+  connect_tls_with(host, port, tls_config())
+}
 
 pub fn connect_tls_with(host: Str, port: Int, cfg: TlsConfig) -> Result<Conn, Str> {
   let fd = __tcp_connect(host, port)?
   match handshake(fd, host, cfg) {
-    Ok(_)  => Ok(Conn { fd: fd }),
+    Ok(_) => Ok(Conn { fd: fd }),
     Err(e) => {
       __tcp_close(fd)
       Err(e)
@@ -65,11 +67,11 @@ impl Listener {
         Some(c) => {
           if self.tls == 0 { return Ok(Conn { fd: c }) }
           match __tls_accept(c, self.tls) {
-            Ok(_)  => { return Ok(Conn { fd: c }) },
+            Ok(_) => { return Ok(Conn { fd: c }) },
             Err(_) => { __tcp_close(c) },
           }
         },
-        None    => { d = backoff(d) },
+        None => { d = backoff(d) },
       }
     }
     Err("unreachable")
@@ -85,7 +87,7 @@ impl Conn {
     while true {
       match __tcp_read_line(self.fd)? {
         Some(s) => { return Ok(s) },
-        None    => { d = backoff(d) },
+        None => { d = backoff(d) },
       }
     }
     Err("unreachable")
@@ -98,7 +100,7 @@ impl Conn {
     while true {
       match __tcp_read_line(self.fd)? {
         Some(s) => { return Ok(Some(s)) },
-        None    => {
+        None => {
           if now_ms() >= deadline { return Ok(None) }
           d = backoff(d)
         },
@@ -113,7 +115,7 @@ impl Conn {
     while true {
       match __tcp_read_bytes(self.fd, n)? {
         Some(s) => { return Ok(s) },
-        None    => { d = backoff(d) },
+        None => { d = backoff(d) },
       }
     }
     Err("unreachable")
@@ -125,7 +127,7 @@ impl Conn {
     while true {
       match __tcp_read_all(self.fd)? {
         Some(s) => { return Ok(s) },
-        None    => { d = backoff(d) },
+        None => { d = backoff(d) },
       }
     }
     Err("unreachable")

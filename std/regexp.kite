@@ -62,7 +62,35 @@ fn r_word() -> List<(Int, Int)> { [(48, 57), (65, 90), (95, 95), (97, 122)] }
 fn r_space() -> List<(Int, Int)> { [(9, 10), (12, 13), (32, 32)] }
 
 fn posix(name: Str) -> Option<List<(Int, Int)>> {
-  if name == "alpha" { Some([(65, 90), (97, 122)]) } else if name == "digit" { Some(r_digit()) } else if name == "alnum" { Some([(48, 57), (65, 90), (97, 122)]) } else if name == "space" { Some([(9, 13), (32, 32)]) } else if name == "upper" { Some([(65, 90)]) } else if name == "lower" { Some([(97, 122)]) } else if name == "punct" { Some([(33, 47), (58, 64), (91, 96), (123, 126)]) } else if name == "xdigit" { Some([(48, 57), (65, 70), (97, 102)]) } else if name == "word" { Some(r_word()) } else if name == "blank" { Some([(9, 9), (32, 32)]) } else if name == "cntrl" { Some([(0, 31), (127, 127)]) } else if name == "print" { Some([(32, 126)]) } else if name == "graph" { Some([(33, 126)]) } else { None }
+  if name == "alpha" {
+    Some([(65, 90), (97, 122)])
+  } else if name == "digit" {
+    Some(r_digit())
+  } else if name == "alnum" {
+    Some([(48, 57), (65, 90), (97, 122)])
+  } else if name == "space" {
+    Some([(9, 13), (32, 32)])
+  } else if name == "upper" {
+    Some([(65, 90)])
+  } else if name == "lower" {
+    Some([(97, 122)])
+  } else if name == "punct" {
+    Some([(33, 47), (58, 64), (91, 96), (123, 126)])
+  } else if name == "xdigit" {
+    Some([(48, 57), (65, 70), (97, 102)])
+  } else if name == "word" {
+    Some(r_word())
+  } else if name == "blank" {
+    Some([(9, 9), (32, 32)])
+  } else if name == "cntrl" {
+    Some([(0, 31), (127, 127)])
+  } else if name == "print" {
+    Some([(32, 126)])
+  } else if name == "graph" {
+    Some([(33, 126)])
+  } else {
+    None
+  }
 }
 
 // 取反：在 0..0x10FFFF 上求补集
@@ -94,7 +122,15 @@ fn fold_case(rs: List<(Int, Int)>) -> List<(Int, Int)> {
 
 fn hexval(c: Str) -> Int {
   let o = __ord(c)
-  if o >= 48 && o <= 57 { o - 48 } else if o >= 97 && o <= 102 { o - 87 } else if o >= 65 && o <= 70 { o - 55 } else { -1 }
+  if o >= 48 && o <= 57 {
+    o - 48
+  } else if o >= 97 && o <= 102 {
+    o - 87
+  } else if o >= 65 && o <= 70 {
+    o - 55
+  } else {
+    -1
+  }
 }
 
 // 解析 \ 后面的转义：(单个码点或字符类, 新状态)；码点为 -1 时用字符类
@@ -173,7 +209,9 @@ fn escape(p0: PS) -> Result<((Int, List<(Int, Int)>, Bool, Int), PS), Str> {
     return Ok(((v, [], false, -1), r))
   }
   let o = cp(c)
-  if (o >= 48 && o <= 57) || (o >= 65 && o <= 90) || (o >= 97 && o <= 122) { return Err(err(p, "不支持的转义 \\{c}")) }
+  if (o >= 48 && o <= 57) || (o >= 65 && o <= 90) || (o >= 97 && o <= 122) {
+    return Err(err(p, "不支持的转义 \\{c}"))
+  }
   Ok(((o, [], false, -1), q))
 }
 
@@ -274,7 +312,17 @@ fn parse_cat(p0: PS, f0: Fl) -> Result<(Rx, PS), Str> {
       var ok = true
       while j < len(p.cs) && p.cs[j] != ")" && p.cs[j] != ":" {
         let fc = p.cs[j]
-        if fc == "-" { on = false } else if fc == "i" { nf = Fl { i: on, ..nf } } else if fc == "s" { nf = Fl { s: on, ..nf } } else if fc == "m" { nf = Fl { m: on, ..nf } } else { ok = false }
+        if fc == "-" {
+          on = false
+        } else if fc == "i" {
+          nf = Fl { i: on, ..nf }
+        } else if fc == "s" {
+          nf = Fl { s: on, ..nf }
+        } else if fc == "m" {
+          nf = Fl { m: on, ..nf }
+        } else {
+          ok = false
+        }
         j += 1
       }
       if ok && j < len(p.cs) && p.cs[j] == ")" && j > p.pos + 2 {
@@ -371,7 +419,7 @@ fn parse_atom(p: PS, f: Fl) -> Result<(Rx, PS), Str> {
     var nf = f
     var name = ""
     if peekc(q) == "?" {
-      let rest = join(q.cs[q.pos..if q.pos + 3 < len(q.cs) { q.pos + 3 } else { len(q.cs) }], "")
+      let rest = join(q.cs[q.pos.. if q.pos + 3 < len(q.cs) { q.pos + 3 } else { len(q.cs) }], "")
       if starts_with(rest, "?P<") || starts_with(rest, "?<") {
         var j = q.pos + (if starts_with(rest, "?P<") { 3 } else { 2 })
         while j < len(q.cs) && q.cs[j] != ">" {
@@ -388,7 +436,17 @@ fn parse_atom(p: PS, f: Fl) -> Result<(Rx, PS), Str> {
         var on = true
         while j < len(q.cs) && q.cs[j] != ":" {
           let fc = q.cs[j]
-          if fc == "-" { on = false } else if fc == "i" { nf = Fl { i: on, ..nf } } else if fc == "s" { nf = Fl { s: on, ..nf } } else if fc == "m" { nf = Fl { m: on, ..nf } } else { return Err(err(q, "不支持的组语法 (?{fc}")) }
+          if fc == "-" {
+            on = false
+          } else if fc == "i" {
+            nf = Fl { i: on, ..nf }
+          } else if fc == "s" {
+            nf = Fl { s: on, ..nf }
+          } else if fc == "m" {
+            nf = Fl { m: on, ..nf }
+          } else {
+            return Err(err(q, "不支持的组语法 (?{fc}"))
+          }
           j += 1
         }
         if j >= len(q.cs) { return Err(err(q, "组没有闭合")) }
@@ -465,7 +523,12 @@ pub fn compile(pattern: Str) -> Result<Regex, Str> {
   let (x, p) = parse_alt(p0, Fl { i: false, s: false, m: false })?
   if p.pos < len(p.cs) { return Err(err(p, "多余的 )")) }
   let body = emit(x, 1)
-  Ok(Regex { src: pattern, prog: [ISave(0)] + body + [ISave(1), IMatch], ncap: p.ncap, names: p.names })
+  Ok(Regex {
+    src: pattern,
+    prog: [ISave(0)] + body + [ISave(1), IMatch],
+    ncap: p.ncap,
+    names: p.names,
+  })
 }
 
 pub fn must_compile(pattern: Str) -> Regex {
@@ -484,7 +547,19 @@ fn is_w(cps: List<Int>, i: Int) -> Bool {
 
 fn assert_ok(k: Int, cps: List<Int>, i: Int) -> Bool {
   let n = len(cps)
-  if k == 0 || k == 4 { i == 0 } else if k == 1 || k == 5 { i == n } else if k == 2 { is_w(cps, i - 1) != is_w(cps, i) } else if k == 3 { is_w(cps, i - 1) == is_w(cps, i) } else if k == 6 { i == 0 || cps[i - 1] == 10 } else { i == n || cps[i] == 10 }
+  if k == 0 || k == 4 {
+    i == 0
+  } else if k == 1 || k == 5 {
+    i == n
+  } else if k == 2 {
+    is_w(cps, i - 1) != is_w(cps, i)
+  } else if k == 3 {
+    is_w(cps, i - 1) == is_w(cps, i)
+  } else if k == 6 {
+    i == 0 || cps[i - 1] == 10
+  } else {
+    i == n || cps[i] == 10
+  }
 }
 
 fn in_set(rs: List<(Int, Int)>, c: Int) -> Bool {
@@ -497,7 +572,15 @@ fn in_set(rs: List<(Int, Int)>, c: Int) -> Bool {
 type Thr = { pc: Int, caps: List<Int> }
 
 // 把 pc 及其 ε 闭包按优先级加进线程表
-fn addthr(prog: List<Inst>, ts: List<Thr>, seen: Set<Int>, pc: Int, caps: List<Int>, cps: List<Int>, i: Int) -> (List<Thr>, Set<Int>) {
+fn addthr(
+  prog: List<Inst>,
+  ts: List<Thr>,
+  seen: Set<Int>,
+  pc: Int,
+  caps: List<Int>,
+  cps: List<Int>,
+  i: Int,
+) -> (List<Thr>, Set<Int>) {
   if contains(seen, pc) { return (ts, seen) }
   let sn = union(seen, Set([pc]))
   match prog[pc] {
@@ -506,8 +589,20 @@ fn addthr(prog: List<Inst>, ts: List<Thr>, seen: Set<Int>, pc: Int, caps: List<I
       let (t1, s1) = addthr(prog, ts, sn, x, caps, cps, i)
       addthr(prog, t1, s1, y, caps, cps, i)
     },
-    ISave(n) => addthr(prog, ts, sn, pc + 1, if n < len(caps) { set(caps, n, i) } else { caps }, cps, i),
-    IAssert(k) => if assert_ok(k, cps, i) { addthr(prog, ts, sn, pc + 1, caps, cps, i) } else { (ts, sn) },
+    ISave(n) => addthr(
+      prog,
+      ts,
+      sn,
+      pc + 1,
+      if n < len(caps) { set(caps, n, i) } else { caps },
+      cps,
+      i,
+    ),
+    IAssert(k) => if assert_ok(k, cps, i) {
+      addthr(prog, ts, sn, pc + 1, caps, cps, i)
+    } else {
+      (ts, sn)
+    },
     _ => (push(ts, Thr { pc: pc, caps: caps }), sn),
   }
 }
@@ -616,9 +711,13 @@ fn all_caps(re: Regex, s: Str, limit: Int) -> List<List<Int>> {
 }
 
 // 所有不重叠的匹配；limit < 0 表示不限
-pub fn find_all_index(re: Regex, s: Str, limit: Int) -> List<(Int, Int)> { map(all_caps(re, s, limit), (c) => (c[0], c[1])) }
+pub fn find_all_index(re: Regex, s: Str, limit: Int) -> List<(Int, Int)> {
+  map(all_caps(re, s, limit), (c) => (c[0], c[1]))
+}
 
-pub fn find_all(re: Regex, s: Str, limit: Int) -> List<Str> { map(all_caps(re, s, limit), (c) => __str_slice(s, c[0], c[1])) }
+pub fn find_all(re: Regex, s: Str, limit: Int) -> List<Str> {
+  map(all_caps(re, s, limit), (c) => __str_slice(s, c[0], c[1]))
+}
 
 fn groups_of(caps: List<Int>, s: Str) -> List<Option<Str>> {
   var out: List<Option<Str>> = []
@@ -636,7 +735,9 @@ pub fn captures(re: Regex, s: Str) -> Option<List<Option<Str>>> {
   Some(groups_of(caps, s))
 }
 
-pub fn captures_all(re: Regex, s: Str, limit: Int) -> List<List<Option<Str>>> { map(all_caps(re, s, limit), (c) => groups_of(c, s)) }
+pub fn captures_all(re: Regex, s: Str, limit: Int) -> List<List<Option<Str>>> {
+  map(all_caps(re, s, limit), (c) => groups_of(c, s))
+}
 
 // 命名组 → 匹配到的文本（没参与的组不出现）
 pub fn named(re: Regex, s: Str) -> Option<Map<Str, Str>> {
@@ -732,13 +833,19 @@ fn replace_with(re: Regex, s: Str, f: fn(List<Int>) -> Str) -> Str {
 }
 
 // 替换所有匹配；repl 里可以用 $1、${name}、$$
-pub fn replace_all(re: Regex, s: Str, repl: Str) -> Str { replace_with(re, s, (caps) => expand(re, repl, groups_of(caps, s))) }
+pub fn replace_all(re: Regex, s: Str, repl: Str) -> Str {
+  replace_with(re, s, (caps) => expand(re, repl, groups_of(caps, s)))
+}
 
 // repl 原样替换，不展开 $
-pub fn replace_all_literal(re: Regex, s: Str, repl: Str) -> Str { replace_with(re, s, (caps) => repl) }
+pub fn replace_all_literal(re: Regex, s: Str, repl: Str) -> Str {
+  replace_with(re, s, (caps) => repl)
+}
 
 // 用函数计算替换文本（参数是匹配到的整段）
-pub fn replace_all_func(re: Regex, s: Str, f: fn(Str) -> Str) -> Str { replace_with(re, s, (caps) => f(__str_slice(s, caps[0], caps[1]))) }
+pub fn replace_all_func(re: Regex, s: Str, f: fn(Str) -> Str) -> Str {
+  replace_with(re, s, (caps) => f(__str_slice(s, caps[0], caps[1])))
+}
 
 // 按匹配拆分；limit < 0 不限，否则最多 limit 段
 pub fn split(re: Regex, s: Str, limit: Int) -> List<Str> {

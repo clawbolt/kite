@@ -8,7 +8,7 @@ enum Shape {
 
 fn kind(s: Shape) -> Str {
   match s {
-    Circle(_) | Dot        => "圆的"
+    Circle(_) | Dot => "圆的"
     Square(_) | Rect(_, _) => "方的"
   }
 }
@@ -16,17 +16,17 @@ fn kind(s: Shape) -> Str {
 fn side(s: Shape) -> Float {
   match s {
     Square(x) | Circle(x) => x
-    Rect(w, _)            => w
-    Dot                   => 0.0
+    Rect(w, _) => w
+    Dot => 0.0
   }
 }
 
 fn classify(n: Int) -> Str {
   match n {
-    0 | 1         => "小"
+    0 | 1 => "小"
     2 | 3 | 5 | 7 => "质数"
-    10..20 | 100  => "特别"
-    _             => "其它"
+    10..20 | 100 => "特别"
+    _ => "其它"
   }
 }
 
@@ -37,7 +37,7 @@ fn main() {
   for p in pairs {
     match p {
       (1, s) | (3, s) => print("奇", s)
-      (_, s)          => print("偶", s)
+      (_, s) => print("偶", s)
     }
   }
   let r: Result<Int, Int> = Err(5)
@@ -49,12 +49,12 @@ fn main() {
   print(Some(3) is Some(1 | 3), "x" is ("y" | "z"))
   let c = match "b" {
     "a" | "b" => 1
-    _         => 0
+    _ => 0
   }
   print(c)
   let opt = (Some(1), None)
   match opt {
     (Some(n), None) | (None, Some(n)) => print("一个", n)
-    _                                 => print("别的")
+    _ => print("别的")
   }
 }

@@ -11,19 +11,31 @@ use kir
 use kir.{ A, X, T, In, Bk, KF }
 use std.path
 
-const BUILTIN_C: Str = "print=b_print len=b_len str=b_str int=b_int float=b_float type_of=b_type_of map=b_map filter=b_filter each=b_each reduce=b_reduce fold=b_reduce sum=b_sum count=b_count any=b_any all=b_all find=b_find first=b_first last=b_last get=b_get take=b_take skip=b_skip reverse=b_reverse sort=b_sort sort_by=b_sort sort_with=b_sort_with __fmt=b_fmt __repeat=b_repeat zip=b_zip enumerate=b_enumerate push=b_push concat=b_concat contains=b_contains join=b_join split=b_split trim=b_trim upper=b_upper lower=b_lower starts_with=b_starts_with ends_with=b_ends_with replace=b_replace chars=b_chars parse_int=b_parse_int parse_float=b_parse_float keys=b_keys remove=b_remove values=b_values set=b_set Map=b_Map Set=b_Set insert=b_insert union=b_union intersect=b_intersect difference=b_difference is_subset=b_is_subset to_list=b_to_list __set_lit=b_Set __set_union=b_union __set_intersect=b_intersect __set_difference=b_difference min=b_min max=b_max abs=b_abs Ok=b_Ok Err=b_Err Some=b_Some unwrap=b_unwrap unwrap_or=b_unwrap_or is_ok=b_is_ok is_err=b_is_err is_some=b_is_some is_none=b_is_none panic=b_panic assert=b_assert assert_eq=b_assert_eq assert_ne=b_assert_ne __kite_test=b_kite_test __race=b_race timeout=b_timeout actor=b_actor tell=b_tell ask=b_ask __recover_raw=b_recover_raw __repanic=b_repanic __restart_log=b_restart_log_k __restart_log_w=b_restart_log_w supervise=b_supervise actor_supervised=b_actor_supervised __env_get=b_env_get __args=b_args __exit=b_exit __run=b_run __ord=b_ord __chr=b_chr __unix_ms=b_unix_ms __str_slice=b_str_slice __slice=b_slice __band=b_band __bor=b_bor __bxor=b_bxor __bnot=b_bnot __shl=b_shl __shr=b_shr __str_find=b_str_find __tcp_listen=b_tcp_listen __tcp_port=b_tcp_port __tcp_accept=b_tcp_accept __tcp_connect=b_tcp_connect __tcp_read_line=b_tcp_read_line __tcp_read_bytes=b_tcp_read_bytes __tcp_read_all=b_tcp_read_all __tcp_write=b_tcp_write __tcp_flush=b_tcp_flush __tcp_close=b_tcp_close __byte_len=b_byte_len __bytes=b_bytes __from_bytes=b_from_bytes __eprint=b_eprint __fs_stat=b_fs_stat __getcwd=b_getcwd __chdir=b_chdir __chmod=b_chmod __env_set=b_env_set __env_unset=b_env_unset __environ=b_environ __hostname=b_hostname __getpid=b_getpid __read_bytes=b_read_bytes __write_bytes=b_write_bytes __tz_offset=b_tz_offset __random_bytes=b_random_bytes __unix_ns=b_unix_ns __tls_server_ctx=b_tls_server_ctx __tls_accept=b_tls_accept __tls_client=b_tls_client __tls_handshake=b_tls_handshake __select=b_select sleep=b_sleep now_ms=b_now_ms chan=b_chan send=b_send recv=b_recv try_recv=b_try_recv close=b_close par_map=b_par_map"
+const BUILTIN_C: Str =
+  "print=b_print len=b_len str=b_str int=b_int float=b_float type_of=b_type_of map=b_map filter=b_filter each=b_each reduce=b_reduce fold=b_reduce sum=b_sum count=b_count any=b_any all=b_all find=b_find first=b_first last=b_last get=b_get take=b_take skip=b_skip reverse=b_reverse sort=b_sort sort_by=b_sort sort_with=b_sort_with __fmt=b_fmt __repeat=b_repeat zip=b_zip enumerate=b_enumerate push=b_push concat=b_concat contains=b_contains join=b_join split=b_split trim=b_trim upper=b_upper lower=b_lower starts_with=b_starts_with ends_with=b_ends_with replace=b_replace chars=b_chars parse_int=b_parse_int parse_float=b_parse_float keys=b_keys remove=b_remove values=b_values set=b_set Map=b_Map Set=b_Set insert=b_insert union=b_union intersect=b_intersect difference=b_difference is_subset=b_is_subset to_list=b_to_list __set_lit=b_Set __set_union=b_union __set_intersect=b_intersect __set_difference=b_difference min=b_min max=b_max abs=b_abs Ok=b_Ok Err=b_Err Some=b_Some unwrap=b_unwrap unwrap_or=b_unwrap_or is_ok=b_is_ok is_err=b_is_err is_some=b_is_some is_none=b_is_none panic=b_panic assert=b_assert assert_eq=b_assert_eq assert_ne=b_assert_ne __kite_test=b_kite_test __race=b_race timeout=b_timeout actor=b_actor tell=b_tell ask=b_ask __recover_raw=b_recover_raw __repanic=b_repanic __restart_log=b_restart_log_k __restart_log_w=b_restart_log_w supervise=b_supervise actor_supervised=b_actor_supervised __env_get=b_env_get __args=b_args __exit=b_exit __run=b_run __ord=b_ord __chr=b_chr __unix_ms=b_unix_ms __str_slice=b_str_slice __slice=b_slice __band=b_band __bor=b_bor __bxor=b_bxor __bnot=b_bnot __shl=b_shl __shr=b_shr __str_find=b_str_find __tcp_listen=b_tcp_listen __tcp_port=b_tcp_port __tcp_accept=b_tcp_accept __tcp_connect=b_tcp_connect __tcp_read_line=b_tcp_read_line __tcp_read_bytes=b_tcp_read_bytes __tcp_read_all=b_tcp_read_all __tcp_write=b_tcp_write __tcp_flush=b_tcp_flush __tcp_close=b_tcp_close __byte_len=b_byte_len __bytes=b_bytes __from_bytes=b_from_bytes __eprint=b_eprint __fs_stat=b_fs_stat __getcwd=b_getcwd __chdir=b_chdir __chmod=b_chmod __env_set=b_env_set __env_unset=b_env_unset __environ=b_environ __hostname=b_hostname __getpid=b_getpid __read_bytes=b_read_bytes __write_bytes=b_write_bytes __tz_offset=b_tz_offset __random_bytes=b_random_bytes __unix_ns=b_unix_ns __tls_server_ctx=b_tls_server_ctx __tls_accept=b_tls_accept __tls_client=b_tls_client __tls_handshake=b_tls_handshake __select=b_select sleep=b_sleep now_ms=b_now_ms chan=b_chan send=b_send recv=b_recv try_recv=b_try_recv close=b_close par_map=b_par_map"
 
-const FAST_C: Str = "\nstatic inline V f_add(V a, V b) \{ int64_t r; if (a.t == T_INT && b.t == T_INT && !__builtin_add_overflow(a.u.i, b.u.i, &r)) return mkint(r); return k_add(a, b); \}\nstatic inline V f_sub(V a, V b) \{ int64_t r; if (a.t == T_INT && b.t == T_INT && !__builtin_sub_overflow(a.u.i, b.u.i, &r)) return mkint(r); return k_sub(a, b); \}\nstatic inline V f_mul(V a, V b) \{ int64_t r; if (a.t == T_INT && b.t == T_INT && !__builtin_mul_overflow(a.u.i, b.u.i, &r)) return mkint(r); return k_mul(a, b); \}\nstatic inline V f_lt(V a, V b) \{ if (a.t == T_INT && b.t == T_INT) return mkbool(a.u.i < b.u.i); k_ordchk(\"<\", a, b); return mkbool(k_cmp(a, b) < 0); \}\nstatic inline V f_gt(V a, V b) \{ if (a.t == T_INT && b.t == T_INT) return mkbool(a.u.i > b.u.i); k_ordchk(\">\", a, b); return mkbool(k_cmp(a, b) > 0); \}\nstatic inline V f_le(V a, V b) \{ if (a.t == T_INT && b.t == T_INT) return mkbool(a.u.i <= b.u.i); k_ordchk(\"<=\", a, b); return mkbool(k_cmp(a, b) <= 0); \}\nstatic inline V f_ge(V a, V b) \{ if (a.t == T_INT && b.t == T_INT) return mkbool(a.u.i >= b.u.i); k_ordchk(\">=\", a, b); return mkbool(k_cmp(a, b) >= 0); \}\nstatic inline V f_eq(V a, V b) \{ if (a.t == T_INT && b.t == T_INT) return mkbool(a.u.i == b.u.i); return mkbool(k_eq(a, b)); \}\nstatic inline V f_ne(V a, V b) \{ if (a.t == T_INT && b.t == T_INT) return mkbool(a.u.i != b.u.i); return mkbool(!k_eq(a, b)); \}\nstatic inline V f_neg(V a) \{\n  if (a.t == T_INT) \{ if (a.u.i == INT64_MIN) die(\"整数溢出\"); return mkint(-a.u.i); \}\n  if (a.t == T_FLOAT) return mkflt(-a.u.f);\n  die(\"不能对 %s 取负\", tname(a)); return UNIT;\n\}"
+const FAST_C: Str =
+  "\nstatic inline V f_add(V a, V b) \{ int64_t r; if (a.t == T_INT && b.t == T_INT && !__builtin_add_overflow(a.u.i, b.u.i, &r)) return mkint(r); return k_add(a, b); \}\nstatic inline V f_sub(V a, V b) \{ int64_t r; if (a.t == T_INT && b.t == T_INT && !__builtin_sub_overflow(a.u.i, b.u.i, &r)) return mkint(r); return k_sub(a, b); \}\nstatic inline V f_mul(V a, V b) \{ int64_t r; if (a.t == T_INT && b.t == T_INT && !__builtin_mul_overflow(a.u.i, b.u.i, &r)) return mkint(r); return k_mul(a, b); \}\nstatic inline V f_lt(V a, V b) \{ if (a.t == T_INT && b.t == T_INT) return mkbool(a.u.i < b.u.i); k_ordchk(\"<\", a, b); return mkbool(k_cmp(a, b) < 0); \}\nstatic inline V f_gt(V a, V b) \{ if (a.t == T_INT && b.t == T_INT) return mkbool(a.u.i > b.u.i); k_ordchk(\">\", a, b); return mkbool(k_cmp(a, b) > 0); \}\nstatic inline V f_le(V a, V b) \{ if (a.t == T_INT && b.t == T_INT) return mkbool(a.u.i <= b.u.i); k_ordchk(\"<=\", a, b); return mkbool(k_cmp(a, b) <= 0); \}\nstatic inline V f_ge(V a, V b) \{ if (a.t == T_INT && b.t == T_INT) return mkbool(a.u.i >= b.u.i); k_ordchk(\">=\", a, b); return mkbool(k_cmp(a, b) >= 0); \}\nstatic inline V f_eq(V a, V b) \{ if (a.t == T_INT && b.t == T_INT) return mkbool(a.u.i == b.u.i); return mkbool(k_eq(a, b)); \}\nstatic inline V f_ne(V a, V b) \{ if (a.t == T_INT && b.t == T_INT) return mkbool(a.u.i != b.u.i); return mkbool(!k_eq(a, b)); \}\nstatic inline V f_neg(V a) \{\n  if (a.t == T_INT) \{ if (a.u.i == INT64_MIN) die(\"整数溢出\"); return mkint(-a.u.i); \}\n  if (a.t == T_FLOAT) return mkflt(-a.u.f);\n  die(\"不能对 %s 取负\", tname(a)); return UNIT;\n\}"
 
-const CALL_M_C: Str = "static V call_m(int sym, int n, V *base) \{\n  V recv = base[0];\n  if (recv.t == T_MODULE || recv.t == T_ETYPE) return call_v(k_field(recv, sym), n, base + 1);\n  KFn *m = find_method(tid_of(recv), sym);\n  if (m) return m->code(m, n + 1, base);\n  if (recv.t == T_STRUCT) \{ int i = sfield(STRUCTV(recv), sym); if (i >= 0) return call_v(STRUCTV(recv)->f[i], n, base + 1); \}\n  int g = global_of_sym(sym);\n  if (g >= 0 && G[g].t == T_FN) return call_v(G[g], n + 1, base);\n  die(\"%s 没有方法 %s\", tname(recv), SYMS[sym]); return UNIT;\n\}"
+const CALL_M_C: Str =
+  "static V call_m(int sym, int n, V *base) \{\n  V recv = base[0];\n  if (recv.t == T_MODULE || recv.t == T_ETYPE) return call_v(k_field(recv, sym), n, base + 1);\n  KFn *m = find_method(tid_of(recv), sym);\n  if (m) return m->code(m, n + 1, base);\n  if (recv.t == T_STRUCT) \{ int i = sfield(STRUCTV(recv), sym); if (i >= 0) return call_v(STRUCTV(recv)->f[i], n, base + 1); \}\n  int g = global_of_sym(sym);\n  if (g >= 0 && G[g].t == T_FN) return call_v(G[g], n + 1, base);\n  die(\"%s 没有方法 %s\", tname(recv), SYMS[sym]); return UNIT;\n\}"
 
-const FIXED_TYPES: List<Str> = ["Unit", "Bool", "Int", "Float", "Str", "List", "Tuple", "Map", "Fn", "Result", "Option", "Chan", "Set"]
+const FIXED_TYPES: List<Str> = [
+  "Unit", "Bool", "Int", "Float", "Str", "List", "Tuple", "Map", "Fn", "Result", "Option", "Chan",
+  "Set",
+]
 
 const STD_MODS: List<(Str, Str)> = [
   ("io", "print println read_line"),
   ("fs", "read write append exists is_file is_dir size list mkdir remove rename"),
-  ("ptr", "null is_null addr offset from_addr alloc free read_int write_int read_float write_float read_byte write_byte to_str from_str"),
-  ("math", "sqrt sin cos tan asin acos atan sinh cosh tanh asinh acosh atanh exp exp2 expm1 log2 log10 log1p cbrt pow atan2 hypot fmod copysign remainder log floor ceil round trunc is_nan is_inf signbit gcd lcm pi=3.141592653589793 e=2.718281828459045 tau=6.283185307179586 phi=1.618033988749895 sqrt2=1.4142135623730951 ln2=0.6931471805599453 ln10=2.302585092994046 inf=inf nan=nan max_float=1.7976931348623157e+308 smallest_float=5e-324 max_int=9223372036854775807 min_int=-9223372036854775808"),
+  (
+    "ptr",
+    "null is_null addr offset from_addr alloc free read_int write_int read_float write_float read_byte write_byte to_str from_str",
+  ),
+  (
+    "math",
+    "sqrt sin cos tan asin acos atan sinh cosh tanh asinh acosh atanh exp exp2 expm1 log2 log10 log1p cbrt pow atan2 hypot fmod copysign remainder log floor ceil round trunc is_nan is_inf signbit gcd lcm pi=3.141592653589793 e=2.718281828459045 tau=6.283185307179586 phi=1.618033988749895 sqrt2=1.4142135623730951 ln2=0.6931471805599453 ln10=2.302585092994046 inf=inf nan=nan max_float=1.7976931348623157e+308 smallest_float=5e-324 max_int=9223372036854775807 min_int=-9223372036854775808",
+  ),
 ]
 
 type Gn = {
@@ -70,7 +82,13 @@ fn oct3(n: Int) -> Str { "\\" + str(n / 64) + str(n / 8 % 8) + str(n % 8) }
 pub fn c_str(s: Str) -> Str {
   var out: List<Str> = []
   for ch in __bytes(s) {
-    if ch == 34 || ch == 92 { out = push(out, "\\" + __chr(ch)) } else if ch >= 32 && ch < 127 && ch != 63 { out = push(out, __chr(ch)) } else { out = push(out, oct3(ch)) }
+    if ch == 34 || ch == 92 {
+      out = push(out, "\\" + __chr(ch))
+    } else if ch >= 32 && ch < 127 && ch != 63 {
+      out = push(out, __chr(ch))
+    } else {
+      out = push(out, oct3(ch))
+    }
   }
   "\"" + join(out, "") + "\""
 }
@@ -117,19 +135,19 @@ fn is_nan(x: Float) -> Bool { x != x }
 
 fn const_c(g: Gn, v: V) -> (Gn, Str) {
   match v {
-    VB(b)   => (g, if b { "mkbool(1)" } else { "mkbool(0)" }),
-    VI(i)   => (g, if i == -9223372036854775807 - 1 { "mkint(INT64_MIN)" } else { "mkint({i}LL)" }),
+    VB(b) => (g, if b { "mkbool(1)" } else { "mkbool(0)" }),
+    VI(i) => (g, if i == -9223372036854775807 - 1 { "mkint(INT64_MIN)" } else { "mkint({i}LL)" }),
     VBig(s) => (gerr(g, "整数常量 {s} 超出 64 位范围"), "UNIT"),
-    VF(f)   => {
+    VF(f) => {
       if is_nan(f) { return (g, "mkflt(NAN)") }
       if f > 1.7976931348623157e308 { return (g, "mkflt(INFINITY)") }
       if f < -1.7976931348623157e308 { return (g, "mkflt(-INFINITY)") }
       (g, "mkflt(" + float_hex(f) + ")")
     },
-    VS(s)   => sconst(g, s),
+    VS(s) => sconst(g, s),
     VQ(s, _) => sconst(g, s),
     VN(_, _, _) => (g, "UNIT"),
-    _       => (gerr(g, "原生后端: 不支持的常量 " + val.dump(v)), "UNIT"),
+    _ => (gerr(g, "原生后端: 不支持的常量 " + val.dump(v)), "UNIT"),
   }
 }
 
@@ -195,17 +213,17 @@ fn gv(g: Gn, name: Str) -> GV { unwrap_or(get(g.bs.gval, name), GOther) }
 fn is_closure(v: GV) -> Bool {
   match v {
     GFn(_) => true,
-    _      => false,
+    _ => false,
   }
 }
 
 fn is_builtin(v: GV) -> Bool {
   match v {
     GBuiltin(_) => true,
-    GCtor(_)    => true,
-    GMember(n)  => is_some(std_const(n)) == false,
-    GExt(_, _)  => true,
-    _           => false,
+    GCtor(_) => true,
+    GMember(n) => is_some(std_const(n)) == false,
+    GExt(_, _) => true,
+    _ => false,
   }
 }
 
@@ -231,11 +249,35 @@ fn std_mod_of(n: Str) -> Option<Str> {
 
 // ───────── 栈效应 ─────────
 
-fn is_binop(op: Str) -> Bool { contains(["ADD", "SUB", "MUL", "DIV", "MOD", "LT", "GT", "LE", "GE", "EQ", "NE", "RANGE", "RANGE_INC"], op) }
+fn is_binop(op: Str) -> Bool {
+  contains(
+    ["ADD", "SUB", "MUL", "DIV", "MOD", "LT", "GT", "LE", "GE", "EQ", "NE", "RANGE", "RANGE_INC"],
+    op,
+  )
+}
 
 fn effect(op: Str, arg: V) -> Int {
   if contains(["CONST", "LOAD_L", "LOAD_U", "LOAD_G", "CLOSURE"], op) { return 1 }
-  if contains(["STORE_L", "STORE_U", "STORE_G", "DEF_G", "POP", "JIF", "INDEX", "WFIELD", "MATCH_OR_FAIL", "ITER", "DEFER", "JIF_OR_POP", "JIT_OR_POP"], op) { return -1 }
+  if contains(
+    [
+      "STORE_L",
+      "STORE_U",
+      "STORE_G",
+      "DEF_G",
+      "POP",
+      "JIF",
+      "INDEX",
+      "WFIELD",
+      "MATCH_OR_FAIL",
+      "ITER",
+      "DEFER",
+      "JIF_OR_POP",
+      "JIT_OR_POP",
+    ],
+    op,
+  ) {
+    return -1
+  }
   if is_binop(op) { return -1 }
   if op == "POPN" || op == "CALL" { return 0 - iv(arg) }
   if op == "CALL_M" { return 0 - iv(items(arg)[1]) }
@@ -292,7 +334,9 @@ fn depths(g: Gn, p: PR) -> (Gn, List<Int>, Map<Int, Bool>) {
 fn gen_proto(g0: Gn, pi: Int) -> (Gn, Str) {
   let p = g0.bs.protos[pi]
   let k = pk(g0, pi)
-  if let Some(kn) = get(g0.kprot, pi) { return (g0, kir_wrapper(unwrap(get(g0.kf, kn)), g0.knames, kn, k, p.np)) }
+  if let Some(kn) = get(g0.kprot, pi) {
+    return (g0, kir_wrapper(unwrap(get(g0.kf, kn)), g0.knames, kn, k, p.np))
+  }
   let (g1, depth, targets) = depths(g0, p)
   var g = g1
   var maxd = 0
@@ -304,17 +348,38 @@ fn gen_proto(g0: Gn, pi: Int) -> (Gn, Str) {
   ls = push(ls, "static V p{k}(KFn *self, int argc, V *argv) \{ /* " + pn(g, pi) + " */")
   ls = push(ls, "  if (argc != {p.np}) arity(self, {p.np}, argc);")
   ls = push(ls, "  SAFEPOINT();")
-  ls = push(ls, "  V L[{max(p.nl, 1)}]; V S[{maxd}]; V rv; KUp *open = NULL; V defers[{ndef}]; int nd = 0;")
+  ls = push(
+    ls,
+    "  V L[{max(p.nl, 1)}]; V S[{maxd}]; V rv; KUp *open = NULL; V defers[{ndef}]; int nd = 0;",
+  )
   if p.np > 0 { ls = push(ls, "  memcpy(L, argv, sizeof(V) * {p.np});") }
   if p.nl > p.np { ls = push(ls, "  for (int i = {p.np}; i < {p.nl}; i++) L[i] = UNIT;") }
   let need_frame = any(p.code, (c) => c.0 == "DEFER" || c.0 == "CLOSURE")
-  if need_frame { ls = push(ls, "  KFrame fr_ = \{ cur_frame, &open, L, defers, &nd \}; cur_frame = &fr_;") }
+  if need_frame {
+    ls = push(ls, "  KFrame fr_ = \{ cur_frame, &open, L, defers, &nd \}; cur_frame = &fr_;")
+  }
   ls = push(ls, "  CANCEL_POINT();")
   var known: Map<Int, Int> = Map()
   var cur_line = -1
   var pc = 0
   let noln = ["CONST", "LOAD_L", "STORE_L", "POP", "JUMP", "CLOSE"]
-  let nowr = ["STORE_L", "STORE_U", "STORE_G", "DEF_G", "POP", "POPN", "DEFER", "ITER", "MATCH_OR_FAIL", "JIF", "JIF_OR_POP", "JIT_OR_POP", "CLOSE", "RUN_DEFERS", "JUMP"]
+  let nowr = [
+    "STORE_L",
+    "STORE_U",
+    "STORE_G",
+    "DEF_G",
+    "POP",
+    "POPN",
+    "DEFER",
+    "ITER",
+    "MATCH_OR_FAIL",
+    "JIF",
+    "JIF_OR_POP",
+    "JIT_OR_POP",
+    "CLOSE",
+    "RUN_DEFERS",
+    "JUMP",
+  ]
   for (op, arg) in p.code {
     let d = depth[pc]
     if contains(targets, pc) {
@@ -361,13 +426,13 @@ fn binop_fn(op: Str) -> Str {
     "MUL" => "f_mul",
     "DIV" => "k_div",
     "MOD" => "k_mod",
-    "LT"  => "f_lt",
-    "GT"  => "f_gt",
-    "LE"  => "f_le",
-    "GE"  => "f_ge",
-    "EQ"  => "f_eq",
-    "NE"  => "f_ne",
-    _     => "",
+    "LT" => "f_lt",
+    "GT" => "f_gt",
+    "LE" => "f_le",
+    "GE" => "f_ge",
+    "EQ" => "f_eq",
+    "NE" => "f_ne",
+    _ => "",
   }
 }
 
@@ -386,9 +451,13 @@ fn op_c(g: Gn, op: Str, a: V, d: Int, known: Map<Int, Int>, cur_pc: Int) -> (Gn,
     let gi = unwrap(get(g.gid, nm))
     match gv(g, nm) {
       GFn(pp) => { if !contains(g.assigned, nm) { return (g, "S[{d}] = G[{gi}];", pk(g, pp)) } },
-      _       => {},
+      _ => {},
     }
-    return (g, "S[{d}] = G[{gi}]; if (S[{d}].t == T_UNDEF) die(\"未定义的名字 %s\", " + c_str(nm) + ");", -1)
+    return (
+      g,
+      "S[{d}] = G[{gi}]; if (S[{d}].t == T_UNDEF) die(\"未定义的名字 %s\", " + c_str(nm) + ");",
+      -1,
+    )
   }
   if op == "DEF_G" { return (g, "G[{unwrap(get(g.gid, sv(a)))}] = S[{t}];", -1) }
   if op == "STORE_G" { return (g, "k_store_g(&G[{unwrap(get(g.gid, sv(a)))}], S[{t}]);", -1) }
@@ -396,7 +465,15 @@ fn op_c(g: Gn, op: Str, a: V, d: Int, known: Map<Int, Int>, cur_pc: Int) -> (Gn,
   if is_binop(op) {
     let f = binop_fn(op)
     if f != "" { return (g, "S[{t - 1}] = {f}(S[{t - 1}], S[{t}]);", -1) }
-    return (g, "S[{t - 1}] = k_range(S[{t - 1}], S[{t}], " + (if op == "RANGE_INC" { "1" } else { "0" }) + ");", -1)
+    return (
+      g,
+      "S[{t - 1}] = k_range(S[{t - 1}], S[{t}], " + (if op == "RANGE_INC" {
+        "1"
+      } else {
+        "0"
+      }) + ");",
+      -1,
+    )
   }
   if op == "NEG" { return (g, "S[{t}] = f_neg(S[{t}]);", -1) }
   if op == "NOT" { return (g, "S[{t}] = mkbool(!truthy(S[{t}]));", -1) }
@@ -423,11 +500,17 @@ fn op_c(g: Gn, op: Str, a: V, d: Int, known: Map<Int, Int>, cur_pc: Int) -> (Gn,
     let pp = iv(a)
     let k = pk(g, pp)
     let pr = g.bs.protos[pp]
-    var parts = ["\{ V c = mkclosure(p{k}, " + c_str(pn(g, pp)) + ", {len(pr.upd)}); KFn *f = FN(c);"]
+    var parts = [
+      "\{ V c = mkclosure(p{k}, " + c_str(pn(g, pp)) + ", {len(pr.upd)}); KFn *f = FN(c);",
+    ]
     var i = 0
     for u in pr.upd {
       let ux = items(u)
-      parts = push(parts, if val.truthy(ux[0]) { "f->ups[{i}] = find_up(&open, &L[{iv(ux[1])}]);" } else { "f->ups[{i}] = self->ups[{iv(ux[1])}];" })
+      parts = push(parts, if val.truthy(ux[0]) {
+        "f->ups[{i}] = find_up(&open, &L[{iv(ux[1])}]);"
+      } else {
+        "f->ups[{i}] = self->ups[{iv(ux[1])}];"
+      })
       i += 1
     }
     parts = push(parts, "S[{d}] = c; }")
@@ -437,7 +520,11 @@ fn op_c(g: Gn, op: Str, a: V, d: Int, known: Map<Int, Int>, cur_pc: Int) -> (Gn,
   if op == "SPAWN" || op == "TUPLE" {
     if iv(a) == 0 { return (g, "S[{d}] = UNIT;", -1) }
     let b = d - iv(a)
-    return (g, "S[{b}] = " + (if op == "SPAWN" { "k_spawn" } else { "mktuple" }) + "({iv(a)}, &S[{b}]);", -1)
+    return (
+      g,
+      "S[{b}] = " + (if op == "SPAWN" { "k_spawn" } else { "mktuple" }) + "({iv(a)}, &S[{b}]);",
+      -1,
+    )
   }
   if op == "STRUCT" {
     let fs = map(items(items(a)[1]), (x) => sv(x))
@@ -468,13 +555,21 @@ fn op_c(g: Gn, op: Str, a: V, d: Int, known: Map<Int, Int>, cur_pc: Int) -> (Gn,
   }
   if op == "MATCH_FAIL" { return (g, "die(\"match 没有覆盖值 %s\", cshow(S[{t}]));", -1) }
   if op == "TRY" {
-    return (g, "\{ V v = S[{t}]; int vr = v.t == T_ENUM ? ENUMV(v)->var : -1; if (vr == SYM_Ok || vr == SYM_Some) S[{t}] = ENUMV(v)->a[0]; else if (vr == SYM_Err || vr == SYM_None) \{ rv = v; goto ret; \} else die(\"? 只能用于 Result 或 Option\"); \}", -1)
+    return (
+      g,
+      "\{ V v = S[{t}]; int vr = v.t == T_ENUM ? ENUMV(v)->var : -1; if (vr == SYM_Ok || vr == SYM_Some) S[{t}] = ENUMV(v)->a[0]; else if (vr == SYM_Err || vr == SYM_None) \{ rv = v; goto ret; \} else die(\"? 只能用于 Result 或 Option\"); \}",
+      -1,
+    )
   }
   if op == "ITER" { return (g, "L[{iv(a)}] = k_iter(S[{t}]);", -1) }
-  if op == "FOR_NEXT" { return (g, "if (!k_next(L[{iv(items(a)[0])}], &S[{d}])) goto I{iv(items(a)[1])};", -1) }
+  if op == "FOR_NEXT" {
+    return (g, "if (!k_next(L[{iv(items(a)[0])}], &S[{d}])) goto I{iv(items(a)[1])};", -1)
+  }
   if op == "CLOSE" { return (g, "if (open) close_ups(&open, &L[{iv(a)}]);", -1) }
   if op == "DEFER" { return (g, "defers[nd++] = S[{t}];", -1) }
-  if op == "RUN_DEFERS" { return (g, "while (nd > {iv(a)}) \{ nd--; call_v(defers[nd], 0, NULL); \}", -1) }
+  if op == "RUN_DEFERS" {
+    return (g, "while (nd > {iv(a)}) \{ nd--; call_v(defers[nd], 0, NULL); \}", -1)
+  }
   (gerr(g, "原生后端: 不支持的指令 {op}"), "", -1)
 }
 
@@ -508,15 +603,22 @@ fn pat(g0: Gn, p: V) -> (Gn, Str) {
     lines = push(lines, "  (void)L; G[{gi}] = v; return true;")
   } else if t == "lit" {
     match xs[1] {
-      VB(b)    => { lines = push(lines, "  (void)L; return v.t == T_BOOL && v.u.i == " + (if b { "1" } else { "0" }) + ";") },
-      VI(i)    => { lines = push(lines, "  (void)L; return v.t == T_INT && v.u.i == {i}LL;") },
-      VF(f)    => { lines = push(lines, "  (void)L; return v.t == T_FLOAT && v.u.f == " + float_hex(f) + ";") },
-      VS(s)    => {
+      VB(b) => {
+        lines = push(
+          lines,
+          "  (void)L; return v.t == T_BOOL && v.u.i == " + (if b { "1" } else { "0" }) + ";",
+        )
+      },
+      VI(i) => { lines = push(lines, "  (void)L; return v.t == T_INT && v.u.i == {i}LL;") },
+      VF(f) => {
+        lines = push(lines, "  (void)L; return v.t == T_FLOAT && v.u.f == " + float_hex(f) + ";")
+      },
+      VS(s) => {
         let (g2, c) = sconst(g, s)
         g = g2
         lines = push(lines, "  (void)L; return v.t == T_STR && k_eq(v, {c});")
       },
-      _        => { lines = push(lines, "  (void)L; return v.t == T_UNIT;") },
+      _ => { lines = push(lines, "  (void)L; return v.t == T_UNIT;") },
     }
   } else if t == "range" {
     let lo = xs[1]
@@ -524,7 +626,7 @@ fn pat(g0: Gn, p: V) -> (Gn, Str) {
     let probe = if is_nil(lo) { hi } else { lo }
     var conds = [match probe {
       VS(_) => "v.t == T_STR",
-      _     => "isnum(v)",
+      _ => "isnum(v)",
     }]
     if !is_nil(lo) {
       let (g2, c) = const_c(g, lo)
@@ -588,7 +690,10 @@ fn pat(g0: Gn, p: V) -> (Gn, Str) {
     g = g2
     lines = push(lines, "  if (!(v.t == T_ENUM && ENUMV(v)->var == {sid})) \{")
     if is_nil(xs[2]) && !contains(g.variants, vn) {
-      lines = push(lines, "    return v.t == T_STRUCT && !strcmp(STRUCTV(v)->ty->name, " + c_str(vn) + ");")
+      lines = push(
+        lines,
+        "    return v.t == T_STRUCT && !strcmp(STRUCTV(v)->ty->name, " + c_str(vn) + ");",
+      )
     } else {
       lines = push(lines, "    return false;")
     }
@@ -598,7 +703,10 @@ fn pat(g0: Gn, p: V) -> (Gn, Str) {
     } else {
       let (g3, cs) = pats(g, items(xs[2]))
       g = g3
-      lines = push(lines, "  if (ENUMV(v)->n != {len(cs)}) die(\"模式 {vn} 需要 %d 个字段\", ENUMV(v)->n);")
+      lines = push(
+        lines,
+        "  if (ENUMV(v)->n != {len(cs)}) die(\"模式 {vn} 需要 %d 个字段\", ENUMV(v)->n);",
+      )
       var i = 0
       for s in cs {
         lines = push(lines, "  if (!{s}(ENUMV(v)->a[{i}], L)) return false;")
@@ -616,16 +724,28 @@ fn pat(g0: Gn, p: V) -> (Gn, Str) {
       g = g3
       cs = push(cs, (fsym, s))
     }
-    lines = push(lines, "  if (v.t == T_STRUCT && !strcmp(STRUCTV(v)->ty->name, " + c_str(sn) + ")) \{")
+    lines = push(
+      lines,
+      "  if (v.t == T_STRUCT && !strcmp(STRUCTV(v)->ty->name, " + c_str(sn) + ")) \{",
+    )
     for (fsym, s) in cs {
-      lines = push(lines, "    \{ int i = sfield(STRUCTV(v), {fsym}); if (i < 0 || !{s}(STRUCTV(v)->f[i], L)) return false; \}")
+      lines = push(
+        lines,
+        "    \{ int i = sfield(STRUCTV(v), {fsym}); if (i < 0 || !{s}(STRUCTV(v)->f[i], L)) return false; \}",
+      )
     }
     lines = push(lines, "    return true;")
     let (g4, ssid) = sym(g, sn)
     g = g4
-    lines = push(lines, "  \} else if (v.t == T_ENUM && ENUMV(v)->var == {ssid} && ENUMV(v)->names) \{")
+    lines = push(
+      lines,
+      "  \} else if (v.t == T_ENUM && ENUMV(v)->var == {ssid} && ENUMV(v)->names) \{",
+    )
     for (fsym, s) in cs {
-      lines = push(lines, "    \{ int i, ok = 0; for (i = 0; i < ENUMV(v)->n; i++) if (ENUMV(v)->names[i] == {fsym}) \{ ok = {s}(ENUMV(v)->a[i], L); break; \} if (!ok) return false; \}")
+      lines = push(
+        lines,
+        "    \{ int i, ok = 0; for (i = 0; i < ENUMV(v)->n; i++) if (ENUMV(v)->names[i] == {fsym}) \{ ok = {s}(ENUMV(v)->a[i], L); break; \} if (!ok) return false; \}",
+      )
     }
     lines = push(lines, "    return true;")
     lines = push(lines, "  }")
@@ -639,10 +759,19 @@ fn pat(g0: Gn, p: V) -> (Gn, Str) {
 
 // ───────── 入口（Gen.generate）─────────
 
-pub fn generate(bs: S, chunk: Int, src_name: Str, sources: List<Str>, runtime: Str) -> Str { generate_k(bs, chunk, src_name, sources, runtime, Map()) }
+pub fn generate(bs: S, chunk: Int, src_name: Str, sources: List<Str>, runtime: Str) -> Str {
+  generate_k(bs, chunk, src_name, sources, runtime, Map())
+}
 
 // kf：kir.collect 的结果（空表相当于 KITE_NO_KIR=1）
-pub fn generate_k(bs: S, chunk: Int, src_name: Str, sources: List<Str>, runtime: Str, kf: Map<Str, KF>) -> Str {
+pub fn generate_k(
+  bs: S,
+  chunk: Int,
+  src_name: Str,
+  sources: List<Str>,
+  runtime: Str,
+  kf: Map<Str, KF>,
+) -> Str {
   var bmap: Map<Str, Str> = Map()
   for kv in split(BUILTIN_C, " ") {
     let p = split(kv, "=")
@@ -692,7 +821,7 @@ pub fn generate_k(bs: S, chunk: Int, src_name: Str, sources: List<Str>, runtime:
   for name in bs.gord {
     match gv(g, name) {
       GFn(p) => { g = add_proto(g, p) },
-      _      => {},
+      _ => {},
     }
   }
   for t in bs.mord {
@@ -705,17 +834,19 @@ pub fn generate_k(bs: S, chunk: Int, src_name: Str, sources: List<Str>, runtime:
   for name in bs.gord {
     match gv(g, name) {
       GStruct(f) => { g = type_id(Gn { structs: push(g.structs, (name, f)), ..g }, name).0 },
-      GEnum(v)   => {
+      GEnum(v) => {
         g = type_id(Gn { enums: push(g.enums, (name, v)), ..g }, name).0
         for x in items(v) { g = Gn { variants: set(g.variants, sv(items(x)[0]), true), ..g } }
       },
-      _          => {},
+      _ => {},
     }
   }
   for t in bs.mord { g = type_id(g, t).0 }
   for p in g.protos {
     for (op, arg) in bs.protos[p].code {
-      if op == "STORE_G" || op == "DEF_G" { g = Gn { assigned: set(g.assigned, sv(arg), true), ..g } }
+      if op == "STORE_G" || op == "DEF_G" {
+        g = Gn { assigned: set(g.assigned, sv(arg), true), ..g }
+      }
       if op == "LOAD_G" || op == "STORE_G" || op == "DEF_G" { g = glob_(g, sv(arg)) }
       if op == "CALL_M" {
         let nm = sv(items(arg)[0])
@@ -726,10 +857,10 @@ pub fn generate_k(bs: S, chunk: Int, src_name: Str, sources: List<Str>, runtime:
   }
   for name in bs.gord {
     match gv(g, name) {
-      GFn(_)     => { g = glob_(g, name) },
+      GFn(_) => { g = glob_(g, name) },
       GStruct(_) => { g = glob_(g, name) },
-      GEnum(_)   => { g = glob_(g, name) },
-      _          => {},
+      GEnum(_) => { g = glob_(g, name) },
+      _ => {},
     }
   }
   g = glob_(g, "main")
@@ -754,8 +885,10 @@ pub fn generate_k(bs: S, chunk: Int, src_name: Str, sources: List<Str>, runtime:
       continue
     }
     match gv(g, name) {
-      GFn(p) => { if contains(g.pid, p) && !contains(g.assigned, name) { kprot = set(kprot, p, name) } },
-      _      => {},
+      GFn(p) => {
+        if contains(g.pid, p) && !contains(g.assigned, name) { kprot = set(kprot, p, name) }
+      },
+      _ => {},
     }
   }
   g = Gn { kprot: kprot, knames: knames, ..g }
@@ -798,7 +931,7 @@ pub fn generate_k(bs: S, chunk: Int, src_name: Str, sources: List<Str>, runtime:
 pub fn first_replace(s: Str, a: Str, b: Str) -> Str {
   match strings_find(s, a) {
     Some(i) => __str_slice(s, 0, i) + b + __str_slice(s, i + len(a), len(s)),
-    None    => s,
+    None => s,
   }
 }
 
@@ -812,11 +945,18 @@ fn fs_truthy(fs: V) -> Bool { len(items(fs)) > 0 }
 fn is_rec(fs: V) -> Bool {
   match fs {
     VR(_) => true,
-    _     => false,
+    _ => false,
   }
 }
 
-fn assemble(g0: Gn, chunk: Int, bodies: List<Str>, src_name: Str, sources: List<Str>, runtime: Str) -> Gn {
+fn assemble(
+  g0: Gn,
+  chunk: Int,
+  bodies: List<Str>,
+  src_name: Str,
+  sources: List<Str>,
+  runtime: Str,
+) -> Gn {
   var g = g0
   g = w(g, runtime)
   g = w(g, "\n/* ───────────── 生成代码 ───────────── */")
@@ -831,7 +971,11 @@ fn assemble(g0: Gn, chunk: Int, bodies: List<Str>, src_name: Str, sources: List<
       let (g2, sid) = sym(g, vn)
       g = g2
       if en == "Result" || en == "Option" {
-        cases = push(cases, if vn == "None" { "case {sid}: return kNone();" } else { "case {sid}: return mkp(T_FN, &bf_b_{vn});" })
+        cases = push(cases, if vn == "None" {
+          "case {sid}: return kNone();"
+        } else {
+          "case {sid}: return mkp(T_FN, &bf_b_{vn});"
+        })
       } else if fs_truthy(fs) {
         var names = map(items(fs), (f) => sv(items(f)[0]))
         if is_rec(fs) { names = push(names, "__rec") }
@@ -860,7 +1004,9 @@ fn assemble(g0: Gn, chunk: Int, bodies: List<Str>, src_name: Str, sources: List<
   var ufcs: List<(Int, Int)> = []
   for name in g.gnames {
     let v = gv(g, name)
-    if contains(g.symid, name) && (is_closure(v) || is_builtin(v)) { ufcs = push(ufcs, (unwrap(get(g.symid, name)), unwrap(get(g.gid, name)))) }
+    if contains(g.symid, name) && (is_closure(v) || is_builtin(v)) {
+      ufcs = push(ufcs, (unwrap(get(g.symid, name)), unwrap(get(g.gid, name))))
+    }
   }
   let pat_code = g.pats
   g = w(g, "const char *SYMS[] = \{" + join(map(g.syms, (s) => c_str(s)), ", ") + "};")
@@ -884,7 +1030,10 @@ fn assemble(g0: Gn, chunk: Int, bodies: List<Str>, src_name: Str, sources: List<
     g = w(g, "static KEType ET_{t} = \{ {t}, " + c_str(en) + " \};")
   }
   for (t, sid, n, names, vn) in ctor_defs {
-    g = w(g, "static KFn CT_{t}_{sid} = \{ ctor_code, " + c_str(vn) + ", {t}, {sid}, {n}, {names}, 0 \};")
+    g = w(
+      g,
+      "static KFn CT_{t}_{sid} = \{ ctor_code, " + c_str(vn) + ", {t}, {sid}, {n}, {names}, 0 \};",
+    )
   }
   k = 0
   for p in g.protos {
@@ -897,7 +1046,13 @@ fn assemble(g0: Gn, chunk: Int, bodies: List<Str>, src_name: Str, sources: List<
   g = w(g, "static KFn *find_method(int tid, int sym) \{")
   g = w(g, "  switch (tid) \{")
   for (t, ms) in method_cases {
-    g = w(g, "  case {t}: switch (sym) \{ " + join(map(ms, (m) => "case {m.0}: return &CL{m.1};"), " ") + " \} break;")
+    g = w(
+      g,
+      "  case {t}: switch (sym) \{ " + join(
+        map(ms, (m) => "case {m.0}: return &CL{m.1};"),
+        " ",
+      ) + " \} break;",
+    )
   }
   g = w(g, "  }")
   g = w(g, "  return NULL;")
@@ -938,7 +1093,10 @@ fn assemble(g0: Gn, chunk: Int, bodies: List<Str>, src_name: Str, sources: List<
   g = w(g, "  gc_add_root(G, {max(len(g.gnames), 1)}); gc_add_root(KS, {max(len(g.strs), 1)});")
   if contains(g.symid, "__rec") { g = w(g, "  KITE_SYM_REC = {unwrap(get(g.symid, "__rec"))};") }
   let si = (n: Str) => unwrap(get(g.symid, n))
-  g = w(g, "  SYM_Ok = {si("Ok")}; SYM_Err = {si("Err")}; SYM_Some = {si("Some")}; SYM_None = {si("None")};")
+  g = w(
+    g,
+    "  SYM_Ok = {si("Ok")}; SYM_Err = {si("Err")}; SYM_Some = {si("Some")}; SYM_None = {si("None")};",
+  )
   k = 0
   for s in g.strs {
     g = w(g, "  KS[{k}] = mkstr(" + c_str(s) + ", {len(__bytes(s))});")
@@ -960,30 +1118,36 @@ fn assemble(g0: Gn, chunk: Int, bodies: List<Str>, src_name: Str, sources: List<
 fn global_init(g: Gn, name: Str) -> (Gn, Str) {
   if !contains(g.bs.gval, name) { return (g, "") }
   match gv(g, name) {
-    GExt(_, _)  => (g, "mkp(T_FN, &bfx{unwrap(get(g.ext_id, name))})"),
-    GFn(p)      => (g, "mkp(T_FN, &CL{pk(g, p)})"),
-    GStruct(_)  => (g, "mkp(T_STYPE, &ST_{tid(g, name)})"),
-    GEnum(_)    => (g, "mkp(T_ETYPE, &ET_{tid(g, name)})"),
+    GExt(_, _) => (g, "mkp(T_FN, &bfx{unwrap(get(g.ext_id, name))})"),
+    GFn(p) => (g, "mkp(T_FN, &CL{pk(g, p)})"),
+    GStruct(_) => (g, "mkp(T_STYPE, &ST_{tid(g, name)})"),
+    GEnum(_) => (g, "mkp(T_ETYPE, &ET_{tid(g, name)})"),
     GEVal(en, vn) => {
       if vn == "None" { return (g, "kNone()") }
       let (g2, sid) = sym(g, vn)
       (g2, "mkenum({tid(g2, en)}, {sid}, 0, NULL, NULL)")
     },
-    GMod(m)     => {
-      if !contains(["io", "fs", "math", "ptr"], m) { return (gerr(g, "原生后端暂不支持模块 {m}"), "") }
+    GMod(m) => {
+      if !contains(["io", "fs", "math", "ptr"], m) {
+        return (gerr(g, "原生后端暂不支持模块 {m}"), "")
+      }
       (g, "mkp(T_MODULE, (void *)" + c_str(m) + ")")
     },
-    GCtor(vn)   => builtin_init(g, vn),
+    GCtor(vn) => builtin_init(g, vn),
     GBuiltin(n) => builtin_init(g, n),
-    GMember(n)  => {
+    GMember(n) => {
       match std_const(n) {
         Some(c) => {
-          if contains(c, ".") || contains(["inf", "nan"], c) || contains(c, "e") { const_c(g, VF(unwrap(parse_float(c)))) } else { const_c(g, VI(unwrap(parse_int(c)))) }
+          if contains(c, ".") || contains(["inf", "nan"], c) || contains(c, "e") {
+            const_c(g, VF(unwrap(parse_float(c))))
+          } else {
+            const_c(g, VI(unwrap(parse_int(c))))
+          }
         },
-        None    => builtin_init(g, n),
+        None => builtin_init(g, n),
       }
     },
-    GOther      => (g, ""),
+    GOther => (g, ""),
   }
 }
 
@@ -1007,42 +1171,42 @@ fn builtin_init(g: Gn, n: Str) -> (Gn, Str) {
 
 fn cty_prim(d: Str) -> Str {
   match d {
-    "Int"   => "int64_t",
+    "Int" => "int64_t",
     "Float" => "double",
-    "Bool"  => "bool",
-    "Str"   => "const char *",
-    "Unit"  => "void",
-    "Ptr"   => "void *",
-    "I8"    => "int8_t",
-    "I16"   => "int16_t",
-    "I32"   => "int32_t",
-    "I64"   => "int64_t",
-    "U8"    => "uint8_t",
-    "U16"   => "uint16_t",
-    "U32"   => "uint32_t",
-    "U64"   => "uint64_t",
-    "F32"   => "float",
-    "F64"   => "double",
-    _       => "?",
+    "Bool" => "bool",
+    "Str" => "const char *",
+    "Unit" => "void",
+    "Ptr" => "void *",
+    "I8" => "int8_t",
+    "I16" => "int16_t",
+    "I32" => "int32_t",
+    "I64" => "int64_t",
+    "U8" => "uint8_t",
+    "U16" => "uint16_t",
+    "U32" => "uint32_t",
+    "U64" => "uint64_t",
+    "F32" => "float",
+    "F64" => "double",
+    _ => "?",
   }
 }
 
 fn c_range(d: Str) -> Option<(Str, Str)> {
   match d {
-    "I8"  => Some(("-128", "127")),
+    "I8" => Some(("-128", "127")),
     "I16" => Some(("-32768", "32767")),
     "I32" => Some(("-2147483648", "2147483647")),
-    "U8"  => Some(("0", "255")),
+    "U8" => Some(("0", "255")),
     "U16" => Some(("0", "65535")),
     "U32" => Some(("0", "4294967295")),
-    _     => None,
+    _ => None,
   }
 }
 
 fn cty(g0: Gn, d: V) -> (Gn, Str) {
   match d {
     VS(s) => (g0, cty_prim(s)),
-    _     => {
+    _ => {
       let xs = items(d)
       if sv(xs[0]) == "F" { return (g0, "void *") }
       let key = val.dump(d)
@@ -1064,22 +1228,29 @@ fn cty(g0: Gn, d: V) -> (Gn, Str) {
 fn to_c(g0: Gn, src: Str, d: V) -> (Gn, Str) {
   match d {
     VS(s) => {
-      if let Some((lo, hi)) = c_range(s) { return (g0, "((" + cty_prim(s) + ")kx_rng((" + src + ").u.i, " + lo + "LL, " + hi + "LL, " + c_str(s) + "))") }
+      if let Some((lo, hi)) = c_range(s) {
+        return (
+          g0,
+          "((" + cty_prim(s) + ")kx_rng((" + src + ").u.i, " + lo + "LL, " + hi + "LL, " + c_str(
+            s,
+          ) + "))",
+        )
+      }
       let flt = "((" + src + ").t == T_INT ? (double)(" + src + ").u.i : (" + src + ").u.f)"
       (g0, match s {
-        "Int"   => "(" + src + ").u.i",
-        "I64"   => "(" + src + ").u.i",
-        "U64"   => "(uint64_t)(" + src + ").u.i",
+        "Int" => "(" + src + ").u.i",
+        "I64" => "(" + src + ").u.i",
+        "U64" => "(uint64_t)(" + src + ").u.i",
         "Float" => flt,
-        "F64"   => flt,
-        "F32"   => "(float)" + flt,
-        "Bool"  => "(bool)(" + src + ").u.i",
-        "Str"   => "CSTR(" + src + ")",
-        "Ptr"   => "(void *)(intptr_t)(" + src + ").u.i",
-        _       => "?",
+        "F64" => flt,
+        "F32" => "(float)" + flt,
+        "Bool" => "(bool)(" + src + ").u.i",
+        "Str" => "CSTR(" + src + ")",
+        "Ptr" => "(void *)(intptr_t)(" + src + ").u.i",
+        _ => "?",
       })
     },
-    _     => {
+    _ => {
       var g = g0
       var sets: List<Str> = []
       var k = 0
@@ -1098,18 +1269,20 @@ fn to_c(g0: Gn, src: Str, d: V) -> (Gn, Str) {
 fn from_c(g0: Gn, src: Str, d: V) -> (Gn, Str) {
   match d {
     VS(s) => {
-      if cty_prim(s) != "?" && (starts_with(s, "I") || starts_with(s, "U")) { return (g0, "mkint((int64_t)(" + src + "))") }
+      if cty_prim(s) != "?" && (starts_with(s, "I") || starts_with(s, "U")) {
+        return (g0, "mkint((int64_t)(" + src + "))")
+      }
       if s == "F32" || s == "F64" { return (g0, "mkflt((double)(" + src + "))") }
       (g0, match s {
-        "Int"   => "mkint(" + src + ")",
+        "Int" => "mkint(" + src + ")",
         "Float" => "mkflt(" + src + ")",
-        "Bool"  => "mkbool(" + src + ")",
-        "Ptr"   => "mkint((int64_t)(intptr_t)(" + src + "))",
-        "Str"   => "cstr((" + src + ") ? (" + src + ") : \"\")",
-        _       => "?",
+        "Bool" => "mkbool(" + src + ")",
+        "Ptr" => "mkint((int64_t)(intptr_t)(" + src + "))",
+        "Str" => "cstr((" + src + ") ? (" + src + ") : \"\")",
+        _ => "?",
       })
     },
-    _     => {
+    _ => {
       var g = g0
       var vals: List<Str> = []
       let fds = items(items(d)[2])
@@ -1120,7 +1293,13 @@ fn from_c(g0: Gn, src: Str, d: V) -> (Gn, Str) {
       }
       let fs = map(fds, (fd) => sv(items(fd)[0]))
       let (g3, arr) = symarr(g, fs)
-      (g3, "(\{ V v_[{len(fs)}] = \{ " + join(vals, ", ") + " \}; k_struct(&ST_{tid(g3, sv(items(d)[1]))}, {len(fs)}, " + arr + ", v_); \})")
+      (
+        g3,
+        "(\{ V v_[{len(fs)}] = \{ " + join(
+          vals,
+          ", ",
+        ) + " \}; k_struct(&ST_{tid(g3, sv(items(d)[1]))}, {len(fs)}, " + arr + ", v_); \})",
+      )
     },
   }
 }
@@ -1128,8 +1307,19 @@ fn from_c(g0: Gn, src: Str, d: V) -> (Gn, Str) {
 fn ext_fn(it: ast.Node) -> ast.FnD {
   match it.k {
     NFn(f) => f,
-    _      => ast.FnD { name: "", params: [], ret: None, body: None, gen: ast.no_gen(), is_async: false, is_unsafe: false, varargs: false, ext: None,
-      cname: None, x: ast.no_fnx() },
+    _ => ast.FnD {
+      name: "",
+      params: [],
+      ret: None,
+      body: None,
+      gen: ast.no_gen(),
+      is_async: false,
+      is_unsafe: false,
+      varargs: false,
+      ext: None,
+      cname: None,
+      x: ast.no_fnx(),
+    },
   }
 }
 
@@ -1138,16 +1328,21 @@ fn externs(g0: Gn) -> Gn {
   var exts: List<(Str, ast.Node, V)> = []
   for n in g.bs.gord {
     match gv(g, n) {
-      GExt(it, va) => { exts = push(exts, (n, it, match va {
-        Some(xs) => VL(map(xs, (x) => VS(x))),
-        None     => VNil,
-      })) },
-      _            => {},
+      GExt(it, va) => {
+        exts = push(exts, (n, it, match va {
+          Some(xs) => VL(map(xs, (x) => VS(x))),
+          None => VNil,
+        }))
+      },
+      _ => {},
     }
   }
   if len(exts) > 0 {
     g = w(g, "#define KX_STR2(x) #x\n#define KX_STR(x) KX_STR2(x)")
-    g = w(g, "static int64_t kx_rng(int64_t v, int64_t lo, int64_t hi, const char *t) \{ if (v < lo || v > hi) die(\"extern: %lld 超出 %s 的范围\", (long long)v, t); return v; \}")
+    g = w(
+      g,
+      "static int64_t kx_rng(int64_t v, int64_t lo, int64_t hi, const char *t) \{ if (v < lo || v > hi) die(\"extern: %lld 超出 %s 的范围\", (long long)v, t); return v; \}",
+    )
   }
   var i = 0
   for (n, it, va) in exts {
@@ -1172,13 +1367,18 @@ fn externs(g0: Gn) -> Gn {
     if !is_nil(va) { protos = push(protos, "...") }
     let proto = if len(protos) == 0 { "void" } else { join(protos, ", ") }
     let (g3, rc) = cty(g, rty)
-    g = w(g3, "extern " + rc + " kx_sym{i}(" + proto + ") __asm__(KX_STR(__USER_LABEL_PREFIX__) " + c_str(cname) + ");")
+    g = w(
+      g3,
+      "extern " + rc + " kx_sym{i}(" + proto + ") __asm__(KX_STR(__USER_LABEL_PREFIX__) " + c_str(
+        cname,
+      ) + ");",
+    )
     var cbs: List<Int> = []
     j = 0
     for t in ptys {
       match t {
         VT(xs) => { if sv(xs[0]) == "F" { cbs = push(cbs, j) } },
-        _      => {},
+        _ => {},
       }
       j += 1
     }
@@ -1199,10 +1399,16 @@ fn externs(g0: Gn) -> Gn {
       }
       let params = if len(pl) == 0 { "void" } else { join(pl, ", ") }
       let vals = join(vl, ", ")
-      let arr = "V cv_[{max(len(cps), 1)}] = \{ " + (if vals == "" { "UNIT" } else { vals }) + " \};"
+      let arr = "V cv_[{max(len(cps), 1)}] = \{ " + (if vals == "" {
+        "UNIT"
+      } else {
+        vals
+      }) + " \};"
       let callv = "call_v(kxcb{i}_{cj}, {len(cps)}, cv_)"
       var body = ""
-      if cr == "Unit" { body = arr + " " + callv + ";" } else {
+      if cr == "Unit" {
+        body = arr + " " + callv + ";"
+      } else {
         let (g5, rcv) = to_c(g, "r_", VS(cr))
         g = g5
         body = arr + " V r_ = " + callv + "; return " + rcv + ";"
@@ -1212,7 +1418,9 @@ fn externs(g0: Gn) -> Gn {
     var al: List<Str> = []
     j = 0
     for t in ptys {
-      if contains(cbs, j) { al = push(al, "(void *)kxtr{i}_{j}") } else {
+      if contains(cbs, j) {
+        al = push(al, "(void *)kxtr{i}_{j}")
+      } else {
         let (g6, c) = to_c(g, "argv[{j}]", t)
         g = g6
         al = push(al, c)
@@ -1223,7 +1431,9 @@ fn externs(g0: Gn) -> Gn {
     let save = join(map(cbs, (cj) => "V sv{cj}_ = kxcb{i}_{cj}; kxcb{i}_{cj} = argv[{cj}];"), " ")
     let rest = join(map(cbs, (cj) => "kxcb{i}_{cj} = sv{cj}_;"), " ")
     var ret = ""
-    if sv(rty) == "Unit" && !is_nil(rty) { ret = save + " " + call + "; " + rest + " return UNIT;" } else {
+    if sv(rty) == "Unit" && !is_nil(rty) {
+      ret = save + " " + call + "; " + rest + " return UNIT;"
+    } else {
       let (g7, rc2) = cty(g, rty)
       let (g8, fc) = from_c(g7, "r", rty)
       g = g8
@@ -1238,7 +1448,8 @@ fn externs(g0: Gn) -> Gn {
 
 // ───────── KIR → C（kir.py 的 cnames / c_sig / emit_c / emit_wrapper，自举第 3d 步）─────────
 
-const KIR_HELPERS: Str = "\nstatic inline int kir_try(V v) \{\n  int vr = v.t == T_ENUM ? ENUMV(v)->var : -1;\n  if (vr == SYM_Ok || vr == SYM_Some) return 1;\n  if (vr == SYM_Err || vr == SYM_None) return 0;\n  die(\"? 只能用于 Result 或 Option\"); return 0;\n\}\nstatic KUp *kir_up(V v) \{\n  KUp *u = kalloc(sizeof(KUp)); u->closed = v; u->ref = &u->closed; u->next = NULL; u->owner = cur_task; return u;\n\}\nstatic inline V kir_gload(int g, const char *name) \{\n  if (__builtin_expect(G[g].t == T_UNDEF, 0)) die(\"未定义的名字 %s\", name);\n  return G[g];\n\}\nstatic V kir_vbin(int op, V a, V b) \{\n  switch (op) \{\n  case 0: return f_add(a, b); case 1: return f_sub(a, b); case 2: return f_mul(a, b);\n  case 3: return k_div(a, b); case 4: return k_mod(a, b);\n  case 5: return f_lt(a, b); case 6: return f_gt(a, b); case 7: return f_le(a, b); case 8: return f_ge(a, b);\n  case 9: return f_eq(a, b); case 10: return f_ne(a, b);\n  case 11: return k_range(a, b, 0); case 12: return k_range(a, b, 1);\n  \}\n  return UNIT;\n\}\n"
+const KIR_HELPERS: Str =
+  "\nstatic inline int kir_try(V v) \{\n  int vr = v.t == T_ENUM ? ENUMV(v)->var : -1;\n  if (vr == SYM_Ok || vr == SYM_Some) return 1;\n  if (vr == SYM_Err || vr == SYM_None) return 0;\n  die(\"? 只能用于 Result 或 Option\"); return 0;\n\}\nstatic KUp *kir_up(V v) \{\n  KUp *u = kalloc(sizeof(KUp)); u->closed = v; u->ref = &u->closed; u->next = NULL; u->owner = cur_task; return u;\n\}\nstatic inline V kir_gload(int g, const char *name) \{\n  if (__builtin_expect(G[g].t == T_UNDEF, 0)) die(\"未定义的名字 %s\", name);\n  return G[g];\n\}\nstatic V kir_vbin(int op, V a, V b) \{\n  switch (op) \{\n  case 0: return f_add(a, b); case 1: return f_sub(a, b); case 2: return f_mul(a, b);\n  case 3: return k_div(a, b); case 4: return k_mod(a, b);\n  case 5: return f_lt(a, b); case 6: return f_gt(a, b); case 7: return f_le(a, b); case 8: return f_ge(a, b);\n  case 9: return f_eq(a, b); case 10: return f_ne(a, b);\n  case 11: return k_range(a, b, 0); case 12: return k_range(a, b, 1);\n  \}\n  return UNIT;\n\}\n"
 
 // KIR 函数名 → C 函数名（按名字排序编号）；lambda 记作 "名字#下标"
 fn kir_cnames(kf: Map<Str, KF>) -> Map<Str, Str> {
@@ -1248,7 +1459,12 @@ fn kir_cnames(kf: Map<Str, KF>) -> Map<Str, Str> {
     var s = "kf{i}_"
     for ch in chars(n) {
       let o = __ord(ch)
-      s = s + (if o < 128 && ((o >= 48 && o <= 57) || (o >= 65 && o <= 90) || (o >= 97 && o <= 122)) { ch } else { "_" })
+      s = s + (if o < 128
+        && ((o >= 48 && o <= 57) || (o >= 65 && o <= 90) || (o >= 97 && o <= 122)) {
+        ch
+      } else {
+        "_"
+      })
     }
     names = set(names, n, s)
     i += 1
@@ -1266,38 +1482,74 @@ fn kir_cnames(kf: Map<Str, KF>) -> Map<Str, Str> {
 }
 
 fn ctype(t: Str) -> Str {
-  if t == "i64" { "int64_t" } else if t == "f64" { "double" } else if t == "b1" { "bool" } else if t == "cell" { "KUp *" } else { "V" }
+  if t == "i64" {
+    "int64_t"
+  } else if t == "f64" {
+    "double"
+  } else if t == "b1" {
+    "bool"
+  } else if t == "cell" {
+    "KUp *"
+  } else {
+    "V"
+  }
 }
 
 fn c_ret(t: Str) -> Str { if t == "unit" || t == "never" { "void" } else { ctype(t) } }
 
 // owner：函数所属的顶层 KIR 函数名；li：lambda 下标（顶层函数为 -1）
 fn kir_cname(names: Map<Str, Str>, owner: Str, li: Int) -> Str {
-  if li >= 0 { unwrap_or(get(names, owner + "#{li}"), "") } else { unwrap_or(get(names, owner), "") }
+  if li >= 0 {
+    unwrap_or(get(names, owner + "#{li}"), "")
+  } else {
+    unwrap_or(get(names, owner), "")
+  }
 }
 
 fn kir_sig(f: KF, names: Map<Str, Str>, owner: Str, li: Int) -> Str {
-  if f.closure { return "static V " + kir_cname(names, owner, li) + "(KFn *self, int argc, V *argv)" }
+  if f.closure {
+    return "static V " + kir_cname(names, owner, li) + "(KFn *self, int argc, V *argv)"
+  }
   let ps = join(map(f.params, (p) => ctype(kir.aty(p)) + " r{kir.rid(p)}"), ", ")
-  "static " + c_ret(f.ret) + " " + kir_cname(names, owner, li) + "(" + (if ps == "" { "void" } else { ps }) + ")"
+  "static " + c_ret(f.ret) + " " + kir_cname(names, owner, li) + "(" + (if ps == "" {
+    "void"
+  } else {
+    ps
+  }) + ")"
 }
 
 fn kbox(t: Str, x: Str) -> Str {
-  if t == "i64" { "mkint(" + x + ")" } else if t == "f64" { "mkflt(" + x + ")" } else if t == "b1" { "mkbool(" + x + ")" } else { x }
+  if t == "i64" {
+    "mkint(" + x + ")"
+  } else if t == "f64" {
+    "mkflt(" + x + ")"
+  } else if t == "b1" {
+    "mkbool(" + x + ")"
+  } else {
+    x
+  }
 }
 
 fn kunbox(t: Str, x: Str) -> Str {
-  if t == "i64" { "(" + x + ").u.i" } else if t == "f64" { "(" + x + ").u.f" } else if t == "b1" { "((" + x + ").u.i != 0)" } else { x }
+  if t == "i64" {
+    "(" + x + ").u.i"
+  } else if t == "f64" {
+    "(" + x + ").u.f"
+  } else if t == "b1" {
+    "((" + x + ").u.i != 0)"
+  } else {
+    x
+  }
 }
 
 fn kir_a(g: Gn, a: A) -> (Gn, Str) {
   match a {
     R(i, _) => (g, "r{i}"),
-    CU      => (g, "UNIT"),
-    CS(s)   => sconst(g, s),
-    CB(b)   => (g, if b { "1" } else { "0" }),
-    CI(i)   => (g, if i == -9223372036854775807 - 1 { "INT64_MIN" } else { "INT64_C({i})" }),
-    CF(x)   => {
+    CU => (g, "UNIT"),
+    CS(s) => sconst(g, s),
+    CB(b) => (g, if b { "1" } else { "0" }),
+    CI(i) => (g, if i == -9223372036854775807 - 1 { "INT64_MIN" } else { "INT64_C({i})" }),
+    CF(x) => {
       if x != x { return (g, "NAN") }
       if x > 1.7976931348623157e308 { return (g, "INFINITY") }
       if x < -1.7976931348623157e308 { return (g, "(-INFINITY)") }
@@ -1325,7 +1577,7 @@ fn argv_c(vals: List<Str>) -> (Str, Str) {
 fn direct_c(g: Gn, name: Str) -> Int {
   match gv(g, name) {
     GFn(p) => if !contains(g.assigned, name) && contains(g.pid, p) { pk(g, p) } else { -1 },
-    _      => -1,
+    _ => -1,
   }
 }
 
@@ -1339,7 +1591,10 @@ fn vbin_n(op: Str) -> Int {
   0
 }
 
-const KLINE_OPS: List<Str> = ["cset", "wfield", "windex", "vbin", "vneg", "callg", "callm", "callv", "field", "tidx", "index", "interp", "struct", "iter", "next", "tryok", "tpat", "unbox", "gload", "call"]
+const KLINE_OPS: List<Str> = [
+  "cset", "wfield", "windex", "vbin", "vneg", "callg", "callm", "callv", "field", "tidx", "index",
+  "interp", "struct", "iter", "next", "tryok", "tpat", "unbox", "gload", "call",
+]
 
 fn kir_emit(g0: Gn, f: KF, names: Map<Str, Str>, owner: Str, li: Int) -> (Gn, Str) {
   var g = g0
@@ -1360,13 +1615,24 @@ fn kir_emit(g0: Gn, f: KF, names: Map<Str, Str>, owner: Str, li: Int) -> (Gn, St
     ls = push(ls, "  if (argc != {n}) arity(self, {n}, argc);")
     var i = 0
     for p in f.params {
-      ls = push(ls, "  " + ctype(kir.aty(p)) + " r{kir.rid(p)} = " + kunbox(kir.aty(p), "argv[{i}]") + ";")
+      ls = push(
+        ls,
+        "  " + ctype(kir.aty(p)) + " r{kir.rid(p)} = " + kunbox(kir.aty(p), "argv[{i}]") + ";",
+      )
       i += 1
     }
     i = 0
     for c in f.caps {
-      if kir.aty(c) == "cell" { ls = push(ls, "  KUp *r{kir.rid(c)} = self->ups[{i}];") } else {
-        ls = push(ls, "  " + ctype(kir.aty(c)) + " r{kir.rid(c)} = " + kunbox(kir.aty(c), "*self->ups[{i}]->ref") + ";")
+      if kir.aty(c) == "cell" {
+        ls = push(ls, "  KUp *r{kir.rid(c)} = self->ups[{i}];")
+      } else {
+        ls = push(
+          ls,
+          "  " + ctype(kir.aty(c)) + " r{kir.rid(c)} = " + kunbox(
+            kir.aty(c),
+            "*self->ups[{i}]->ref",
+          ) + ";",
+        )
       }
       pids = set(pids, kir.rid(c), true)
       i += 1
@@ -1375,7 +1641,16 @@ fn kir_emit(g0: Gn, f: KF, names: Map<Str, Str>, owner: Str, li: Int) -> (Gn, St
   for rid in sort(keys(regs)) {
     if !contains(pids, rid) {
       let ty = unwrap(get(regs, rid))
-      ls = push(ls, "  " + ctype(ty) + " r{rid} = " + (if ty == "val" { "UNIT" } else if ty == "cell" { "NULL" } else { "0" }) + ";")
+      ls = push(
+        ls,
+        "  " + ctype(ty) + " r{rid} = " + (if ty == "val" {
+          "UNIT"
+        } else if ty == "cell" {
+          "NULL"
+        } else {
+          "0"
+        }) + ";",
+      )
     }
   }
   let (g1, pnames) = pats(g, f.pats)
@@ -1385,7 +1660,9 @@ fn kir_emit(g0: Gn, f: KF, names: Map<Str, Str>, owner: Str, li: Int) -> (Gn, St
     ls = push(ls, "  KFrame fr_ = \{ cur_frame, &open, FL_, defers, &nd \}; cur_frame = &fr_;")
   }
   let npb = max(f.npb, 1)
-  if len(f.pats) > 0 { ls = push(ls, "  V PB[{npb}]; for (int i_ = 0; i_ < {npb}; i_++) PB[i_] = UNIT;") }
+  if len(f.pats) > 0 {
+    ls = push(ls, "  V PB[{npb}]; for (int i_ = 0; i_ < {npb}; i_++) PB[i_] = UNIT;")
+  }
   ls = push(ls, "  SAFEPOINT(); CANCEL_POINT();")
   var order: Map<Int, Int> = Map()
   var bi = 0
@@ -1400,7 +1677,7 @@ fn kir_emit(g0: Gn, f: KF, names: Map<Str, Str>, owner: Str, li: Int) -> (Gn, St
     for ins in b.ins {
       let d = match ins.d {
         Some(x) => "r{kir.rid(x)}",
-        None    => "",
+        None => "",
       }
       let (g2, a) = kir_as(g, ins.args)
       g = g2
@@ -1412,50 +1689,159 @@ fn kir_emit(g0: Gn, f: KF, names: Map<Str, Str>, owner: Str, li: Int) -> (Gn, St
       }
       let xs_ = match ins.x {
         XS(s) => s,
-        _     => "",
+        _ => "",
       }
       let xi = match ins.x {
         XI(i) => i,
-        _     => 0,
+        _ => 0,
       }
-      if op == "copy" { ls = push(ls, "  {d} = {a[0]};") } else if op == "inc" { ls = push(ls, "  {d} = {d} + 1;") } else if op == "add.i64" || op == "sub.i64" || op == "mul.i64" {
-        ls = push(ls, "  if (__builtin_" + __str_slice(op, 0, 3) + "_overflow({a[0]}, {a[1]}, &{d})) \{ kline = {ln}; die(\"整数溢出\"); \}")
+      if op == "copy" {
+        ls = push(ls, "  {d} = {a[0]};")
+      } else if op == "inc" {
+        ls = push(ls, "  {d} = {d} + 1;")
+      } else if op == "add.i64" || op == "sub.i64" || op == "mul.i64" {
+        ls = push(
+          ls,
+          "  if (__builtin_" + __str_slice(
+            op,
+            0,
+            3,
+          ) + "_overflow({a[0]}, {a[1]}, &{d})) \{ kline = {ln}; die(\"整数溢出\"); \}",
+        )
       } else if op == "div.i64" {
-        ls = push(ls, "  if ({a[1]} == 0) \{ kline = {ln}; die(\"除以零\"); \} if ({a[0]} == INT64_MIN && {a[1]} == -1) \{ kline = {ln}; die(\"整数溢出\"); \} {d} = {a[0]} / {a[1]};")
+        ls = push(
+          ls,
+          "  if ({a[1]} == 0) \{ kline = {ln}; die(\"除以零\"); \} if ({a[0]} == INT64_MIN && {a[1]} == -1) \{ kline = {ln}; die(\"整数溢出\"); \} {d} = {a[0]} / {a[1]};",
+        )
       } else if op == "rem.i64" {
-        ls = push(ls, "  if ({a[1]} == 0) \{ kline = {ln}; die(\"除以零\"); \} {d} = {a[1]} == -1 ? 0 : {a[0]} % {a[1]};")
+        ls = push(
+          ls,
+          "  if ({a[1]} == 0) \{ kline = {ln}; die(\"除以零\"); \} {d} = {a[1]} == -1 ? 0 : {a[0]} % {a[1]};",
+        )
       } else if op == "add.f64" || op == "sub.f64" || op == "mul.f64" {
         let c = if op == "add.f64" { "+" } else if op == "sub.f64" { "-" } else { "*" }
         ls = push(ls, "  {d} = {a[0]} {c} {a[1]};")
-      } else if op == "div.f64" { ls = push(ls, "  if ({a[1]} == 0.0) \{ kline = {ln}; die(\"除以零\"); \} {d} = {a[0]} / {a[1]};") } else if op == "rem.f64" { ls = push(ls, "  if ({a[1]} == 0.0) \{ kline = {ln}; die(\"除以零\"); \} {d} = fmod({a[0]}, {a[1]});") } else if op == "neg.i64" { ls = push(ls, "  if (__builtin_sub_overflow((int64_t)0, {a[0]}, &{d})) \{ kline = {ln}; die(\"整数溢出\"); \}") } else if op == "neg.f64" { ls = push(ls, "  {d} = -{a[0]};") } else if op == "bit.band" || op == "bit.bor" || op == "bit.bxor" {
+      } else if op == "div.f64" {
+        ls = push(
+          ls,
+          "  if ({a[1]} == 0.0) \{ kline = {ln}; die(\"除以零\"); \} {d} = {a[0]} / {a[1]};",
+        )
+      } else if op == "rem.f64" {
+        ls = push(
+          ls,
+          "  if ({a[1]} == 0.0) \{ kline = {ln}; die(\"除以零\"); \} {d} = fmod({a[0]}, {a[1]});",
+        )
+      } else if op == "neg.i64" {
+        ls = push(
+          ls,
+          "  if (__builtin_sub_overflow((int64_t)0, {a[0]}, &{d})) \{ kline = {ln}; die(\"整数溢出\"); \}",
+        )
+      } else if op == "neg.f64" {
+        ls = push(ls, "  {d} = -{a[0]};")
+      } else if op == "bit.band" || op == "bit.bor" || op == "bit.bxor" {
         let c = if op == "bit.band" { "&" } else if op == "bit.bor" { "|" } else { "^" }
         ls = push(ls, "  {d} = {a[0]} {c} {a[1]};")
-      } else if op == "bit.bnot" { ls = push(ls, "  {d} = ~{a[0]};") } else if op == "bit.shl" || op == "bit.shr" {
-        ls = push(ls, "  if ((uint64_t){a[1]} >= 64) \{ kline = {ln}; die(\"移位位数超出范围: %lld\", (long long){a[1]}); \}")
-        ls = push(ls, if op == "bit.shl" { "  {d} = (int64_t)((uint64_t){a[0]} << {a[1]});" } else { "  {d} = {a[0]} >> {a[1]};" })
-      } else if op == "not" { ls = push(ls, "  {d} = !{a[0]};") } else if op == "lt" || op == "gt" || op == "le" || op == "ge" || op == "eq" || op == "ne" {
-        let c = if op == "lt" { "<" } else if op == "gt" { ">" } else if op == "le" { "<=" } else if op == "ge" { ">=" } else if op == "eq" { "==" } else { "!=" }
+      } else if op == "bit.bnot" {
+        ls = push(ls, "  {d} = ~{a[0]};")
+      } else if op == "bit.shl" || op == "bit.shr" {
+        ls = push(
+          ls,
+          "  if ((uint64_t){a[1]} >= 64) \{ kline = {ln}; die(\"移位位数超出范围: %lld\", (long long){a[1]}); \}",
+        )
+        ls = push(ls, if op == "bit.shl" {
+          "  {d} = (int64_t)((uint64_t){a[0]} << {a[1]});"
+        } else {
+          "  {d} = {a[0]} >> {a[1]};"
+        })
+      } else if op == "not" {
+        ls = push(ls, "  {d} = !{a[0]};")
+      } else if op == "lt" || op == "gt" || op == "le" || op == "ge" || op == "eq" || op == "ne" {
+        let c = if op == "lt" {
+          "<"
+        } else if op == "gt" {
+          ">"
+        } else if op == "le" {
+          "<="
+        } else if op == "ge" {
+          ">="
+        } else if op == "eq" {
+          "=="
+        } else {
+          "!="
+        }
         ls = push(ls, "  {d} = {a[0]} {c} {a[1]};")
-      } else if op == "i2f" { ls = push(ls, "  {d} = (double){a[0]};") } else if op == "f2i" { ls = push(ls, "  if (!({a[0]} >= -9223372036854775808.0 && {a[0]} < 9223372036854775808.0)) \{ kline = {ln}; die(\"整数溢出\"); \} {d} = (int64_t){a[0]};") } else if op == "b2i" { ls = push(ls, "  {d} = {a[0]} ? 1 : 0;") } else if op == "abs.i64" { ls = push(ls, "  if ({a[0]} == INT64_MIN) \{ kline = {ln}; die(\"整数溢出\"); \} {d} = {a[0]} < 0 ? -{a[0]} : {a[0]};") } else if op == "abs.f64" { ls = push(ls, "  {d} = fabs({a[0]});") } else if op == "min" || op == "max" {
+      } else if op == "i2f" {
+        ls = push(ls, "  {d} = (double){a[0]};")
+      } else if op == "f2i" {
+        ls = push(
+          ls,
+          "  if (!({a[0]} >= -9223372036854775808.0 && {a[0]} < 9223372036854775808.0)) \{ kline = {ln}; die(\"整数溢出\"); \} {d} = (int64_t){a[0]};",
+        )
+      } else if op == "b2i" {
+        ls = push(ls, "  {d} = {a[0]} ? 1 : 0;")
+      } else if op == "abs.i64" {
+        ls = push(
+          ls,
+          "  if ({a[0]} == INT64_MIN) \{ kline = {ln}; die(\"整数溢出\"); \} {d} = {a[0]} < 0 ? -{a[0]} : {a[0]};",
+        )
+      } else if op == "abs.f64" {
+        ls = push(ls, "  {d} = fabs({a[0]});")
+      } else if op == "min" || op == "max" {
         let c = if op == "min" { "<" } else { ">" }
         ls = push(ls, "  {d} = {a[1]} {c} {a[0]} ? {a[1]} : {a[0]};")
-      } else if op == "box" { ls = push(ls, "  {d} = " + kbox(kir.aty(ins.args[0]), a[0]) + ";") } else if op == "unbox" { ls = push(ls, "  {d} = " + kunbox(match ins.d {
-        Some(x) => kir.aty(x),
-        None    => "val",
-      }, a[0]) + ";") } else if op == "mkcell" { ls = push(ls, "  {d} = kir_up({a[0]});") } else if op == "cget" { ls = push(ls, "  {d} = *{a[0]}->ref;") } else if op == "cset" { ls = push(ls, "  k_store_up({a[0]}, {a[1]});") } else if op == "defer" { ls = push(ls, "  defers[nd++] = {a[0]};") } else if op == "rundefers" { ls = push(ls, "  while (nd > {xi}) \{ nd--; call_v(defers[nd], 0, NULL); \}") } else if op == "spawn" { ls = push(ls, "  \{ V a_[{len(a)}] = \{" + join(a, ", ") + "\}; {d} = k_spawn({len(a)}, a_); \}") } else if op == "closure" {
+      } else if op == "box" {
+        ls = push(ls, "  {d} = " + kbox(kir.aty(ins.args[0]), a[0]) + ";")
+      } else if op == "unbox" {
+        ls = push(
+          ls,
+          "  {d} = " + kunbox(match ins.d {
+            Some(x) => kir.aty(x),
+            None => "val",
+          }, a[0]) + ";",
+        )
+      } else if op == "mkcell" {
+        ls = push(ls, "  {d} = kir_up({a[0]});")
+      } else if op == "cget" {
+        ls = push(ls, "  {d} = *{a[0]}->ref;")
+      } else if op == "cset" {
+        ls = push(ls, "  k_store_up({a[0]}, {a[1]});")
+      } else if op == "defer" {
+        ls = push(ls, "  defers[nd++] = {a[0]};")
+      } else if op == "rundefers" {
+        ls = push(ls, "  while (nd > {xi}) \{ nd--; call_v(defers[nd], 0, NULL); \}")
+      } else if op == "spawn" {
+        ls = push(
+          ls,
+          "  \{ V a_[{len(a)}] = \{" + join(a, ", ") + "\}; {d} = k_spawn({len(a)}, a_); \}",
+        )
+      } else if op == "closure" {
         let lidx = match ins.x {
           XL(i) => i,
-          _     => 0,
+          _ => 0,
         }
         let lams = f.lams
         var ups: List<Str> = []
         var j = 0
         for x in a {
-          ups = push(ups, "f_->ups[{j}] = " + (if kir.aty(ins.args[j]) == "cell" { x } else { "kir_up(" + x + ")" }) + ";")
+          ups = push(
+            ups,
+            "f_->ups[{j}] = " + (if kir.aty(ins.args[j]) == "cell" {
+              x
+            } else {
+              "kir_up(" + x + ")"
+            }) + ";",
+          )
           j += 1
         }
         let lbl = owner_label(g, names, owner, lidx)
-        ls = push(ls, "  \{ V c_ = mkclosure(" + kir_cname(names, owner, lidx) + ", \"" + lbl + "\", {len(a)}); KFn *f_ = FN(c_); " + join(ups, " ") + " {d} = c_; \}")
+        ls = push(
+          ls,
+          "  \{ V c_ = mkclosure(" + kir_cname(
+            names,
+            owner,
+            lidx,
+          ) + ", \"" + lbl + "\", {len(a)}); KFn *f_ = FN(c_); " + join(ups, " ") + " {d} = c_; \}",
+        )
       } else if op == "call" {
         let cl = unwrap_or(get(names, xs_), "") + "(" + join(a, ", ") + ")"
         ls = push(ls, if d != "" { "  {d} = " + cl + ";" } else { "  " + cl + ";" })
@@ -1466,7 +1852,9 @@ fn kir_emit(g0: Gn, f: KF, names: Map<Str, Str>, owner: Str, li: Int) -> (Gn, St
           let k = direct_c(g, xs_)
           let (cnt, dc) = argv_c(a)
           decl = dc
-          if k >= 0 { cl = "p{k}(&CL{k}, " + cnt + ")" } else {
+          if k >= 0 {
+            cl = "p{k}(&CL{k}, " + cnt + ")"
+          } else {
             let (g3, gi) = glob(g, xs_)
             g = g3
             cl = "call_v(kir_gload({gi}, " + c_str(xs_) + "), " + cnt + ")"
@@ -1486,23 +1874,39 @@ fn kir_emit(g0: Gn, f: KF, names: Map<Str, Str>, owner: Str, li: Int) -> (Gn, St
         let (g3, gi) = glob(g, xs_)
         g = g3
         ls = push(ls, "  {d} = kir_gload({gi}, " + c_str(xs_) + ");")
-      } else if op == "vbin" { ls = push(ls, "  {d} = kir_vbin({vbin_n(xs_)}, {a[0]}, {a[1]});") } else if op == "vneg" { ls = push(ls, "  {d} = f_neg({a[0]});") } else if op == "list" || op == "tuple" {
-        if len(a) == 0 { ls = push(ls, "  {d} = " + (if op == "list" { "mklist(0, NULL)" } else { "UNIT" }) + ";") } else {
-          ls = push(ls, "  \{ V a_[{len(a)}] = \{" + join(a, ", ") + "\}; {d} = mk" + op + "({len(a)}, a_); \}")
+      } else if op == "vbin" {
+        ls = push(ls, "  {d} = kir_vbin({vbin_n(xs_)}, {a[0]}, {a[1]});")
+      } else if op == "vneg" {
+        ls = push(ls, "  {d} = f_neg({a[0]});")
+      } else if op == "list" || op == "tuple" {
+        if len(a) == 0 {
+          ls = push(ls, "  {d} = " + (if op == "list" { "mklist(0, NULL)" } else { "UNIT" }) + ";")
+        } else {
+          ls = push(
+            ls,
+            "  \{ V a_[{len(a)}] = \{" + join(a, ", ") + "\}; {d} = mk" + op + "({len(a)}, a_); \}",
+          )
         }
       } else if op == "struct" {
         let (sn, fs) = match ins.x {
           XST(n, f2) => (n, f2),
-          _          => ("", []),
+          _ => ("", []),
         }
         let ti = tid(g, sn)
         let (g3, fa) = symarr(g, fs)
         g = g3
-        ls = push(ls, "  \{ V a_[{max(len(a), 1)}] = \{" + (if len(a) == 0 { "UNIT" } else { join(a, ", ") }) + "\}; {d} = k_struct(&ST_{ti}, {len(a)}, " + fa + ", a_); \}")
+        ls = push(
+          ls,
+          "  \{ V a_[{max(len(a), 1)}] = \{" + (if len(a) == 0 {
+            "UNIT"
+          } else {
+            join(a, ", ")
+          }) + "\}; {d} = k_struct(&ST_{ti}, {len(a)}, " + fa + ", a_); \}",
+        )
       } else if op == "interp" {
         let ps = match ins.x {
           XP(p) => p,
-          _     => [],
+          _ => [],
         }
         var parts: List<Str> = []
         var ai = 0
@@ -1516,26 +1920,50 @@ fn kir_emit(g0: Gn, f: KF, names: Map<Str, Str>, owner: Str, li: Int) -> (Gn, St
             ai += 1
           }
         }
-        ls = push(ls, "  \{ V a_[{len(parts)}] = \{" + join(parts, ", ") + "\}; {d} = k_interp({len(parts)}, a_); \}")
+        ls = push(
+          ls,
+          "  \{ V a_[{len(parts)}] = \{" + join(
+            parts,
+            ", ",
+          ) + "\}; {d} = k_interp({len(parts)}, a_); \}",
+        )
       } else if op == "field" {
         let (g3, si) = sym(g, xs_)
         g = g3
         ls = push(ls, "  {d} = k_field({a[0]}, {si});")
-      } else if op == "tidx" { ls = push(ls, "  {d} = k_tidx({a[0]}, {xi});") } else if op == "wfield" {
+      } else if op == "tidx" {
+        ls = push(ls, "  {d} = k_tidx({a[0]}, {xi});")
+      } else if op == "wfield" {
         let (g3, si) = sym(g, xs_)
         g = g3
         ls = push(ls, "  {d} = k_wfield({a[0]}, {si}, {a[1]});")
-      } else if op == "windex" { ls = push(ls, "  {d} = k_windex({a[0]}, {a[1]}, {a[2]});") } else if op == "index" { ls = push(ls, "  {d} = k_index({a[0]}, {a[1]});") } else if op == "iter" { ls = push(ls, "  {d} = k_iter({a[0]});") } else if op == "next" {
+      } else if op == "windex" {
+        ls = push(ls, "  {d} = k_windex({a[0]}, {a[1]}, {a[2]});")
+      } else if op == "index" {
+        ls = push(ls, "  {d} = k_index({a[0]}, {a[1]});")
+      } else if op == "iter" {
+        ls = push(ls, "  {d} = k_iter({a[0]});")
+      } else if op == "next" {
         let ri = match ins.x {
           XR(i, _) => i,
-          _        => 0,
+          _ => 0,
         }
         ls = push(ls, "  {d} = k_next({a[0]}, &r{ri});")
-      } else if op == "tpat" { ls = push(ls, "  {d} = " + pnames[xi] + "({a[0]}, PB);") } else if op == "pbget" { ls = push(ls, "  {d} = PB[{xi}];") } else if op == "tryok" { ls = push(ls, "  {d} = kir_try({a[0]});") } else if op == "payload" { ls = push(ls, "  {d} = ENUMV({a[0]})->a[0];") } else { g = gerr(g, "C 生成: " + op) }
+      } else if op == "tpat" {
+        ls = push(ls, "  {d} = " + pnames[xi] + "({a[0]}, PB);")
+      } else if op == "pbget" {
+        ls = push(ls, "  {d} = PB[{xi}];")
+      } else if op == "tryok" {
+        ls = push(ls, "  {d} = kir_try({a[0]});")
+      } else if op == "payload" {
+        ls = push(ls, "  {d} = ENUMV({a[0]})->a[0];")
+      } else {
+        g = gerr(g, "C 生成: " + op)
+      }
     }
     match b.t {
       TNone => { ls = push(ls, "  __builtin_unreachable();") },
-      TUnr  => { ls = push(ls, "  __builtin_unreachable();") },
+      TUnr => { ls = push(ls, "  __builtin_unreachable();") },
       TBr(x) => {
         let back = unwrap_or(get(order, x), 0) <= bi
         ls = push(ls, (if back { "  SAFEPOINT(); CANCEL_POINT(); " } else { "  " }) + "goto B{x};")
@@ -1546,12 +1974,21 @@ fn kir_emit(g0: Gn, f: KF, names: Map<Str, Str>, owner: Str, li: Int) -> (Gn, St
         ls = push(ls, "  if (" + cs + ") " + kjmp(order, bi, x) + " else " + kjmp(order, bi, y))
       },
       TRet(v) => {
-        if f.ndefer > 0 { ls = push(ls, "  while (nd > 0) \{ nd--; call_v(defers[nd], 0, NULL); \} cur_frame = fr_.prev;") }
+        if f.ndefer > 0 {
+          ls = push(
+            ls,
+            "  while (nd > 0) \{ nd--; call_v(defers[nd], 0, NULL); \} cur_frame = fr_.prev;",
+          )
+        }
         match v {
           Some(x) => {
             let (g4, xs2) = kir_a(g, x)
             g = g4
-            ls = push(ls, if f.closure { "  return " + kbox(kir.aty(x), xs2) + ";" } else { "  return " + xs2 + ";" })
+            ls = push(ls, if f.closure {
+              "  return " + kbox(kir.aty(x), xs2) + ";"
+            } else {
+              "  return " + xs2 + ";"
+            })
           },
           None => { ls = push(ls, if f.closure { "  return UNIT;" } else { "  return;" }) },
         }
@@ -1561,7 +1998,10 @@ fn kir_emit(g0: Gn, f: KF, names: Map<Str, Str>, owner: Str, li: Int) -> (Gn, St
           Some(x) => {
             let (g4, xs2) = kir_a(g, x)
             g = g4
-            ls = push(ls, "  kline = {pl}; die(\"" + m + "\", cshow(" + kbox(kir.aty(x), xs2) + "));")
+            ls = push(
+              ls,
+              "  kline = {pl}; die(\"" + m + "\", cshow(" + kbox(kir.aty(x), xs2) + "));",
+            )
           },
           None => { ls = push(ls, "  kline = {pl}; die(\"" + m + "\");") },
         }
@@ -1576,7 +2016,7 @@ fn kir_emit(g0: Gn, f: KF, names: Map<Str, Str>, owner: Str, li: Int) -> (Gn, St
 fn owner_label(g: Gn, names: Map<Str, Str>, owner: Str, lidx: Int) -> Str {
   match get(g.kf, owner) {
     Some(of) => if lidx < len(of.lams) { of.lams[lidx].label } else { "<lambda>" },
-    None     => "<lambda>",
+    None => "<lambda>",
   }
 }
 
@@ -1588,12 +2028,20 @@ fn kir_wrapper(f: KF, names: Map<Str, Str>, owner: Str, k: Int, nparams: Int) ->
     i += 1
   }
   let cl = kir_cname(names, owner, -1) + "(" + join(args, ", ") + ")"
-  let body = if f.ret == "unit" || f.ret == "never" { cl + "; return UNIT;" } else { "return " + kbox(f.ret, cl) + ";" }
+  let body = if f.ret == "unit" || f.ret == "never" {
+    cl + "; return UNIT;"
+  } else {
+    "return " + kbox(f.ret, cl) + ";"
+  }
   "static V p{k}(KFn *self, int argc, V *argv) \{ /* " + f.name + "（KIR） */\n  if (argc != {nparams}) arity(self, {nparams}, argc);\n  " + body + "\n}"
 }
 
 fn kjmp(order: Map<Int, Int>, bi: Int, x: Int) -> Str {
-  if unwrap_or(get(order, x), 0) <= bi { "\{ SAFEPOINT(); CANCEL_POINT(); goto B{x}; \}" } else { "goto B{x};" }
+  if unwrap_or(get(order, x), 0) <= bi {
+    "\{ SAFEPOINT(); CANCEL_POINT(); goto B{x}; \}"
+  } else {
+    "goto B{x};"
+  }
 }
 
 // extern 声明里写的库（native.Gen.libs，按出现顺序去重），链接时加 -l
@@ -1601,7 +2049,9 @@ pub fn ext_libs(bs: S) -> List<Str> {
   var out: List<Str> = []
   for n in bs.gord {
     match unwrap_or(get(bs.gval, n), GOther) {
-      GExt(it, _) => { for x in unwrap_or(ext_fn(it).ext, []) { if !contains(out, x) { out = push(out, x) } } },
+      GExt(it, _) => {
+        for x in unwrap_or(ext_fn(it).ext, []) { if !contains(out, x) { out = push(out, x) } }
+      },
       _ => (),
     }
   }

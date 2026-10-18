@@ -20,8 +20,17 @@ fn gpal(p: List<Color>) -> Str { "[" + join(map(p, (c) => color.string(c)), " ")
 fn img(k: Int, r: image.Rectangle) -> Image { unwrap(image.new(k, r)) }
 
 fn main() {
-  let cs = [Color.RGBA(10, 200, 30, 128), Color.NRGBA(200, 10, 50, 77), Color.Gray(99), Color.Gray16(0x1234), Color.YCbCr(80, 200, 30),
-    Color.NYCbCrA(20, 100, 220, 150), Color.CMYK(10, 20, 30, 40), Color.Alpha(77), Color.NRGBA64(0x1111, 0x8888, 0xffff, 0x7777)]
+  let cs = [
+    Color.RGBA(10, 200, 30, 128),
+    Color.NRGBA(200, 10, 50, 77),
+    Color.Gray(99),
+    Color.Gray16(0x1234),
+    Color.YCbCr(80, 200, 30),
+    Color.NYCbCrA(20, 100, 220, 150),
+    Color.CMYK(10, 20, 30, 40),
+    Color.Alpha(77),
+    Color.NRGBA64(0x1111, 0x8888, 0xffff, 0x7777),
+  ]
   for c in cs {
     let (r, g, b, a) = color.rgba(c)
     var line = "{r} {g} {b} {a}:"
@@ -37,12 +46,29 @@ fn main() {
     print("{y} {cb} {cr} {r} {g} {b} {c} {m} {yy} {k} {r2} {g2} {b2}")
     i += 37
   }
-  print("{color.palette_index(color.plan9(), Color.RGBA(123, 45, 67, 255))} {color.string(unwrap(color.palette_convert(color.web_safe(), Color.NRGBA(123, 45, 67, 200))))}")
+  print(
+    "{color.palette_index(color.plan9(), Color.RGBA(123, 45, 67, 255))} {color.string(unwrap(color.palette_convert(color.web_safe(), Color.NRGBA(123, 45, 67, 200))))}",
+  )
   let r1 = image.rect(5, 8, -2, 1)
   let r2 = image.rect(0, 0, 4, 4)
-  print("{r1.string()} {r1.intersect(r2).string()} {r1.union(r2).string()} {r1.inset(2).string()} {r1.inset(5).string()} {r1.overlaps(r2)} {r2.in_(r1)} {r1.size().string()} {image.pt(-7, 13).mod_(r2).string()} {image.pt(3, 4).div(2).string()} {r1.add(image.pt(1, 1)).eq(r1)} {image.rect(3, 3, 3, 9).eq(image.zr())}")
+  print(
+    "{r1.string()} {r1.intersect(r2).string()} {r1.union(r2).string()} {r1.inset(2).string()} {r1.inset(5).string()} {r1.overlaps(r2)} {r2.in_(r1)} {r1.size().string()} {image.pt(-7, 13).mod_(r2).string()} {image.pt(3, 4).div(2).string()} {r1.add(image.pt(1, 1)).eq(r1)} {image.rect(3, 3, 3, 9).eq(image.zr())}",
+  )
   let rr = image.rect(1, 2, 6, 6)
-  var ims = map([image.RGBA, image.RGBA64, image.NRGBA, image.NRGBA64, image.ALPHA, image.ALPHA16, image.GRAY, image.GRAY16, image.CMYK], (k) => img(k, rr))
+  var ims = map(
+    [
+      image.RGBA,
+      image.RGBA64,
+      image.NRGBA,
+      image.NRGBA64,
+      image.ALPHA,
+      image.ALPHA16,
+      image.GRAY,
+      image.GRAY16,
+      image.CMYK,
+    ],
+    (k) => img(k, rr),
+  )
   ims = push(ims, unwrap(image.new_paletted(rr, color.web_safe())))
   for im0 in ims {
     var im = im0.set(2, 3, Color.NRGBA(200, 100, 50, 180))
@@ -52,19 +78,54 @@ fn main() {
     print(im.opaque())
   }
   var yc = unwrap(image.new_ycbcr(image.rect(1, 1, 8, 6), image.RATIO_420))
-  yc = Image { y: map(0..len(yc.y), (i) => (i * 7) & 255), cb: map(0..len(yc.cb), (i) => (i * 13) & 255), cr: map(0..len(yc.cr), (i) => (255 - i * 11) & 255), ..yc }
-  print("{len(yc.y)} {len(yc.cb)} {yc.c_stride} {color.string(yc.at(4, 3))} {yc.c_offset(7, 5)} {image.ratio_string(yc.ratio)}")
+  yc = Image {
+    y: map(0..len(yc.y), (i) => (i * 7) & 255),
+    cb: map(0..len(yc.cb), (i) => (i * 13) & 255),
+    cr: map(0..len(yc.cr), (i) => (255 - i * 11) & 255),
+    ..yc
+  }
+  print(
+    "{len(yc.y)} {len(yc.cb)} {yc.c_stride} {color.string(yc.at(4, 3))} {yc.c_offset(7, 5)} {image.ratio_string(yc.ratio)}",
+  )
   var dst = img(image.RGBA, image.rect(0, 0, 8, 8))
-  dst = draw.draw(dst, dst.bounds(), image.new_uniform(Color.RGBA(0, 0, 255, 255)), image.zp(), draw.SRC)
+  dst = draw.draw(
+    dst,
+    dst.bounds(),
+    image.new_uniform(Color.RGBA(0, 0, 255, 255)),
+    image.zp(),
+    draw.SRC,
+  )
   dst = draw.draw(dst, image.rect(2, 2, 7, 7), yc, image.pt(1, 1), draw.OVER)
   var src = img(image.NRGBA, image.rect(0, 0, 4, 4))
   src = Image { pix: map(0..len(src.pix), (i) => (i * 17) & 255), ..src }
   var mask = img(image.ALPHA, image.rect(0, 0, 8, 8))
   mask = Image { pix: map(0..len(mask.pix), (i) => (i * 5) & 255), ..mask }
-  dst = draw.draw_mask(dst, image.rect(-1, 3, 5, 9), src, image.pt(0, 0), Some(mask), image.pt(1, 1), draw.OVER)
-  dst = draw.draw_mask(dst, image.rect(4, 0, 8, 3), src, image.pt(1, 0), Some(mask), image.pt(0, 0), draw.SRC)
+  dst = draw.draw_mask(
+    dst,
+    image.rect(-1, 3, 5, 9),
+    src,
+    image.pt(0, 0),
+    Some(mask),
+    image.pt(1, 1),
+    draw.OVER,
+  )
+  dst = draw.draw_mask(
+    dst,
+    image.rect(4, 0, 8, 3),
+    src,
+    image.pt(1, 0),
+    Some(mask),
+    image.pt(0, 0),
+    draw.SRC,
+  )
   print("{sum(dst.pix)} {gl(dst.pix[0..40])}")
-  let g16 = draw.draw(img(image.GRAY16, image.rect(0, 0, 5, 5)), image.rect(0, 0, 5, 5), dst, image.pt(2, 2), draw.OVER)
+  let g16 = draw.draw(
+    img(image.GRAY16, image.rect(0, 0, 5, 5)),
+    image.rect(0, 0, 5, 5),
+    dst,
+    image.pt(2, 2),
+    draw.OVER,
+  )
   print(gl(g16.pix))
   var pal = unwrap(image.new_paletted(image.rect(0, 0, 8, 8), color.plan9()))
   pal = draw.draw(pal, pal.bounds(), dst, image.zp(), draw.SRC)
@@ -77,14 +138,33 @@ fn main() {
   print("<nil> {m.bounds().string()} {sum(m.pix)}")
   let enc16 = unwrap(gif.encode(dst, gif.Options { num_colors: 16 }))
   print("{len(enc16)} {sum(enc16)}")
-  var p1 = unwrap(image.new_paletted(image.rect(0, 0, 10, 6), [Color.RGBA(0, 0, 0, 255), Color.RGBA(255, 0, 0, 255), Color.RGBA(0, 0, 0, 0)]))
-  var p2 = unwrap(image.new_paletted(image.rect(2, 1, 9, 5), [Color.RGBA(0, 0, 0, 255), Color.RGBA(0, 255, 0, 255), Color.RGBA(9, 9, 9, 255), Color.RGBA(1, 1, 1, 255), Color.RGBA(2, 2, 2, 255)]))
+  var p1 = unwrap(image.new_paletted(image.rect(0, 0, 10, 6), [
+    Color.RGBA(0, 0, 0, 255),
+    Color.RGBA(255, 0, 0, 255),
+    Color.RGBA(0, 0, 0, 0),
+  ]))
+  var p2 = unwrap(image.new_paletted(image.rect(2, 1, 9, 5), [
+    Color.RGBA(0, 0, 0, 255),
+    Color.RGBA(0, 255, 0, 255),
+    Color.RGBA(9, 9, 9, 255),
+    Color.RGBA(1, 1, 1, 255),
+    Color.RGBA(2, 2, 2, 255),
+  ]))
   p1 = Image { pix: map(0..len(p1.pix), (i) => i % 3), ..p1 }
   p2 = Image { pix: map(0..len(p2.pix), (i) => i * i % 5), ..p2 }
-  let anim = unwrap(gif.encode_all(gif.Gif { images: [p1, p2], delay: [10, 20], loop_count: 3, disposal: [1, 2], config: gif.Config { palette: p1.palette, width: 10, height: 6 }, background_index: 0 }))
+  let anim = unwrap(gif.encode_all(gif.Gif {
+    images: [p1, p2],
+    delay: [10, 20],
+    loop_count: 3,
+    disposal: [1, 2],
+    config: gif.Config { palette: p1.palette, width: 10, height: 6 },
+    background_index: 0,
+  }))
   print("<nil> {gl(anim)}")
   let g = unwrap(gif.decode_all(anim))
-  print("<nil> {len(g.images)} {gl(g.delay)} {g.loop_count} {gl(g.disposal)} {g.config.width} {g.config.height} {g.background_index} {len(g.config.palette)}")
+  print(
+    "<nil> {len(g.images)} {gl(g.delay)} {g.loop_count} {gl(g.disposal)} {g.config.width} {g.config.height} {g.background_index} {len(g.config.palette)}",
+  )
   for im in g.images { print("{im.rect.string()} {gl(im.pix)} {gpal(im.palette)}") }
   let cfg = unwrap(gif.decode_config(anim))
   print("{cfg.width} {cfg.height} <nil>")
@@ -102,7 +182,9 @@ fn main() {
     b2[k] = b2[k] ^ 0x5a
     match gif.decode_all(b2) { Ok(_) => print("{k} <nil>"), Err(e) => print("{k} {e}") }
   }
-  var il = __bytes("GIF89a") + [1, 0, 9, 0, 0x80, 0, 0, 0, 0, 0, 255, 255, 255, 0x2c, 0, 0, 0, 0, 1, 0, 9, 0, 0x40, 2]
+  var il = __bytes("GIF89a") + [
+    1, 0, 9, 0, 0x80, 0, 0, 0, 0, 0, 255, 255, 255, 0x2c, 0, 0, 0, 0, 1, 0, 9, 0, 0x40, 2,
+  ]
   let cmp = unwrap(lzw.compress([1, 0, 1, 1, 0, 0, 1, 0, 1], lzw.LSB, 2))
   il = push(il, len(cmp)) + cmp + [0, 0x3b]
   match gif.decode(il) { Ok(im) => print("<nil> {gl(im.pix)}"), Err(e) => print(e) }

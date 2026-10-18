@@ -26,7 +26,9 @@ pub fn clone(b: List<Int>) -> List<Int> { b }
 
 pub fn has_prefix(s: List<Int>, p: List<Int>) -> Bool { len(s) >= len(p) && s[..len(p)] == p }
 
-pub fn has_suffix(s: List<Int>, p: List<Int>) -> Bool { len(s) >= len(p) && s[len(s) - len(p)..] == p }
+pub fn has_suffix(s: List<Int>, p: List<Int>) -> Bool {
+  len(s) >= len(p) && s[len(s) - len(p)..] == p
+}
 
 // ───────── 查找 ─────────
 
@@ -201,9 +203,13 @@ pub fn split(s: List<Int>, sep: List<Int>) -> List<List<Int>> { gen_split(s, sep
 
 pub fn split_n(s: List<Int>, sep: List<Int>, n: Int) -> List<List<Int>> { gen_split(s, sep, 0, n) }
 
-pub fn split_after(s: List<Int>, sep: List<Int>) -> List<List<Int>> { gen_split(s, sep, len(sep), -1) }
+pub fn split_after(s: List<Int>, sep: List<Int>) -> List<List<Int>> {
+  gen_split(s, sep, len(sep), -1)
+}
 
-pub fn split_after_n(s: List<Int>, sep: List<Int>, n: Int) -> List<List<Int>> { gen_split(s, sep, len(sep), n) }
+pub fn split_after_n(s: List<Int>, sep: List<Int>, n: Int) -> List<List<Int>> {
+  gen_split(s, sep, len(sep), n)
+}
 
 pub fn fields_func(s: List<Int>, f: fn(Int) -> Bool) -> List<List<Int>> {
   var out: List<List<Int>> = []
@@ -277,7 +283,9 @@ pub fn replace(s: List<Int>, old: List<Int>, new: List<Int>, n0: Int) -> List<In
   out + s[start..]
 }
 
-pub fn replace_all(s: List<Int>, old: List<Int>, new: List<Int>) -> List<Int> { replace(s, old, new, -1) }
+pub fn replace_all(s: List<Int>, old: List<Int>, new: List<Int>) -> List<Int> {
+  replace(s, old, new, -1)
+}
 
 // 对每个码点做映射；返回负数的丢掉；无效字节先当作 U+FFFD
 pub fn map_rune(f: fn(Int) -> Int, s: List<Int>) -> List<Int> {
@@ -303,11 +311,17 @@ pub fn runes(s: List<Int>) -> List<Int> {
   out
 }
 
-pub fn to_upper(s: List<Int>) -> List<Int> { map_rune((r) => __ord(unicode.to_upper(rune_str(r))), s) }
+pub fn to_upper(s: List<Int>) -> List<Int> {
+  map_rune((r) => __ord(unicode.to_upper(rune_str(r))), s)
+}
 
-pub fn to_lower(s: List<Int>) -> List<Int> { map_rune((r) => __ord(unicode.to_lower(rune_str(r))), s) }
+pub fn to_lower(s: List<Int>) -> List<Int> {
+  map_rune((r) => __ord(unicode.to_lower(rune_str(r))), s)
+}
 
-pub fn to_title(s: List<Int>) -> List<Int> { map_rune((r) => __ord(unicode.to_title(rune_str(r))), s) }
+pub fn to_title(s: List<Int>) -> List<Int> {
+  map_rune((r) => __ord(unicode.to_title(rune_str(r))), s)
+}
 
 // 每段连续的无效字节换成 replacement
 pub fn to_valid_utf8(s: List<Int>, replacement: List<Int>) -> List<Int> {
@@ -354,7 +368,9 @@ pub fn equal_fold(a: List<Int>, b: List<Int>) -> Bool {
 
 fn is_sep(r: Int) -> Bool {
   if r <= 0x7f {
-    if (r >= 48 && r <= 57) || (r >= 97 && r <= 122) || (r >= 65 && r <= 90) || r == 95 { return false }
+    if (r >= 48 && r <= 57) || (r >= 97 && r <= 122) || (r >= 65 && r <= 90) || r == 95 {
+      return false
+    }
     return true
   }
   let c = rune_str(r)
@@ -366,7 +382,11 @@ pub fn title(s: List<Int>) -> List<Int> {
   var prev = 32
   var out: List<Int> = []
   for r in runes(s) {
-    out = out + utf8.encode_rune(if is_sep(prev) { __ord(unicode.to_title(rune_str(r))) } else { r })
+    out = out + utf8.encode_rune(if is_sep(prev) {
+      __ord(unicode.to_title(rune_str(r)))
+    } else {
+      r
+    })
     prev = r
   }
   out
@@ -395,13 +415,19 @@ pub fn trim_right_func(s: List<Int>, f: fn(Int) -> Bool) -> List<Int> {
   s[..i]
 }
 
-pub fn trim_func(s: List<Int>, f: fn(Int) -> Bool) -> List<Int> { trim_right_func(trim_left_func(s, f), f) }
+pub fn trim_func(s: List<Int>, f: fn(Int) -> Bool) -> List<Int> {
+  trim_right_func(trim_left_func(s, f), f)
+}
 
 pub fn trim(s: List<Int>, cutset: Str) -> List<Int> { trim_func(s, (r) => in_chars(cutset, r)) }
 
-pub fn trim_left(s: List<Int>, cutset: Str) -> List<Int> { trim_left_func(s, (r) => in_chars(cutset, r)) }
+pub fn trim_left(s: List<Int>, cutset: Str) -> List<Int> {
+  trim_left_func(s, (r) => in_chars(cutset, r))
+}
 
-pub fn trim_right(s: List<Int>, cutset: Str) -> List<Int> { trim_right_func(s, (r) => in_chars(cutset, r)) }
+pub fn trim_right(s: List<Int>, cutset: Str) -> List<Int> {
+  trim_right_func(s, (r) => in_chars(cutset, r))
+}
 
 pub fn trim_space(s: List<Int>) -> List<Int> { trim_func(s, is_space_r) }
 
@@ -464,7 +490,9 @@ impl Buffer {
   fn read_bytes(self, delim: Int) -> (List<Int>, Buffer, Str) {
     var i = self.off
     while i < len(self.buf) {
-      if self.buf[i] == delim { return (self.buf[self.off..i + 1], Buffer { off: i + 1, ..self }, "") }
+      if self.buf[i] == delim {
+        return (self.buf[self.off..i + 1], Buffer { off: i + 1, ..self }, "")
+      }
       i += 1
     }
     (self.buf[self.off..], Buffer { off: len(self.buf), ..self }, "EOF")

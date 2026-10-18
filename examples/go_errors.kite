@@ -7,7 +7,19 @@ fn main() {
   let j = errors.join([Some(c), None, Some(other)]) |> unwrap
   print(errors.error(a), "|", errors.error(b), "|", errors.error(c))
   print(errors.error(j))
-  print(errors.has(c, a), errors.has(c, other), errors.has(j, a), errors.has(j, other), errors.has(a, b))
-  print(errors.unwrap(b) == Some(a), errors.unwrap(a) == None, errors.unwrap(j) == None, len(errors.unwrap_all(j)), errors.join([None, None]) == None)
+  print(
+    errors.has(c, a),
+    errors.has(c, other),
+    errors.has(j, a),
+    errors.has(j, other),
+    errors.has(a, b),
+  )
+  print(
+    errors.unwrap(b) == Some(a),
+    errors.unwrap(a) == None,
+    errors.unwrap(j) == None,
+    len(errors.unwrap_all(j)),
+    errors.join([None, None]) == None,
+  )
   print(errors.find(c, (e) => e.msg == "not found") == Some(a))
 }
