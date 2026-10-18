@@ -1,14 +1,13 @@
-// kitec fmt —— Kite 代码格式化器
+// std.kite.format：Kite 代码格式化（对应 Go 的 go/format；kitec fmt 用的就是这一份）
+//   fmt(src) -> Result<Str, Str>：格式化，并检查没有改变程序含义；format_source(src) 不做检查
 //
 // 规则见 docs/fmt.md。要点：
 // - 行宽 100（全角字符算 2 列），2 空格缩进；语句之间的换行有语义，原样保留
 // - 放不下时从外到内断开：赋值右边 → 最低优先级的 || && |> → 方法链 → 括号列表（单行 / 拥抱最后一项 / 每项一行加尾逗号）
 // - 魔法尾逗号：多行且带尾逗号的 ( [ 列表保持展开；多行的 { } 列表保持多行
 // - 安全网：输出和输入的 token 序列（含语句分隔 NEWLINE，忽略尾逗号）必须相同，且能解析；幂等
-use std.fs
-use std.io
-use lexer
-use parser
+use std.kite.scanner as lexer
+use std.kite.parser as parser
 
 const INDENT: Str = "  "
 const BINARY: List<Str> = [
@@ -87,10 +86,6 @@ fn rep(s: Str, n: Int) -> Str {
 }
 
 // 输出以换行结尾的文本（print 会自己补换行）
-fn out_raw(s: Str) {
-  if ends_with(s, "\n") { print(__str_slice(s, 0, len(s) - 1)) } else { print(s) }
-}
-
 fn ops() -> List<Str> { lexer.OPS3 + lexer.OPS2 + lexer.OPS1 }
 
 // 返回逻辑行列表；每行是 T 的列表。多行注释/字符串作为一个整体 token
@@ -1565,88 +1560,4 @@ pub fn fmt(src: Str) -> Result<Str, Str> {
   if after != before { return Err(bad) }
   if parsed && is_err(parser.parse(res)) { return Err(bad) }
   Ok(res)
-}
-
-fn read_stdin() -> Str {
-  var out = ""
-  while true {
-    match io.read_line() {
-      Some(l) => { out = out + l + "\n" },
-      None => { return out },
-    }
-  }
-  out
-}
-
-// kitec fmt [-w] [--check] [文件…]；不给文件时读标准输入
-pub fn main(args: List<Str>) -> Int {
-  if contains(args, "--migrate") {
-    __eprint("kite fmt --migrate（0.48 → v0.6 迁移）已废弃")
-    return 2
-  }
-  if contains(args, "--raw") {
-    for p in filter(args, (a) => !starts_with(a, "-")) {
-      match fs.read(p) {
-        Ok(s) => match format_source(s) {
-          Ok(r) => out_raw(r),
-          Err(e) => __eprint(e),
-        },
-        Err(e) => __eprint(e),
-      }
-    }
-    return 0
-  }
-  let write = contains(args, "-w")
-  let check = contains(args, "--check")
-  let files = filter(args, (a) => !starts_with(a, "-"))
-  if len(files) == 0 {
-    match fmt(read_stdin()) {
-      Ok(r) => {
-        out_raw(r)
-        return 0
-      },
-      Err(e) => {
-        __eprint(e)
-        return 1
-      },
-    }
-  }
-  var bad = 0
-  for p in files {
-    let src = match fs.read(p) {
-      Ok(s) => s,
-      Err(e) => {
-        __eprint("{p}:{e}")
-        bad = 1
-        continue
-      },
-    }
-    let res = match fmt(src) {
-      Ok(r) => r,
-      Err(e) => {
-        __eprint("{p}:{e}")
-        bad = 1
-        continue
-      },
-    }
-    if check {
-      if res != src {
-        print("{p}: 需要格式化")
-        bad = 1
-      }
-    } else if write {
-      if res != src {
-        match fs.write(p, res) {
-          Ok(_) => print("已格式化 {p}"),
-          Err(e) => {
-            __eprint("{p}:{e}")
-            bad = 1
-          },
-        }
-      }
-    } else {
-      out_raw(res)
-    }
-  }
-  bad
 }

@@ -1,7 +1,7 @@
 // Kite 自举编译器：KIR 的文本形式，与 tools/kir_dump.py 逐字节相同（自举第 3d 步）
 
-use val
-use val.{ V }
+use std.kite.val as val
+use std.kite.val.{ V }
 use kir
 use kir.{ A, X, T, In, Bk, KF }
 use cgen

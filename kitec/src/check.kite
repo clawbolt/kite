@@ -1,9 +1,9 @@
 // Kite 自举编译器：类型检查（对应 typecheck.py 的 Checker，逐条移植，报错文字相同）
 // 检查器状态 C 按值传递；会出错的函数返回 Result<(C, 结果), F>，F 里带着出错时的状态（Python 版出错前的修改会保留）
 // 检查函数直接返回类型化 IR（改写后的节点，表达式带 Node.t）；只有求解后才能定的改动按 Node.id 记成补丁（Pt），最后套上
-use ast
-use val
-use ast.{
+use std.kite.ast as ast
+use std.kite.val as val
+use std.kite.ast.{
   Node,
   K,
   Lit,
@@ -28,11 +28,11 @@ use ast.{
   MatchD,
   kname,
 }
-use tys
-use tys.{ Ty, tcon, fn_t, list_t, tname, targs, is_tv, is_tr, is_tg, is_con }
-use parser
+use std.kite.ty as tys
+use std.kite.ty.{ Ty, tcon, fn_t, list_t, tname, targs, is_tv, is_tr, is_tg, is_con }
+use std.kite.parser as parser
 use builtins
-use lexer.{ repr_str }
+use std.kite.scanner.{ repr_str }
 pub enum FT {
   FTy(Ty),
   FVar,

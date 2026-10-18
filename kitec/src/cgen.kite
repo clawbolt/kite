@@ -2,9 +2,9 @@
 // 输入是 bc.compile_chunk 的结果，输出和 tools/c_dump.py（native.Gen.generate）逐字节相同
 // 注意：Kite 字符串里的花括号写成 \{ \}
 
-use ast
-use val
-use val.{ V, sv, iv, items, is_nil }
+use std.kite.ast as ast
+use std.kite.val as val
+use std.kite.val.{ V, sv, iv, items, is_nil }
 use bc
 use bc.{ S, PR, GV }
 use kir

@@ -1,0 +1,92 @@
+// kitec fmt 命令行（格式化本身在 std.kite.format）
+use std.fs
+use std.io
+use std.kite.format.{ fmt, format_source }
+
+fn read_stdin() -> Str {
+  var out = ""
+  while true {
+    match io.read_line() {
+      Some(l) => { out = out + l + "\n" },
+      None => { return out },
+    }
+  }
+  out
+}
+
+// kitec fmt [-w] [--check] [文件…]；不给文件时读标准输入
+pub fn main(args: List<Str>) -> Int {
+  if contains(args, "--migrate") {
+    __eprint("kite fmt --migrate（0.48 → v0.6 迁移）已废弃")
+    return 2
+  }
+  if contains(args, "--raw") {
+    for p in filter(args, (a) => !starts_with(a, "-")) {
+      match fs.read(p) {
+        Ok(s) => match format_source(s) {
+          Ok(r) => out_raw(r),
+          Err(e) => __eprint(e),
+        },
+        Err(e) => __eprint(e),
+      }
+    }
+    return 0
+  }
+  let write = contains(args, "-w")
+  let check = contains(args, "--check")
+  let files = filter(args, (a) => !starts_with(a, "-"))
+  if len(files) == 0 {
+    match fmt(read_stdin()) {
+      Ok(r) => {
+        out_raw(r)
+        return 0
+      },
+      Err(e) => {
+        __eprint(e)
+        return 1
+      },
+    }
+  }
+  var bad = 0
+  for p in files {
+    let src = match fs.read(p) {
+      Ok(s) => s,
+      Err(e) => {
+        __eprint("{p}:{e}")
+        bad = 1
+        continue
+      },
+    }
+    let res = match fmt(src) {
+      Ok(r) => r,
+      Err(e) => {
+        __eprint("{p}:{e}")
+        bad = 1
+        continue
+      },
+    }
+    if check {
+      if res != src {
+        print("{p}: 需要格式化")
+        bad = 1
+      }
+    } else if write {
+      if res != src {
+        match fs.write(p, res) {
+          Ok(_) => print("已格式化 {p}"),
+          Err(e) => {
+            __eprint("{p}:{e}")
+            bad = 1
+          },
+        }
+      }
+    } else {
+      out_raw(res)
+    }
+  }
+  bad
+}
+
+fn out_raw(s: Str) {
+  if ends_with(s, "\n") { print(__str_slice(s, 0, len(s) - 1)) } else { print(s) }
+}

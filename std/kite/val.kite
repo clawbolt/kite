@@ -1,4 +1,4 @@
-// Kite 自举编译器：动态值
+// std.kite.val：动态值（kitec 内部用）
 // 只用于两处：字节码 / KIR 的常量与操作数（Python VM 的常量本来就是动态值），
 // 以及各种 dump 输出的统一格式（与 tools/*_dump.py 逐字节一致）。语法树本身是强类型的（ast.kite）。
 

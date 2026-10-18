@@ -1,4 +1,4 @@
-// Kite 自举编译器：类型表示（对应 typecheck.py 的 TVar / TCon / TGen / TRigid）
+// std.kite.ty：Kite 类型表示（类型检查器和类型化语法树用；kitec 自己用的就是这一份）
 // 类型变量的绑定不在对象里，而在检查器状态的替换表 sub 里（Map<Int, Ty>）
 
 pub enum Ty {

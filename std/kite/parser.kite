@@ -1,10 +1,10 @@
-// Kite 自举编译器：语法分析（对应 kite.py 的 Parser，逐条移植）
-// 产出强类型语法树（ast.Node）；ast.to_v 转成的动态形式与 Python 版的语法树逐字节一致
+// std.kite.parser：Kite 语法分析（对应 Go 的 go/parser；kitec 自己用的就是这一份）
+//   parse(src) -> Result<List<ast.Node>, Str>（顶层声明列表）、parse_type(src) -> Result<ast.TyX, Str>
 // 解析器状态 P 按值传递：每个解析函数返回 (新状态, 结果)
-use ast
-use lexer
-use lexer.{ TV, SPart, sv, iv, is_nil }
-use ast.{
+use std.kite.ast as ast
+use std.kite.scanner as lexer
+use std.kite.scanner.{ TV, SPart, sv, iv, is_nil }
+use std.kite.ast.{
   Node,
   K,
   Lit,
@@ -28,7 +28,7 @@ use ast.{
   mkn,
   kname,
 }
-use lexer.{ Tok, err, repr_str, repr_v, first_upper, first_lower }
+use std.kite.scanner.{ Tok, err, repr_str, repr_v, first_upper, first_lower }
 
 pub type P = {
   t: List<Tok>,

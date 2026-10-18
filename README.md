@@ -1106,6 +1106,11 @@ Go 1.27 的 encoding/json（v1）改由 v2 实现，语法错误、Compact/Inden
 | `std.image.jpeg` | image/jpeg | 基线、渐进式、重启间隔、全部采样比（含 flex）、灰度 / YCbCr / RGB / CMYK / YCCK 解码，编码按质量 1..100，与 Go 1.27 新 DCT 逐字节相同 |
 | `std.log.slog` | log/slog | Level 及解析、Value / Attr、TextHandler / JSONHandler（ReplaceAttr、with_attrs / with_group、空组规则）、Logger；没有反射，Any 值显式给出文本和 JSON 两种写法 |
 | `std.regexp.syntax` | regexp/syntax | Parse（全部标志、错误码与错误片段）、Regexp.String / Simplify / Equal / MaxCap / CapNames、Compile 与 Prog.String / Prefix / StartCond、Inst.MatchRune 等；Go 测试里的 427 个模式逐字节一致 |
+| `std.kite.token` | （对标 go/token） | Kite 记号种类 KINDS、keywords / is_keyword、operators / is_operator、is_identifier、position（字符下标 → 行列） |
+| `std.kite.scanner` | （对标 go/scanner） | Kite 词法分析 lex → List<Tok>，就是 kitec 用的那一份 |
+| `std.kite.ast` | （对标 go/ast） | Kite 强类型语法树 Node / K；kname、kids、with_kids、dump；类型检查后表达式节点带 Node.t |
+| `std.kite.parser` | （对标 go/parser） | parse / parse_type，就是 kitec 的解析器，报错 `ERR 行:列 信息` |
+| `std.kite.format` | （对标 go/format） | fmt（带安全网）/ format_source，就是 kitec fmt |
 | `std.go.token` | go/token | 记号常量与 String / Precedence / Lookup、IsIdentifier 等；Position、File（行表、行指令信息、SetLinesForContent、MergeLine）、FileSet；File / FileSet 是值，扫描后用 set_file 写回 |
 | `std.go.scanner` | go/scanner | Scanner（分号自动插入、注释、行指令 //line 与 /*line*/、全部错误信息）、Error / ErrorList；错误收集在 s.errors，不用回调 |
 | `std.go.ast` | go/ast | 节点是一个枚举 Node（变体名同 Go 类型名，nil 是 Nil）；pos / end、comment_text、children（Walk 顺序）、preorder、inspect（折叠）、fprint（ast.Fprint 格式，含 NotNilFilter）、Object / Scope；Ident.obj 是 File.objects 的编号。没有 CommentMap、Filter、MergePackageFiles |

@@ -1,8 +1,8 @@
 use std.fs
 use std.env
-use ast
-use lexer
-use parser
+use std.kite.ast as ast
+use std.kite.scanner as lexer
+use std.kite.parser as parser
 use check
 use modules
 use std.path
@@ -13,7 +13,7 @@ use kirdump
 use std.process
 use driver
 use pkg
-use fmt
+use fmtcli
 use testing
 use lsp
 use std.ptr
@@ -106,7 +106,7 @@ fn main() {
   let cmd = args[0]
   if cmd == "build" { process.exit(build(args)) }
   if cmd == "run" { process.exit(run_cmd(skip(args, 1))) }
-  if cmd == "fmt" { process.exit(fmt.main(skip(args, 1))) }
+  if cmd == "fmt" { process.exit(fmtcli.main(skip(args, 1))) }
   if cmd == "test" { process.exit(testing.main(skip(args, 1))) }
   if cmd == "lsp" { process.exit(lsp_cmd()) }
   if pkg.is_cmd(cmd) { process.exit(pkg.main(cmd, skip(args, 1))) }

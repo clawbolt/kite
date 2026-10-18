@@ -2,10 +2,10 @@
 // 输入是检查后改写过的语法树（check.check 的第三个结果），输出和 tools/bc_dump.py 逐字节相同
 // 指令的操作码直接用名字（Str），操作数用 V：Proto 引用是 VI(创建序号)，输出时换成 {P@序号}；Unit 是 {U@0}
 
-use ast
-use val
-use val.{ V, sv, iv, items, is_nil }
-use ast.{ Node, K, Lit, Nm, Pat, Arm, SArm, MatchD, FnD, kname }
+use std.kite.ast as ast
+use std.kite.val as val
+use std.kite.val.{ V, sv, iv, items, is_nil }
+use std.kite.ast.{ Node, K, Lit, Nm, Pat, Arm, SArm, MatchD, FnD, kname }
 use modules
 
 type Lp = {

@@ -1,6 +1,27 @@
 # Go 1.27 标准库对齐进度
 
-`go list std`（去掉 internal / vendor）共 179 个包。下面是 2026-10-18 的分类。
+`go list std`（去掉 internal / vendor）共 179 个包。下面是 2026-10-18 的分类，2026-10-19 加了分层原则。
+
+## 分层原则（2026-10-19）
+Go 标准库里有一部分是给 Go 语言自己用的（解析、类型检查、文档、调试信息）。这类包在 Kite 里的对应物是“处理 Kite 代码的库”，不是照搬 Go 的 API。每个包归入四类之一：
+
+1. **通用语义，直接对标 Go**：算法、编解码、文件格式、协议、密码学（debug/elf、crypto/x509、hpke、encoding/*、compress/*、text/template/parse …）。行为与 Go 逐字节对拍，API 可按 Kite 的不可变值模型改造。
+2. **Go 专属，保留兼容层**：std.go.*（ast、scanner、token、parser、printer、format、constant、version、build/constraint、doc/comment）。已和 Go 对拍，留给处理 Go 源码的工具用（例如 Go→Kite 迁移）。修 bug 可以，不再往里加 Go 专属的新包。
+3. **Kite 原生 API**：std.kite.*，对标 Go 的 go/* 但描述的是 Kite 自己。源码就是 kitec 的前端（kitec 反过来 use 它们），只有一份实现；验收靠 kitec 自己的 gold / 自举 / lsp 回放，不跟 Go 对拍。
+4. **不移植**：见文末。
+
+| Go | Kite 原生 | 状态 |
+|---|---|---|
+| go/token | std.kite.token | 完成（2026-10-19） |
+| go/scanner | std.kite.scanner | 完成（kitec 的词法分析） |
+| go/ast | std.kite.ast | 完成（kitec 的强类型语法树，类型检查后带 Node.t） |
+| go/parser | std.kite.parser | 完成（kitec 的语法分析） |
+| go/format、go/printer | std.kite.format | 完成（kitec fmt 的格式化器，规则见 docs/fmt.md） |
+| go/types | std.kite.types | 计划：包装 kitec 的 check + std.kite.ty（类型表示已在 std.kite.ty） |
+| go/doc | std.kite.doc | 计划：从 // 注释和 pub 声明提取文档 |
+| go/version | std.kite.version | 计划 |
+| go/constant | — | 不需要：Kite 常量就是普通值 |
+| debug/gosym、debug/buildinfo | — | 不移植：描述的是 Go 二进制 |
 
 ## 已完成（std/ 下有对应模块，大多带 tests/go 对拍）
 archive/*、bufio、bytes、cmp、compress/*、container/*、crypto 下的 aes cipher des dsa ecdh ecdsa ed25519 elliptic hkdf hmac md5 mlkem（含 mlkemtest 的功能） pbkdf2 rand rc4 rsa sha1 sha256 sha3 sha512 subtle、
@@ -19,9 +40,8 @@ image/color/palette、path/filepath、go/constant、net/http/cookiejar、crypto/
 ## 可以做（纯数据 / 算法，计划后续批次）
 - crypto/x509、crypto/x509/pkix、crypto/hpke
 - encoding/gob（值用类似 fmt.Arg 的枚举表示）
-- debug/dwarf、debug/macho、debug/pe、debug/plan9obj、debug/gosym、debug/buildinfo
-- text/template/parse（导出语法树）、html/template（上下文转义）
-- go/doc、go/types（很大）
+- debug/dwarf、debug/macho、debug/pe、debug/plan9obj
+- text/template/parse（导出语法树；Go 模板语法本身是通用的，照 Go 对拍）、html/template（上下文转义）
 - net/http/httptest（ResponseRecorder）、net/http/httputil（Dump*、反向代理的纯逻辑部分）、net/smtp（协议层）、net/rpc/jsonrpc（编解码）
 - io/fs（ValidPath / Glob / WalkDir 的纯逻辑）、testing/fstest（MapFS）、testing/iotest
 - hash/maphash（种子随机，只能对拍确定性的部分）、expvar、time/tzdata（时区数据）
@@ -35,3 +55,4 @@ image/color/palette、path/filepath、go/constant、net/http/cookiejar、crypto/
 - 依赖反射的测试工具：testing、testing/quick、testing/slogtest、testing/synctest、testing/cryptotest
 - database/sql、database/sql/driver（只有驱动接口，没有内建驱动）
 - go/importer、go/build（需要真实 Go 工具链和文件系统布局）
+- go/types、go/doc、debug/gosym、debug/buildinfo（Go 自描述；Kite 对应物走 std.kite.*，见分层原则）

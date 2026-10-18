@@ -1,9 +1,11 @@
-// Kite 自举编译器：强类型语法树（解析器产出，模块系统改名，类型检查后成为类型化 IR：表达式节点带 Node.t）
-// dump 输出格式与 tools/ast_dump.py 逐字节一致（借助 val.V 序列化）
-use tys
-use tys.{ Ty }
-use val
-use val.{ V, nd, opt, strs, items, sv }
+// std.kite.ast：Kite 强类型语法树（对应 Go 的 go/ast；kitec 自己用的就是这一份）
+//   Node = { k: K, line, …, t（类型检查后的类型）}；K 是各种节点的枚举（NFn、NName、NCall…）
+//   kname(n) 节点种类名、kids(n) 子节点、with_kids(n, ks) 替换子节点、dump(n) 打印（kitec parse 的格式）
+// 解析器产出，模块系统改名，类型检查后成为类型化 IR（表达式节点带 Node.t）
+use std.kite.ty as tys
+use std.kite.ty.{ Ty }
+use std.kite.val as val
+use std.kite.val.{ V, nd, opt, strs, items, sv }
 
 // 解析器直接产出下面这些类型；每种节点一个变体，字段都有确定的类型。
 // to_v 只用于输出：转成 val.V 后按 Python 版的格式打印。

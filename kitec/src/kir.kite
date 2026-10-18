@@ -5,12 +5,12 @@
 // Python 版的 Reg 是对象；这里寄存器是 R(编号, 类型)，名字记在函数的 rn 表里。
 // Python 版的 Unsupported 异常在这里是状态里的 err：设置后不再生成指令，函数整体回退。
 
-use ast
-use val
-use val.{ V, sv, iv, items, is_nil }
-use ast.{ Node, K, Lit, Nm, Pat, Arm, MatchD, FnD, TyX, kname }
-use tys
-use tys.{ Ty }
+use std.kite.ast as ast
+use std.kite.val as val
+use std.kite.val.{ V, sv, iv, items, is_nil }
+use std.kite.ast.{ Node, K, Lit, Nm, Pat, Arm, MatchD, FnD, TyX, kname }
+use std.kite.ty as tys
+use std.kite.ty.{ Ty }
 use check
 use bc
 

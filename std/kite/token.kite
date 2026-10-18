@@ -1,0 +1,44 @@
+// std.kite.token：Kite 记号的种类、关键字、运算符与位置（对应 Go 的 go/token）
+//   KINDS（scanner 产出的 Tok.kind）、keywords()、is_keyword(s)、operators()（长的在前）、is_operator(s)
+//   is_identifier(s)：合法的名字（不是关键字）
+//   position(src, pos) -> Position { line, col }：Tok.pos（字符下标）换算成行列（都从 1 开始）
+use std.kite.scanner as lexer
+
+pub const KINDS: List<Str> = ["INT", "FLOAT", "STR", "IDENT", "KW", "OP", "LABEL", "NEWLINE", "EOF"]
+
+pub type Position = { line: Int, col: Int }
+
+pub fn keywords() -> List<Str> { lexer.KEYWORDS }
+
+pub fn is_keyword(s: Str) -> Bool { contains(lexer.KEYWORDS, s) }
+
+pub fn operators() -> List<Str> { lexer.OPS3 + lexer.OPS2 + lexer.OPS1 }
+
+pub fn is_operator(s: Str) -> Bool { contains(operators(), s) }
+
+pub fn is_identifier(s: Str) -> Bool {
+  if len(s) == 0 || is_keyword(s) { return false }
+  let cs = chars(s)
+  if !(lexer.is_alpha(cs[0]) || cs[0] == "_") { return false }
+  for c in cs {
+    if !(lexer.is_alnum(c) || c == "_") { return false }
+  }
+  true
+}
+
+pub fn position(src: Str, pos: Int) -> Position {
+  var line = 1
+  var col = 1
+  var i = 0
+  for c in chars(src) {
+    if i >= pos { break }
+    if c == "\n" {
+      line += 1
+      col = 1
+    } else {
+      col += 1
+    }
+    i += 1
+  }
+  Position { line: line, col: col }
+}

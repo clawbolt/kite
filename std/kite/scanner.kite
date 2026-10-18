@@ -1,4 +1,7 @@
-// Kite 自举编译器：词法分析（对应 kite.py 的 lex）
+// std.kite.scanner：Kite 词法分析（对应 Go 的 go/scanner；kitec 自己用的就是这一份）
+//   lex(src) -> Result<List<Tok>, Str>：Tok = { kind, val, line, col, nl, pos }
+//   kind：INT FLOAT STR IDENT KW OP LABEL NEWLINE EOF；val 是 TV（sv / iv / parts 取值）
+//   KEYWORDS、OPS1/2/3；错误文字形如 "ERR 行:列 信息"（err 函数）
 use std.unicode
 
 // 词法单元的值：名字 / 关键字 / 运算符 / 标签是 TkStr；字符串是若干段（文字段和插值段）

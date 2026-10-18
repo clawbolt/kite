@@ -1,0 +1,35 @@
+tokens 49
+  KW 'fn' 1:1 = 1:1
+  IDENT 'add' 1:4 = 1:4
+  OP '(' 1:7 = 1:7
+  IDENT 'a' 1:8 = 1:8
+  OP ':' 1:9 = 1:9
+  IDENT 'Int' 1:11 = 1:11
+  OP ',' 1:14 = 1:14
+  IDENT 'b' 1:16 = 1:16
+  OP ':' 1:17 = 1:17
+  IDENT 'Int' 1:19 = 1:19
+  OP ')' 1:22 = 1:22
+  OP '->' 1:24 = 1:24
+true false true false
+true false 35
+  Bin 1
+  Block 2
+  Call 2
+  ExprStmt 2
+  Fn 2
+  Index 1
+  Let 1
+  List 1
+  Lit 5
+  Name 5
+{Fn@1 body={Block@1 stmts=[{ExprStmt@1 expr={Bin@1 left={Name@1 name="a"} op="+" right={Name@1 name="b"}} pub=F vis=~}]} bounds=D{} cgens=[] generics=[] is_async=F is_unsafe=F name="add" params=[<"a" <"con" "Int" [] 1>> <"b" <"con" "Int" [] 1>>] pub=F ret=<"con" "Int" [] 1> vis=~}
+Err("ERR 1:7 语法错误: 期望标识符，实际是 '{'")
+Err("ERR 1:9 字符串未闭合")
+fn f(x: Int) -> Int {
+  let y = x * 2
+  y + 1
+}
+
+Ok("fn f({
+")

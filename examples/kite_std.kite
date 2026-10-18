@@ -1,0 +1,41 @@
+// std.kite.*：用 Kite 处理 Kite 代码
+use std.kite.ast
+use std.kite.format
+use std.kite.parser
+use std.kite.scanner
+use std.kite.token
+
+fn count(n: ast.Node, m: Map<Str, Int>) -> Map<Str, Int> {
+  let k = ast.kname(n)
+  var out = set(m, k, unwrap_or(get(m, k), 0) + 1)
+  for c in ast.kids(n) { out = count(c, out) }
+  out
+}
+
+fn main() {
+  let src =
+    "fn add(a: Int, b: Int) -> Int \{ a + b }\nfn main() \{\n  let xs = [1, 2, 3]\n  print(add(xs[0], 2.5))\n}\n"
+  let toks = unwrap(scanner.lex(src))
+  print("tokens {len(toks)}")
+  for t in take(toks, 12) {
+    let p = token.position(src, t.pos)
+    print("  {t.kind} {scanner.repr_v(t.val)} {t.line}:{t.col} = {p.line}:{p.col}")
+  }
+  print(
+    token.is_keyword("fn"),
+    token.is_keyword("fun"),
+    token.is_identifier("x_1"),
+    token.is_identifier("1x"),
+  )
+  print(token.is_operator("|>"), token.is_operator("=>>"), len(token.keywords()))
+  let decls = unwrap(parser.parse(src))
+  var m: Map<Str, Int> = Map()
+  for d in decls { m = count(d, m) }
+  for k in sort(keys(m)) { print("  {k} {unwrap(get(m, k))}") }
+  print(ast.dump(decls[0]))
+  print(parser.parse("fn f( \{"))
+  print(scanner.lex("let s = \"abc"))
+  let ugly = "fn  f(x:Int)->Int\{\nlet y=x*2\n    y+1}\n"
+  print(unwrap(format.fmt(ugly)))
+  print(format.fmt("fn f( \{"))
+}

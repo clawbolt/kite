@@ -3,8 +3,8 @@
 // 输入输出都是强类型语法树 ast.Node
 use std.fs
 use std.path
-use ast
-use ast.{
+use std.kite.ast as ast
+use std.kite.ast.{
   Node,
   K,
   Lit,
@@ -27,8 +27,8 @@ use ast.{
   MatchD,
 }
 use builtins
-use lexer
-use parser
+use std.kite.scanner as lexer
+use std.kite.parser as parser
 
 pub const LINE_BASE: Int = 1000000
 

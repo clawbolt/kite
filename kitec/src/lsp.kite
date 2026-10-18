@@ -10,13 +10,13 @@
 use std.fs
 use std.path
 use std.encoding.json
-use ast
-use lexer
-use parser
+use std.kite.ast as ast
+use std.kite.scanner as lexer
+use std.kite.parser as parser
 use check
 use modules
 use builtins
-use fmt
+use std.kite.format as fmt
 
 // ───────── JSON 小工具 ─────────
 

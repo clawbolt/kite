@@ -3,6 +3,9 @@
 工作目录 `/workspace/work/kite/kite`。环境变量：`PATH=/workspace/work/bin:$PATH CC="zig cc -mcpu=baseline" KITE_HOME=$PWD`。编译器 `bin/kitec`（没有就 `sh bootstrap.sh`）；`bin/kitec run 文件` 编译并运行（每次约 30 秒，机器只有 2 核，别同时跑太多）。
 Go 1.27.1 工具链在 `/tmp/go/bin/go`（/tmp 会被清空，丢了就重新下载：`cd /tmp && curl -sSfL https://go.dev/dl/go1.27.1.linux-arm64.tar.gz | tar xz`；Go 源码在 `/tmp/go/src`，移植时直接照着读）。注意 1.27 的 encoding/json v1 默认由 v2（jsontext）实现，错误信息以 jsontext 为准。
 
+## 先看分类
+动手前看 docs/go-std-status.md 的“分层原则”：只有第 1 类（通用语义）照 Go 逐字节对拍；go/* 这类 Go 自描述的包不再新增，Kite 的对应物在 std/kite/（kitec 前端本身），不要在那里照搬 Go API。
+
 ## 每个包要交付的文件（只动这些，别改 README / run_tests.sh / kitec / 其他人的模块）
 - `std/NAME.kite`：模块本身，用 Kite 写。开头注释说明对应哪个 Go 包、和 Go 的差别。
 - `tests/go/NAME.go`：Go 测试程序（package main），尽量覆盖所有导出函数和边界情况、错误信息。
