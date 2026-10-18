@@ -1,0 +1,222 @@
+// debug/elf 对拍（tests/go/elf.go）
+use std.debug.elf
+use std.debug.elf.{ File, Section }
+use std.hash.crc32
+use std.math.bits
+use std.strconv
+
+fn q(s: Str) -> Str { strconv.quote_go(s) }
+
+fn u(x: Int) -> Str { bits.ustr(x) }
+
+fn qs(ss: List<Str>) -> Str {
+  var p: List<Str> = []
+  for s in ss { p = push(p, q(s)) }
+  "[" + join(p, " ") + "]"
+}
+
+fn ul(xs: List<Int>) -> Str {
+  var p: List<Str> = []
+  for x in xs { p = push(p, u(x)) }
+  "[" + join(p, " ") + "]"
+}
+
+fn hex8(x: Int) -> Str {
+  let ds = "0123456789abcdef"
+  var s = ""
+  for i in 0..8 {
+    let d = (x >> ((7 - i) * 4)) & 15
+    s = s + __str_slice(ds, d, d + 1)
+  }
+  s
+}
+
+fn ev(e: Str?) -> Str {
+  match e {
+    Some(x) => x,
+    None => "<nil>",
+  }
+}
+
+fn bstr(b: Bool) -> Str { if b { "true" } else { "false" } }
+
+fn dump(f: File) {
+  let h = f.hdr
+  print(
+    "hdr {elf.class_string(h.class)} {elf.data_string(h.data)} {elf.version_string(h.version)} {elf.osabi_string(h.osabi)} {h.abi_version} {h.byte_order} {elf.type_string(h.typ)} {elf.machine_string(h.machine)} {u(h.entry)}",
+  )
+  print(
+    "gohdr {elf.class_go_string(h.class)} {elf.type_go_string(h.typ)} {elf.machine_go_string(h.machine)} {elf.osabi_go_string(h.osabi)}",
+  )
+  var i = 0
+  for s in f.sections {
+    print(
+      "sec {i} {q(s.name)} {elf.section_type_string(s.typ)} {elf.section_flag_string(s.flags)} {u(s.addr)} {u(s.offset)} {u(s.size)} {s.link} {s.info} {u(s.addralign)} {u(s.entsize)} {u(s.file_size)}",
+    )
+    i += 1
+  }
+  i = 0
+  for s in f.sections {
+    match s.data() {
+      Ok(d) => print("data {i} {len(d)} {hex8(crc32.checksum_ieee(d))}"),
+      Err(e) => print("data {i} err {e}"),
+    }
+    i += 1
+  }
+  i = 0
+  for p in f.progs {
+    print(
+      "prog {i} {elf.prog_type_string(p.typ)} {elf.prog_flag_string(p.flags)} {u(p.off)} {u(p.vaddr)} {u(p.paddr)} {u(p.filesz)} {u(p.memsz)} {u(p.align)}",
+    )
+    i += 1
+  }
+  let syms = match f.symbols() {
+    Ok(s) => s,
+    Err(e) => {
+      print("symbols err {e}")
+      []
+    },
+  }
+  i = 0
+  for s in syms {
+    print(
+      "sym {i} {q(s.name)} {s.info} {s.other} {elf.sym_bind_string(elf.st_bind(s.info))} {elf.sym_type_string(elf.st_type(s.info))} {elf.sym_vis_string(elf.st_visibility(s.other))} {elf.section_index_string(s.section)} {u(s.value)} {u(s.size)}",
+    )
+    i += 1
+  }
+  let dsyms = match f.dynamic_symbols() {
+    Ok(s) => s,
+    Err(e) => {
+      print("dynsyms err {e}")
+      []
+    },
+  }
+  i = 0
+  for s in dsyms {
+    let vi = s.version_index
+    print(
+      "dsym {i} {q(s.name)} {s.info} {s.other} {elf.section_index_string(s.section)} {u(s.value)} {u(s.size)} {bstr(s.has_version)} {vi} {bstr(elf.version_index_is_hidden(vi))} {elf.version_index_index(vi)} {q(s.version)} {q(s.library)}",
+    )
+    i += 1
+  }
+  match f.imported_symbols() {
+    Ok(xs) => {
+      for s in xs { print("imp {q(s.name)} {q(s.version)} {q(s.library)}") }
+    },
+    Err(e) => print("imported err {e}"),
+  }
+  match f.imported_libraries() {
+    Ok(l) => print("libs {qs(l)} <nil>"),
+    Err(e) => print("libs [] {e}"),
+  }
+  for t in [elf.DT_SONAME, elf.DT_RPATH, elf.DT_RUNPATH, elf.DT_FLAGS] {
+    match f.dyn_string(t) {
+      Ok(l) => print("dynstr {elf.dyn_tag_string(t)} {qs(l)} <nil>"),
+      Err(e) => print("dynstr {elf.dyn_tag_string(t)} [] {e}"),
+    }
+  }
+  for t in [elf.DT_FLAGS, elf.DT_FLAGS_1, elf.DT_STRSZ, elf.DT_SYMENT] {
+    match f.dyn_value(t) {
+      Ok(l) => print("dynval {elf.dyn_tag_string(t)} {ul(l)} <nil>"),
+      Err(e) => print("dynval {elf.dyn_tag_string(t)} [] {e}"),
+    }
+  }
+  match f.dynamic_versions() {
+    Ok(vs) => {
+      for v in vs { print("ver {q(v.name)} {v.index} {v.flags} {qs(v.deps)}") }
+    },
+    Err(e) => print("vers err {e}"),
+  }
+  match f.dynamic_version_needs() {
+    Ok(ns) => {
+      for n in ns {
+        print("need {q(n.name)}")
+        for d in n.needs { print("  dep {d.flags} {d.index} {q(d.dep)}") }
+      }
+    },
+    Err(e) => print("needs err {e}"),
+  }
+  match f.section(".text") {
+    Some(s) => print("text {u(s.size)}"),
+    None => print("text none"),
+  }
+  if let Some(s) = f.section_by_type(elf.SHT_STRTAB) { print("strtab {q(s.name)}") }
+}
+
+fn bad(tag: Str, b: List<Int>) {
+  match elf.new_file(b) {
+    Ok(_) => print("bad {tag} <nil>"),
+    Err(e) => print("bad {tag} {e}"),
+  }
+}
+
+fn md(src: List<Int>, i: Int, v: Int) -> List<Int> { set(src, i, v) }
+
+fn main() {
+  for n in [
+    "compressed-32.obj",
+    "compressed-64.obj",
+    "gcc-386-freebsd-exec",
+    "gcc-amd64-linux-exec",
+    "gcc-amd64-openbsd-debug-with-rela.obj",
+    "gcc-riscv64-linux-exec",
+    "go-relocation-test-clang-arm.obj",
+    "go-relocation-test-clang-x86.obj",
+    "go-relocation-test-gcc133-ppc.obj",
+    "go-relocation-test-gcc424-x86-64.obj",
+    "go-relocation-test-gcc441-x86-64.obj",
+    "go-relocation-test-gcc441-x86.obj",
+    "go-relocation-test-gcc482-aarch64.obj",
+    "go-relocation-test-gcc482-ppc64le.obj",
+    "go-relocation-test-gcc492-arm.obj",
+    "go-relocation-test-gcc492-mips64.obj",
+    "go-relocation-test-gcc492-mipsle.obj",
+    "go-relocation-test-gcc493-mips64le.obj",
+    "go-relocation-test-gcc5-ppc.obj",
+    "go-relocation-test-gcc531-s390x.obj",
+    "go-relocation-test-gcc540-mips.obj",
+    "go-relocation-test-gcc620-sparc64.obj",
+    "go-relocation-test-gcc720-riscv64.obj",
+    "go-relocation-test-gcc930-ranges-no-rela-x86-64",
+    "go-relocation-test-gcc930-ranges-with-rela-x86-64",
+    "libtiffxx.so_",
+    "zdebug-test-gcc484-x86-64.obj",
+  ] {
+    print("== {n}")
+    match elf.open("tests/go/testdata/elf/" + n) {
+      Ok(f) => dump(f),
+      Err(e) => print("err {e}"),
+    }
+  }
+  print(
+    "{elf.section_flag_string(elf.SHF_WRITE | elf.SHF_ALLOC | 0x100000)} {elf.section_flag_string(0)} {elf.prog_flag_string(7)} {elf.prog_flag_string(0x10)} {elf.machine_string(9999)} {elf.machine_string(0x1234)} {elf.r_x86_64_string(1)} {elf.r_aarch64_string(1029)} {elf.dyn_tag_string(0x6ffffffe)} {elf.sym_bind_string(13)} {elf.ntype_string(1)} {elf.dyn_flag_string(0x1f)} {elf.dyn_flag1_string(0x80000001)}",
+  )
+  print(
+    "{elf.section_flag_go_string(3)} {elf.section_flag_go_string(0x40000003)} {elf.r_x86_64_go_string(1)} {elf.machine_go_string(9999)} {elf.compression_type_go_string(2)}",
+  )
+  print(
+    "{elf.r_sym64(0x1234500000007)} {elf.r_type64(0x1234500000007)} {elf.r_info(5, 7)} {elf.r_sym32(0x1207)} {elf.r_type32(0x1207)} {elf.r_info32(0x12, 7)} {elf.st_info(1, 2)}",
+  )
+  let first = unwrap(__read_bytes("tests/go/testdata/elf/gcc-amd64-linux-exec"))
+  let f32 = unwrap(__read_bytes("tests/go/testdata/elf/gcc-386-freebsd-exec"))
+  for n in [0, 3, 15, 16, 40, 63, 64, 100, 2000, 6000] {
+    bad("trunc{n}", take(first, n))
+    if n <= len(f32) { bad("trunc32-{n}", take(f32, n)) }
+  }
+  bad("magic", md(first, 1, 88))
+  bad("class", md(first, 4, 3))
+  bad("data", md(first, 5, 9))
+  bad("version", md(first, 6, 2))
+  bad("version2", md(first, 20, 2))
+  bad("shstrndx", md(md(first, 62, 0xff), 63, 0))
+  bad("phentsize", md(first, 54, 3))
+  bad("shentsize", md(first, 58, 3))
+  bad("shoff0", md(md(md(md(first, 40, 0), 41, 0), 42, 0), 43, 0))
+  bad("shoffneg", md(first, 47, 0x80))
+  bad("phoffneg", md(first, 39, 0x80))
+  let sh = first[40] | (first[41] << 8) | (first[42] << 16)
+  bad("secname", md(md(first, sh + 64 * 3, 0xff), sh + 64 * 3 + 1, 0xff))
+  bad("sectype0", md(md(first, 60, 0), 61, 0))
+  bad("strtabtype", md(first, sh + 64 * first[62] + 4, 1))
+  bad("secoffneg", md(first, sh + 64 * 2 + 31, 0x80))
+}

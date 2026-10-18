@@ -13,10 +13,13 @@ os（部分）、path、regexp、regexp/syntax、slices、sort、strconv、strin
 ## 第一批（已完成 2026-10-18）
 image/color/palette、path/filepath、go/constant、net/http/cookiejar、crypto/mldsa
 
+## 第二批（进行中）
+- debug/elf（2026-10-19 完成；tests/go/testdata/elf 里 27 个 Go 测试 ELF；不含 DWARF() / 重定位 / zstd）
+
 ## 可以做（纯数据 / 算法，计划后续批次）
 - crypto/x509、crypto/x509/pkix、crypto/hpke
 - encoding/gob（值用类似 fmt.Arg 的枚举表示）
-- debug/elf、debug/dwarf、debug/macho、debug/pe、debug/plan9obj、debug/gosym、debug/buildinfo
+- debug/dwarf、debug/macho、debug/pe、debug/plan9obj、debug/gosym、debug/buildinfo
 - text/template/parse（导出语法树）、html/template（上下文转义）
 - go/doc、go/types（很大）
 - net/http/httptest（ResponseRecorder）、net/http/httputil（Dump*、反向代理的纯逻辑部分）、net/smtp（协议层）、net/rpc/jsonrpc（编解码）

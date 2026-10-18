@@ -26,6 +26,7 @@ use ast.{
   TraitD,
   MatchD,
 }
+use builtins
 use lexer
 use parser
 
@@ -69,6 +70,7 @@ pub type L = {
   dunsup: Str,
   ov: Str,
   ovsrc: Str,
+  ren: Map<Str, Bool>,
 }
 
 fn me(ln: Int, msg: Str) -> ME { ME { ln: ln, msg: msg } }
@@ -104,6 +106,12 @@ fn is_pub(n: Node) -> Bool {
     Some(v) => v.is_pub,
     None => false,
   }
+}
+
+fn builtin_set() -> Map<Str, Bool> {
+  var m: Map<Str, Bool> = Map()
+  for (n, _, _) in builtins.builtin_sigs() { m = set(m, n, true) }
+  m
 }
 
 fn mangle(prefix: Str, name: Str) -> Str { if prefix == "" { name } else { prefix + "." + name } }
@@ -357,6 +365,7 @@ pub fn new_l(cwd: Str, main: Str, kite_dir: Str) -> L {
     lm: 0,
     ov: "",
     ovsrc: "",
+    ren: Map(),
   }
 }
 
@@ -910,6 +919,32 @@ pub fn load_main(l0: L) -> Result<List<Node>, ME> {
 
 // 同时返回源文件表（kite.SOURCES：主文件按给定的写法，其余相对当前目录）
 pub fn load_main_src(l0: L, given: Str) -> Result<(List<Node>, List<Str>), ME> {
+  let (l, out, srcs) = load_once(l0, given)?
+  // 主文件定义了和内建函数同名的东西，而其他模块用的是内建函数：给主文件的那个改名再来一遍
+  let bset = builtin_set()
+  var ren: Map<Str, Bool> = Map()
+  let rootn = gm(l, "").names
+  for key in l.order {
+    for it in gm(l, key).items {
+      for n in free_names(it, bset, rootn) { ren = set(ren, n, true) }
+    }
+  }
+  if len(keys(ren)) == 0 { return Ok((out, srcs)) }
+  let (_, out2, srcs2) = load_once(L { ren: ren, ..l0 }, given)?
+  Ok((out2, srcs2))
+}
+
+fn free_names(n: Node, a: Map<Str, Bool>, b: Map<Str, Str>) -> List<Str> {
+  var out: List<Str> = []
+  if let NName(s) = n.k { if contains(a, s) && contains(b, s) { out = [s] } }
+  for k in ast.kids(n) {
+    let x = free_names(k, a, b)
+    if len(x) > 0 { out = out + x }
+  }
+  out
+}
+
+fn load_once(l0: L, given: Str) -> Result<(L, List<Node>, List<Str>), ME> {
   if l0.dunsup != "" { return Err(me(-1, l0.dunsup)) }
   var l = pm(l0, new_mod("", l0.main, l0.root))
   l = L { loading: push(l.loading, ""), ..l }
@@ -945,7 +980,7 @@ pub fn load_main_src(l0: L, given: Str) -> Result<(List<Node>, List<Str>), ME> {
     let r = relpath(l.cwd, f)
     srcs = push(srcs, if starts_with(r, "../..") { relpath(l.root.root, f) } else { r })
   }
-  Ok((order_consts(out), srcs))
+  Ok((l, order_consts(out), srcs))
 }
 
 fn process(l: L, key: Str) -> Result<L, ME> {
@@ -973,7 +1008,13 @@ fn declare(l0: L, key: Str) -> Result<L, ME> {
       _ => false,
     }
     for nm in names {
-      info = Mod { names: set(info.names, nm, mangle(info.prefix, nm)), ..info }
+      // 主文件的名字不加前缀；和内建函数同名、又被其他模块当内建函数用时（L.ren）改名
+      let mg = if key == "" && contains(l0.ren, nm) {
+        "__main." + nm
+      } else {
+        mangle(info.prefix, nm)
+      }
+      info = Mod { names: set(info.names, nm, mg), ..info }
       if is_pub(it) {
         let vv = match it.vis {
           Some(v) => if v.has_vis { v.vis } else { None },

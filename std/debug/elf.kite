@@ -1,0 +1,3986 @@
+// std.debug.elf：ELF 目标文件读取（对齐 Go 1.27 的 debug/elf）
+//   elf.new_file(bytes) / elf.open(path) -> Result<File, Str>
+//   File：hdr（FileHeader）、sections、progs；方法 section(name)、section_by_type(t)、symbols()、
+//         dynamic_symbols()、imported_symbols()、imported_libraries()、dyn_string(tag)、dyn_value(tag)、
+//         dynamic_versions()、dynamic_version_needs()
+//   Section：data()（含 SHF_COMPRESSED 和 .zdebug 的 zlib 解压）
+//   常量与 Go 同名（ELFCLASS64、SHT_SYMTAB、R_X86_64_64…）；每个常量类型 T 有 t_string(i) / t_go_string(i)
+//   （class_string、machine_string、section_flag_string、r_x86_64_string……），输出与 Go 的 String()/GoString() 相同。
+//   st_bind / st_type / st_visibility / st_info、r_sym32 / r_type32 / r_info32 / r_sym64 / r_type64 / r_info。
+// 和 Go 的差别：
+//   - 不做 DWARF()（另见 debug/dwarf）和重定位应用；Prog 没有 Open()。
+//   - 值不可变：Go 里 .zdebug 节在 Open() 之后改写 Size，这里不改。
+//   - zstd 压缩节返回错误 "zstd compressed sections are not supported"；zlib 解码错误文字是 Kite 的。
+//   - 字符串表里的名字不是合法 UTF-8 时按字节逐个转成 U+0000..U+00FF 的字符。
+//   - 只接受字节列表（Go 的 io.ReaderAt 换成 List<Int>）。
+
+use std.compress.zlib
+use std.math.bits
+
+// ───────── 名字表 ─────────
+
+fn ustr(x: Int) -> Str { bits.ustr(x) }
+
+fn uhex(x: Int) -> Str {
+  if x == 0 { return "0" }
+  let ds = "0123456789abcdef"
+  var s = ""
+  var v = x
+  while v != 0 {
+    s = __str_slice(ds, v & 15, (v & 15) + 1) + s
+    v = bits.shr(v, 4)
+  }
+  s
+}
+
+fn string_name(i: Int, names: List<(Int, Str)>, go_syntax: Bool) -> Str {
+  for (k, s) in names {
+    if k == i { return if go_syntax { "elf." + s } else { s } }
+  }
+  var j = len(names) - 1
+  while j >= 0 {
+    let (k, s) = names[j]
+    if k < i {
+      let p = if go_syntax { "elf." + s } else { s }
+      return p + "+" + ustr(i - k)
+    }
+    j -= 1
+  }
+  ustr(i)
+}
+
+fn flag_name(i0: Int, names: List<(Int, Str)>, go_syntax: Bool) -> Str {
+  var i = i0
+  var s = ""
+  for (k, n) in names {
+    if k & i == k {
+      if len(s) > 0 { s = s + "+" }
+      if go_syntax { s = s + "elf." }
+      s = s + n
+      i = i - k
+    }
+  }
+  if len(s) == 0 { return "0x" + uhex(i) }
+  if i != 0 { s = s + "+0x" + uhex(i) }
+  s
+}
+
+pub fn st_bind(info: Int) -> Int { (info & 0xff) >> 4 }
+
+pub fn st_type(info: Int) -> Int { info & 0xf }
+
+pub fn st_info(bind: Int, typ: Int) -> Int { ((bind << 4) | (typ & 0xf)) & 0xff }
+
+pub fn st_visibility(other: Int) -> Int { other & 3 }
+
+pub fn r_sym32(info: Int) -> Int { (info & 0xffffffff) >> 8 }
+
+pub fn r_type32(info: Int) -> Int { info & 0xff }
+
+pub fn r_info32(sym: Int, typ: Int) -> Int { ((sym << 8) | typ) & 0xffffffff }
+
+pub fn r_sym64(info: Int) -> Int { bits.shr(info, 32) }
+
+pub fn r_type64(info: Int) -> Int { info & 0xffffffff }
+
+pub fn r_info(sym: Int, typ: Int) -> Int { (sym << 32) | (typ & 0xffffffff) }
+
+// VersionIndex
+pub fn version_index_is_hidden(vi: Int) -> Bool { vi & 0x8000 != 0 }
+
+pub fn version_index_index(vi: Int) -> Int { vi & 0x7fff }
+
+// ───────── 类型 ─────────
+
+pub type FileHeader = {
+  class: Int,
+  data: Int,
+  version: Int,
+  osabi: Int,
+  abi_version: Int,
+  byte_order: Str,
+  typ: Int,
+  machine: Int,
+  entry: Int,
+}
+
+pub type Section = {
+  name: Str,
+  typ: Int,
+  flags: Int,
+  addr: Int,
+  offset: Int,
+  size: Int,
+  link: Int,
+  info: Int,
+  addralign: Int,
+  entsize: Int,
+  file_size: Int,
+  raw: List<Int>,
+  ctype: Int,
+  coff: Int,
+}
+
+pub type Prog = {
+  typ: Int,
+  flags: Int,
+  off: Int,
+  vaddr: Int,
+  paddr: Int,
+  filesz: Int,
+  memsz: Int,
+  align: Int,
+}
+
+pub type Symbol = {
+  name: Str,
+  info: Int,
+  other: Int,
+  has_version: Bool,
+  version_index: Int,
+  section: Int,
+  value: Int,
+  size: Int,
+  version: Str,
+  library: Str,
+}
+
+pub type ImportedSymbol = { name: Str, version: Str, library: Str }
+
+pub type DynamicVersion = { name: Str, index: Int, flags: Int, deps: List<Str> }
+
+pub type DynamicVersionDep = { flags: Int, index: Int, dep: Str }
+
+pub type DynamicVersionNeed = { name: Str, needs: List<DynamicVersionDep> }
+
+pub type File = { hdr: FileHeader, sections: List<Section>, progs: List<Prog> }
+
+pub const ERR_NO_SYMBOLS: Str = "no symbol section"
+
+// FormatError 的文字
+fn fe(off: Int, msg: Str, val: Str?) -> Str {
+  let mid = match val {
+    Some(v) => " '" + v + "' ",
+    None => "",
+  }
+  msg + mid + "in record at byte 0x" + uhex(off)
+}
+
+fn bytes_v(bs: List<Int>) -> Str {
+  var s = "["
+  var i = 0
+  for b in bs {
+    if i > 0 { s = s + " " }
+    s = s + "{b}"
+    i += 1
+  }
+  s + "]"
+}
+
+// ───────── 读字节 ─────────
+
+fn u16(be: Bool, d: List<Int>, i: Int) -> Int {
+  if be { (d[i] << 8) | d[i + 1] } else { d[i] | (d[i + 1] << 8) }
+}
+
+fn u32(be: Bool, d: List<Int>, i: Int) -> Int {
+  if be {
+    (d[i] << 24) | (d[i + 1] << 16) | (d[i + 2] << 8) | d[i + 3]
+  } else {
+    d[i] | (d[i + 1] << 8) | (d[i + 2] << 16) | (d[i + 3] << 24)
+  }
+}
+
+fn u64(be: Bool, d: List<Int>, i: Int) -> Int {
+  if be {
+    (u32(be, d, i) << 32) | u32(be, d, i + 4)
+  } else {
+    u32(be, d, i) | (u32(be, d, i + 4) << 32)
+  }
+}
+
+fn s32(x: Int) -> Int { if x >= 0x80000000 { x - 0x100000000 } else { x } }
+
+// io.ReaderAt.ReadAt：读满 n 字节，否则 EOF（off 超出也是 EOF）
+fn read_at(bs: List<Int>, off: Int, n: Int) -> Result<List<Int>, Str> {
+  if n == 0 { return Ok([]) }
+  if off < 0 || off >= len(bs) { return Err("EOF") }
+  if n > len(bs) - off { return Err("EOF") }
+  Ok(bs[off..off + n])
+}
+
+// saferio.ReadDataAt
+fn read_data_at(bs: List<Int>, n: Int, off: Int) -> Result<List<Int>, Str> {
+  if n < 0 { return Err("unexpected EOF") }
+  read_at(bs, off, n)
+}
+
+// io.ReadFull 读 want 字节，源里有 avail
+fn read_full(src: List<Int>, want: Int) -> Result<List<Int>, Str> {
+  if want < 0 { return Err("unexpected EOF") }
+  if want == 0 { return Ok([]) }
+  if len(src) == 0 { return Err("EOF") }
+  if len(src) < want { return Err("unexpected EOF") }
+  Ok(take(src, want))
+}
+
+fn get_string(sec: List<Int>, start: Int) -> (Str, Bool) {
+  if start < 0 || start >= len(sec) { return ("", false) }
+  var end = start
+  while end < len(sec) {
+    if sec[end] == 0 { return (bstr(sec[start..end]), true) }
+    end += 1
+  }
+  ("", false)
+}
+
+fn bstr(bs: List<Int>) -> Str {
+  match __from_bytes(bs) {
+    Some(s) => s,
+    None => {
+      var s = ""
+      for b in bs { s = s + __chr(b) }
+      s
+    },
+  }
+}
+
+fn starts_with_b(bs: List<Int>, s: Str) -> Bool {
+  let p = __bytes(s)
+  if len(bs) < len(p) { return false }
+  for i in 0..len(p) {
+    if bs[i] != p[i] { return false }
+  }
+  true
+}
+
+// ───────── Section ─────────
+
+impl Section {
+  // Section.Data()
+  pub fn data(self) -> Result<List<Int>, Str> {
+    if self.typ == SHT_NOBITS {
+      if self.size == 0 { return Ok([]) }
+      return Err("unexpected read from SHT_NOBITS section")
+    }
+    if self.flags & SHF_COMPRESSED == 0 {
+      let nm = __bytes(self.name)
+      if !starts_with_b(nm, ".zdebug") || len(self.raw) < 12 || !starts_with_b(self.raw, "ZLIB") {
+        return read_full(self.raw, self.size)
+      }
+      let size = u64(true, self.raw, 4)
+      let out = zlib.decompress(self.raw[12..len(self.raw)])?
+      return read_full(out, size)
+    }
+    if self.flags & SHF_ALLOC != 0 {
+      return Err(
+        fe(
+          self.offset,
+          "SHF_COMPRESSED applies only to non-allocable sections",
+          Some(compression_type_string(self.ctype)),
+        ),
+      )
+    }
+    if self.ctype == COMPRESS_ZLIB {
+      let n = if self.coff > len(self.raw) { len(self.raw) } else { self.coff }
+      let out = zlib.decompress(self.raw[n..len(self.raw)])?
+      return read_full(out, self.size)
+    }
+    if self.ctype == COMPRESS_ZSTD { return Err("zstd compressed sections are not supported") }
+    Err(fe(self.offset, "unknown compression type", Some(compression_type_string(self.ctype))))
+  }
+}
+
+// ───────── NewFile ─────────
+
+pub fn open(path: Str) -> Result<File, Str> { new_file(__read_bytes(path)?) }
+
+pub fn new_file(r: List<Int>) -> Result<File, Str> {
+  let ident = match read_at(r, 0, 16) {
+    Ok(x) => x,
+    Err(e) => { return Err(fe(0, "cannot read ELF identifier", Some(e))) },
+  }
+  if ident[0] != 0x7f || ident[1] != 69 || ident[2] != 76 || ident[3] != 70 {
+    return Err(fe(0, "bad magic number", Some(bytes_v(take(ident, 4)))))
+  }
+  let class = ident[EI_CLASS]
+  if class != ELFCLASS32 && class != ELFCLASS64 {
+    return Err(fe(0, "unknown ELF class", Some(class_string(class))))
+  }
+  let data = ident[EI_DATA]
+  if data != ELFDATA2LSB && data != ELFDATA2MSB {
+    return Err(fe(0, "unknown ELF data encoding", Some(data_string(data))))
+  }
+  let be = data == ELFDATA2MSB
+  let version = ident[EI_VERSION]
+  if version != EV_CURRENT {
+    return Err(fe(0, "unknown ELF version", Some(version_string(version))))
+  }
+  let is64 = class == ELFCLASS64
+  let hsz = if is64 { 64 } else { 52 }
+  let h = read_at(r, 0, hsz)?
+  let typ = u16(be, h, 16)
+  let machine = u16(be, h, 18)
+  let v = u32(be, h, 20)
+  var entry = 0
+  var phoff = 0
+  var shoff = 0
+  var b = 0
+  if is64 {
+    entry = u64(be, h, 24)
+    phoff = u64(be, h, 32)
+    shoff = u64(be, h, 40)
+    b = 52
+  } else {
+    entry = u32(be, h, 24)
+    phoff = u32(be, h, 28)
+    shoff = u32(be, h, 32)
+    b = 40
+  }
+  if v != version { return Err(fe(0, "mismatched ELF version", Some(version_string(v)))) }
+  let phentsize = u16(be, h, b + 2)
+  var phnum = u16(be, h, b + 4)
+  let shentsize = u16(be, h, b + 6)
+  var shnum = u16(be, h, b + 8)
+  var shstrndx = u16(be, h, b + 10)
+  let hdr = FileHeader {
+    class: class,
+    data: data,
+    version: version,
+    osabi: ident[EI_OSABI],
+    abi_version: ident[EI_ABIVERSION],
+    byte_order: if be { "BigEndian" } else { "LittleEndian" },
+    typ: typ,
+    machine: machine,
+    entry: entry,
+  }
+  if shoff < 0 { return Err(fe(0, "invalid shoff", Some("{shoff}"))) }
+  if phoff < 0 { return Err(fe(0, "invalid phoff", Some("{phoff}"))) }
+  if shoff == 0 && shnum != 0 {
+    return Err(fe(0, "invalid ELF shnum for shoff=0", Some("{shnum}")))
+  }
+  if shnum > 0 && shstrndx >= shnum {
+    return Err(fe(0, "invalid ELF shstrndx", Some("{shstrndx}")))
+  }
+  let want_ph = if is64 { 56 } else { 32 }
+  let want_sh = if is64 { 64 } else { 40 }
+  if phnum > 0 && phentsize < want_ph {
+    return Err(fe(0, "invalid ELF phentsize", Some("{phentsize}")))
+  }
+  if shoff > 0 && (shnum == 0 || phnum == 0xffff) {
+    // binary.Read 读第 0 个节头
+    let n0 = if is64 { 64 } else { 40 }
+    let sh = match read_at(r, shoff, n0) {
+      Ok(x) => x,
+      Err(_) => {
+        let avail = if shoff >= len(r) { 0 } else { len(r) - shoff }
+        return Err(if avail == 0 { "EOF" } else { "unexpected EOF" })
+      },
+    }
+    let styp = u32(be, sh, 4)
+    let link = if is64 { u32(be, sh, 40) } else { u32(be, sh, 24) }
+    let info = if is64 { u32(be, sh, 44) } else { u32(be, sh, 28) }
+    let size = if is64 { u64(be, sh, 32) } else { u32(be, sh, 20) }
+    if styp != SHT_NULL {
+      return Err(fe(shoff, "invalid type of the initial section", Some(section_type_string(styp))))
+    }
+    if shnum == 0 {
+      if bits.ult(size, SHN_LORESERVE) {
+        return Err(fe(shoff, "invalid ELF shnum contained in sh_size", Some("{shnum}")))
+      }
+      shnum = size
+    }
+    if phnum == 0xffff {
+      if info < 0xffff {
+        return Err(fe(shoff, "invalid ELF phnum contained in sh_info", Some("{info}")))
+      }
+      phnum = info
+    }
+    if shstrndx == SHN_XINDEX {
+      shstrndx = link
+      if shstrndx < SHN_LORESERVE || shstrndx >= shnum {
+        return Err(fe(shoff, "invalid ELF shstrndx contained in sh_link", Some("{shstrndx}")))
+      }
+    }
+  }
+  // 程序头
+  let phdata = read_data_at(r, phnum * phentsize, phoff)?
+  var progs: List<Prog> = []
+  for i in 0..phnum {
+    let o = i * phentsize
+    let p = if is64 {
+      Prog {
+        typ: u32(be, phdata, o),
+        flags: u32(be, phdata, o + 4),
+        off: u64(be, phdata, o + 8),
+        vaddr: u64(be, phdata, o + 16),
+        paddr: u64(be, phdata, o + 24),
+        filesz: u64(be, phdata, o + 32),
+        memsz: u64(be, phdata, o + 40),
+        align: u64(be, phdata, o + 48),
+      }
+    } else {
+      Prog {
+        typ: u32(be, phdata, o),
+        off: u32(be, phdata, o + 4),
+        vaddr: u32(be, phdata, o + 8),
+        paddr: u32(be, phdata, o + 12),
+        filesz: u32(be, phdata, o + 16),
+        memsz: u32(be, phdata, o + 20),
+        flags: u32(be, phdata, o + 24),
+        align: u32(be, phdata, o + 28),
+      }
+    }
+    if p.off < 0 {
+      return Err(fe(phoff + o, "invalid program header offset", Some(ustr(p.off))))
+    }
+    if p.filesz < 0 {
+      return Err(fe(phoff + o, "invalid program header file size", Some(ustr(p.filesz))))
+    }
+    progs = push(progs, p)
+  }
+  if shnum > 0 && shentsize < want_sh {
+    return Err(fe(0, "invalid ELF shentsize", Some("{shentsize}")))
+  }
+  if shnum < 0 { return Err(fe(0, "too many sections", Some("{shnum}"))) }
+  if shnum > 0 && shentsize > 0 && shnum > 9223372036854775807 / shentsize {
+    return Err("unexpected EOF")
+  }
+  let shdata = read_data_at(r, shnum * shentsize, shoff)?
+  var secs: List<Section> = []
+  var names: List<Int> = []
+  for i in 0..shnum {
+    let o = i * shentsize
+    names = push(names, u32(be, shdata, o))
+    var s = if is64 {
+      Section {
+        name: "",
+        typ: u32(be, shdata, o + 4),
+        flags: u64(be, shdata, o + 8),
+        addr: u64(be, shdata, o + 16),
+        offset: u64(be, shdata, o + 24),
+        size: 0,
+        file_size: u64(be, shdata, o + 32),
+        link: u32(be, shdata, o + 40),
+        info: u32(be, shdata, o + 44),
+        addralign: u64(be, shdata, o + 48),
+        entsize: u64(be, shdata, o + 56),
+        raw: [],
+        ctype: 0,
+        coff: 0,
+      }
+    } else {
+      Section {
+        name: "",
+        typ: u32(be, shdata, o + 4),
+        flags: u32(be, shdata, o + 8),
+        addr: u32(be, shdata, o + 12),
+        offset: u32(be, shdata, o + 16),
+        size: 0,
+        file_size: u32(be, shdata, o + 20),
+        link: u32(be, shdata, o + 24),
+        info: u32(be, shdata, o + 28),
+        addralign: u32(be, shdata, o + 32),
+        entsize: u32(be, shdata, o + 36),
+        raw: [],
+        ctype: 0,
+        coff: 0,
+      }
+    }
+    if s.offset < 0 { return Err(fe(shoff + o, "invalid section offset", Some("{s.offset}"))) }
+    if s.file_size < 0 {
+      return Err(fe(shoff + o, "invalid section size", Some("{s.file_size}")))
+    }
+    // 节在文件里的那段（SectionReader 截到文件末尾）
+    let a = if s.offset > len(r) { len(r) } else { s.offset }
+    let e = if s.file_size > len(r) - a { len(r) } else { a + s.file_size }
+    s = Section { raw: r[a..e], ..s }
+    if s.flags & SHF_COMPRESSED == 0 {
+      s = Section { size: s.file_size, ..s }
+    } else {
+      let n = if is64 { 24 } else { 12 }
+      let ch = read_at(s.raw, 0, n)?
+      if is64 {
+        s = Section {
+          ctype: u32(be, ch, 0),
+          size: u64(be, ch, 8),
+          addralign: u64(be, ch, 16),
+          coff: 24,
+          ..s
+        }
+      } else {
+        s = Section {
+          ctype: u32(be, ch, 0),
+          size: u32(be, ch, 4),
+          addralign: u32(be, ch, 8),
+          coff: 12,
+          ..s
+        }
+      }
+    }
+    secs = push(secs, s)
+  }
+  let f0 = File { hdr: hdr, sections: secs, progs: progs }
+  if len(secs) == 0 || shstrndx == 0 { return Ok(f0) }
+  let shstr = secs[shstrndx]
+  if shstr.typ != SHT_STRTAB {
+    return Err(
+      fe(
+        shoff + shstrndx * shentsize,
+        "invalid ELF section name string table type",
+        Some(section_type_string(shstr.typ)),
+      ),
+    )
+  }
+  let tab = shstr.data()?
+  var out: List<Section> = []
+  for i in 0..len(secs) {
+    let (nm, ok) = get_string(tab, names[i])
+    if !ok { return Err(fe(shoff + i * shentsize, "bad section name index", Some(ustr(names[i])))) }
+    out = push(out, Section { name: nm, ..secs[i] })
+  }
+  Ok(File { sections: out, ..f0 })
+}
+
+fn data_or_empty(s: Section) -> List<Int> {
+  match s.data() {
+    Ok(d) => d,
+    Err(_) => [],
+  }
+}
+
+type Ver = { versym: List<Int>, vers: List<DynamicVersion>, needs: List<DynamicVersionNeed> }
+
+impl File {
+  pub fn section(self, name: Str) -> Section? {
+    for s in self.sections {
+      if s.name == name { return Some(s) }
+    }
+    None
+  }
+
+  pub fn section_by_type(self, typ: Int) -> Section? {
+    for s in self.sections {
+      if s.typ == typ { return Some(s) }
+    }
+    None
+  }
+
+  fn be(self) -> Bool { self.hdr.data == ELFDATA2MSB }
+
+  fn string_table(self, link: Int) -> Result<List<Int>, Str> {
+    if link <= 0 || link >= len(self.sections) {
+      return Err("section has invalid string table link")
+    }
+    self.sections[link].data()
+  }
+
+  fn get_symbols(self, typ: Int) -> Result<(List<Symbol>, List<Int>), Str> {
+    let Some(st) = self.section_by_type(typ) else { return Err(ERR_NO_SYMBOLS) }
+    let data = match st.data() {
+      Ok(d) => d,
+      Err(e) => { return Err("cannot load symbol section: " + e) },
+    }
+    if len(data) == 0 { return Err(ERR_NO_SYMBOLS) }
+    let is64 = self.hdr.class == ELFCLASS64
+    let sz = if is64 { 24 } else { 16 }
+    if len(data) % sz != 0 {
+      return Err(
+        if is64 {
+          "length of symbol section is not a multiple of Sym64Size"
+        } else {
+          "length of symbol section is not a multiple of SymSize"
+        },
+      )
+    }
+    let strdata = match self.string_table(st.link) {
+      Ok(d) => d,
+      Err(e) => { return Err("cannot load string table section: " + e) },
+    }
+    let be = self.be()
+    var syms: List<Symbol> = []
+    var o = sz
+    while o < len(data) {
+      let nmo = u32(be, data, o)
+      let (nm, _) = get_string(strdata, nmo)
+      let s = if is64 {
+        Symbol {
+          name: nm,
+          info: data[o + 4],
+          other: data[o + 5],
+          section: u16(be, data, o + 6),
+          value: u64(be, data, o + 8),
+          size: u64(be, data, o + 16),
+          has_version: false,
+          version_index: 0,
+          version: "",
+          library: "",
+        }
+      } else {
+        Symbol {
+          name: nm,
+          value: u32(be, data, o + 4),
+          size: u32(be, data, o + 8),
+          info: data[o + 12],
+          other: data[o + 13],
+          section: u16(be, data, o + 14),
+          has_version: false,
+          version_index: 0,
+          version: "",
+          library: "",
+        }
+      }
+      syms = push(syms, s)
+      o += sz
+    }
+    Ok((syms, strdata))
+  }
+
+  pub fn symbols(self) -> Result<List<Symbol>, Str> {
+    let (s, _) = self.get_symbols(SHT_SYMTAB)?
+    Ok(s)
+  }
+
+  fn dyn_versions(self, str: List<Int>) -> Result<List<DynamicVersion>, Str> {
+    let Some(vd) = self.section_by_type(SHT_GNU_VERDEF) else { return Ok([]) }
+    let d = data_or_empty(vd)
+    let be = self.be()
+    var out: List<DynamicVersion> = []
+    var i = 0
+    loop {
+      if i + 20 > len(d) { break }
+      let version = u16(be, d, i)
+      if version != 1 {
+        return Err(fe(vd.offset + i, "unexpected dynamic version", Some("{version}")))
+      }
+      let flags = u16(be, d, i + 2)
+      let ndx = u16(be, d, i + 4)
+      let cnt = u16(be, d, i + 6)
+      let aux = u32(be, d, i + 12)
+      let next = u32(be, d, i + 16)
+      if cnt == 0 { return Err(fe(vd.offset + i, "dynamic version has no name", None)) }
+      var name = ""
+      var deps: List<Str> = []
+      var j = i + aux
+      var c = 0
+      while c < cnt {
+        if j + 8 > len(d) { break }
+        let vname = u32(be, d, j)
+        let vnext = u32(be, d, j + 4)
+        let (dn, _) = get_string(str, vname)
+        if c == 0 { name = dn } else { deps = push(deps, dn) }
+        if vnext == 0 { break }
+        j += vnext
+        c += 1
+      }
+      out = push(out, DynamicVersion { name: name, index: ndx, flags: flags, deps: deps })
+      if next == 0 { break }
+      i += next
+    }
+    Ok(out)
+  }
+
+  fn dyn_needs(self, str: List<Int>) -> Result<List<DynamicVersionNeed>, Str> {
+    let Some(vn) = self.section_by_type(SHT_GNU_VERNEED) else { return Ok([]) }
+    let d = data_or_empty(vn)
+    let be = self.be()
+    var out: List<DynamicVersionNeed> = []
+    var i = 0
+    loop {
+      if i + 16 > len(d) { break }
+      let vers = u16(be, d, i)
+      if vers != 1 {
+        return Err(fe(vn.offset + i, "unexpected dynamic need version", Some("{vers}")))
+      }
+      let cnt = u16(be, d, i + 2)
+      let fileoff = u32(be, d, i + 4)
+      let aux = u32(be, d, i + 8)
+      let next = u32(be, d, i + 12)
+      let (file, _) = get_string(str, fileoff)
+      var deps: List<DynamicVersionDep> = []
+      var j = i + aux
+      var c = 0
+      while c < cnt {
+        if j + 16 > len(d) { break }
+        let flags = u16(be, d, j + 4)
+        let index = u16(be, d, j + 6)
+        let nameoff = u32(be, d, j + 8)
+        let jn = u32(be, d, j + 12)
+        let (dn, _) = get_string(str, nameoff)
+        deps = push(deps, DynamicVersionDep { flags: flags, index: index, dep: dn })
+        if jn == 0 { break }
+        j += jn
+        c += 1
+      }
+      out = push(out, DynamicVersionNeed { name: file, needs: deps })
+      if next == 0 { break }
+      i += next
+    }
+    Ok(out)
+  }
+
+  fn gnu_version_init(self, str: List<Int>) -> Result<Ver?, Str> {
+    let Some(vs) = self.section_by_type(SHT_GNU_VERSYM) else { return Ok(None) }
+    let d = data_or_empty(vs)
+    let vers = self.dyn_versions(str)?
+    let needs = self.dyn_needs(str)?
+    Ok(Some(Ver { versym: d, vers: vers, needs: needs }))
+  }
+
+  fn gnu_version(self, v: Ver, i0: Int) -> (Bool, Int, Str, Str) {
+    let i = (i0 + 1) * 2
+    if i >= len(v.versym) || len(v.versym) - i < 2 { return (false, 0, "", "") }
+    let vi = u16(self.be(), v.versym, i)
+    let ndx = vi & 0x7fff
+    if ndx == 0 || ndx == 1 { return (true, vi, "", "") }
+    for n in v.needs {
+      for d in n.needs {
+        if ndx == d.index { return (true, vi, d.dep, n.name) }
+      }
+    }
+    for d in v.vers {
+      if ndx == d.index { return (true, vi, d.name, "") }
+    }
+    (false, 0, "", "")
+  }
+
+  pub fn dynamic_symbols(self) -> Result<List<Symbol>, Str> {
+    let (syms, str) = self.get_symbols(SHT_DYNSYM)?
+    let Some(v) = self.gnu_version_init(str)? else { return Ok(syms) }
+    var out: List<Symbol> = []
+    var i = 0
+    for s in syms {
+      let (h, vi, ver, lib) = self.gnu_version(v, i)
+      out = push(out, Symbol { has_version: h, version_index: vi, version: ver, library: lib, ..s })
+      i += 1
+    }
+    Ok(out)
+  }
+
+  pub fn imported_symbols(self) -> Result<List<ImportedSymbol>, Str> {
+    let (syms, str) = self.get_symbols(SHT_DYNSYM)?
+    let vo = self.gnu_version_init(str)?
+    var all: List<ImportedSymbol> = []
+    var i = 0
+    for s in syms {
+      if st_bind(s.info) == STB_GLOBAL && s.section == SHN_UNDEF {
+        let (ver, lib) = match vo {
+          Some(v) => {
+            let (_, _, a, b) = self.gnu_version(v, i)
+            (a, b)
+          },
+          None => ("", ""),
+        }
+        all = push(all, ImportedSymbol { name: s.name, version: ver, library: lib })
+      }
+      i += 1
+    }
+    Ok(all)
+  }
+
+  pub fn dynamic_versions(self) -> Result<List<DynamicVersion>, Str> {
+    let (_, str) = self.get_symbols(SHT_DYNSYM)?
+    let Some(v) = self.gnu_version_init(str)? else {
+      return Err("DynamicVersions: missing version table")
+    }
+    Ok(v.vers)
+  }
+
+  pub fn dynamic_version_needs(self) -> Result<List<DynamicVersionNeed>, Str> {
+    let (_, str) = self.get_symbols(SHT_DYNSYM)?
+    let Some(v) = self.gnu_version_init(str)? else {
+      return Err("DynamicVersionNeeds: missing version table")
+    }
+    Ok(v.needs)
+  }
+
+  pub fn imported_libraries(self) -> Result<List<Str>, Str> { self.dyn_string(DT_NEEDED) }
+
+  fn dyn_entries(self) -> Result<(Section, List<(Int, Int)>)?, Str> {
+    let Some(ds) = self.section_by_type(SHT_DYNAMIC) else { return Ok(None) }
+    let d = ds.data()?
+    let is64 = self.hdr.class == ELFCLASS64
+    let sz = if is64 { 16 } else { 8 }
+    if len(d) % sz != 0 {
+      return Err("length of dynamic section is not a multiple of dynamic entry size")
+    }
+    let be = self.be()
+    var out: List<(Int, Int)> = []
+    var o = 0
+    while o < len(d) {
+      if is64 {
+        out = push(out, (u64(be, d, o), u64(be, d, o + 8)))
+      } else {
+        out = push(out, (u32(be, d, o), u32(be, d, o + 4)))
+      }
+      o += sz
+    }
+    Ok(Some((ds, out)))
+  }
+
+  pub fn dyn_string(self, tag: Int) -> Result<List<Str>, Str> {
+    if tag != DT_NEEDED && tag != DT_SONAME && tag != DT_RPATH && tag != DT_RUNPATH {
+      return Err("non-string-valued tag " + dyn_tag_string(tag))
+    }
+    let Some((ds, es)) = self.dyn_entries()? else { return Ok([]) }
+    let str = self.string_table(ds.link)?
+    var all: List<Str> = []
+    for (t, v) in es {
+      if t == tag {
+        let (s, ok) = get_string(str, v)
+        if ok { all = push(all, s) }
+      }
+    }
+    Ok(all)
+  }
+
+  pub fn dyn_value(self, tag: Int) -> Result<List<Int>, Str> {
+    let Some((_, es)) = self.dyn_entries()? else { return Ok([]) }
+    var vals: List<Int> = []
+    for (t, v) in es {
+      if t == tag { vals = push(vals, v) }
+    }
+    Ok(vals)
+  }
+}
+
+// ───────── 常量（由 Go 的 elf.go 生成） ─────────
+
+pub const EI_CLASS: Int = 4
+pub const EI_DATA: Int = 5
+pub const EI_VERSION: Int = 6
+pub const EI_OSABI: Int = 7
+pub const EI_ABIVERSION: Int = 8
+pub const EI_PAD: Int = 9
+pub const EI_NIDENT: Int = 16
+pub const ELFMAG: Str = "\u{7f}ELF"
+pub const EV_NONE: Int = 0
+pub const EV_CURRENT: Int = 1
+pub const ELFCLASSNONE: Int = 0
+pub const ELFCLASS32: Int = 1
+pub const ELFCLASS64: Int = 2
+pub const ELFDATANONE: Int = 0
+pub const ELFDATA2LSB: Int = 1
+pub const ELFDATA2MSB: Int = 2
+pub const ELFOSABI_NONE: Int = 0
+pub const ELFOSABI_HPUX: Int = 1
+pub const ELFOSABI_NETBSD: Int = 2
+pub const ELFOSABI_LINUX: Int = 3
+pub const ELFOSABI_HURD: Int = 4
+pub const ELFOSABI_86OPEN: Int = 5
+pub const ELFOSABI_SOLARIS: Int = 6
+pub const ELFOSABI_AIX: Int = 7
+pub const ELFOSABI_IRIX: Int = 8
+pub const ELFOSABI_FREEBSD: Int = 9
+pub const ELFOSABI_TRU64: Int = 10
+pub const ELFOSABI_MODESTO: Int = 11
+pub const ELFOSABI_OPENBSD: Int = 12
+pub const ELFOSABI_OPENVMS: Int = 13
+pub const ELFOSABI_NSK: Int = 14
+pub const ELFOSABI_AROS: Int = 15
+pub const ELFOSABI_FENIXOS: Int = 16
+pub const ELFOSABI_CLOUDABI: Int = 17
+pub const ELFOSABI_ARM: Int = 97
+pub const ELFOSABI_STANDALONE: Int = 255
+pub const ET_NONE: Int = 0
+pub const ET_REL: Int = 1
+pub const ET_EXEC: Int = 2
+pub const ET_DYN: Int = 3
+pub const ET_CORE: Int = 4
+pub const ET_LOOS: Int = 65024
+pub const ET_HIOS: Int = 65279
+pub const ET_LOPROC: Int = 65280
+pub const ET_HIPROC: Int = 65535
+pub const EM_NONE: Int = 0
+pub const EM_M32: Int = 1
+pub const EM_SPARC: Int = 2
+pub const EM_386: Int = 3
+pub const EM_68K: Int = 4
+pub const EM_88K: Int = 5
+pub const EM_860: Int = 7
+pub const EM_MIPS: Int = 8
+pub const EM_S370: Int = 9
+pub const EM_MIPS_RS3_LE: Int = 10
+pub const EM_PARISC: Int = 15
+pub const EM_VPP500: Int = 17
+pub const EM_SPARC32PLUS: Int = 18
+pub const EM_960: Int = 19
+pub const EM_PPC: Int = 20
+pub const EM_PPC64: Int = 21
+pub const EM_S390: Int = 22
+pub const EM_V800: Int = 36
+pub const EM_FR20: Int = 37
+pub const EM_RH32: Int = 38
+pub const EM_RCE: Int = 39
+pub const EM_ARM: Int = 40
+pub const EM_SH: Int = 42
+pub const EM_SPARCV9: Int = 43
+pub const EM_TRICORE: Int = 44
+pub const EM_ARC: Int = 45
+pub const EM_H8_300: Int = 46
+pub const EM_H8_300H: Int = 47
+pub const EM_H8S: Int = 48
+pub const EM_H8_500: Int = 49
+pub const EM_IA_64: Int = 50
+pub const EM_MIPS_X: Int = 51
+pub const EM_COLDFIRE: Int = 52
+pub const EM_68HC12: Int = 53
+pub const EM_MMA: Int = 54
+pub const EM_PCP: Int = 55
+pub const EM_NCPU: Int = 56
+pub const EM_NDR1: Int = 57
+pub const EM_STARCORE: Int = 58
+pub const EM_ME16: Int = 59
+pub const EM_ST100: Int = 60
+pub const EM_TINYJ: Int = 61
+pub const EM_X86_64: Int = 62
+pub const EM_PDSP: Int = 63
+pub const EM_PDP10: Int = 64
+pub const EM_PDP11: Int = 65
+pub const EM_FX66: Int = 66
+pub const EM_ST9PLUS: Int = 67
+pub const EM_ST7: Int = 68
+pub const EM_68HC16: Int = 69
+pub const EM_68HC11: Int = 70
+pub const EM_68HC08: Int = 71
+pub const EM_68HC05: Int = 72
+pub const EM_SVX: Int = 73
+pub const EM_ST19: Int = 74
+pub const EM_VAX: Int = 75
+pub const EM_CRIS: Int = 76
+pub const EM_JAVELIN: Int = 77
+pub const EM_FIREPATH: Int = 78
+pub const EM_ZSP: Int = 79
+pub const EM_MMIX: Int = 80
+pub const EM_HUANY: Int = 81
+pub const EM_PRISM: Int = 82
+pub const EM_AVR: Int = 83
+pub const EM_FR30: Int = 84
+pub const EM_D10V: Int = 85
+pub const EM_D30V: Int = 86
+pub const EM_V850: Int = 87
+pub const EM_M32R: Int = 88
+pub const EM_MN10300: Int = 89
+pub const EM_MN10200: Int = 90
+pub const EM_PJ: Int = 91
+pub const EM_OPENRISC: Int = 92
+pub const EM_ARC_COMPACT: Int = 93
+pub const EM_XTENSA: Int = 94
+pub const EM_VIDEOCORE: Int = 95
+pub const EM_TMM_GPP: Int = 96
+pub const EM_NS32K: Int = 97
+pub const EM_TPC: Int = 98
+pub const EM_SNP1K: Int = 99
+pub const EM_ST200: Int = 100
+pub const EM_IP2K: Int = 101
+pub const EM_MAX: Int = 102
+pub const EM_CR: Int = 103
+pub const EM_F2MC16: Int = 104
+pub const EM_MSP430: Int = 105
+pub const EM_BLACKFIN: Int = 106
+pub const EM_SE_C33: Int = 107
+pub const EM_SEP: Int = 108
+pub const EM_ARCA: Int = 109
+pub const EM_UNICORE: Int = 110
+pub const EM_EXCESS: Int = 111
+pub const EM_DXP: Int = 112
+pub const EM_ALTERA_NIOS2: Int = 113
+pub const EM_CRX: Int = 114
+pub const EM_XGATE: Int = 115
+pub const EM_C166: Int = 116
+pub const EM_M16C: Int = 117
+pub const EM_DSPIC30F: Int = 118
+pub const EM_CE: Int = 119
+pub const EM_M32C: Int = 120
+pub const EM_TSK3000: Int = 131
+pub const EM_RS08: Int = 132
+pub const EM_SHARC: Int = 133
+pub const EM_ECOG2: Int = 134
+pub const EM_SCORE7: Int = 135
+pub const EM_DSP24: Int = 136
+pub const EM_VIDEOCORE3: Int = 137
+pub const EM_LATTICEMICO32: Int = 138
+pub const EM_SE_C17: Int = 139
+pub const EM_TI_C6000: Int = 140
+pub const EM_TI_C2000: Int = 141
+pub const EM_TI_C5500: Int = 142
+pub const EM_TI_ARP32: Int = 143
+pub const EM_TI_PRU: Int = 144
+pub const EM_MMDSP_PLUS: Int = 160
+pub const EM_CYPRESS_M8C: Int = 161
+pub const EM_R32C: Int = 162
+pub const EM_TRIMEDIA: Int = 163
+pub const EM_QDSP6: Int = 164
+pub const EM_8051: Int = 165
+pub const EM_STXP7X: Int = 166
+pub const EM_NDS32: Int = 167
+pub const EM_ECOG1: Int = 168
+pub const EM_ECOG1X: Int = 168
+pub const EM_MAXQ30: Int = 169
+pub const EM_XIMO16: Int = 170
+pub const EM_MANIK: Int = 171
+pub const EM_CRAYNV2: Int = 172
+pub const EM_RX: Int = 173
+pub const EM_METAG: Int = 174
+pub const EM_MCST_ELBRUS: Int = 175
+pub const EM_ECOG16: Int = 176
+pub const EM_CR16: Int = 177
+pub const EM_ETPU: Int = 178
+pub const EM_SLE9X: Int = 179
+pub const EM_L10M: Int = 180
+pub const EM_K10M: Int = 181
+pub const EM_AARCH64: Int = 183
+pub const EM_AVR32: Int = 185
+pub const EM_STM8: Int = 186
+pub const EM_TILE64: Int = 187
+pub const EM_TILEPRO: Int = 188
+pub const EM_MICROBLAZE: Int = 189
+pub const EM_CUDA: Int = 190
+pub const EM_TILEGX: Int = 191
+pub const EM_CLOUDSHIELD: Int = 192
+pub const EM_COREA_1ST: Int = 193
+pub const EM_COREA_2ND: Int = 194
+pub const EM_ARC_COMPACT2: Int = 195
+pub const EM_OPEN8: Int = 196
+pub const EM_RL78: Int = 197
+pub const EM_VIDEOCORE5: Int = 198
+pub const EM_78KOR: Int = 199
+pub const EM_56800EX: Int = 200
+pub const EM_BA1: Int = 201
+pub const EM_BA2: Int = 202
+pub const EM_XCORE: Int = 203
+pub const EM_MCHP_PIC: Int = 204
+pub const EM_INTEL205: Int = 205
+pub const EM_INTEL206: Int = 206
+pub const EM_INTEL207: Int = 207
+pub const EM_INTEL208: Int = 208
+pub const EM_INTEL209: Int = 209
+pub const EM_KM32: Int = 210
+pub const EM_KMX32: Int = 211
+pub const EM_KMX16: Int = 212
+pub const EM_KMX8: Int = 213
+pub const EM_KVARC: Int = 214
+pub const EM_CDP: Int = 215
+pub const EM_COGE: Int = 216
+pub const EM_COOL: Int = 217
+pub const EM_NORC: Int = 218
+pub const EM_CSR_KALIMBA: Int = 219
+pub const EM_Z80: Int = 220
+pub const EM_VISIUM: Int = 221
+pub const EM_FT32: Int = 222
+pub const EM_MOXIE: Int = 223
+pub const EM_AMDGPU: Int = 224
+pub const EM_RISCV: Int = 243
+pub const EM_LANAI: Int = 244
+pub const EM_BPF: Int = 247
+pub const EM_LOONGARCH: Int = 258
+pub const EM_486: Int = 6
+pub const EM_MIPS_RS4_BE: Int = 10
+pub const EM_ALPHA_STD: Int = 41
+pub const EM_ALPHA: Int = 36902
+pub const SHN_UNDEF: Int = 0
+pub const SHN_LORESERVE: Int = 65280
+pub const SHN_LOPROC: Int = 65280
+pub const SHN_HIPROC: Int = 65311
+pub const SHN_LOOS: Int = 65312
+pub const SHN_HIOS: Int = 65343
+pub const SHN_ABS: Int = 65521
+pub const SHN_COMMON: Int = 65522
+pub const SHN_XINDEX: Int = 65535
+pub const SHN_HIRESERVE: Int = 65535
+pub const SHT_NULL: Int = 0
+pub const SHT_PROGBITS: Int = 1
+pub const SHT_SYMTAB: Int = 2
+pub const SHT_STRTAB: Int = 3
+pub const SHT_RELA: Int = 4
+pub const SHT_HASH: Int = 5
+pub const SHT_DYNAMIC: Int = 6
+pub const SHT_NOTE: Int = 7
+pub const SHT_NOBITS: Int = 8
+pub const SHT_REL: Int = 9
+pub const SHT_SHLIB: Int = 10
+pub const SHT_DYNSYM: Int = 11
+pub const SHT_INIT_ARRAY: Int = 14
+pub const SHT_FINI_ARRAY: Int = 15
+pub const SHT_PREINIT_ARRAY: Int = 16
+pub const SHT_GROUP: Int = 17
+pub const SHT_SYMTAB_SHNDX: Int = 18
+pub const SHT_LOOS: Int = 1610612736
+pub const SHT_GNU_ATTRIBUTES: Int = 1879048181
+pub const SHT_GNU_HASH: Int = 1879048182
+pub const SHT_GNU_LIBLIST: Int = 1879048183
+pub const SHT_GNU_VERDEF: Int = 1879048189
+pub const SHT_GNU_VERNEED: Int = 1879048190
+pub const SHT_GNU_VERSYM: Int = 1879048191
+pub const SHT_HIOS: Int = 1879048191
+pub const SHT_LOPROC: Int = 1879048192
+pub const SHT_RISCV_ATTRIBUTES: Int = 1879048195
+pub const SHT_MIPS_ABIFLAGS: Int = 1879048234
+pub const SHT_HIPROC: Int = 2147483647
+pub const SHT_LOUSER: Int = 2147483648
+pub const SHT_HIUSER: Int = 4294967295
+pub const SHF_WRITE: Int = 1
+pub const SHF_ALLOC: Int = 2
+pub const SHF_EXECINSTR: Int = 4
+pub const SHF_MERGE: Int = 16
+pub const SHF_STRINGS: Int = 32
+pub const SHF_INFO_LINK: Int = 64
+pub const SHF_LINK_ORDER: Int = 128
+pub const SHF_OS_NONCONFORMING: Int = 256
+pub const SHF_GROUP: Int = 512
+pub const SHF_TLS: Int = 1024
+pub const SHF_COMPRESSED: Int = 2048
+pub const SHF_MASKOS: Int = 267386880
+pub const SHF_MASKPROC: Int = 4026531840
+pub const COMPRESS_ZLIB: Int = 1
+pub const COMPRESS_ZSTD: Int = 2
+pub const COMPRESS_LOOS: Int = 1610612736
+pub const COMPRESS_HIOS: Int = 1879048191
+pub const COMPRESS_LOPROC: Int = 1879048192
+pub const COMPRESS_HIPROC: Int = 2147483647
+pub const PT_NULL: Int = 0
+pub const PT_LOAD: Int = 1
+pub const PT_DYNAMIC: Int = 2
+pub const PT_INTERP: Int = 3
+pub const PT_NOTE: Int = 4
+pub const PT_SHLIB: Int = 5
+pub const PT_PHDR: Int = 6
+pub const PT_TLS: Int = 7
+pub const PT_LOOS: Int = 1610612736
+pub const PT_GNU_EH_FRAME: Int = 1685382480
+pub const PT_GNU_STACK: Int = 1685382481
+pub const PT_GNU_RELRO: Int = 1685382482
+pub const PT_GNU_PROPERTY: Int = 1685382483
+pub const PT_GNU_MBIND_LO: Int = 1685382485
+pub const PT_GNU_MBIND_HI: Int = 1685386580
+pub const PT_PAX_FLAGS: Int = 1694766464
+pub const PT_OPENBSD_RANDOMIZE: Int = 1705237478
+pub const PT_OPENBSD_WXNEEDED: Int = 1705237479
+pub const PT_OPENBSD_NOBTCFI: Int = 1705237480
+pub const PT_OPENBSD_BOOTDATA: Int = 1705253862
+pub const PT_SUNW_EH_FRAME: Int = 1685382480
+pub const PT_SUNWSTACK: Int = 1879048187
+pub const PT_HIOS: Int = 1879048191
+pub const PT_LOPROC: Int = 1879048192
+pub const PT_ARM_ARCHEXT: Int = 1879048192
+pub const PT_ARM_EXIDX: Int = 1879048193
+pub const PT_AARCH64_ARCHEXT: Int = 1879048192
+pub const PT_AARCH64_UNWIND: Int = 1879048193
+pub const PT_MIPS_REGINFO: Int = 1879048192
+pub const PT_MIPS_RTPROC: Int = 1879048193
+pub const PT_MIPS_OPTIONS: Int = 1879048194
+pub const PT_MIPS_ABIFLAGS: Int = 1879048195
+pub const PT_RISCV_ATTRIBUTES: Int = 1879048195
+pub const PT_S390_PGSTE: Int = 1879048192
+pub const PT_HIPROC: Int = 2147483647
+pub const PF_X: Int = 1
+pub const PF_W: Int = 2
+pub const PF_R: Int = 4
+pub const PF_MASKOS: Int = 267386880
+pub const PF_MASKPROC: Int = 4026531840
+pub const DT_NULL: Int = 0
+pub const DT_NEEDED: Int = 1
+pub const DT_PLTRELSZ: Int = 2
+pub const DT_PLTGOT: Int = 3
+pub const DT_HASH: Int = 4
+pub const DT_STRTAB: Int = 5
+pub const DT_SYMTAB: Int = 6
+pub const DT_RELA: Int = 7
+pub const DT_RELASZ: Int = 8
+pub const DT_RELAENT: Int = 9
+pub const DT_STRSZ: Int = 10
+pub const DT_SYMENT: Int = 11
+pub const DT_INIT: Int = 12
+pub const DT_FINI: Int = 13
+pub const DT_SONAME: Int = 14
+pub const DT_RPATH: Int = 15
+pub const DT_SYMBOLIC: Int = 16
+pub const DT_REL: Int = 17
+pub const DT_RELSZ: Int = 18
+pub const DT_RELENT: Int = 19
+pub const DT_PLTREL: Int = 20
+pub const DT_DEBUG: Int = 21
+pub const DT_TEXTREL: Int = 22
+pub const DT_JMPREL: Int = 23
+pub const DT_BIND_NOW: Int = 24
+pub const DT_INIT_ARRAY: Int = 25
+pub const DT_FINI_ARRAY: Int = 26
+pub const DT_INIT_ARRAYSZ: Int = 27
+pub const DT_FINI_ARRAYSZ: Int = 28
+pub const DT_RUNPATH: Int = 29
+pub const DT_FLAGS: Int = 30
+pub const DT_ENCODING: Int = 32
+pub const DT_PREINIT_ARRAY: Int = 32
+pub const DT_PREINIT_ARRAYSZ: Int = 33
+pub const DT_SYMTAB_SHNDX: Int = 34
+pub const DT_LOOS: Int = 1610612749
+pub const DT_HIOS: Int = 1879044096
+pub const DT_VALRNGLO: Int = 1879047424
+pub const DT_GNU_PRELINKED: Int = 1879047669
+pub const DT_GNU_CONFLICTSZ: Int = 1879047670
+pub const DT_GNU_LIBLISTSZ: Int = 1879047671
+pub const DT_CHECKSUM: Int = 1879047672
+pub const DT_PLTPADSZ: Int = 1879047673
+pub const DT_MOVEENT: Int = 1879047674
+pub const DT_MOVESZ: Int = 1879047675
+pub const DT_FEATURE: Int = 1879047676
+pub const DT_POSFLAG_1: Int = 1879047677
+pub const DT_SYMINSZ: Int = 1879047678
+pub const DT_SYMINENT: Int = 1879047679
+pub const DT_VALRNGHI: Int = 1879047679
+pub const DT_ADDRRNGLO: Int = 1879047680
+pub const DT_GNU_HASH: Int = 1879047925
+pub const DT_TLSDESC_PLT: Int = 1879047926
+pub const DT_TLSDESC_GOT: Int = 1879047927
+pub const DT_GNU_CONFLICT: Int = 1879047928
+pub const DT_GNU_LIBLIST: Int = 1879047929
+pub const DT_CONFIG: Int = 1879047930
+pub const DT_DEPAUDIT: Int = 1879047931
+pub const DT_AUDIT: Int = 1879047932
+pub const DT_PLTPAD: Int = 1879047933
+pub const DT_MOVETAB: Int = 1879047934
+pub const DT_SYMINFO: Int = 1879047935
+pub const DT_ADDRRNGHI: Int = 1879047935
+pub const DT_VERSYM: Int = 1879048176
+pub const DT_RELACOUNT: Int = 1879048185
+pub const DT_RELCOUNT: Int = 1879048186
+pub const DT_FLAGS_1: Int = 1879048187
+pub const DT_VERDEF: Int = 1879048188
+pub const DT_VERDEFNUM: Int = 1879048189
+pub const DT_VERNEED: Int = 1879048190
+pub const DT_VERNEEDNUM: Int = 1879048191
+pub const DT_LOPROC: Int = 1879048192
+pub const DT_MIPS_RLD_VERSION: Int = 1879048193
+pub const DT_MIPS_TIME_STAMP: Int = 1879048194
+pub const DT_MIPS_ICHECKSUM: Int = 1879048195
+pub const DT_MIPS_IVERSION: Int = 1879048196
+pub const DT_MIPS_FLAGS: Int = 1879048197
+pub const DT_MIPS_BASE_ADDRESS: Int = 1879048198
+pub const DT_MIPS_MSYM: Int = 1879048199
+pub const DT_MIPS_CONFLICT: Int = 1879048200
+pub const DT_MIPS_LIBLIST: Int = 1879048201
+pub const DT_MIPS_LOCAL_GOTNO: Int = 1879048202
+pub const DT_MIPS_CONFLICTNO: Int = 1879048203
+pub const DT_MIPS_LIBLISTNO: Int = 1879048208
+pub const DT_MIPS_SYMTABNO: Int = 1879048209
+pub const DT_MIPS_UNREFEXTNO: Int = 1879048210
+pub const DT_MIPS_GOTSYM: Int = 1879048211
+pub const DT_MIPS_HIPAGENO: Int = 1879048212
+pub const DT_MIPS_RLD_MAP: Int = 1879048214
+pub const DT_MIPS_DELTA_CLASS: Int = 1879048215
+pub const DT_MIPS_DELTA_CLASS_NO: Int = 1879048216
+pub const DT_MIPS_DELTA_INSTANCE: Int = 1879048217
+pub const DT_MIPS_DELTA_INSTANCE_NO: Int = 1879048218
+pub const DT_MIPS_DELTA_RELOC: Int = 1879048219
+pub const DT_MIPS_DELTA_RELOC_NO: Int = 1879048220
+pub const DT_MIPS_DELTA_SYM: Int = 1879048221
+pub const DT_MIPS_DELTA_SYM_NO: Int = 1879048222
+pub const DT_MIPS_DELTA_CLASSSYM: Int = 1879048224
+pub const DT_MIPS_DELTA_CLASSSYM_NO: Int = 1879048225
+pub const DT_MIPS_CXX_FLAGS: Int = 1879048226
+pub const DT_MIPS_PIXIE_INIT: Int = 1879048227
+pub const DT_MIPS_SYMBOL_LIB: Int = 1879048228
+pub const DT_MIPS_LOCALPAGE_GOTIDX: Int = 1879048229
+pub const DT_MIPS_LOCAL_GOTIDX: Int = 1879048230
+pub const DT_MIPS_HIDDEN_GOTIDX: Int = 1879048231
+pub const DT_MIPS_PROTECTED_GOTIDX: Int = 1879048232
+pub const DT_MIPS_OPTIONS: Int = 1879048233
+pub const DT_MIPS_INTERFACE: Int = 1879048234
+pub const DT_MIPS_DYNSTR_ALIGN: Int = 1879048235
+pub const DT_MIPS_INTERFACE_SIZE: Int = 1879048236
+pub const DT_MIPS_RLD_TEXT_RESOLVE_ADDR: Int = 1879048237
+pub const DT_MIPS_PERF_SUFFIX: Int = 1879048238
+pub const DT_MIPS_COMPACT_SIZE: Int = 1879048239
+pub const DT_MIPS_GP_VALUE: Int = 1879048240
+pub const DT_MIPS_AUX_DYNAMIC: Int = 1879048241
+pub const DT_MIPS_PLTGOT: Int = 1879048242
+pub const DT_MIPS_RWPLT: Int = 1879048244
+pub const DT_MIPS_RLD_MAP_REL: Int = 1879048245
+pub const DT_PPC_GOT: Int = 1879048192
+pub const DT_PPC_OPT: Int = 1879048193
+pub const DT_PPC64_GLINK: Int = 1879048192
+pub const DT_PPC64_OPD: Int = 1879048193
+pub const DT_PPC64_OPDSZ: Int = 1879048194
+pub const DT_PPC64_OPT: Int = 1879048195
+pub const DT_SPARC_REGISTER: Int = 1879048193
+pub const DT_AUXILIARY: Int = 2147483645
+pub const DT_USED: Int = 2147483646
+pub const DT_FILTER: Int = 2147483647
+pub const DT_HIPROC: Int = 2147483647
+pub const DF_ORIGIN: Int = 1
+pub const DF_SYMBOLIC: Int = 2
+pub const DF_TEXTREL: Int = 4
+pub const DF_BIND_NOW: Int = 8
+pub const DF_STATIC_TLS: Int = 16
+pub const DF_1_NOW: Int = 1
+pub const DF_1_GLOBAL: Int = 2
+pub const DF_1_GROUP: Int = 4
+pub const DF_1_NODELETE: Int = 8
+pub const DF_1_LOADFLTR: Int = 16
+pub const DF_1_INITFIRST: Int = 32
+pub const DF_1_NOOPEN: Int = 64
+pub const DF_1_ORIGIN: Int = 128
+pub const DF_1_DIRECT: Int = 256
+pub const DF_1_TRANS: Int = 512
+pub const DF_1_INTERPOSE: Int = 1024
+pub const DF_1_NODEFLIB: Int = 2048
+pub const DF_1_NODUMP: Int = 4096
+pub const DF_1_CONFALT: Int = 8192
+pub const DF_1_ENDFILTEE: Int = 16384
+pub const DF_1_DISPRELDNE: Int = 32768
+pub const DF_1_DISPRELPND: Int = 65536
+pub const DF_1_NODIRECT: Int = 131072
+pub const DF_1_IGNMULDEF: Int = 262144
+pub const DF_1_NOKSYMS: Int = 524288
+pub const DF_1_NOHDR: Int = 1048576
+pub const DF_1_EDITED: Int = 2097152
+pub const DF_1_NORELOC: Int = 4194304
+pub const DF_1_SYMINTPOSE: Int = 8388608
+pub const DF_1_GLOBAUDIT: Int = 16777216
+pub const DF_1_SINGLETON: Int = 33554432
+pub const DF_1_STUB: Int = 67108864
+pub const DF_1_PIE: Int = 134217728
+pub const DF_1_KMOD: Int = 268435456
+pub const DF_1_WEAKFILTER: Int = 536870912
+pub const DF_1_NOCOMMON: Int = 1073741824
+pub const NT_PRSTATUS: Int = 1
+pub const NT_FPREGSET: Int = 2
+pub const NT_PRPSINFO: Int = 3
+pub const STB_LOCAL: Int = 0
+pub const STB_GLOBAL: Int = 1
+pub const STB_WEAK: Int = 2
+pub const STB_LOOS: Int = 10
+pub const STB_HIOS: Int = 12
+pub const STB_LOPROC: Int = 13
+pub const STB_HIPROC: Int = 15
+pub const STT_NOTYPE: Int = 0
+pub const STT_OBJECT: Int = 1
+pub const STT_FUNC: Int = 2
+pub const STT_SECTION: Int = 3
+pub const STT_FILE: Int = 4
+pub const STT_COMMON: Int = 5
+pub const STT_TLS: Int = 6
+pub const STT_LOOS: Int = 10
+pub const STT_HIOS: Int = 12
+pub const STT_LOPROC: Int = 13
+pub const STT_HIPROC: Int = 15
+pub const STT_RELC: Int = 8
+pub const STT_SRELC: Int = 9
+pub const STT_GNU_IFUNC: Int = 10
+pub const STV_DEFAULT: Int = 0
+pub const STV_INTERNAL: Int = 1
+pub const STV_HIDDEN: Int = 2
+pub const STV_PROTECTED: Int = 3
+pub const R_X86_64_NONE: Int = 0
+pub const R_X86_64_64: Int = 1
+pub const R_X86_64_PC32: Int = 2
+pub const R_X86_64_GOT32: Int = 3
+pub const R_X86_64_PLT32: Int = 4
+pub const R_X86_64_COPY: Int = 5
+pub const R_X86_64_GLOB_DAT: Int = 6
+pub const R_X86_64_JMP_SLOT: Int = 7
+pub const R_X86_64_RELATIVE: Int = 8
+pub const R_X86_64_GOTPCREL: Int = 9
+pub const R_X86_64_32: Int = 10
+pub const R_X86_64_32S: Int = 11
+pub const R_X86_64_16: Int = 12
+pub const R_X86_64_PC16: Int = 13
+pub const R_X86_64_8: Int = 14
+pub const R_X86_64_PC8: Int = 15
+pub const R_X86_64_DTPMOD64: Int = 16
+pub const R_X86_64_DTPOFF64: Int = 17
+pub const R_X86_64_TPOFF64: Int = 18
+pub const R_X86_64_TLSGD: Int = 19
+pub const R_X86_64_TLSLD: Int = 20
+pub const R_X86_64_DTPOFF32: Int = 21
+pub const R_X86_64_GOTTPOFF: Int = 22
+pub const R_X86_64_TPOFF32: Int = 23
+pub const R_X86_64_PC64: Int = 24
+pub const R_X86_64_GOTOFF64: Int = 25
+pub const R_X86_64_GOTPC32: Int = 26
+pub const R_X86_64_GOT64: Int = 27
+pub const R_X86_64_GOTPCREL64: Int = 28
+pub const R_X86_64_GOTPC64: Int = 29
+pub const R_X86_64_GOTPLT64: Int = 30
+pub const R_X86_64_PLTOFF64: Int = 31
+pub const R_X86_64_SIZE32: Int = 32
+pub const R_X86_64_SIZE64: Int = 33
+pub const R_X86_64_GOTPC32_TLSDESC: Int = 34
+pub const R_X86_64_TLSDESC_CALL: Int = 35
+pub const R_X86_64_TLSDESC: Int = 36
+pub const R_X86_64_IRELATIVE: Int = 37
+pub const R_X86_64_RELATIVE64: Int = 38
+pub const R_X86_64_PC32_BND: Int = 39
+pub const R_X86_64_PLT32_BND: Int = 40
+pub const R_X86_64_GOTPCRELX: Int = 41
+pub const R_X86_64_REX_GOTPCRELX: Int = 42
+pub const R_AARCH64_NONE: Int = 0
+pub const R_AARCH64_P32_ABS32: Int = 1
+pub const R_AARCH64_P32_ABS16: Int = 2
+pub const R_AARCH64_P32_PREL32: Int = 3
+pub const R_AARCH64_P32_PREL16: Int = 4
+pub const R_AARCH64_P32_MOVW_UABS_G0: Int = 5
+pub const R_AARCH64_P32_MOVW_UABS_G0_NC: Int = 6
+pub const R_AARCH64_P32_MOVW_UABS_G1: Int = 7
+pub const R_AARCH64_P32_MOVW_SABS_G0: Int = 8
+pub const R_AARCH64_P32_LD_PREL_LO19: Int = 9
+pub const R_AARCH64_P32_ADR_PREL_LO21: Int = 10
+pub const R_AARCH64_P32_ADR_PREL_PG_HI21: Int = 11
+pub const R_AARCH64_P32_ADD_ABS_LO12_NC: Int = 12
+pub const R_AARCH64_P32_LDST8_ABS_LO12_NC: Int = 13
+pub const R_AARCH64_P32_LDST16_ABS_LO12_NC: Int = 14
+pub const R_AARCH64_P32_LDST32_ABS_LO12_NC: Int = 15
+pub const R_AARCH64_P32_LDST64_ABS_LO12_NC: Int = 16
+pub const R_AARCH64_P32_LDST128_ABS_LO12_NC: Int = 17
+pub const R_AARCH64_P32_TSTBR14: Int = 18
+pub const R_AARCH64_P32_CONDBR19: Int = 19
+pub const R_AARCH64_P32_JUMP26: Int = 20
+pub const R_AARCH64_P32_CALL26: Int = 21
+pub const R_AARCH64_P32_GOT_LD_PREL19: Int = 25
+pub const R_AARCH64_P32_ADR_GOT_PAGE: Int = 26
+pub const R_AARCH64_P32_LD32_GOT_LO12_NC: Int = 27
+pub const R_AARCH64_P32_TLSGD_ADR_PAGE21: Int = 81
+pub const R_AARCH64_P32_TLSGD_ADD_LO12_NC: Int = 82
+pub const R_AARCH64_P32_TLSIE_ADR_GOTTPREL_PAGE21: Int = 103
+pub const R_AARCH64_P32_TLSIE_LD32_GOTTPREL_LO12_NC: Int = 104
+pub const R_AARCH64_P32_TLSIE_LD_GOTTPREL_PREL19: Int = 105
+pub const R_AARCH64_P32_TLSLE_MOVW_TPREL_G1: Int = 106
+pub const R_AARCH64_P32_TLSLE_MOVW_TPREL_G0: Int = 107
+pub const R_AARCH64_P32_TLSLE_MOVW_TPREL_G0_NC: Int = 108
+pub const R_AARCH64_P32_TLSLE_ADD_TPREL_HI12: Int = 109
+pub const R_AARCH64_P32_TLSLE_ADD_TPREL_LO12: Int = 110
+pub const R_AARCH64_P32_TLSLE_ADD_TPREL_LO12_NC: Int = 111
+pub const R_AARCH64_P32_TLSDESC_LD_PREL19: Int = 122
+pub const R_AARCH64_P32_TLSDESC_ADR_PREL21: Int = 123
+pub const R_AARCH64_P32_TLSDESC_ADR_PAGE21: Int = 124
+pub const R_AARCH64_P32_TLSDESC_LD32_LO12_NC: Int = 125
+pub const R_AARCH64_P32_TLSDESC_ADD_LO12_NC: Int = 126
+pub const R_AARCH64_P32_TLSDESC_CALL: Int = 127
+pub const R_AARCH64_P32_COPY: Int = 180
+pub const R_AARCH64_P32_GLOB_DAT: Int = 181
+pub const R_AARCH64_P32_JUMP_SLOT: Int = 182
+pub const R_AARCH64_P32_RELATIVE: Int = 183
+pub const R_AARCH64_P32_TLS_DTPMOD: Int = 184
+pub const R_AARCH64_P32_TLS_DTPREL: Int = 185
+pub const R_AARCH64_P32_TLS_TPREL: Int = 186
+pub const R_AARCH64_P32_TLSDESC: Int = 187
+pub const R_AARCH64_P32_IRELATIVE: Int = 188
+pub const R_AARCH64_NULL: Int = 256
+pub const R_AARCH64_ABS64: Int = 257
+pub const R_AARCH64_ABS32: Int = 258
+pub const R_AARCH64_ABS16: Int = 259
+pub const R_AARCH64_PREL64: Int = 260
+pub const R_AARCH64_PREL32: Int = 261
+pub const R_AARCH64_PREL16: Int = 262
+pub const R_AARCH64_MOVW_UABS_G0: Int = 263
+pub const R_AARCH64_MOVW_UABS_G0_NC: Int = 264
+pub const R_AARCH64_MOVW_UABS_G1: Int = 265
+pub const R_AARCH64_MOVW_UABS_G1_NC: Int = 266
+pub const R_AARCH64_MOVW_UABS_G2: Int = 267
+pub const R_AARCH64_MOVW_UABS_G2_NC: Int = 268
+pub const R_AARCH64_MOVW_UABS_G3: Int = 269
+pub const R_AARCH64_MOVW_SABS_G0: Int = 270
+pub const R_AARCH64_MOVW_SABS_G1: Int = 271
+pub const R_AARCH64_MOVW_SABS_G2: Int = 272
+pub const R_AARCH64_LD_PREL_LO19: Int = 273
+pub const R_AARCH64_ADR_PREL_LO21: Int = 274
+pub const R_AARCH64_ADR_PREL_PG_HI21: Int = 275
+pub const R_AARCH64_ADR_PREL_PG_HI21_NC: Int = 276
+pub const R_AARCH64_ADD_ABS_LO12_NC: Int = 277
+pub const R_AARCH64_LDST8_ABS_LO12_NC: Int = 278
+pub const R_AARCH64_TSTBR14: Int = 279
+pub const R_AARCH64_CONDBR19: Int = 280
+pub const R_AARCH64_JUMP26: Int = 282
+pub const R_AARCH64_CALL26: Int = 283
+pub const R_AARCH64_LDST16_ABS_LO12_NC: Int = 284
+pub const R_AARCH64_LDST32_ABS_LO12_NC: Int = 285
+pub const R_AARCH64_LDST64_ABS_LO12_NC: Int = 286
+pub const R_AARCH64_LDST128_ABS_LO12_NC: Int = 299
+pub const R_AARCH64_GOT_LD_PREL19: Int = 309
+pub const R_AARCH64_LD64_GOTOFF_LO15: Int = 310
+pub const R_AARCH64_ADR_GOT_PAGE: Int = 311
+pub const R_AARCH64_LD64_GOT_LO12_NC: Int = 312
+pub const R_AARCH64_LD64_GOTPAGE_LO15: Int = 313
+pub const R_AARCH64_TLSGD_ADR_PREL21: Int = 512
+pub const R_AARCH64_TLSGD_ADR_PAGE21: Int = 513
+pub const R_AARCH64_TLSGD_ADD_LO12_NC: Int = 514
+pub const R_AARCH64_TLSGD_MOVW_G1: Int = 515
+pub const R_AARCH64_TLSGD_MOVW_G0_NC: Int = 516
+pub const R_AARCH64_TLSLD_ADR_PREL21: Int = 517
+pub const R_AARCH64_TLSLD_ADR_PAGE21: Int = 518
+pub const R_AARCH64_TLSIE_MOVW_GOTTPREL_G1: Int = 539
+pub const R_AARCH64_TLSIE_MOVW_GOTTPREL_G0_NC: Int = 540
+pub const R_AARCH64_TLSIE_ADR_GOTTPREL_PAGE21: Int = 541
+pub const R_AARCH64_TLSIE_LD64_GOTTPREL_LO12_NC: Int = 542
+pub const R_AARCH64_TLSIE_LD_GOTTPREL_PREL19: Int = 543
+pub const R_AARCH64_TLSLE_MOVW_TPREL_G2: Int = 544
+pub const R_AARCH64_TLSLE_MOVW_TPREL_G1: Int = 545
+pub const R_AARCH64_TLSLE_MOVW_TPREL_G1_NC: Int = 546
+pub const R_AARCH64_TLSLE_MOVW_TPREL_G0: Int = 547
+pub const R_AARCH64_TLSLE_MOVW_TPREL_G0_NC: Int = 548
+pub const R_AARCH64_TLSLE_ADD_TPREL_HI12: Int = 549
+pub const R_AARCH64_TLSLE_ADD_TPREL_LO12: Int = 550
+pub const R_AARCH64_TLSLE_ADD_TPREL_LO12_NC: Int = 551
+pub const R_AARCH64_TLSDESC_LD_PREL19: Int = 560
+pub const R_AARCH64_TLSDESC_ADR_PREL21: Int = 561
+pub const R_AARCH64_TLSDESC_ADR_PAGE21: Int = 562
+pub const R_AARCH64_TLSDESC_LD64_LO12_NC: Int = 563
+pub const R_AARCH64_TLSDESC_ADD_LO12_NC: Int = 564
+pub const R_AARCH64_TLSDESC_OFF_G1: Int = 565
+pub const R_AARCH64_TLSDESC_OFF_G0_NC: Int = 566
+pub const R_AARCH64_TLSDESC_LDR: Int = 567
+pub const R_AARCH64_TLSDESC_ADD: Int = 568
+pub const R_AARCH64_TLSDESC_CALL: Int = 569
+pub const R_AARCH64_TLSLE_LDST128_TPREL_LO12: Int = 570
+pub const R_AARCH64_TLSLE_LDST128_TPREL_LO12_NC: Int = 571
+pub const R_AARCH64_TLSLD_LDST128_DTPREL_LO12: Int = 572
+pub const R_AARCH64_TLSLD_LDST128_DTPREL_LO12_NC: Int = 573
+pub const R_AARCH64_COPY: Int = 1024
+pub const R_AARCH64_GLOB_DAT: Int = 1025
+pub const R_AARCH64_JUMP_SLOT: Int = 1026
+pub const R_AARCH64_RELATIVE: Int = 1027
+pub const R_AARCH64_TLS_DTPMOD64: Int = 1028
+pub const R_AARCH64_TLS_DTPREL64: Int = 1029
+pub const R_AARCH64_TLS_TPREL64: Int = 1030
+pub const R_AARCH64_TLSDESC: Int = 1031
+pub const R_AARCH64_IRELATIVE: Int = 1032
+pub const R_ALPHA_NONE: Int = 0
+pub const R_ALPHA_REFLONG: Int = 1
+pub const R_ALPHA_REFQUAD: Int = 2
+pub const R_ALPHA_GPREL32: Int = 3
+pub const R_ALPHA_LITERAL: Int = 4
+pub const R_ALPHA_LITUSE: Int = 5
+pub const R_ALPHA_GPDISP: Int = 6
+pub const R_ALPHA_BRADDR: Int = 7
+pub const R_ALPHA_HINT: Int = 8
+pub const R_ALPHA_SREL16: Int = 9
+pub const R_ALPHA_SREL32: Int = 10
+pub const R_ALPHA_SREL64: Int = 11
+pub const R_ALPHA_OP_PUSH: Int = 12
+pub const R_ALPHA_OP_STORE: Int = 13
+pub const R_ALPHA_OP_PSUB: Int = 14
+pub const R_ALPHA_OP_PRSHIFT: Int = 15
+pub const R_ALPHA_GPVALUE: Int = 16
+pub const R_ALPHA_GPRELHIGH: Int = 17
+pub const R_ALPHA_GPRELLOW: Int = 18
+pub const R_ALPHA_IMMED_GP_16: Int = 19
+pub const R_ALPHA_IMMED_GP_HI32: Int = 20
+pub const R_ALPHA_IMMED_SCN_HI32: Int = 21
+pub const R_ALPHA_IMMED_BR_HI32: Int = 22
+pub const R_ALPHA_IMMED_LO32: Int = 23
+pub const R_ALPHA_COPY: Int = 24
+pub const R_ALPHA_GLOB_DAT: Int = 25
+pub const R_ALPHA_JMP_SLOT: Int = 26
+pub const R_ALPHA_RELATIVE: Int = 27
+pub const R_ARM_NONE: Int = 0
+pub const R_ARM_PC24: Int = 1
+pub const R_ARM_ABS32: Int = 2
+pub const R_ARM_REL32: Int = 3
+pub const R_ARM_PC13: Int = 4
+pub const R_ARM_ABS16: Int = 5
+pub const R_ARM_ABS12: Int = 6
+pub const R_ARM_THM_ABS5: Int = 7
+pub const R_ARM_ABS8: Int = 8
+pub const R_ARM_SBREL32: Int = 9
+pub const R_ARM_THM_PC22: Int = 10
+pub const R_ARM_THM_PC8: Int = 11
+pub const R_ARM_AMP_VCALL9: Int = 12
+pub const R_ARM_SWI24: Int = 13
+pub const R_ARM_THM_SWI8: Int = 14
+pub const R_ARM_XPC25: Int = 15
+pub const R_ARM_THM_XPC22: Int = 16
+pub const R_ARM_TLS_DTPMOD32: Int = 17
+pub const R_ARM_TLS_DTPOFF32: Int = 18
+pub const R_ARM_TLS_TPOFF32: Int = 19
+pub const R_ARM_COPY: Int = 20
+pub const R_ARM_GLOB_DAT: Int = 21
+pub const R_ARM_JUMP_SLOT: Int = 22
+pub const R_ARM_RELATIVE: Int = 23
+pub const R_ARM_GOTOFF: Int = 24
+pub const R_ARM_GOTPC: Int = 25
+pub const R_ARM_GOT32: Int = 26
+pub const R_ARM_PLT32: Int = 27
+pub const R_ARM_CALL: Int = 28
+pub const R_ARM_JUMP24: Int = 29
+pub const R_ARM_THM_JUMP24: Int = 30
+pub const R_ARM_BASE_ABS: Int = 31
+pub const R_ARM_ALU_PCREL_7_0: Int = 32
+pub const R_ARM_ALU_PCREL_15_8: Int = 33
+pub const R_ARM_ALU_PCREL_23_15: Int = 34
+pub const R_ARM_LDR_SBREL_11_10_NC: Int = 35
+pub const R_ARM_ALU_SBREL_19_12_NC: Int = 36
+pub const R_ARM_ALU_SBREL_27_20_CK: Int = 37
+pub const R_ARM_TARGET1: Int = 38
+pub const R_ARM_SBREL31: Int = 39
+pub const R_ARM_V4BX: Int = 40
+pub const R_ARM_TARGET2: Int = 41
+pub const R_ARM_PREL31: Int = 42
+pub const R_ARM_MOVW_ABS_NC: Int = 43
+pub const R_ARM_MOVT_ABS: Int = 44
+pub const R_ARM_MOVW_PREL_NC: Int = 45
+pub const R_ARM_MOVT_PREL: Int = 46
+pub const R_ARM_THM_MOVW_ABS_NC: Int = 47
+pub const R_ARM_THM_MOVT_ABS: Int = 48
+pub const R_ARM_THM_MOVW_PREL_NC: Int = 49
+pub const R_ARM_THM_MOVT_PREL: Int = 50
+pub const R_ARM_THM_JUMP19: Int = 51
+pub const R_ARM_THM_JUMP6: Int = 52
+pub const R_ARM_THM_ALU_PREL_11_0: Int = 53
+pub const R_ARM_THM_PC12: Int = 54
+pub const R_ARM_ABS32_NOI: Int = 55
+pub const R_ARM_REL32_NOI: Int = 56
+pub const R_ARM_ALU_PC_G0_NC: Int = 57
+pub const R_ARM_ALU_PC_G0: Int = 58
+pub const R_ARM_ALU_PC_G1_NC: Int = 59
+pub const R_ARM_ALU_PC_G1: Int = 60
+pub const R_ARM_ALU_PC_G2: Int = 61
+pub const R_ARM_LDR_PC_G1: Int = 62
+pub const R_ARM_LDR_PC_G2: Int = 63
+pub const R_ARM_LDRS_PC_G0: Int = 64
+pub const R_ARM_LDRS_PC_G1: Int = 65
+pub const R_ARM_LDRS_PC_G2: Int = 66
+pub const R_ARM_LDC_PC_G0: Int = 67
+pub const R_ARM_LDC_PC_G1: Int = 68
+pub const R_ARM_LDC_PC_G2: Int = 69
+pub const R_ARM_ALU_SB_G0_NC: Int = 70
+pub const R_ARM_ALU_SB_G0: Int = 71
+pub const R_ARM_ALU_SB_G1_NC: Int = 72
+pub const R_ARM_ALU_SB_G1: Int = 73
+pub const R_ARM_ALU_SB_G2: Int = 74
+pub const R_ARM_LDR_SB_G0: Int = 75
+pub const R_ARM_LDR_SB_G1: Int = 76
+pub const R_ARM_LDR_SB_G2: Int = 77
+pub const R_ARM_LDRS_SB_G0: Int = 78
+pub const R_ARM_LDRS_SB_G1: Int = 79
+pub const R_ARM_LDRS_SB_G2: Int = 80
+pub const R_ARM_LDC_SB_G0: Int = 81
+pub const R_ARM_LDC_SB_G1: Int = 82
+pub const R_ARM_LDC_SB_G2: Int = 83
+pub const R_ARM_MOVW_BREL_NC: Int = 84
+pub const R_ARM_MOVT_BREL: Int = 85
+pub const R_ARM_MOVW_BREL: Int = 86
+pub const R_ARM_THM_MOVW_BREL_NC: Int = 87
+pub const R_ARM_THM_MOVT_BREL: Int = 88
+pub const R_ARM_THM_MOVW_BREL: Int = 89
+pub const R_ARM_TLS_GOTDESC: Int = 90
+pub const R_ARM_TLS_CALL: Int = 91
+pub const R_ARM_TLS_DESCSEQ: Int = 92
+pub const R_ARM_THM_TLS_CALL: Int = 93
+pub const R_ARM_PLT32_ABS: Int = 94
+pub const R_ARM_GOT_ABS: Int = 95
+pub const R_ARM_GOT_PREL: Int = 96
+pub const R_ARM_GOT_BREL12: Int = 97
+pub const R_ARM_GOTOFF12: Int = 98
+pub const R_ARM_GOTRELAX: Int = 99
+pub const R_ARM_GNU_VTENTRY: Int = 100
+pub const R_ARM_GNU_VTINHERIT: Int = 101
+pub const R_ARM_THM_JUMP11: Int = 102
+pub const R_ARM_THM_JUMP8: Int = 103
+pub const R_ARM_TLS_GD32: Int = 104
+pub const R_ARM_TLS_LDM32: Int = 105
+pub const R_ARM_TLS_LDO32: Int = 106
+pub const R_ARM_TLS_IE32: Int = 107
+pub const R_ARM_TLS_LE32: Int = 108
+pub const R_ARM_TLS_LDO12: Int = 109
+pub const R_ARM_TLS_LE12: Int = 110
+pub const R_ARM_TLS_IE12GP: Int = 111
+pub const R_ARM_PRIVATE_0: Int = 112
+pub const R_ARM_PRIVATE_1: Int = 113
+pub const R_ARM_PRIVATE_2: Int = 114
+pub const R_ARM_PRIVATE_3: Int = 115
+pub const R_ARM_PRIVATE_4: Int = 116
+pub const R_ARM_PRIVATE_5: Int = 117
+pub const R_ARM_PRIVATE_6: Int = 118
+pub const R_ARM_PRIVATE_7: Int = 119
+pub const R_ARM_PRIVATE_8: Int = 120
+pub const R_ARM_PRIVATE_9: Int = 121
+pub const R_ARM_PRIVATE_10: Int = 122
+pub const R_ARM_PRIVATE_11: Int = 123
+pub const R_ARM_PRIVATE_12: Int = 124
+pub const R_ARM_PRIVATE_13: Int = 125
+pub const R_ARM_PRIVATE_14: Int = 126
+pub const R_ARM_PRIVATE_15: Int = 127
+pub const R_ARM_ME_TOO: Int = 128
+pub const R_ARM_THM_TLS_DESCSEQ16: Int = 129
+pub const R_ARM_THM_TLS_DESCSEQ32: Int = 130
+pub const R_ARM_THM_GOT_BREL12: Int = 131
+pub const R_ARM_THM_ALU_ABS_G0_NC: Int = 132
+pub const R_ARM_THM_ALU_ABS_G1_NC: Int = 133
+pub const R_ARM_THM_ALU_ABS_G2_NC: Int = 134
+pub const R_ARM_THM_ALU_ABS_G3: Int = 135
+pub const R_ARM_IRELATIVE: Int = 160
+pub const R_ARM_RXPC25: Int = 249
+pub const R_ARM_RSBREL32: Int = 250
+pub const R_ARM_THM_RPC22: Int = 251
+pub const R_ARM_RREL32: Int = 252
+pub const R_ARM_RABS32: Int = 253
+pub const R_ARM_RPC24: Int = 254
+pub const R_ARM_RBASE: Int = 255
+pub const R_386_NONE: Int = 0
+pub const R_386_32: Int = 1
+pub const R_386_PC32: Int = 2
+pub const R_386_GOT32: Int = 3
+pub const R_386_PLT32: Int = 4
+pub const R_386_COPY: Int = 5
+pub const R_386_GLOB_DAT: Int = 6
+pub const R_386_JMP_SLOT: Int = 7
+pub const R_386_RELATIVE: Int = 8
+pub const R_386_GOTOFF: Int = 9
+pub const R_386_GOTPC: Int = 10
+pub const R_386_32PLT: Int = 11
+pub const R_386_TLS_TPOFF: Int = 14
+pub const R_386_TLS_IE: Int = 15
+pub const R_386_TLS_GOTIE: Int = 16
+pub const R_386_TLS_LE: Int = 17
+pub const R_386_TLS_GD: Int = 18
+pub const R_386_TLS_LDM: Int = 19
+pub const R_386_16: Int = 20
+pub const R_386_PC16: Int = 21
+pub const R_386_8: Int = 22
+pub const R_386_PC8: Int = 23
+pub const R_386_TLS_GD_32: Int = 24
+pub const R_386_TLS_GD_PUSH: Int = 25
+pub const R_386_TLS_GD_CALL: Int = 26
+pub const R_386_TLS_GD_POP: Int = 27
+pub const R_386_TLS_LDM_32: Int = 28
+pub const R_386_TLS_LDM_PUSH: Int = 29
+pub const R_386_TLS_LDM_CALL: Int = 30
+pub const R_386_TLS_LDM_POP: Int = 31
+pub const R_386_TLS_LDO_32: Int = 32
+pub const R_386_TLS_IE_32: Int = 33
+pub const R_386_TLS_LE_32: Int = 34
+pub const R_386_TLS_DTPMOD32: Int = 35
+pub const R_386_TLS_DTPOFF32: Int = 36
+pub const R_386_TLS_TPOFF32: Int = 37
+pub const R_386_SIZE32: Int = 38
+pub const R_386_TLS_GOTDESC: Int = 39
+pub const R_386_TLS_DESC_CALL: Int = 40
+pub const R_386_TLS_DESC: Int = 41
+pub const R_386_IRELATIVE: Int = 42
+pub const R_386_GOT32X: Int = 43
+pub const R_MIPS_NONE: Int = 0
+pub const R_MIPS_16: Int = 1
+pub const R_MIPS_32: Int = 2
+pub const R_MIPS_REL32: Int = 3
+pub const R_MIPS_26: Int = 4
+pub const R_MIPS_HI16: Int = 5
+pub const R_MIPS_LO16: Int = 6
+pub const R_MIPS_GPREL16: Int = 7
+pub const R_MIPS_LITERAL: Int = 8
+pub const R_MIPS_GOT16: Int = 9
+pub const R_MIPS_PC16: Int = 10
+pub const R_MIPS_CALL16: Int = 11
+pub const R_MIPS_GPREL32: Int = 12
+pub const R_MIPS_SHIFT5: Int = 16
+pub const R_MIPS_SHIFT6: Int = 17
+pub const R_MIPS_64: Int = 18
+pub const R_MIPS_GOT_DISP: Int = 19
+pub const R_MIPS_GOT_PAGE: Int = 20
+pub const R_MIPS_GOT_OFST: Int = 21
+pub const R_MIPS_GOT_HI16: Int = 22
+pub const R_MIPS_GOT_LO16: Int = 23
+pub const R_MIPS_SUB: Int = 24
+pub const R_MIPS_INSERT_A: Int = 25
+pub const R_MIPS_INSERT_B: Int = 26
+pub const R_MIPS_DELETE: Int = 27
+pub const R_MIPS_HIGHER: Int = 28
+pub const R_MIPS_HIGHEST: Int = 29
+pub const R_MIPS_CALL_HI16: Int = 30
+pub const R_MIPS_CALL_LO16: Int = 31
+pub const R_MIPS_SCN_DISP: Int = 32
+pub const R_MIPS_REL16: Int = 33
+pub const R_MIPS_ADD_IMMEDIATE: Int = 34
+pub const R_MIPS_PJUMP: Int = 35
+pub const R_MIPS_RELGOT: Int = 36
+pub const R_MIPS_JALR: Int = 37
+pub const R_MIPS_TLS_DTPMOD32: Int = 38
+pub const R_MIPS_TLS_DTPREL32: Int = 39
+pub const R_MIPS_TLS_DTPMOD64: Int = 40
+pub const R_MIPS_TLS_DTPREL64: Int = 41
+pub const R_MIPS_TLS_GD: Int = 42
+pub const R_MIPS_TLS_LDM: Int = 43
+pub const R_MIPS_TLS_DTPREL_HI16: Int = 44
+pub const R_MIPS_TLS_DTPREL_LO16: Int = 45
+pub const R_MIPS_TLS_GOTTPREL: Int = 46
+pub const R_MIPS_TLS_TPREL32: Int = 47
+pub const R_MIPS_TLS_TPREL64: Int = 48
+pub const R_MIPS_TLS_TPREL_HI16: Int = 49
+pub const R_MIPS_TLS_TPREL_LO16: Int = 50
+pub const R_MIPS_PC32: Int = 248
+pub const R_LARCH_NONE: Int = 0
+pub const R_LARCH_32: Int = 1
+pub const R_LARCH_64: Int = 2
+pub const R_LARCH_RELATIVE: Int = 3
+pub const R_LARCH_COPY: Int = 4
+pub const R_LARCH_JUMP_SLOT: Int = 5
+pub const R_LARCH_TLS_DTPMOD32: Int = 6
+pub const R_LARCH_TLS_DTPMOD64: Int = 7
+pub const R_LARCH_TLS_DTPREL32: Int = 8
+pub const R_LARCH_TLS_DTPREL64: Int = 9
+pub const R_LARCH_TLS_TPREL32: Int = 10
+pub const R_LARCH_TLS_TPREL64: Int = 11
+pub const R_LARCH_IRELATIVE: Int = 12
+pub const R_LARCH_TLS_DESC32: Int = 13
+pub const R_LARCH_TLS_DESC64: Int = 14
+pub const R_LARCH_MARK_LA: Int = 20
+pub const R_LARCH_MARK_PCREL: Int = 21
+pub const R_LARCH_SOP_PUSH_PCREL: Int = 22
+pub const R_LARCH_SOP_PUSH_ABSOLUTE: Int = 23
+pub const R_LARCH_SOP_PUSH_DUP: Int = 24
+pub const R_LARCH_SOP_PUSH_GPREL: Int = 25
+pub const R_LARCH_SOP_PUSH_TLS_TPREL: Int = 26
+pub const R_LARCH_SOP_PUSH_TLS_GOT: Int = 27
+pub const R_LARCH_SOP_PUSH_TLS_GD: Int = 28
+pub const R_LARCH_SOP_PUSH_PLT_PCREL: Int = 29
+pub const R_LARCH_SOP_ASSERT: Int = 30
+pub const R_LARCH_SOP_NOT: Int = 31
+pub const R_LARCH_SOP_SUB: Int = 32
+pub const R_LARCH_SOP_SL: Int = 33
+pub const R_LARCH_SOP_SR: Int = 34
+pub const R_LARCH_SOP_ADD: Int = 35
+pub const R_LARCH_SOP_AND: Int = 36
+pub const R_LARCH_SOP_IF_ELSE: Int = 37
+pub const R_LARCH_SOP_POP_32_S_10_5: Int = 38
+pub const R_LARCH_SOP_POP_32_U_10_12: Int = 39
+pub const R_LARCH_SOP_POP_32_S_10_12: Int = 40
+pub const R_LARCH_SOP_POP_32_S_10_16: Int = 41
+pub const R_LARCH_SOP_POP_32_S_10_16_S2: Int = 42
+pub const R_LARCH_SOP_POP_32_S_5_20: Int = 43
+pub const R_LARCH_SOP_POP_32_S_0_5_10_16_S2: Int = 44
+pub const R_LARCH_SOP_POP_32_S_0_10_10_16_S2: Int = 45
+pub const R_LARCH_SOP_POP_32_U: Int = 46
+pub const R_LARCH_ADD8: Int = 47
+pub const R_LARCH_ADD16: Int = 48
+pub const R_LARCH_ADD24: Int = 49
+pub const R_LARCH_ADD32: Int = 50
+pub const R_LARCH_ADD64: Int = 51
+pub const R_LARCH_SUB8: Int = 52
+pub const R_LARCH_SUB16: Int = 53
+pub const R_LARCH_SUB24: Int = 54
+pub const R_LARCH_SUB32: Int = 55
+pub const R_LARCH_SUB64: Int = 56
+pub const R_LARCH_GNU_VTINHERIT: Int = 57
+pub const R_LARCH_GNU_VTENTRY: Int = 58
+pub const R_LARCH_B16: Int = 64
+pub const R_LARCH_B21: Int = 65
+pub const R_LARCH_B26: Int = 66
+pub const R_LARCH_ABS_HI20: Int = 67
+pub const R_LARCH_ABS_LO12: Int = 68
+pub const R_LARCH_ABS64_LO20: Int = 69
+pub const R_LARCH_ABS64_HI12: Int = 70
+pub const R_LARCH_PCALA_HI20: Int = 71
+pub const R_LARCH_PCALA_LO12: Int = 72
+pub const R_LARCH_PCALA64_LO20: Int = 73
+pub const R_LARCH_PCALA64_HI12: Int = 74
+pub const R_LARCH_GOT_PC_HI20: Int = 75
+pub const R_LARCH_GOT_PC_LO12: Int = 76
+pub const R_LARCH_GOT64_PC_LO20: Int = 77
+pub const R_LARCH_GOT64_PC_HI12: Int = 78
+pub const R_LARCH_GOT_HI20: Int = 79
+pub const R_LARCH_GOT_LO12: Int = 80
+pub const R_LARCH_GOT64_LO20: Int = 81
+pub const R_LARCH_GOT64_HI12: Int = 82
+pub const R_LARCH_TLS_LE_HI20: Int = 83
+pub const R_LARCH_TLS_LE_LO12: Int = 84
+pub const R_LARCH_TLS_LE64_LO20: Int = 85
+pub const R_LARCH_TLS_LE64_HI12: Int = 86
+pub const R_LARCH_TLS_IE_PC_HI20: Int = 87
+pub const R_LARCH_TLS_IE_PC_LO12: Int = 88
+pub const R_LARCH_TLS_IE64_PC_LO20: Int = 89
+pub const R_LARCH_TLS_IE64_PC_HI12: Int = 90
+pub const R_LARCH_TLS_IE_HI20: Int = 91
+pub const R_LARCH_TLS_IE_LO12: Int = 92
+pub const R_LARCH_TLS_IE64_LO20: Int = 93
+pub const R_LARCH_TLS_IE64_HI12: Int = 94
+pub const R_LARCH_TLS_LD_PC_HI20: Int = 95
+pub const R_LARCH_TLS_LD_HI20: Int = 96
+pub const R_LARCH_TLS_GD_PC_HI20: Int = 97
+pub const R_LARCH_TLS_GD_HI20: Int = 98
+pub const R_LARCH_32_PCREL: Int = 99
+pub const R_LARCH_RELAX: Int = 100
+pub const R_LARCH_DELETE: Int = 101
+pub const R_LARCH_ALIGN: Int = 102
+pub const R_LARCH_PCREL20_S2: Int = 103
+pub const R_LARCH_CFA: Int = 104
+pub const R_LARCH_ADD6: Int = 105
+pub const R_LARCH_SUB6: Int = 106
+pub const R_LARCH_ADD_ULEB128: Int = 107
+pub const R_LARCH_SUB_ULEB128: Int = 108
+pub const R_LARCH_64_PCREL: Int = 109
+pub const R_LARCH_CALL36: Int = 110
+pub const R_LARCH_TLS_DESC_PC_HI20: Int = 111
+pub const R_LARCH_TLS_DESC_PC_LO12: Int = 112
+pub const R_LARCH_TLS_DESC64_PC_LO20: Int = 113
+pub const R_LARCH_TLS_DESC64_PC_HI12: Int = 114
+pub const R_LARCH_TLS_DESC_HI20: Int = 115
+pub const R_LARCH_TLS_DESC_LO12: Int = 116
+pub const R_LARCH_TLS_DESC64_LO20: Int = 117
+pub const R_LARCH_TLS_DESC64_HI12: Int = 118
+pub const R_LARCH_TLS_DESC_LD: Int = 119
+pub const R_LARCH_TLS_DESC_CALL: Int = 120
+pub const R_LARCH_TLS_LE_HI20_R: Int = 121
+pub const R_LARCH_TLS_LE_ADD_R: Int = 122
+pub const R_LARCH_TLS_LE_LO12_R: Int = 123
+pub const R_LARCH_TLS_LD_PCREL20_S2: Int = 124
+pub const R_LARCH_TLS_GD_PCREL20_S2: Int = 125
+pub const R_LARCH_TLS_DESC_PCREL20_S2: Int = 126
+pub const R_PPC_NONE: Int = 0
+pub const R_PPC_ADDR32: Int = 1
+pub const R_PPC_ADDR24: Int = 2
+pub const R_PPC_ADDR16: Int = 3
+pub const R_PPC_ADDR16_LO: Int = 4
+pub const R_PPC_ADDR16_HI: Int = 5
+pub const R_PPC_ADDR16_HA: Int = 6
+pub const R_PPC_ADDR14: Int = 7
+pub const R_PPC_ADDR14_BRTAKEN: Int = 8
+pub const R_PPC_ADDR14_BRNTAKEN: Int = 9
+pub const R_PPC_REL24: Int = 10
+pub const R_PPC_REL14: Int = 11
+pub const R_PPC_REL14_BRTAKEN: Int = 12
+pub const R_PPC_REL14_BRNTAKEN: Int = 13
+pub const R_PPC_GOT16: Int = 14
+pub const R_PPC_GOT16_LO: Int = 15
+pub const R_PPC_GOT16_HI: Int = 16
+pub const R_PPC_GOT16_HA: Int = 17
+pub const R_PPC_PLTREL24: Int = 18
+pub const R_PPC_COPY: Int = 19
+pub const R_PPC_GLOB_DAT: Int = 20
+pub const R_PPC_JMP_SLOT: Int = 21
+pub const R_PPC_RELATIVE: Int = 22
+pub const R_PPC_LOCAL24PC: Int = 23
+pub const R_PPC_UADDR32: Int = 24
+pub const R_PPC_UADDR16: Int = 25
+pub const R_PPC_REL32: Int = 26
+pub const R_PPC_PLT32: Int = 27
+pub const R_PPC_PLTREL32: Int = 28
+pub const R_PPC_PLT16_LO: Int = 29
+pub const R_PPC_PLT16_HI: Int = 30
+pub const R_PPC_PLT16_HA: Int = 31
+pub const R_PPC_SDAREL16: Int = 32
+pub const R_PPC_SECTOFF: Int = 33
+pub const R_PPC_SECTOFF_LO: Int = 34
+pub const R_PPC_SECTOFF_HI: Int = 35
+pub const R_PPC_SECTOFF_HA: Int = 36
+pub const R_PPC_TLS: Int = 67
+pub const R_PPC_DTPMOD32: Int = 68
+pub const R_PPC_TPREL16: Int = 69
+pub const R_PPC_TPREL16_LO: Int = 70
+pub const R_PPC_TPREL16_HI: Int = 71
+pub const R_PPC_TPREL16_HA: Int = 72
+pub const R_PPC_TPREL32: Int = 73
+pub const R_PPC_DTPREL16: Int = 74
+pub const R_PPC_DTPREL16_LO: Int = 75
+pub const R_PPC_DTPREL16_HI: Int = 76
+pub const R_PPC_DTPREL16_HA: Int = 77
+pub const R_PPC_DTPREL32: Int = 78
+pub const R_PPC_GOT_TLSGD16: Int = 79
+pub const R_PPC_GOT_TLSGD16_LO: Int = 80
+pub const R_PPC_GOT_TLSGD16_HI: Int = 81
+pub const R_PPC_GOT_TLSGD16_HA: Int = 82
+pub const R_PPC_GOT_TLSLD16: Int = 83
+pub const R_PPC_GOT_TLSLD16_LO: Int = 84
+pub const R_PPC_GOT_TLSLD16_HI: Int = 85
+pub const R_PPC_GOT_TLSLD16_HA: Int = 86
+pub const R_PPC_GOT_TPREL16: Int = 87
+pub const R_PPC_GOT_TPREL16_LO: Int = 88
+pub const R_PPC_GOT_TPREL16_HI: Int = 89
+pub const R_PPC_GOT_TPREL16_HA: Int = 90
+pub const R_PPC_EMB_NADDR32: Int = 101
+pub const R_PPC_EMB_NADDR16: Int = 102
+pub const R_PPC_EMB_NADDR16_LO: Int = 103
+pub const R_PPC_EMB_NADDR16_HI: Int = 104
+pub const R_PPC_EMB_NADDR16_HA: Int = 105
+pub const R_PPC_EMB_SDAI16: Int = 106
+pub const R_PPC_EMB_SDA2I16: Int = 107
+pub const R_PPC_EMB_SDA2REL: Int = 108
+pub const R_PPC_EMB_SDA21: Int = 109
+pub const R_PPC_EMB_MRKREF: Int = 110
+pub const R_PPC_EMB_RELSEC16: Int = 111
+pub const R_PPC_EMB_RELST_LO: Int = 112
+pub const R_PPC_EMB_RELST_HI: Int = 113
+pub const R_PPC_EMB_RELST_HA: Int = 114
+pub const R_PPC_EMB_BIT_FLD: Int = 115
+pub const R_PPC_EMB_RELSDA: Int = 116
+pub const R_PPC64_NONE: Int = 0
+pub const R_PPC64_ADDR32: Int = 1
+pub const R_PPC64_ADDR24: Int = 2
+pub const R_PPC64_ADDR16: Int = 3
+pub const R_PPC64_ADDR16_LO: Int = 4
+pub const R_PPC64_ADDR16_HI: Int = 5
+pub const R_PPC64_ADDR16_HA: Int = 6
+pub const R_PPC64_ADDR14: Int = 7
+pub const R_PPC64_ADDR14_BRTAKEN: Int = 8
+pub const R_PPC64_ADDR14_BRNTAKEN: Int = 9
+pub const R_PPC64_REL24: Int = 10
+pub const R_PPC64_REL14: Int = 11
+pub const R_PPC64_REL14_BRTAKEN: Int = 12
+pub const R_PPC64_REL14_BRNTAKEN: Int = 13
+pub const R_PPC64_GOT16: Int = 14
+pub const R_PPC64_GOT16_LO: Int = 15
+pub const R_PPC64_GOT16_HI: Int = 16
+pub const R_PPC64_GOT16_HA: Int = 17
+pub const R_PPC64_COPY: Int = 19
+pub const R_PPC64_GLOB_DAT: Int = 20
+pub const R_PPC64_JMP_SLOT: Int = 21
+pub const R_PPC64_RELATIVE: Int = 22
+pub const R_PPC64_UADDR32: Int = 24
+pub const R_PPC64_UADDR16: Int = 25
+pub const R_PPC64_REL32: Int = 26
+pub const R_PPC64_PLT32: Int = 27
+pub const R_PPC64_PLTREL32: Int = 28
+pub const R_PPC64_PLT16_LO: Int = 29
+pub const R_PPC64_PLT16_HI: Int = 30
+pub const R_PPC64_PLT16_HA: Int = 31
+pub const R_PPC64_SECTOFF: Int = 33
+pub const R_PPC64_SECTOFF_LO: Int = 34
+pub const R_PPC64_SECTOFF_HI: Int = 35
+pub const R_PPC64_SECTOFF_HA: Int = 36
+pub const R_PPC64_REL30: Int = 37
+pub const R_PPC64_ADDR64: Int = 38
+pub const R_PPC64_ADDR16_HIGHER: Int = 39
+pub const R_PPC64_ADDR16_HIGHERA: Int = 40
+pub const R_PPC64_ADDR16_HIGHEST: Int = 41
+pub const R_PPC64_ADDR16_HIGHESTA: Int = 42
+pub const R_PPC64_UADDR64: Int = 43
+pub const R_PPC64_REL64: Int = 44
+pub const R_PPC64_PLT64: Int = 45
+pub const R_PPC64_PLTREL64: Int = 46
+pub const R_PPC64_TOC16: Int = 47
+pub const R_PPC64_TOC16_LO: Int = 48
+pub const R_PPC64_TOC16_HI: Int = 49
+pub const R_PPC64_TOC16_HA: Int = 50
+pub const R_PPC64_TOC: Int = 51
+pub const R_PPC64_PLTGOT16: Int = 52
+pub const R_PPC64_PLTGOT16_LO: Int = 53
+pub const R_PPC64_PLTGOT16_HI: Int = 54
+pub const R_PPC64_PLTGOT16_HA: Int = 55
+pub const R_PPC64_ADDR16_DS: Int = 56
+pub const R_PPC64_ADDR16_LO_DS: Int = 57
+pub const R_PPC64_GOT16_DS: Int = 58
+pub const R_PPC64_GOT16_LO_DS: Int = 59
+pub const R_PPC64_PLT16_LO_DS: Int = 60
+pub const R_PPC64_SECTOFF_DS: Int = 61
+pub const R_PPC64_SECTOFF_LO_DS: Int = 62
+pub const R_PPC64_TOC16_DS: Int = 63
+pub const R_PPC64_TOC16_LO_DS: Int = 64
+pub const R_PPC64_PLTGOT16_DS: Int = 65
+pub const R_PPC64_PLTGOT_LO_DS: Int = 66
+pub const R_PPC64_TLS: Int = 67
+pub const R_PPC64_DTPMOD64: Int = 68
+pub const R_PPC64_TPREL16: Int = 69
+pub const R_PPC64_TPREL16_LO: Int = 70
+pub const R_PPC64_TPREL16_HI: Int = 71
+pub const R_PPC64_TPREL16_HA: Int = 72
+pub const R_PPC64_TPREL64: Int = 73
+pub const R_PPC64_DTPREL16: Int = 74
+pub const R_PPC64_DTPREL16_LO: Int = 75
+pub const R_PPC64_DTPREL16_HI: Int = 76
+pub const R_PPC64_DTPREL16_HA: Int = 77
+pub const R_PPC64_DTPREL64: Int = 78
+pub const R_PPC64_GOT_TLSGD16: Int = 79
+pub const R_PPC64_GOT_TLSGD16_LO: Int = 80
+pub const R_PPC64_GOT_TLSGD16_HI: Int = 81
+pub const R_PPC64_GOT_TLSGD16_HA: Int = 82
+pub const R_PPC64_GOT_TLSLD16: Int = 83
+pub const R_PPC64_GOT_TLSLD16_LO: Int = 84
+pub const R_PPC64_GOT_TLSLD16_HI: Int = 85
+pub const R_PPC64_GOT_TLSLD16_HA: Int = 86
+pub const R_PPC64_GOT_TPREL16_DS: Int = 87
+pub const R_PPC64_GOT_TPREL16_LO_DS: Int = 88
+pub const R_PPC64_GOT_TPREL16_HI: Int = 89
+pub const R_PPC64_GOT_TPREL16_HA: Int = 90
+pub const R_PPC64_GOT_DTPREL16_DS: Int = 91
+pub const R_PPC64_GOT_DTPREL16_LO_DS: Int = 92
+pub const R_PPC64_GOT_DTPREL16_HI: Int = 93
+pub const R_PPC64_GOT_DTPREL16_HA: Int = 94
+pub const R_PPC64_TPREL16_DS: Int = 95
+pub const R_PPC64_TPREL16_LO_DS: Int = 96
+pub const R_PPC64_TPREL16_HIGHER: Int = 97
+pub const R_PPC64_TPREL16_HIGHERA: Int = 98
+pub const R_PPC64_TPREL16_HIGHEST: Int = 99
+pub const R_PPC64_TPREL16_HIGHESTA: Int = 100
+pub const R_PPC64_DTPREL16_DS: Int = 101
+pub const R_PPC64_DTPREL16_LO_DS: Int = 102
+pub const R_PPC64_DTPREL16_HIGHER: Int = 103
+pub const R_PPC64_DTPREL16_HIGHERA: Int = 104
+pub const R_PPC64_DTPREL16_HIGHEST: Int = 105
+pub const R_PPC64_DTPREL16_HIGHESTA: Int = 106
+pub const R_PPC64_TLSGD: Int = 107
+pub const R_PPC64_TLSLD: Int = 108
+pub const R_PPC64_TOCSAVE: Int = 109
+pub const R_PPC64_ADDR16_HIGH: Int = 110
+pub const R_PPC64_ADDR16_HIGHA: Int = 111
+pub const R_PPC64_TPREL16_HIGH: Int = 112
+pub const R_PPC64_TPREL16_HIGHA: Int = 113
+pub const R_PPC64_DTPREL16_HIGH: Int = 114
+pub const R_PPC64_DTPREL16_HIGHA: Int = 115
+pub const R_PPC64_REL24_NOTOC: Int = 116
+pub const R_PPC64_ADDR64_LOCAL: Int = 117
+pub const R_PPC64_ENTRY: Int = 118
+pub const R_PPC64_PLTSEQ: Int = 119
+pub const R_PPC64_PLTCALL: Int = 120
+pub const R_PPC64_PLTSEQ_NOTOC: Int = 121
+pub const R_PPC64_PLTCALL_NOTOC: Int = 122
+pub const R_PPC64_PCREL_OPT: Int = 123
+pub const R_PPC64_REL24_P9NOTOC: Int = 124
+pub const R_PPC64_D34: Int = 128
+pub const R_PPC64_D34_LO: Int = 129
+pub const R_PPC64_D34_HI30: Int = 130
+pub const R_PPC64_D34_HA30: Int = 131
+pub const R_PPC64_PCREL34: Int = 132
+pub const R_PPC64_GOT_PCREL34: Int = 133
+pub const R_PPC64_PLT_PCREL34: Int = 134
+pub const R_PPC64_PLT_PCREL34_NOTOC: Int = 135
+pub const R_PPC64_ADDR16_HIGHER34: Int = 136
+pub const R_PPC64_ADDR16_HIGHERA34: Int = 137
+pub const R_PPC64_ADDR16_HIGHEST34: Int = 138
+pub const R_PPC64_ADDR16_HIGHESTA34: Int = 139
+pub const R_PPC64_REL16_HIGHER34: Int = 140
+pub const R_PPC64_REL16_HIGHERA34: Int = 141
+pub const R_PPC64_REL16_HIGHEST34: Int = 142
+pub const R_PPC64_REL16_HIGHESTA34: Int = 143
+pub const R_PPC64_D28: Int = 144
+pub const R_PPC64_PCREL28: Int = 145
+pub const R_PPC64_TPREL34: Int = 146
+pub const R_PPC64_DTPREL34: Int = 147
+pub const R_PPC64_GOT_TLSGD_PCREL34: Int = 148
+pub const R_PPC64_GOT_TLSLD_PCREL34: Int = 149
+pub const R_PPC64_GOT_TPREL_PCREL34: Int = 150
+pub const R_PPC64_GOT_DTPREL_PCREL34: Int = 151
+pub const R_PPC64_REL16_HIGH: Int = 240
+pub const R_PPC64_REL16_HIGHA: Int = 241
+pub const R_PPC64_REL16_HIGHER: Int = 242
+pub const R_PPC64_REL16_HIGHERA: Int = 243
+pub const R_PPC64_REL16_HIGHEST: Int = 244
+pub const R_PPC64_REL16_HIGHESTA: Int = 245
+pub const R_PPC64_REL16DX_HA: Int = 246
+pub const R_PPC64_JMP_IREL: Int = 247
+pub const R_PPC64_IRELATIVE: Int = 248
+pub const R_PPC64_REL16: Int = 249
+pub const R_PPC64_REL16_LO: Int = 250
+pub const R_PPC64_REL16_HI: Int = 251
+pub const R_PPC64_REL16_HA: Int = 252
+pub const R_PPC64_GNU_VTINHERIT: Int = 253
+pub const R_PPC64_GNU_VTENTRY: Int = 254
+pub const R_RISCV_NONE: Int = 0
+pub const R_RISCV_32: Int = 1
+pub const R_RISCV_64: Int = 2
+pub const R_RISCV_RELATIVE: Int = 3
+pub const R_RISCV_COPY: Int = 4
+pub const R_RISCV_JUMP_SLOT: Int = 5
+pub const R_RISCV_TLS_DTPMOD32: Int = 6
+pub const R_RISCV_TLS_DTPMOD64: Int = 7
+pub const R_RISCV_TLS_DTPREL32: Int = 8
+pub const R_RISCV_TLS_DTPREL64: Int = 9
+pub const R_RISCV_TLS_TPREL32: Int = 10
+pub const R_RISCV_TLS_TPREL64: Int = 11
+pub const R_RISCV_BRANCH: Int = 16
+pub const R_RISCV_JAL: Int = 17
+pub const R_RISCV_CALL: Int = 18
+pub const R_RISCV_CALL_PLT: Int = 19
+pub const R_RISCV_GOT_HI20: Int = 20
+pub const R_RISCV_TLS_GOT_HI20: Int = 21
+pub const R_RISCV_TLS_GD_HI20: Int = 22
+pub const R_RISCV_PCREL_HI20: Int = 23
+pub const R_RISCV_PCREL_LO12_I: Int = 24
+pub const R_RISCV_PCREL_LO12_S: Int = 25
+pub const R_RISCV_HI20: Int = 26
+pub const R_RISCV_LO12_I: Int = 27
+pub const R_RISCV_LO12_S: Int = 28
+pub const R_RISCV_TPREL_HI20: Int = 29
+pub const R_RISCV_TPREL_LO12_I: Int = 30
+pub const R_RISCV_TPREL_LO12_S: Int = 31
+pub const R_RISCV_TPREL_ADD: Int = 32
+pub const R_RISCV_ADD8: Int = 33
+pub const R_RISCV_ADD16: Int = 34
+pub const R_RISCV_ADD32: Int = 35
+pub const R_RISCV_ADD64: Int = 36
+pub const R_RISCV_SUB8: Int = 37
+pub const R_RISCV_SUB16: Int = 38
+pub const R_RISCV_SUB32: Int = 39
+pub const R_RISCV_SUB64: Int = 40
+pub const R_RISCV_GNU_VTINHERIT: Int = 41
+pub const R_RISCV_GNU_VTENTRY: Int = 42
+pub const R_RISCV_ALIGN: Int = 43
+pub const R_RISCV_RVC_BRANCH: Int = 44
+pub const R_RISCV_RVC_JUMP: Int = 45
+pub const R_RISCV_RVC_LUI: Int = 46
+pub const R_RISCV_GPREL_I: Int = 47
+pub const R_RISCV_GPREL_S: Int = 48
+pub const R_RISCV_TPREL_I: Int = 49
+pub const R_RISCV_TPREL_S: Int = 50
+pub const R_RISCV_RELAX: Int = 51
+pub const R_RISCV_SUB6: Int = 52
+pub const R_RISCV_SET6: Int = 53
+pub const R_RISCV_SET8: Int = 54
+pub const R_RISCV_SET16: Int = 55
+pub const R_RISCV_SET32: Int = 56
+pub const R_RISCV_32_PCREL: Int = 57
+pub const R_390_NONE: Int = 0
+pub const R_390_8: Int = 1
+pub const R_390_12: Int = 2
+pub const R_390_16: Int = 3
+pub const R_390_32: Int = 4
+pub const R_390_PC32: Int = 5
+pub const R_390_GOT12: Int = 6
+pub const R_390_GOT32: Int = 7
+pub const R_390_PLT32: Int = 8
+pub const R_390_COPY: Int = 9
+pub const R_390_GLOB_DAT: Int = 10
+pub const R_390_JMP_SLOT: Int = 11
+pub const R_390_RELATIVE: Int = 12
+pub const R_390_GOTOFF: Int = 13
+pub const R_390_GOTPC: Int = 14
+pub const R_390_GOT16: Int = 15
+pub const R_390_PC16: Int = 16
+pub const R_390_PC16DBL: Int = 17
+pub const R_390_PLT16DBL: Int = 18
+pub const R_390_PC32DBL: Int = 19
+pub const R_390_PLT32DBL: Int = 20
+pub const R_390_GOTPCDBL: Int = 21
+pub const R_390_64: Int = 22
+pub const R_390_PC64: Int = 23
+pub const R_390_GOT64: Int = 24
+pub const R_390_PLT64: Int = 25
+pub const R_390_GOTENT: Int = 26
+pub const R_390_GOTOFF16: Int = 27
+pub const R_390_GOTOFF64: Int = 28
+pub const R_390_GOTPLT12: Int = 29
+pub const R_390_GOTPLT16: Int = 30
+pub const R_390_GOTPLT32: Int = 31
+pub const R_390_GOTPLT64: Int = 32
+pub const R_390_GOTPLTENT: Int = 33
+pub const R_390_GOTPLTOFF16: Int = 34
+pub const R_390_GOTPLTOFF32: Int = 35
+pub const R_390_GOTPLTOFF64: Int = 36
+pub const R_390_TLS_LOAD: Int = 37
+pub const R_390_TLS_GDCALL: Int = 38
+pub const R_390_TLS_LDCALL: Int = 39
+pub const R_390_TLS_GD32: Int = 40
+pub const R_390_TLS_GD64: Int = 41
+pub const R_390_TLS_GOTIE12: Int = 42
+pub const R_390_TLS_GOTIE32: Int = 43
+pub const R_390_TLS_GOTIE64: Int = 44
+pub const R_390_TLS_LDM32: Int = 45
+pub const R_390_TLS_LDM64: Int = 46
+pub const R_390_TLS_IE32: Int = 47
+pub const R_390_TLS_IE64: Int = 48
+pub const R_390_TLS_IEENT: Int = 49
+pub const R_390_TLS_LE32: Int = 50
+pub const R_390_TLS_LE64: Int = 51
+pub const R_390_TLS_LDO32: Int = 52
+pub const R_390_TLS_LDO64: Int = 53
+pub const R_390_TLS_DTPMOD: Int = 54
+pub const R_390_TLS_DTPOFF: Int = 55
+pub const R_390_TLS_TPOFF: Int = 56
+pub const R_390_20: Int = 57
+pub const R_390_GOT20: Int = 58
+pub const R_390_GOTPLT20: Int = 59
+pub const R_390_TLS_GOTIE20: Int = 60
+pub const R_SPARC_NONE: Int = 0
+pub const R_SPARC_8: Int = 1
+pub const R_SPARC_16: Int = 2
+pub const R_SPARC_32: Int = 3
+pub const R_SPARC_DISP8: Int = 4
+pub const R_SPARC_DISP16: Int = 5
+pub const R_SPARC_DISP32: Int = 6
+pub const R_SPARC_WDISP30: Int = 7
+pub const R_SPARC_WDISP22: Int = 8
+pub const R_SPARC_HI22: Int = 9
+pub const R_SPARC_22: Int = 10
+pub const R_SPARC_13: Int = 11
+pub const R_SPARC_LO10: Int = 12
+pub const R_SPARC_GOT10: Int = 13
+pub const R_SPARC_GOT13: Int = 14
+pub const R_SPARC_GOT22: Int = 15
+pub const R_SPARC_PC10: Int = 16
+pub const R_SPARC_PC22: Int = 17
+pub const R_SPARC_WPLT30: Int = 18
+pub const R_SPARC_COPY: Int = 19
+pub const R_SPARC_GLOB_DAT: Int = 20
+pub const R_SPARC_JMP_SLOT: Int = 21
+pub const R_SPARC_RELATIVE: Int = 22
+pub const R_SPARC_UA32: Int = 23
+pub const R_SPARC_PLT32: Int = 24
+pub const R_SPARC_HIPLT22: Int = 25
+pub const R_SPARC_LOPLT10: Int = 26
+pub const R_SPARC_PCPLT32: Int = 27
+pub const R_SPARC_PCPLT22: Int = 28
+pub const R_SPARC_PCPLT10: Int = 29
+pub const R_SPARC_10: Int = 30
+pub const R_SPARC_11: Int = 31
+pub const R_SPARC_64: Int = 32
+pub const R_SPARC_OLO10: Int = 33
+pub const R_SPARC_HH22: Int = 34
+pub const R_SPARC_HM10: Int = 35
+pub const R_SPARC_LM22: Int = 36
+pub const R_SPARC_PC_HH22: Int = 37
+pub const R_SPARC_PC_HM10: Int = 38
+pub const R_SPARC_PC_LM22: Int = 39
+pub const R_SPARC_WDISP16: Int = 40
+pub const R_SPARC_WDISP19: Int = 41
+pub const R_SPARC_GLOB_JMP: Int = 42
+pub const R_SPARC_7: Int = 43
+pub const R_SPARC_5: Int = 44
+pub const R_SPARC_6: Int = 45
+pub const R_SPARC_DISP64: Int = 46
+pub const R_SPARC_PLT64: Int = 47
+pub const R_SPARC_HIX22: Int = 48
+pub const R_SPARC_LOX10: Int = 49
+pub const R_SPARC_H44: Int = 50
+pub const R_SPARC_M44: Int = 51
+pub const R_SPARC_L44: Int = 52
+pub const R_SPARC_REGISTER: Int = 53
+pub const R_SPARC_UA64: Int = 54
+pub const R_SPARC_UA16: Int = 55
+pub const ARM_MAGIC_TRAMP_NUMBER: Int = 1543503875
+pub const Sym32Size: Int = 16
+pub const Sym64Size: Int = 24
+pub const VER_FLG_BASE: Int = 1
+pub const VER_FLG_WEAK: Int = 2
+pub const VER_FLG_INFO: Int = 4
+
+fn t_version() -> List<(Int, Str)> { [(0, "EV_NONE"), (1, "EV_CURRENT")] }
+
+pub fn version_string(i: Int) -> Str { string_name(i, t_version(), false) }
+
+pub fn version_go_string(i: Int) -> Str { string_name(i, t_version(), true) }
+
+fn t_class() -> List<(Int, Str)> { [(0, "ELFCLASSNONE"), (1, "ELFCLASS32"), (2, "ELFCLASS64")] }
+
+pub fn class_string(i: Int) -> Str { string_name(i, t_class(), false) }
+
+pub fn class_go_string(i: Int) -> Str { string_name(i, t_class(), true) }
+
+fn t_data() -> List<(Int, Str)> { [(0, "ELFDATANONE"), (1, "ELFDATA2LSB"), (2, "ELFDATA2MSB")] }
+
+pub fn data_string(i: Int) -> Str { string_name(i, t_data(), false) }
+
+pub fn data_go_string(i: Int) -> Str { string_name(i, t_data(), true) }
+
+fn t_osabi() -> List<(Int, Str)> {
+  [
+    (0, "ELFOSABI_NONE"),
+    (1, "ELFOSABI_HPUX"),
+    (2, "ELFOSABI_NETBSD"),
+    (3, "ELFOSABI_LINUX"),
+    (4, "ELFOSABI_HURD"),
+    (5, "ELFOSABI_86OPEN"),
+    (6, "ELFOSABI_SOLARIS"),
+    (7, "ELFOSABI_AIX"),
+    (8, "ELFOSABI_IRIX"),
+    (9, "ELFOSABI_FREEBSD"),
+    (10, "ELFOSABI_TRU64"),
+    (11, "ELFOSABI_MODESTO"),
+    (12, "ELFOSABI_OPENBSD"),
+    (13, "ELFOSABI_OPENVMS"),
+    (14, "ELFOSABI_NSK"),
+    (15, "ELFOSABI_AROS"),
+    (16, "ELFOSABI_FENIXOS"),
+    (17, "ELFOSABI_CLOUDABI"),
+    (97, "ELFOSABI_ARM"),
+    (255, "ELFOSABI_STANDALONE"),
+  ]
+}
+
+pub fn osabi_string(i: Int) -> Str { string_name(i, t_osabi(), false) }
+
+pub fn osabi_go_string(i: Int) -> Str { string_name(i, t_osabi(), true) }
+
+fn t_type() -> List<(Int, Str)> {
+  [
+    (0, "ET_NONE"),
+    (1, "ET_REL"),
+    (2, "ET_EXEC"),
+    (3, "ET_DYN"),
+    (4, "ET_CORE"),
+    (65024, "ET_LOOS"),
+    (65279, "ET_HIOS"),
+    (65280, "ET_LOPROC"),
+    (65535, "ET_HIPROC"),
+  ]
+}
+
+pub fn type_string(i: Int) -> Str { string_name(i, t_type(), false) }
+
+pub fn type_go_string(i: Int) -> Str { string_name(i, t_type(), true) }
+
+fn t_machine() -> List<(Int, Str)> {
+  [
+    (0, "EM_NONE"),
+    (1, "EM_M32"),
+    (2, "EM_SPARC"),
+    (3, "EM_386"),
+    (4, "EM_68K"),
+    (5, "EM_88K"),
+    (7, "EM_860"),
+    (8, "EM_MIPS"),
+    (9, "EM_S370"),
+    (10, "EM_MIPS_RS3_LE"),
+    (15, "EM_PARISC"),
+    (17, "EM_VPP500"),
+    (18, "EM_SPARC32PLUS"),
+    (19, "EM_960"),
+    (20, "EM_PPC"),
+    (21, "EM_PPC64"),
+    (22, "EM_S390"),
+    (36, "EM_V800"),
+    (37, "EM_FR20"),
+    (38, "EM_RH32"),
+    (39, "EM_RCE"),
+    (40, "EM_ARM"),
+    (42, "EM_SH"),
+    (43, "EM_SPARCV9"),
+    (44, "EM_TRICORE"),
+    (45, "EM_ARC"),
+    (46, "EM_H8_300"),
+    (47, "EM_H8_300H"),
+    (48, "EM_H8S"),
+    (49, "EM_H8_500"),
+    (50, "EM_IA_64"),
+    (51, "EM_MIPS_X"),
+    (52, "EM_COLDFIRE"),
+    (53, "EM_68HC12"),
+    (54, "EM_MMA"),
+    (55, "EM_PCP"),
+    (56, "EM_NCPU"),
+    (57, "EM_NDR1"),
+    (58, "EM_STARCORE"),
+    (59, "EM_ME16"),
+    (60, "EM_ST100"),
+    (61, "EM_TINYJ"),
+    (62, "EM_X86_64"),
+    (63, "EM_PDSP"),
+    (64, "EM_PDP10"),
+    (65, "EM_PDP11"),
+    (66, "EM_FX66"),
+    (67, "EM_ST9PLUS"),
+    (68, "EM_ST7"),
+    (69, "EM_68HC16"),
+    (70, "EM_68HC11"),
+    (71, "EM_68HC08"),
+    (72, "EM_68HC05"),
+    (73, "EM_SVX"),
+    (74, "EM_ST19"),
+    (75, "EM_VAX"),
+    (76, "EM_CRIS"),
+    (77, "EM_JAVELIN"),
+    (78, "EM_FIREPATH"),
+    (79, "EM_ZSP"),
+    (80, "EM_MMIX"),
+    (81, "EM_HUANY"),
+    (82, "EM_PRISM"),
+    (83, "EM_AVR"),
+    (84, "EM_FR30"),
+    (85, "EM_D10V"),
+    (86, "EM_D30V"),
+    (87, "EM_V850"),
+    (88, "EM_M32R"),
+    (89, "EM_MN10300"),
+    (90, "EM_MN10200"),
+    (91, "EM_PJ"),
+    (92, "EM_OPENRISC"),
+    (93, "EM_ARC_COMPACT"),
+    (94, "EM_XTENSA"),
+    (95, "EM_VIDEOCORE"),
+    (96, "EM_TMM_GPP"),
+    (97, "EM_NS32K"),
+    (98, "EM_TPC"),
+    (99, "EM_SNP1K"),
+    (100, "EM_ST200"),
+    (101, "EM_IP2K"),
+    (102, "EM_MAX"),
+    (103, "EM_CR"),
+    (104, "EM_F2MC16"),
+    (105, "EM_MSP430"),
+    (106, "EM_BLACKFIN"),
+    (107, "EM_SE_C33"),
+    (108, "EM_SEP"),
+    (109, "EM_ARCA"),
+    (110, "EM_UNICORE"),
+    (111, "EM_EXCESS"),
+    (112, "EM_DXP"),
+    (113, "EM_ALTERA_NIOS2"),
+    (114, "EM_CRX"),
+    (115, "EM_XGATE"),
+    (116, "EM_C166"),
+    (117, "EM_M16C"),
+    (118, "EM_DSPIC30F"),
+    (119, "EM_CE"),
+    (120, "EM_M32C"),
+    (131, "EM_TSK3000"),
+    (132, "EM_RS08"),
+    (133, "EM_SHARC"),
+    (134, "EM_ECOG2"),
+    (135, "EM_SCORE7"),
+    (136, "EM_DSP24"),
+    (137, "EM_VIDEOCORE3"),
+    (138, "EM_LATTICEMICO32"),
+    (139, "EM_SE_C17"),
+    (140, "EM_TI_C6000"),
+    (141, "EM_TI_C2000"),
+    (142, "EM_TI_C5500"),
+    (143, "EM_TI_ARP32"),
+    (144, "EM_TI_PRU"),
+    (160, "EM_MMDSP_PLUS"),
+    (161, "EM_CYPRESS_M8C"),
+    (162, "EM_R32C"),
+    (163, "EM_TRIMEDIA"),
+    (164, "EM_QDSP6"),
+    (165, "EM_8051"),
+    (166, "EM_STXP7X"),
+    (167, "EM_NDS32"),
+    (168, "EM_ECOG1"),
+    (168, "EM_ECOG1X"),
+    (169, "EM_MAXQ30"),
+    (170, "EM_XIMO16"),
+    (171, "EM_MANIK"),
+    (172, "EM_CRAYNV2"),
+    (173, "EM_RX"),
+    (174, "EM_METAG"),
+    (175, "EM_MCST_ELBRUS"),
+    (176, "EM_ECOG16"),
+    (177, "EM_CR16"),
+    (178, "EM_ETPU"),
+    (179, "EM_SLE9X"),
+    (180, "EM_L10M"),
+    (181, "EM_K10M"),
+    (183, "EM_AARCH64"),
+    (185, "EM_AVR32"),
+    (186, "EM_STM8"),
+    (187, "EM_TILE64"),
+    (188, "EM_TILEPRO"),
+    (189, "EM_MICROBLAZE"),
+    (190, "EM_CUDA"),
+    (191, "EM_TILEGX"),
+    (192, "EM_CLOUDSHIELD"),
+    (193, "EM_COREA_1ST"),
+    (194, "EM_COREA_2ND"),
+    (195, "EM_ARC_COMPACT2"),
+    (196, "EM_OPEN8"),
+    (197, "EM_RL78"),
+    (198, "EM_VIDEOCORE5"),
+    (199, "EM_78KOR"),
+    (200, "EM_56800EX"),
+    (201, "EM_BA1"),
+    (202, "EM_BA2"),
+    (203, "EM_XCORE"),
+    (204, "EM_MCHP_PIC"),
+    (205, "EM_INTEL205"),
+    (206, "EM_INTEL206"),
+    (207, "EM_INTEL207"),
+    (208, "EM_INTEL208"),
+    (209, "EM_INTEL209"),
+    (210, "EM_KM32"),
+    (211, "EM_KMX32"),
+    (212, "EM_KMX16"),
+    (213, "EM_KMX8"),
+    (214, "EM_KVARC"),
+    (215, "EM_CDP"),
+    (216, "EM_COGE"),
+    (217, "EM_COOL"),
+    (218, "EM_NORC"),
+    (219, "EM_CSR_KALIMBA "),
+    (220, "EM_Z80 "),
+    (221, "EM_VISIUM "),
+    (222, "EM_FT32 "),
+    (223, "EM_MOXIE"),
+    (224, "EM_AMDGPU"),
+    (243, "EM_RISCV"),
+    (244, "EM_LANAI"),
+    (247, "EM_BPF"),
+    (258, "EM_LOONGARCH"),
+    (6, "EM_486"),
+    (10, "EM_MIPS_RS4_BE"),
+    (41, "EM_ALPHA_STD"),
+    (36902, "EM_ALPHA"),
+  ]
+}
+
+pub fn machine_string(i: Int) -> Str { string_name(i, t_machine(), false) }
+
+pub fn machine_go_string(i: Int) -> Str { string_name(i, t_machine(), true) }
+
+fn t_section_index() -> List<(Int, Str)> {
+  [
+    (0, "SHN_UNDEF"),
+    (65280, "SHN_LOPROC"),
+    (65312, "SHN_LOOS"),
+    (65521, "SHN_ABS"),
+    (65522, "SHN_COMMON"),
+    (65535, "SHN_XINDEX"),
+  ]
+}
+
+pub fn section_index_string(i: Int) -> Str { string_name(i, t_section_index(), false) }
+
+pub fn section_index_go_string(i: Int) -> Str { string_name(i, t_section_index(), true) }
+
+fn t_section_type() -> List<(Int, Str)> {
+  [
+    (0, "SHT_NULL"),
+    (1, "SHT_PROGBITS"),
+    (2, "SHT_SYMTAB"),
+    (3, "SHT_STRTAB"),
+    (4, "SHT_RELA"),
+    (5, "SHT_HASH"),
+    (6, "SHT_DYNAMIC"),
+    (7, "SHT_NOTE"),
+    (8, "SHT_NOBITS"),
+    (9, "SHT_REL"),
+    (10, "SHT_SHLIB"),
+    (11, "SHT_DYNSYM"),
+    (14, "SHT_INIT_ARRAY"),
+    (15, "SHT_FINI_ARRAY"),
+    (16, "SHT_PREINIT_ARRAY"),
+    (17, "SHT_GROUP"),
+    (18, "SHT_SYMTAB_SHNDX"),
+    (1610612736, "SHT_LOOS"),
+    (1879048181, "SHT_GNU_ATTRIBUTES"),
+    (1879048182, "SHT_GNU_HASH"),
+    (1879048183, "SHT_GNU_LIBLIST"),
+    (1879048189, "SHT_GNU_VERDEF"),
+    (1879048190, "SHT_GNU_VERNEED"),
+    (1879048191, "SHT_GNU_VERSYM"),
+    (1879048192, "SHT_LOPROC"),
+    (1879048234, "SHT_MIPS_ABIFLAGS"),
+    (2147483647, "SHT_HIPROC"),
+    (2147483648, "SHT_LOUSER"),
+    (4294967295, "SHT_HIUSER"),
+  ]
+}
+
+pub fn section_type_string(i: Int) -> Str { string_name(i, t_section_type(), false) }
+
+pub fn section_type_go_string(i: Int) -> Str { string_name(i, t_section_type(), true) }
+
+fn t_section_flag() -> List<(Int, Str)> {
+  [
+    (1, "SHF_WRITE"),
+    (2, "SHF_ALLOC"),
+    (4, "SHF_EXECINSTR"),
+    (16, "SHF_MERGE"),
+    (32, "SHF_STRINGS"),
+    (64, "SHF_INFO_LINK"),
+    (128, "SHF_LINK_ORDER"),
+    (256, "SHF_OS_NONCONFORMING"),
+    (512, "SHF_GROUP"),
+    (1024, "SHF_TLS"),
+    (2048, "SHF_COMPRESSED"),
+  ]
+}
+
+pub fn section_flag_string(i: Int) -> Str { flag_name(i, t_section_flag(), false) }
+
+pub fn section_flag_go_string(i: Int) -> Str { flag_name(i, t_section_flag(), true) }
+
+fn t_compression_type() -> List<(Int, Str)> {
+  [
+    (1, "COMPRESS_ZLIB"),
+    (2, "COMPRESS_ZSTD"),
+    (1610612736, "COMPRESS_LOOS"),
+    (1879048191, "COMPRESS_HIOS"),
+    (1879048192, "COMPRESS_LOPROC"),
+    (2147483647, "COMPRESS_HIPROC"),
+  ]
+}
+
+pub fn compression_type_string(i: Int) -> Str { string_name(i, t_compression_type(), false) }
+
+pub fn compression_type_go_string(i: Int) -> Str { string_name(i, t_compression_type(), true) }
+
+fn t_prog_type() -> List<(Int, Str)> {
+  [
+    (0, "PT_NULL"),
+    (1, "PT_LOAD"),
+    (2, "PT_DYNAMIC"),
+    (3, "PT_INTERP"),
+    (4, "PT_NOTE"),
+    (5, "PT_SHLIB"),
+    (6, "PT_PHDR"),
+    (7, "PT_TLS"),
+    (1610612736, "PT_LOOS"),
+    (1685382480, "PT_GNU_EH_FRAME"),
+    (1685382481, "PT_GNU_STACK"),
+    (1685382482, "PT_GNU_RELRO"),
+    (1685382483, "PT_GNU_PROPERTY"),
+    (1694766464, "PT_PAX_FLAGS"),
+    (1705237478, "PT_OPENBSD_RANDOMIZE"),
+    (1705237479, "PT_OPENBSD_WXNEEDED"),
+    (1705253862, "PT_OPENBSD_BOOTDATA"),
+    (1879048187, "PT_SUNWSTACK"),
+    (1879048191, "PT_HIOS"),
+    (1879048192, "PT_LOPROC"),
+    (2147483647, "PT_HIPROC"),
+  ]
+}
+
+pub fn prog_type_string(i: Int) -> Str { string_name(i, t_prog_type(), false) }
+
+pub fn prog_type_go_string(i: Int) -> Str { string_name(i, t_prog_type(), true) }
+
+fn t_prog_flag() -> List<(Int, Str)> { [(1, "PF_X"), (2, "PF_W"), (4, "PF_R")] }
+
+pub fn prog_flag_string(i: Int) -> Str { flag_name(i, t_prog_flag(), false) }
+
+pub fn prog_flag_go_string(i: Int) -> Str { flag_name(i, t_prog_flag(), true) }
+
+fn t_dyn_tag() -> List<(Int, Str)> {
+  [
+    (0, "DT_NULL"),
+    (1, "DT_NEEDED"),
+    (2, "DT_PLTRELSZ"),
+    (3, "DT_PLTGOT"),
+    (4, "DT_HASH"),
+    (5, "DT_STRTAB"),
+    (6, "DT_SYMTAB"),
+    (7, "DT_RELA"),
+    (8, "DT_RELASZ"),
+    (9, "DT_RELAENT"),
+    (10, "DT_STRSZ"),
+    (11, "DT_SYMENT"),
+    (12, "DT_INIT"),
+    (13, "DT_FINI"),
+    (14, "DT_SONAME"),
+    (15, "DT_RPATH"),
+    (16, "DT_SYMBOLIC"),
+    (17, "DT_REL"),
+    (18, "DT_RELSZ"),
+    (19, "DT_RELENT"),
+    (20, "DT_PLTREL"),
+    (21, "DT_DEBUG"),
+    (22, "DT_TEXTREL"),
+    (23, "DT_JMPREL"),
+    (24, "DT_BIND_NOW"),
+    (25, "DT_INIT_ARRAY"),
+    (26, "DT_FINI_ARRAY"),
+    (27, "DT_INIT_ARRAYSZ"),
+    (28, "DT_FINI_ARRAYSZ"),
+    (29, "DT_RUNPATH"),
+    (30, "DT_FLAGS"),
+    (32, "DT_ENCODING"),
+    (32, "DT_PREINIT_ARRAY"),
+    (33, "DT_PREINIT_ARRAYSZ"),
+    (34, "DT_SYMTAB_SHNDX"),
+    (1610612749, "DT_LOOS"),
+    (1879044096, "DT_HIOS"),
+    (1879047424, "DT_VALRNGLO"),
+    (1879047669, "DT_GNU_PRELINKED"),
+    (1879047670, "DT_GNU_CONFLICTSZ"),
+    (1879047671, "DT_GNU_LIBLISTSZ"),
+    (1879047672, "DT_CHECKSUM"),
+    (1879047673, "DT_PLTPADSZ"),
+    (1879047674, "DT_MOVEENT"),
+    (1879047675, "DT_MOVESZ"),
+    (1879047676, "DT_FEATURE"),
+    (1879047677, "DT_POSFLAG_1"),
+    (1879047678, "DT_SYMINSZ"),
+    (1879047679, "DT_SYMINENT"),
+    (1879047679, "DT_VALRNGHI"),
+    (1879047680, "DT_ADDRRNGLO"),
+    (1879047925, "DT_GNU_HASH"),
+    (1879047926, "DT_TLSDESC_PLT"),
+    (1879047927, "DT_TLSDESC_GOT"),
+    (1879047928, "DT_GNU_CONFLICT"),
+    (1879047929, "DT_GNU_LIBLIST"),
+    (1879047930, "DT_CONFIG"),
+    (1879047931, "DT_DEPAUDIT"),
+    (1879047932, "DT_AUDIT"),
+    (1879047933, "DT_PLTPAD"),
+    (1879047934, "DT_MOVETAB"),
+    (1879047935, "DT_SYMINFO"),
+    (1879047935, "DT_ADDRRNGHI"),
+    (1879048176, "DT_VERSYM"),
+    (1879048185, "DT_RELACOUNT"),
+    (1879048186, "DT_RELCOUNT"),
+    (1879048187, "DT_FLAGS_1"),
+    (1879048188, "DT_VERDEF"),
+    (1879048189, "DT_VERDEFNUM"),
+    (1879048190, "DT_VERNEED"),
+    (1879048191, "DT_VERNEEDNUM"),
+    (1879048192, "DT_LOPROC"),
+    (2147483645, "DT_AUXILIARY"),
+    (2147483646, "DT_USED"),
+    (2147483647, "DT_FILTER"),
+  ]
+}
+
+pub fn dyn_tag_string(i: Int) -> Str { string_name(i, t_dyn_tag(), false) }
+
+pub fn dyn_tag_go_string(i: Int) -> Str { string_name(i, t_dyn_tag(), true) }
+
+fn t_dyn_flag() -> List<(Int, Str)> {
+  [
+    (1, "DF_ORIGIN"),
+    (2, "DF_SYMBOLIC"),
+    (4, "DF_TEXTREL"),
+    (8, "DF_BIND_NOW"),
+    (16, "DF_STATIC_TLS"),
+  ]
+}
+
+pub fn dyn_flag_string(i: Int) -> Str { flag_name(i, t_dyn_flag(), false) }
+
+pub fn dyn_flag_go_string(i: Int) -> Str { flag_name(i, t_dyn_flag(), true) }
+
+fn t_dyn_flag1() -> List<(Int, Str)> {
+  [
+    (1, "DF_1_NOW"),
+    (2, "DF_1_GLOBAL"),
+    (4, "DF_1_GROUP"),
+    (8, "DF_1_NODELETE"),
+    (16, "DF_1_LOADFLTR"),
+    (32, "DF_1_INITFIRST"),
+    (64, "DF_1_NOOPEN"),
+    (128, "DF_1_ORIGIN"),
+    (256, "DF_1_DIRECT"),
+    (512, "DF_1_TRANS"),
+    (1024, "DF_1_INTERPOSE"),
+    (2048, "DF_1_NODEFLIB"),
+    (4096, "DF_1_NODUMP"),
+    (8192, "DF_1_CONFALT"),
+    (16384, "DF_1_ENDFILTEE"),
+    (32768, "DF_1_DISPRELDNE"),
+    (65536, "DF_1_DISPRELPND"),
+    (131072, "DF_1_NODIRECT"),
+    (262144, "DF_1_IGNMULDEF"),
+    (524288, "DF_1_NOKSYMS"),
+    (1048576, "DF_1_NOHDR"),
+    (2097152, "DF_1_EDITED"),
+    (4194304, "DF_1_NORELOC"),
+    (8388608, "DF_1_SYMINTPOSE"),
+    (16777216, "DF_1_GLOBAUDIT"),
+    (33554432, "DF_1_SINGLETON"),
+    (67108864, "DF_1_STUB"),
+    (134217728, "DF_1_PIE"),
+    (268435456, "DF_1_KMOD"),
+    (536870912, "DF_1_WEAKFILTER"),
+    (1073741824, "DF_1_NOCOMMON"),
+  ]
+}
+
+pub fn dyn_flag1_string(i: Int) -> Str { flag_name(i, t_dyn_flag1(), false) }
+
+pub fn dyn_flag1_go_string(i: Int) -> Str { flag_name(i, t_dyn_flag1(), true) }
+
+fn t_ntype() -> List<(Int, Str)> { [(1, "NT_PRSTATUS"), (2, "NT_FPREGSET"), (3, "NT_PRPSINFO")] }
+
+pub fn ntype_string(i: Int) -> Str { string_name(i, t_ntype(), false) }
+
+pub fn ntype_go_string(i: Int) -> Str { string_name(i, t_ntype(), true) }
+
+fn t_sym_bind() -> List<(Int, Str)> {
+  [
+    (0, "STB_LOCAL"),
+    (1, "STB_GLOBAL"),
+    (2, "STB_WEAK"),
+    (10, "STB_LOOS"),
+    (12, "STB_HIOS"),
+    (13, "STB_LOPROC"),
+    (15, "STB_HIPROC"),
+  ]
+}
+
+pub fn sym_bind_string(i: Int) -> Str { string_name(i, t_sym_bind(), false) }
+
+pub fn sym_bind_go_string(i: Int) -> Str { string_name(i, t_sym_bind(), true) }
+
+fn t_sym_type() -> List<(Int, Str)> {
+  [
+    (0, "STT_NOTYPE"),
+    (1, "STT_OBJECT"),
+    (2, "STT_FUNC"),
+    (3, "STT_SECTION"),
+    (4, "STT_FILE"),
+    (5, "STT_COMMON"),
+    (6, "STT_TLS"),
+    (8, "STT_RELC"),
+    (9, "STT_SRELC"),
+    (10, "STT_LOOS"),
+    (12, "STT_HIOS"),
+    (13, "STT_LOPROC"),
+    (15, "STT_HIPROC"),
+  ]
+}
+
+pub fn sym_type_string(i: Int) -> Str { string_name(i, t_sym_type(), false) }
+
+pub fn sym_type_go_string(i: Int) -> Str { string_name(i, t_sym_type(), true) }
+
+fn t_sym_vis() -> List<(Int, Str)> {
+  [(0, "STV_DEFAULT"), (1, "STV_INTERNAL"), (2, "STV_HIDDEN"), (3, "STV_PROTECTED")]
+}
+
+pub fn sym_vis_string(i: Int) -> Str { string_name(i, t_sym_vis(), false) }
+
+pub fn sym_vis_go_string(i: Int) -> Str { string_name(i, t_sym_vis(), true) }
+
+fn t_r_x86_64() -> List<(Int, Str)> {
+  [
+    (0, "R_X86_64_NONE"),
+    (1, "R_X86_64_64"),
+    (2, "R_X86_64_PC32"),
+    (3, "R_X86_64_GOT32"),
+    (4, "R_X86_64_PLT32"),
+    (5, "R_X86_64_COPY"),
+    (6, "R_X86_64_GLOB_DAT"),
+    (7, "R_X86_64_JMP_SLOT"),
+    (8, "R_X86_64_RELATIVE"),
+    (9, "R_X86_64_GOTPCREL"),
+    (10, "R_X86_64_32"),
+    (11, "R_X86_64_32S"),
+    (12, "R_X86_64_16"),
+    (13, "R_X86_64_PC16"),
+    (14, "R_X86_64_8"),
+    (15, "R_X86_64_PC8"),
+    (16, "R_X86_64_DTPMOD64"),
+    (17, "R_X86_64_DTPOFF64"),
+    (18, "R_X86_64_TPOFF64"),
+    (19, "R_X86_64_TLSGD"),
+    (20, "R_X86_64_TLSLD"),
+    (21, "R_X86_64_DTPOFF32"),
+    (22, "R_X86_64_GOTTPOFF"),
+    (23, "R_X86_64_TPOFF32"),
+    (24, "R_X86_64_PC64"),
+    (25, "R_X86_64_GOTOFF64"),
+    (26, "R_X86_64_GOTPC32"),
+    (27, "R_X86_64_GOT64"),
+    (28, "R_X86_64_GOTPCREL64"),
+    (29, "R_X86_64_GOTPC64"),
+    (30, "R_X86_64_GOTPLT64"),
+    (31, "R_X86_64_PLTOFF64"),
+    (32, "R_X86_64_SIZE32"),
+    (33, "R_X86_64_SIZE64"),
+    (34, "R_X86_64_GOTPC32_TLSDESC"),
+    (35, "R_X86_64_TLSDESC_CALL"),
+    (36, "R_X86_64_TLSDESC"),
+    (37, "R_X86_64_IRELATIVE"),
+    (38, "R_X86_64_RELATIVE64"),
+    (39, "R_X86_64_PC32_BND"),
+    (40, "R_X86_64_PLT32_BND"),
+    (41, "R_X86_64_GOTPCRELX"),
+    (42, "R_X86_64_REX_GOTPCRELX"),
+  ]
+}
+
+pub fn r_x86_64_string(i: Int) -> Str { string_name(i, t_r_x86_64(), false) }
+
+pub fn r_x86_64_go_string(i: Int) -> Str { string_name(i, t_r_x86_64(), true) }
+
+fn t_r_aarch64() -> List<(Int, Str)> {
+  [
+    (0, "R_AARCH64_NONE"),
+    (1, "R_AARCH64_P32_ABS32"),
+    (2, "R_AARCH64_P32_ABS16"),
+    (3, "R_AARCH64_P32_PREL32"),
+    (4, "R_AARCH64_P32_PREL16"),
+    (5, "R_AARCH64_P32_MOVW_UABS_G0"),
+    (6, "R_AARCH64_P32_MOVW_UABS_G0_NC"),
+    (7, "R_AARCH64_P32_MOVW_UABS_G1"),
+    (8, "R_AARCH64_P32_MOVW_SABS_G0"),
+    (9, "R_AARCH64_P32_LD_PREL_LO19"),
+    (10, "R_AARCH64_P32_ADR_PREL_LO21"),
+    (11, "R_AARCH64_P32_ADR_PREL_PG_HI21"),
+    (12, "R_AARCH64_P32_ADD_ABS_LO12_NC"),
+    (13, "R_AARCH64_P32_LDST8_ABS_LO12_NC"),
+    (14, "R_AARCH64_P32_LDST16_ABS_LO12_NC"),
+    (15, "R_AARCH64_P32_LDST32_ABS_LO12_NC"),
+    (16, "R_AARCH64_P32_LDST64_ABS_LO12_NC"),
+    (17, "R_AARCH64_P32_LDST128_ABS_LO12_NC"),
+    (18, "R_AARCH64_P32_TSTBR14"),
+    (19, "R_AARCH64_P32_CONDBR19"),
+    (20, "R_AARCH64_P32_JUMP26"),
+    (21, "R_AARCH64_P32_CALL26"),
+    (25, "R_AARCH64_P32_GOT_LD_PREL19"),
+    (26, "R_AARCH64_P32_ADR_GOT_PAGE"),
+    (27, "R_AARCH64_P32_LD32_GOT_LO12_NC"),
+    (81, "R_AARCH64_P32_TLSGD_ADR_PAGE21"),
+    (82, "R_AARCH64_P32_TLSGD_ADD_LO12_NC"),
+    (103, "R_AARCH64_P32_TLSIE_ADR_GOTTPREL_PAGE21"),
+    (104, "R_AARCH64_P32_TLSIE_LD32_GOTTPREL_LO12_NC"),
+    (105, "R_AARCH64_P32_TLSIE_LD_GOTTPREL_PREL19"),
+    (106, "R_AARCH64_P32_TLSLE_MOVW_TPREL_G1"),
+    (107, "R_AARCH64_P32_TLSLE_MOVW_TPREL_G0"),
+    (108, "R_AARCH64_P32_TLSLE_MOVW_TPREL_G0_NC"),
+    (109, "R_AARCH64_P32_TLSLE_ADD_TPREL_HI12"),
+    (110, "R_AARCH64_P32_TLSLE_ADD_TPREL_LO12"),
+    (111, "R_AARCH64_P32_TLSLE_ADD_TPREL_LO12_NC"),
+    (122, "R_AARCH64_P32_TLSDESC_LD_PREL19"),
+    (123, "R_AARCH64_P32_TLSDESC_ADR_PREL21"),
+    (124, "R_AARCH64_P32_TLSDESC_ADR_PAGE21"),
+    (125, "R_AARCH64_P32_TLSDESC_LD32_LO12_NC"),
+    (126, "R_AARCH64_P32_TLSDESC_ADD_LO12_NC"),
+    (127, "R_AARCH64_P32_TLSDESC_CALL"),
+    (180, "R_AARCH64_P32_COPY"),
+    (181, "R_AARCH64_P32_GLOB_DAT"),
+    (182, "R_AARCH64_P32_JUMP_SLOT"),
+    (183, "R_AARCH64_P32_RELATIVE"),
+    (184, "R_AARCH64_P32_TLS_DTPMOD"),
+    (185, "R_AARCH64_P32_TLS_DTPREL"),
+    (186, "R_AARCH64_P32_TLS_TPREL"),
+    (187, "R_AARCH64_P32_TLSDESC"),
+    (188, "R_AARCH64_P32_IRELATIVE"),
+    (256, "R_AARCH64_NULL"),
+    (257, "R_AARCH64_ABS64"),
+    (258, "R_AARCH64_ABS32"),
+    (259, "R_AARCH64_ABS16"),
+    (260, "R_AARCH64_PREL64"),
+    (261, "R_AARCH64_PREL32"),
+    (262, "R_AARCH64_PREL16"),
+    (263, "R_AARCH64_MOVW_UABS_G0"),
+    (264, "R_AARCH64_MOVW_UABS_G0_NC"),
+    (265, "R_AARCH64_MOVW_UABS_G1"),
+    (266, "R_AARCH64_MOVW_UABS_G1_NC"),
+    (267, "R_AARCH64_MOVW_UABS_G2"),
+    (268, "R_AARCH64_MOVW_UABS_G2_NC"),
+    (269, "R_AARCH64_MOVW_UABS_G3"),
+    (270, "R_AARCH64_MOVW_SABS_G0"),
+    (271, "R_AARCH64_MOVW_SABS_G1"),
+    (272, "R_AARCH64_MOVW_SABS_G2"),
+    (273, "R_AARCH64_LD_PREL_LO19"),
+    (274, "R_AARCH64_ADR_PREL_LO21"),
+    (275, "R_AARCH64_ADR_PREL_PG_HI21"),
+    (276, "R_AARCH64_ADR_PREL_PG_HI21_NC"),
+    (277, "R_AARCH64_ADD_ABS_LO12_NC"),
+    (278, "R_AARCH64_LDST8_ABS_LO12_NC"),
+    (279, "R_AARCH64_TSTBR14"),
+    (280, "R_AARCH64_CONDBR19"),
+    (282, "R_AARCH64_JUMP26"),
+    (283, "R_AARCH64_CALL26"),
+    (284, "R_AARCH64_LDST16_ABS_LO12_NC"),
+    (285, "R_AARCH64_LDST32_ABS_LO12_NC"),
+    (286, "R_AARCH64_LDST64_ABS_LO12_NC"),
+    (299, "R_AARCH64_LDST128_ABS_LO12_NC"),
+    (309, "R_AARCH64_GOT_LD_PREL19"),
+    (310, "R_AARCH64_LD64_GOTOFF_LO15"),
+    (311, "R_AARCH64_ADR_GOT_PAGE"),
+    (312, "R_AARCH64_LD64_GOT_LO12_NC"),
+    (313, "R_AARCH64_LD64_GOTPAGE_LO15"),
+    (512, "R_AARCH64_TLSGD_ADR_PREL21"),
+    (513, "R_AARCH64_TLSGD_ADR_PAGE21"),
+    (514, "R_AARCH64_TLSGD_ADD_LO12_NC"),
+    (515, "R_AARCH64_TLSGD_MOVW_G1"),
+    (516, "R_AARCH64_TLSGD_MOVW_G0_NC"),
+    (517, "R_AARCH64_TLSLD_ADR_PREL21"),
+    (518, "R_AARCH64_TLSLD_ADR_PAGE21"),
+    (539, "R_AARCH64_TLSIE_MOVW_GOTTPREL_G1"),
+    (540, "R_AARCH64_TLSIE_MOVW_GOTTPREL_G0_NC"),
+    (541, "R_AARCH64_TLSIE_ADR_GOTTPREL_PAGE21"),
+    (542, "R_AARCH64_TLSIE_LD64_GOTTPREL_LO12_NC"),
+    (543, "R_AARCH64_TLSIE_LD_GOTTPREL_PREL19"),
+    (544, "R_AARCH64_TLSLE_MOVW_TPREL_G2"),
+    (545, "R_AARCH64_TLSLE_MOVW_TPREL_G1"),
+    (546, "R_AARCH64_TLSLE_MOVW_TPREL_G1_NC"),
+    (547, "R_AARCH64_TLSLE_MOVW_TPREL_G0"),
+    (548, "R_AARCH64_TLSLE_MOVW_TPREL_G0_NC"),
+    (549, "R_AARCH64_TLSLE_ADD_TPREL_HI12"),
+    (550, "R_AARCH64_TLSLE_ADD_TPREL_LO12"),
+    (551, "R_AARCH64_TLSLE_ADD_TPREL_LO12_NC"),
+    (560, "R_AARCH64_TLSDESC_LD_PREL19"),
+    (561, "R_AARCH64_TLSDESC_ADR_PREL21"),
+    (562, "R_AARCH64_TLSDESC_ADR_PAGE21"),
+    (563, "R_AARCH64_TLSDESC_LD64_LO12_NC"),
+    (564, "R_AARCH64_TLSDESC_ADD_LO12_NC"),
+    (565, "R_AARCH64_TLSDESC_OFF_G1"),
+    (566, "R_AARCH64_TLSDESC_OFF_G0_NC"),
+    (567, "R_AARCH64_TLSDESC_LDR"),
+    (568, "R_AARCH64_TLSDESC_ADD"),
+    (569, "R_AARCH64_TLSDESC_CALL"),
+    (570, "R_AARCH64_TLSLE_LDST128_TPREL_LO12"),
+    (571, "R_AARCH64_TLSLE_LDST128_TPREL_LO12_NC"),
+    (572, "R_AARCH64_TLSLD_LDST128_DTPREL_LO12"),
+    (573, "R_AARCH64_TLSLD_LDST128_DTPREL_LO12_NC"),
+    (1024, "R_AARCH64_COPY"),
+    (1025, "R_AARCH64_GLOB_DAT"),
+    (1026, "R_AARCH64_JUMP_SLOT"),
+    (1027, "R_AARCH64_RELATIVE"),
+    (1028, "R_AARCH64_TLS_DTPMOD64"),
+    (1029, "R_AARCH64_TLS_DTPREL64"),
+    (1030, "R_AARCH64_TLS_TPREL64"),
+    (1031, "R_AARCH64_TLSDESC"),
+    (1032, "R_AARCH64_IRELATIVE"),
+  ]
+}
+
+pub fn r_aarch64_string(i: Int) -> Str { string_name(i, t_r_aarch64(), false) }
+
+pub fn r_aarch64_go_string(i: Int) -> Str { string_name(i, t_r_aarch64(), true) }
+
+fn t_r_alpha() -> List<(Int, Str)> {
+  [
+    (0, "R_ALPHA_NONE"),
+    (1, "R_ALPHA_REFLONG"),
+    (2, "R_ALPHA_REFQUAD"),
+    (3, "R_ALPHA_GPREL32"),
+    (4, "R_ALPHA_LITERAL"),
+    (5, "R_ALPHA_LITUSE"),
+    (6, "R_ALPHA_GPDISP"),
+    (7, "R_ALPHA_BRADDR"),
+    (8, "R_ALPHA_HINT"),
+    (9, "R_ALPHA_SREL16"),
+    (10, "R_ALPHA_SREL32"),
+    (11, "R_ALPHA_SREL64"),
+    (12, "R_ALPHA_OP_PUSH"),
+    (13, "R_ALPHA_OP_STORE"),
+    (14, "R_ALPHA_OP_PSUB"),
+    (15, "R_ALPHA_OP_PRSHIFT"),
+    (16, "R_ALPHA_GPVALUE"),
+    (17, "R_ALPHA_GPRELHIGH"),
+    (18, "R_ALPHA_GPRELLOW"),
+    (19, "R_ALPHA_IMMED_GP_16"),
+    (20, "R_ALPHA_IMMED_GP_HI32"),
+    (21, "R_ALPHA_IMMED_SCN_HI32"),
+    (22, "R_ALPHA_IMMED_BR_HI32"),
+    (23, "R_ALPHA_IMMED_LO32"),
+    (24, "R_ALPHA_COPY"),
+    (25, "R_ALPHA_GLOB_DAT"),
+    (26, "R_ALPHA_JMP_SLOT"),
+    (27, "R_ALPHA_RELATIVE"),
+  ]
+}
+
+pub fn r_alpha_string(i: Int) -> Str { string_name(i, t_r_alpha(), false) }
+
+pub fn r_alpha_go_string(i: Int) -> Str { string_name(i, t_r_alpha(), true) }
+
+fn t_r_arm() -> List<(Int, Str)> {
+  [
+    (0, "R_ARM_NONE"),
+    (1, "R_ARM_PC24"),
+    (2, "R_ARM_ABS32"),
+    (3, "R_ARM_REL32"),
+    (4, "R_ARM_PC13"),
+    (5, "R_ARM_ABS16"),
+    (6, "R_ARM_ABS12"),
+    (7, "R_ARM_THM_ABS5"),
+    (8, "R_ARM_ABS8"),
+    (9, "R_ARM_SBREL32"),
+    (10, "R_ARM_THM_PC22"),
+    (11, "R_ARM_THM_PC8"),
+    (12, "R_ARM_AMP_VCALL9"),
+    (13, "R_ARM_SWI24"),
+    (14, "R_ARM_THM_SWI8"),
+    (15, "R_ARM_XPC25"),
+    (16, "R_ARM_THM_XPC22"),
+    (17, "R_ARM_TLS_DTPMOD32"),
+    (18, "R_ARM_TLS_DTPOFF32"),
+    (19, "R_ARM_TLS_TPOFF32"),
+    (20, "R_ARM_COPY"),
+    (21, "R_ARM_GLOB_DAT"),
+    (22, "R_ARM_JUMP_SLOT"),
+    (23, "R_ARM_RELATIVE"),
+    (24, "R_ARM_GOTOFF"),
+    (25, "R_ARM_GOTPC"),
+    (26, "R_ARM_GOT32"),
+    (27, "R_ARM_PLT32"),
+    (28, "R_ARM_CALL"),
+    (29, "R_ARM_JUMP24"),
+    (30, "R_ARM_THM_JUMP24"),
+    (31, "R_ARM_BASE_ABS"),
+    (32, "R_ARM_ALU_PCREL_7_0"),
+    (33, "R_ARM_ALU_PCREL_15_8"),
+    (34, "R_ARM_ALU_PCREL_23_15"),
+    (35, "R_ARM_LDR_SBREL_11_10_NC"),
+    (36, "R_ARM_ALU_SBREL_19_12_NC"),
+    (37, "R_ARM_ALU_SBREL_27_20_CK"),
+    (38, "R_ARM_TARGET1"),
+    (39, "R_ARM_SBREL31"),
+    (40, "R_ARM_V4BX"),
+    (41, "R_ARM_TARGET2"),
+    (42, "R_ARM_PREL31"),
+    (43, "R_ARM_MOVW_ABS_NC"),
+    (44, "R_ARM_MOVT_ABS"),
+    (45, "R_ARM_MOVW_PREL_NC"),
+    (46, "R_ARM_MOVT_PREL"),
+    (47, "R_ARM_THM_MOVW_ABS_NC"),
+    (48, "R_ARM_THM_MOVT_ABS"),
+    (49, "R_ARM_THM_MOVW_PREL_NC"),
+    (50, "R_ARM_THM_MOVT_PREL"),
+    (51, "R_ARM_THM_JUMP19"),
+    (52, "R_ARM_THM_JUMP6"),
+    (53, "R_ARM_THM_ALU_PREL_11_0"),
+    (54, "R_ARM_THM_PC12"),
+    (55, "R_ARM_ABS32_NOI"),
+    (56, "R_ARM_REL32_NOI"),
+    (57, "R_ARM_ALU_PC_G0_NC"),
+    (58, "R_ARM_ALU_PC_G0"),
+    (59, "R_ARM_ALU_PC_G1_NC"),
+    (60, "R_ARM_ALU_PC_G1"),
+    (61, "R_ARM_ALU_PC_G2"),
+    (62, "R_ARM_LDR_PC_G1"),
+    (63, "R_ARM_LDR_PC_G2"),
+    (64, "R_ARM_LDRS_PC_G0"),
+    (65, "R_ARM_LDRS_PC_G1"),
+    (66, "R_ARM_LDRS_PC_G2"),
+    (67, "R_ARM_LDC_PC_G0"),
+    (68, "R_ARM_LDC_PC_G1"),
+    (69, "R_ARM_LDC_PC_G2"),
+    (70, "R_ARM_ALU_SB_G0_NC"),
+    (71, "R_ARM_ALU_SB_G0"),
+    (72, "R_ARM_ALU_SB_G1_NC"),
+    (73, "R_ARM_ALU_SB_G1"),
+    (74, "R_ARM_ALU_SB_G2"),
+    (75, "R_ARM_LDR_SB_G0"),
+    (76, "R_ARM_LDR_SB_G1"),
+    (77, "R_ARM_LDR_SB_G2"),
+    (78, "R_ARM_LDRS_SB_G0"),
+    (79, "R_ARM_LDRS_SB_G1"),
+    (80, "R_ARM_LDRS_SB_G2"),
+    (81, "R_ARM_LDC_SB_G0"),
+    (82, "R_ARM_LDC_SB_G1"),
+    (83, "R_ARM_LDC_SB_G2"),
+    (84, "R_ARM_MOVW_BREL_NC"),
+    (85, "R_ARM_MOVT_BREL"),
+    (86, "R_ARM_MOVW_BREL"),
+    (87, "R_ARM_THM_MOVW_BREL_NC"),
+    (88, "R_ARM_THM_MOVT_BREL"),
+    (89, "R_ARM_THM_MOVW_BREL"),
+    (90, "R_ARM_TLS_GOTDESC"),
+    (91, "R_ARM_TLS_CALL"),
+    (92, "R_ARM_TLS_DESCSEQ"),
+    (93, "R_ARM_THM_TLS_CALL"),
+    (94, "R_ARM_PLT32_ABS"),
+    (95, "R_ARM_GOT_ABS"),
+    (96, "R_ARM_GOT_PREL"),
+    (97, "R_ARM_GOT_BREL12"),
+    (98, "R_ARM_GOTOFF12"),
+    (99, "R_ARM_GOTRELAX"),
+    (100, "R_ARM_GNU_VTENTRY"),
+    (101, "R_ARM_GNU_VTINHERIT"),
+    (102, "R_ARM_THM_JUMP11"),
+    (103, "R_ARM_THM_JUMP8"),
+    (104, "R_ARM_TLS_GD32"),
+    (105, "R_ARM_TLS_LDM32"),
+    (106, "R_ARM_TLS_LDO32"),
+    (107, "R_ARM_TLS_IE32"),
+    (108, "R_ARM_TLS_LE32"),
+    (109, "R_ARM_TLS_LDO12"),
+    (110, "R_ARM_TLS_LE12"),
+    (111, "R_ARM_TLS_IE12GP"),
+    (112, "R_ARM_PRIVATE_0"),
+    (113, "R_ARM_PRIVATE_1"),
+    (114, "R_ARM_PRIVATE_2"),
+    (115, "R_ARM_PRIVATE_3"),
+    (116, "R_ARM_PRIVATE_4"),
+    (117, "R_ARM_PRIVATE_5"),
+    (118, "R_ARM_PRIVATE_6"),
+    (119, "R_ARM_PRIVATE_7"),
+    (120, "R_ARM_PRIVATE_8"),
+    (121, "R_ARM_PRIVATE_9"),
+    (122, "R_ARM_PRIVATE_10"),
+    (123, "R_ARM_PRIVATE_11"),
+    (124, "R_ARM_PRIVATE_12"),
+    (125, "R_ARM_PRIVATE_13"),
+    (126, "R_ARM_PRIVATE_14"),
+    (127, "R_ARM_PRIVATE_15"),
+    (128, "R_ARM_ME_TOO"),
+    (129, "R_ARM_THM_TLS_DESCSEQ16"),
+    (130, "R_ARM_THM_TLS_DESCSEQ32"),
+    (131, "R_ARM_THM_GOT_BREL12"),
+    (132, "R_ARM_THM_ALU_ABS_G0_NC"),
+    (133, "R_ARM_THM_ALU_ABS_G1_NC"),
+    (134, "R_ARM_THM_ALU_ABS_G2_NC"),
+    (135, "R_ARM_THM_ALU_ABS_G3"),
+    (160, "R_ARM_IRELATIVE"),
+    (249, "R_ARM_RXPC25"),
+    (250, "R_ARM_RSBREL32"),
+    (251, "R_ARM_THM_RPC22"),
+    (252, "R_ARM_RREL32"),
+    (253, "R_ARM_RABS32"),
+    (254, "R_ARM_RPC24"),
+    (255, "R_ARM_RBASE"),
+  ]
+}
+
+pub fn r_arm_string(i: Int) -> Str { string_name(i, t_r_arm(), false) }
+
+pub fn r_arm_go_string(i: Int) -> Str { string_name(i, t_r_arm(), true) }
+
+fn t_r_386() -> List<(Int, Str)> {
+  [
+    (0, "R_386_NONE"),
+    (1, "R_386_32"),
+    (2, "R_386_PC32"),
+    (3, "R_386_GOT32"),
+    (4, "R_386_PLT32"),
+    (5, "R_386_COPY"),
+    (6, "R_386_GLOB_DAT"),
+    (7, "R_386_JMP_SLOT"),
+    (8, "R_386_RELATIVE"),
+    (9, "R_386_GOTOFF"),
+    (10, "R_386_GOTPC"),
+    (11, "R_386_32PLT"),
+    (14, "R_386_TLS_TPOFF"),
+    (15, "R_386_TLS_IE"),
+    (16, "R_386_TLS_GOTIE"),
+    (17, "R_386_TLS_LE"),
+    (18, "R_386_TLS_GD"),
+    (19, "R_386_TLS_LDM"),
+    (20, "R_386_16"),
+    (21, "R_386_PC16"),
+    (22, "R_386_8"),
+    (23, "R_386_PC8"),
+    (24, "R_386_TLS_GD_32"),
+    (25, "R_386_TLS_GD_PUSH"),
+    (26, "R_386_TLS_GD_CALL"),
+    (27, "R_386_TLS_GD_POP"),
+    (28, "R_386_TLS_LDM_32"),
+    (29, "R_386_TLS_LDM_PUSH"),
+    (30, "R_386_TLS_LDM_CALL"),
+    (31, "R_386_TLS_LDM_POP"),
+    (32, "R_386_TLS_LDO_32"),
+    (33, "R_386_TLS_IE_32"),
+    (34, "R_386_TLS_LE_32"),
+    (35, "R_386_TLS_DTPMOD32"),
+    (36, "R_386_TLS_DTPOFF32"),
+    (37, "R_386_TLS_TPOFF32"),
+    (38, "R_386_SIZE32"),
+    (39, "R_386_TLS_GOTDESC"),
+    (40, "R_386_TLS_DESC_CALL"),
+    (41, "R_386_TLS_DESC"),
+    (42, "R_386_IRELATIVE"),
+    (43, "R_386_GOT32X"),
+  ]
+}
+
+pub fn r_386_string(i: Int) -> Str { string_name(i, t_r_386(), false) }
+
+pub fn r_386_go_string(i: Int) -> Str { string_name(i, t_r_386(), true) }
+
+fn t_r_mips() -> List<(Int, Str)> {
+  [
+    (0, "R_MIPS_NONE"),
+    (1, "R_MIPS_16"),
+    (2, "R_MIPS_32"),
+    (3, "R_MIPS_REL32"),
+    (4, "R_MIPS_26"),
+    (5, "R_MIPS_HI16"),
+    (6, "R_MIPS_LO16"),
+    (7, "R_MIPS_GPREL16"),
+    (8, "R_MIPS_LITERAL"),
+    (9, "R_MIPS_GOT16"),
+    (10, "R_MIPS_PC16"),
+    (11, "R_MIPS_CALL16"),
+    (12, "R_MIPS_GPREL32"),
+    (16, "R_MIPS_SHIFT5"),
+    (17, "R_MIPS_SHIFT6"),
+    (18, "R_MIPS_64"),
+    (19, "R_MIPS_GOT_DISP"),
+    (20, "R_MIPS_GOT_PAGE"),
+    (21, "R_MIPS_GOT_OFST"),
+    (22, "R_MIPS_GOT_HI16"),
+    (23, "R_MIPS_GOT_LO16"),
+    (24, "R_MIPS_SUB"),
+    (25, "R_MIPS_INSERT_A"),
+    (26, "R_MIPS_INSERT_B"),
+    (27, "R_MIPS_DELETE"),
+    (28, "R_MIPS_HIGHER"),
+    (29, "R_MIPS_HIGHEST"),
+    (30, "R_MIPS_CALL_HI16"),
+    (31, "R_MIPS_CALL_LO16"),
+    (32, "R_MIPS_SCN_DISP"),
+    (33, "R_MIPS_REL16"),
+    (34, "R_MIPS_ADD_IMMEDIATE"),
+    (35, "R_MIPS_PJUMP"),
+    (36, "R_MIPS_RELGOT"),
+    (37, "R_MIPS_JALR"),
+    (38, "R_MIPS_TLS_DTPMOD32"),
+    (39, "R_MIPS_TLS_DTPREL32"),
+    (40, "R_MIPS_TLS_DTPMOD64"),
+    (41, "R_MIPS_TLS_DTPREL64"),
+    (42, "R_MIPS_TLS_GD"),
+    (43, "R_MIPS_TLS_LDM"),
+    (44, "R_MIPS_TLS_DTPREL_HI16"),
+    (45, "R_MIPS_TLS_DTPREL_LO16"),
+    (46, "R_MIPS_TLS_GOTTPREL"),
+    (47, "R_MIPS_TLS_TPREL32"),
+    (48, "R_MIPS_TLS_TPREL64"),
+    (49, "R_MIPS_TLS_TPREL_HI16"),
+    (50, "R_MIPS_TLS_TPREL_LO16"),
+    (248, "R_MIPS_PC32"),
+  ]
+}
+
+pub fn r_mips_string(i: Int) -> Str { string_name(i, t_r_mips(), false) }
+
+pub fn r_mips_go_string(i: Int) -> Str { string_name(i, t_r_mips(), true) }
+
+fn t_r_larch() -> List<(Int, Str)> {
+  [
+    (0, "R_LARCH_NONE"),
+    (1, "R_LARCH_32"),
+    (2, "R_LARCH_64"),
+    (3, "R_LARCH_RELATIVE"),
+    (4, "R_LARCH_COPY"),
+    (5, "R_LARCH_JUMP_SLOT"),
+    (6, "R_LARCH_TLS_DTPMOD32"),
+    (7, "R_LARCH_TLS_DTPMOD64"),
+    (8, "R_LARCH_TLS_DTPREL32"),
+    (9, "R_LARCH_TLS_DTPREL64"),
+    (10, "R_LARCH_TLS_TPREL32"),
+    (11, "R_LARCH_TLS_TPREL64"),
+    (12, "R_LARCH_IRELATIVE"),
+    (13, "R_LARCH_TLS_DESC32"),
+    (14, "R_LARCH_TLS_DESC64"),
+    (20, "R_LARCH_MARK_LA"),
+    (21, "R_LARCH_MARK_PCREL"),
+    (22, "R_LARCH_SOP_PUSH_PCREL"),
+    (23, "R_LARCH_SOP_PUSH_ABSOLUTE"),
+    (24, "R_LARCH_SOP_PUSH_DUP"),
+    (25, "R_LARCH_SOP_PUSH_GPREL"),
+    (26, "R_LARCH_SOP_PUSH_TLS_TPREL"),
+    (27, "R_LARCH_SOP_PUSH_TLS_GOT"),
+    (28, "R_LARCH_SOP_PUSH_TLS_GD"),
+    (29, "R_LARCH_SOP_PUSH_PLT_PCREL"),
+    (30, "R_LARCH_SOP_ASSERT"),
+    (31, "R_LARCH_SOP_NOT"),
+    (32, "R_LARCH_SOP_SUB"),
+    (33, "R_LARCH_SOP_SL"),
+    (34, "R_LARCH_SOP_SR"),
+    (35, "R_LARCH_SOP_ADD"),
+    (36, "R_LARCH_SOP_AND"),
+    (37, "R_LARCH_SOP_IF_ELSE"),
+    (38, "R_LARCH_SOP_POP_32_S_10_5"),
+    (39, "R_LARCH_SOP_POP_32_U_10_12"),
+    (40, "R_LARCH_SOP_POP_32_S_10_12"),
+    (41, "R_LARCH_SOP_POP_32_S_10_16"),
+    (42, "R_LARCH_SOP_POP_32_S_10_16_S2"),
+    (43, "R_LARCH_SOP_POP_32_S_5_20"),
+    (44, "R_LARCH_SOP_POP_32_S_0_5_10_16_S2"),
+    (45, "R_LARCH_SOP_POP_32_S_0_10_10_16_S2"),
+    (46, "R_LARCH_SOP_POP_32_U"),
+    (47, "R_LARCH_ADD8"),
+    (48, "R_LARCH_ADD16"),
+    (49, "R_LARCH_ADD24"),
+    (50, "R_LARCH_ADD32"),
+    (51, "R_LARCH_ADD64"),
+    (52, "R_LARCH_SUB8"),
+    (53, "R_LARCH_SUB16"),
+    (54, "R_LARCH_SUB24"),
+    (55, "R_LARCH_SUB32"),
+    (56, "R_LARCH_SUB64"),
+    (57, "R_LARCH_GNU_VTINHERIT"),
+    (58, "R_LARCH_GNU_VTENTRY"),
+    (64, "R_LARCH_B16"),
+    (65, "R_LARCH_B21"),
+    (66, "R_LARCH_B26"),
+    (67, "R_LARCH_ABS_HI20"),
+    (68, "R_LARCH_ABS_LO12"),
+    (69, "R_LARCH_ABS64_LO20"),
+    (70, "R_LARCH_ABS64_HI12"),
+    (71, "R_LARCH_PCALA_HI20"),
+    (72, "R_LARCH_PCALA_LO12"),
+    (73, "R_LARCH_PCALA64_LO20"),
+    (74, "R_LARCH_PCALA64_HI12"),
+    (75, "R_LARCH_GOT_PC_HI20"),
+    (76, "R_LARCH_GOT_PC_LO12"),
+    (77, "R_LARCH_GOT64_PC_LO20"),
+    (78, "R_LARCH_GOT64_PC_HI12"),
+    (79, "R_LARCH_GOT_HI20"),
+    (80, "R_LARCH_GOT_LO12"),
+    (81, "R_LARCH_GOT64_LO20"),
+    (82, "R_LARCH_GOT64_HI12"),
+    (83, "R_LARCH_TLS_LE_HI20"),
+    (84, "R_LARCH_TLS_LE_LO12"),
+    (85, "R_LARCH_TLS_LE64_LO20"),
+    (86, "R_LARCH_TLS_LE64_HI12"),
+    (87, "R_LARCH_TLS_IE_PC_HI20"),
+    (88, "R_LARCH_TLS_IE_PC_LO12"),
+    (89, "R_LARCH_TLS_IE64_PC_LO20"),
+    (90, "R_LARCH_TLS_IE64_PC_HI12"),
+    (91, "R_LARCH_TLS_IE_HI20"),
+    (92, "R_LARCH_TLS_IE_LO12"),
+    (93, "R_LARCH_TLS_IE64_LO20"),
+    (94, "R_LARCH_TLS_IE64_HI12"),
+    (95, "R_LARCH_TLS_LD_PC_HI20"),
+    (96, "R_LARCH_TLS_LD_HI20"),
+    (97, "R_LARCH_TLS_GD_PC_HI20"),
+    (98, "R_LARCH_TLS_GD_HI20"),
+    (99, "R_LARCH_32_PCREL"),
+    (100, "R_LARCH_RELAX"),
+    (101, "R_LARCH_DELETE"),
+    (102, "R_LARCH_ALIGN"),
+    (103, "R_LARCH_PCREL20_S2"),
+    (104, "R_LARCH_CFA"),
+    (105, "R_LARCH_ADD6"),
+    (106, "R_LARCH_SUB6"),
+    (107, "R_LARCH_ADD_ULEB128"),
+    (108, "R_LARCH_SUB_ULEB128"),
+    (109, "R_LARCH_64_PCREL"),
+    (110, "R_LARCH_CALL36"),
+    (111, "R_LARCH_TLS_DESC_PC_HI20"),
+    (112, "R_LARCH_TLS_DESC_PC_LO12"),
+    (113, "R_LARCH_TLS_DESC64_PC_LO20"),
+    (114, "R_LARCH_TLS_DESC64_PC_HI12"),
+    (115, "R_LARCH_TLS_DESC_HI20"),
+    (116, "R_LARCH_TLS_DESC_LO12"),
+    (117, "R_LARCH_TLS_DESC64_LO20"),
+    (118, "R_LARCH_TLS_DESC64_HI12"),
+    (119, "R_LARCH_TLS_DESC_LD"),
+    (120, "R_LARCH_TLS_DESC_CALL"),
+    (121, "R_LARCH_TLS_LE_HI20_R"),
+    (122, "R_LARCH_TLS_LE_ADD_R"),
+    (123, "R_LARCH_TLS_LE_LO12_R"),
+    (124, "R_LARCH_TLS_LD_PCREL20_S2"),
+    (125, "R_LARCH_TLS_GD_PCREL20_S2"),
+    (126, "R_LARCH_TLS_DESC_PCREL20_S2"),
+  ]
+}
+
+pub fn r_larch_string(i: Int) -> Str { string_name(i, t_r_larch(), false) }
+
+pub fn r_larch_go_string(i: Int) -> Str { string_name(i, t_r_larch(), true) }
+
+fn t_r_ppc() -> List<(Int, Str)> {
+  [
+    (0, "R_PPC_NONE"),
+    (1, "R_PPC_ADDR32"),
+    (2, "R_PPC_ADDR24"),
+    (3, "R_PPC_ADDR16"),
+    (4, "R_PPC_ADDR16_LO"),
+    (5, "R_PPC_ADDR16_HI"),
+    (6, "R_PPC_ADDR16_HA"),
+    (7, "R_PPC_ADDR14"),
+    (8, "R_PPC_ADDR14_BRTAKEN"),
+    (9, "R_PPC_ADDR14_BRNTAKEN"),
+    (10, "R_PPC_REL24"),
+    (11, "R_PPC_REL14"),
+    (12, "R_PPC_REL14_BRTAKEN"),
+    (13, "R_PPC_REL14_BRNTAKEN"),
+    (14, "R_PPC_GOT16"),
+    (15, "R_PPC_GOT16_LO"),
+    (16, "R_PPC_GOT16_HI"),
+    (17, "R_PPC_GOT16_HA"),
+    (18, "R_PPC_PLTREL24"),
+    (19, "R_PPC_COPY"),
+    (20, "R_PPC_GLOB_DAT"),
+    (21, "R_PPC_JMP_SLOT"),
+    (22, "R_PPC_RELATIVE"),
+    (23, "R_PPC_LOCAL24PC"),
+    (24, "R_PPC_UADDR32"),
+    (25, "R_PPC_UADDR16"),
+    (26, "R_PPC_REL32"),
+    (27, "R_PPC_PLT32"),
+    (28, "R_PPC_PLTREL32"),
+    (29, "R_PPC_PLT16_LO"),
+    (30, "R_PPC_PLT16_HI"),
+    (31, "R_PPC_PLT16_HA"),
+    (32, "R_PPC_SDAREL16"),
+    (33, "R_PPC_SECTOFF"),
+    (34, "R_PPC_SECTOFF_LO"),
+    (35, "R_PPC_SECTOFF_HI"),
+    (36, "R_PPC_SECTOFF_HA"),
+    (67, "R_PPC_TLS"),
+    (68, "R_PPC_DTPMOD32"),
+    (69, "R_PPC_TPREL16"),
+    (70, "R_PPC_TPREL16_LO"),
+    (71, "R_PPC_TPREL16_HI"),
+    (72, "R_PPC_TPREL16_HA"),
+    (73, "R_PPC_TPREL32"),
+    (74, "R_PPC_DTPREL16"),
+    (75, "R_PPC_DTPREL16_LO"),
+    (76, "R_PPC_DTPREL16_HI"),
+    (77, "R_PPC_DTPREL16_HA"),
+    (78, "R_PPC_DTPREL32"),
+    (79, "R_PPC_GOT_TLSGD16"),
+    (80, "R_PPC_GOT_TLSGD16_LO"),
+    (81, "R_PPC_GOT_TLSGD16_HI"),
+    (82, "R_PPC_GOT_TLSGD16_HA"),
+    (83, "R_PPC_GOT_TLSLD16"),
+    (84, "R_PPC_GOT_TLSLD16_LO"),
+    (85, "R_PPC_GOT_TLSLD16_HI"),
+    (86, "R_PPC_GOT_TLSLD16_HA"),
+    (87, "R_PPC_GOT_TPREL16"),
+    (88, "R_PPC_GOT_TPREL16_LO"),
+    (89, "R_PPC_GOT_TPREL16_HI"),
+    (90, "R_PPC_GOT_TPREL16_HA"),
+    (101, "R_PPC_EMB_NADDR32"),
+    (102, "R_PPC_EMB_NADDR16"),
+    (103, "R_PPC_EMB_NADDR16_LO"),
+    (104, "R_PPC_EMB_NADDR16_HI"),
+    (105, "R_PPC_EMB_NADDR16_HA"),
+    (106, "R_PPC_EMB_SDAI16"),
+    (107, "R_PPC_EMB_SDA2I16"),
+    (108, "R_PPC_EMB_SDA2REL"),
+    (109, "R_PPC_EMB_SDA21"),
+    (110, "R_PPC_EMB_MRKREF"),
+    (111, "R_PPC_EMB_RELSEC16"),
+    (112, "R_PPC_EMB_RELST_LO"),
+    (113, "R_PPC_EMB_RELST_HI"),
+    (114, "R_PPC_EMB_RELST_HA"),
+    (115, "R_PPC_EMB_BIT_FLD"),
+    (116, "R_PPC_EMB_RELSDA"),
+  ]
+}
+
+pub fn r_ppc_string(i: Int) -> Str { string_name(i, t_r_ppc(), false) }
+
+pub fn r_ppc_go_string(i: Int) -> Str { string_name(i, t_r_ppc(), true) }
+
+fn t_r_ppc64() -> List<(Int, Str)> {
+  [
+    (0, "R_PPC64_NONE"),
+    (1, "R_PPC64_ADDR32"),
+    (2, "R_PPC64_ADDR24"),
+    (3, "R_PPC64_ADDR16"),
+    (4, "R_PPC64_ADDR16_LO"),
+    (5, "R_PPC64_ADDR16_HI"),
+    (6, "R_PPC64_ADDR16_HA"),
+    (7, "R_PPC64_ADDR14"),
+    (8, "R_PPC64_ADDR14_BRTAKEN"),
+    (9, "R_PPC64_ADDR14_BRNTAKEN"),
+    (10, "R_PPC64_REL24"),
+    (11, "R_PPC64_REL14"),
+    (12, "R_PPC64_REL14_BRTAKEN"),
+    (13, "R_PPC64_REL14_BRNTAKEN"),
+    (14, "R_PPC64_GOT16"),
+    (15, "R_PPC64_GOT16_LO"),
+    (16, "R_PPC64_GOT16_HI"),
+    (17, "R_PPC64_GOT16_HA"),
+    (19, "R_PPC64_COPY"),
+    (20, "R_PPC64_GLOB_DAT"),
+    (21, "R_PPC64_JMP_SLOT"),
+    (22, "R_PPC64_RELATIVE"),
+    (24, "R_PPC64_UADDR32"),
+    (25, "R_PPC64_UADDR16"),
+    (26, "R_PPC64_REL32"),
+    (27, "R_PPC64_PLT32"),
+    (28, "R_PPC64_PLTREL32"),
+    (29, "R_PPC64_PLT16_LO"),
+    (30, "R_PPC64_PLT16_HI"),
+    (31, "R_PPC64_PLT16_HA"),
+    (33, "R_PPC64_SECTOFF"),
+    (34, "R_PPC64_SECTOFF_LO"),
+    (35, "R_PPC64_SECTOFF_HI"),
+    (36, "R_PPC64_SECTOFF_HA"),
+    (37, "R_PPC64_REL30"),
+    (38, "R_PPC64_ADDR64"),
+    (39, "R_PPC64_ADDR16_HIGHER"),
+    (40, "R_PPC64_ADDR16_HIGHERA"),
+    (41, "R_PPC64_ADDR16_HIGHEST"),
+    (42, "R_PPC64_ADDR16_HIGHESTA"),
+    (43, "R_PPC64_UADDR64"),
+    (44, "R_PPC64_REL64"),
+    (45, "R_PPC64_PLT64"),
+    (46, "R_PPC64_PLTREL64"),
+    (47, "R_PPC64_TOC16"),
+    (48, "R_PPC64_TOC16_LO"),
+    (49, "R_PPC64_TOC16_HI"),
+    (50, "R_PPC64_TOC16_HA"),
+    (51, "R_PPC64_TOC"),
+    (52, "R_PPC64_PLTGOT16"),
+    (53, "R_PPC64_PLTGOT16_LO"),
+    (54, "R_PPC64_PLTGOT16_HI"),
+    (55, "R_PPC64_PLTGOT16_HA"),
+    (56, "R_PPC64_ADDR16_DS"),
+    (57, "R_PPC64_ADDR16_LO_DS"),
+    (58, "R_PPC64_GOT16_DS"),
+    (59, "R_PPC64_GOT16_LO_DS"),
+    (60, "R_PPC64_PLT16_LO_DS"),
+    (61, "R_PPC64_SECTOFF_DS"),
+    (62, "R_PPC64_SECTOFF_LO_DS"),
+    (63, "R_PPC64_TOC16_DS"),
+    (64, "R_PPC64_TOC16_LO_DS"),
+    (65, "R_PPC64_PLTGOT16_DS"),
+    (66, "R_PPC64_PLTGOT_LO_DS"),
+    (67, "R_PPC64_TLS"),
+    (68, "R_PPC64_DTPMOD64"),
+    (69, "R_PPC64_TPREL16"),
+    (70, "R_PPC64_TPREL16_LO"),
+    (71, "R_PPC64_TPREL16_HI"),
+    (72, "R_PPC64_TPREL16_HA"),
+    (73, "R_PPC64_TPREL64"),
+    (74, "R_PPC64_DTPREL16"),
+    (75, "R_PPC64_DTPREL16_LO"),
+    (76, "R_PPC64_DTPREL16_HI"),
+    (77, "R_PPC64_DTPREL16_HA"),
+    (78, "R_PPC64_DTPREL64"),
+    (79, "R_PPC64_GOT_TLSGD16"),
+    (80, "R_PPC64_GOT_TLSGD16_LO"),
+    (81, "R_PPC64_GOT_TLSGD16_HI"),
+    (82, "R_PPC64_GOT_TLSGD16_HA"),
+    (83, "R_PPC64_GOT_TLSLD16"),
+    (84, "R_PPC64_GOT_TLSLD16_LO"),
+    (85, "R_PPC64_GOT_TLSLD16_HI"),
+    (86, "R_PPC64_GOT_TLSLD16_HA"),
+    (87, "R_PPC64_GOT_TPREL16_DS"),
+    (88, "R_PPC64_GOT_TPREL16_LO_DS"),
+    (89, "R_PPC64_GOT_TPREL16_HI"),
+    (90, "R_PPC64_GOT_TPREL16_HA"),
+    (91, "R_PPC64_GOT_DTPREL16_DS"),
+    (92, "R_PPC64_GOT_DTPREL16_LO_DS"),
+    (93, "R_PPC64_GOT_DTPREL16_HI"),
+    (94, "R_PPC64_GOT_DTPREL16_HA"),
+    (95, "R_PPC64_TPREL16_DS"),
+    (96, "R_PPC64_TPREL16_LO_DS"),
+    (97, "R_PPC64_TPREL16_HIGHER"),
+    (98, "R_PPC64_TPREL16_HIGHERA"),
+    (99, "R_PPC64_TPREL16_HIGHEST"),
+    (100, "R_PPC64_TPREL16_HIGHESTA"),
+    (101, "R_PPC64_DTPREL16_DS"),
+    (102, "R_PPC64_DTPREL16_LO_DS"),
+    (103, "R_PPC64_DTPREL16_HIGHER"),
+    (104, "R_PPC64_DTPREL16_HIGHERA"),
+    (105, "R_PPC64_DTPREL16_HIGHEST"),
+    (106, "R_PPC64_DTPREL16_HIGHESTA"),
+    (107, "R_PPC64_TLSGD"),
+    (108, "R_PPC64_TLSLD"),
+    (109, "R_PPC64_TOCSAVE"),
+    (110, "R_PPC64_ADDR16_HIGH"),
+    (111, "R_PPC64_ADDR16_HIGHA"),
+    (112, "R_PPC64_TPREL16_HIGH"),
+    (113, "R_PPC64_TPREL16_HIGHA"),
+    (114, "R_PPC64_DTPREL16_HIGH"),
+    (115, "R_PPC64_DTPREL16_HIGHA"),
+    (116, "R_PPC64_REL24_NOTOC"),
+    (117, "R_PPC64_ADDR64_LOCAL"),
+    (118, "R_PPC64_ENTRY"),
+    (119, "R_PPC64_PLTSEQ"),
+    (120, "R_PPC64_PLTCALL"),
+    (121, "R_PPC64_PLTSEQ_NOTOC"),
+    (122, "R_PPC64_PLTCALL_NOTOC"),
+    (123, "R_PPC64_PCREL_OPT"),
+    (124, "R_PPC64_REL24_P9NOTOC"),
+    (128, "R_PPC64_D34"),
+    (129, "R_PPC64_D34_LO"),
+    (130, "R_PPC64_D34_HI30"),
+    (131, "R_PPC64_D34_HA30"),
+    (132, "R_PPC64_PCREL34"),
+    (133, "R_PPC64_GOT_PCREL34"),
+    (134, "R_PPC64_PLT_PCREL34"),
+    (135, "R_PPC64_PLT_PCREL34_NOTOC"),
+    (136, "R_PPC64_ADDR16_HIGHER34"),
+    (137, "R_PPC64_ADDR16_HIGHERA34"),
+    (138, "R_PPC64_ADDR16_HIGHEST34"),
+    (139, "R_PPC64_ADDR16_HIGHESTA34"),
+    (140, "R_PPC64_REL16_HIGHER34"),
+    (141, "R_PPC64_REL16_HIGHERA34"),
+    (142, "R_PPC64_REL16_HIGHEST34"),
+    (143, "R_PPC64_REL16_HIGHESTA34"),
+    (144, "R_PPC64_D28"),
+    (145, "R_PPC64_PCREL28"),
+    (146, "R_PPC64_TPREL34"),
+    (147, "R_PPC64_DTPREL34"),
+    (148, "R_PPC64_GOT_TLSGD_PCREL34"),
+    (149, "R_PPC64_GOT_TLSLD_PCREL34"),
+    (150, "R_PPC64_GOT_TPREL_PCREL34"),
+    (151, "R_PPC64_GOT_DTPREL_PCREL34"),
+    (240, "R_PPC64_REL16_HIGH"),
+    (241, "R_PPC64_REL16_HIGHA"),
+    (242, "R_PPC64_REL16_HIGHER"),
+    (243, "R_PPC64_REL16_HIGHERA"),
+    (244, "R_PPC64_REL16_HIGHEST"),
+    (245, "R_PPC64_REL16_HIGHESTA"),
+    (246, "R_PPC64_REL16DX_HA"),
+    (247, "R_PPC64_JMP_IREL"),
+    (248, "R_PPC64_IRELATIVE"),
+    (249, "R_PPC64_REL16"),
+    (250, "R_PPC64_REL16_LO"),
+    (251, "R_PPC64_REL16_HI"),
+    (252, "R_PPC64_REL16_HA"),
+    (253, "R_PPC64_GNU_VTINHERIT"),
+    (254, "R_PPC64_GNU_VTENTRY"),
+  ]
+}
+
+pub fn r_ppc64_string(i: Int) -> Str { string_name(i, t_r_ppc64(), false) }
+
+pub fn r_ppc64_go_string(i: Int) -> Str { string_name(i, t_r_ppc64(), true) }
+
+fn t_r_riscv() -> List<(Int, Str)> {
+  [
+    (0, "R_RISCV_NONE"),
+    (1, "R_RISCV_32"),
+    (2, "R_RISCV_64"),
+    (3, "R_RISCV_RELATIVE"),
+    (4, "R_RISCV_COPY"),
+    (5, "R_RISCV_JUMP_SLOT"),
+    (6, "R_RISCV_TLS_DTPMOD32"),
+    (7, "R_RISCV_TLS_DTPMOD64"),
+    (8, "R_RISCV_TLS_DTPREL32"),
+    (9, "R_RISCV_TLS_DTPREL64"),
+    (10, "R_RISCV_TLS_TPREL32"),
+    (11, "R_RISCV_TLS_TPREL64"),
+    (16, "R_RISCV_BRANCH"),
+    (17, "R_RISCV_JAL"),
+    (18, "R_RISCV_CALL"),
+    (19, "R_RISCV_CALL_PLT"),
+    (20, "R_RISCV_GOT_HI20"),
+    (21, "R_RISCV_TLS_GOT_HI20"),
+    (22, "R_RISCV_TLS_GD_HI20"),
+    (23, "R_RISCV_PCREL_HI20"),
+    (24, "R_RISCV_PCREL_LO12_I"),
+    (25, "R_RISCV_PCREL_LO12_S"),
+    (26, "R_RISCV_HI20"),
+    (27, "R_RISCV_LO12_I"),
+    (28, "R_RISCV_LO12_S"),
+    (29, "R_RISCV_TPREL_HI20"),
+    (30, "R_RISCV_TPREL_LO12_I"),
+    (31, "R_RISCV_TPREL_LO12_S"),
+    (32, "R_RISCV_TPREL_ADD"),
+    (33, "R_RISCV_ADD8"),
+    (34, "R_RISCV_ADD16"),
+    (35, "R_RISCV_ADD32"),
+    (36, "R_RISCV_ADD64"),
+    (37, "R_RISCV_SUB8"),
+    (38, "R_RISCV_SUB16"),
+    (39, "R_RISCV_SUB32"),
+    (40, "R_RISCV_SUB64"),
+    (41, "R_RISCV_GNU_VTINHERIT"),
+    (42, "R_RISCV_GNU_VTENTRY"),
+    (43, "R_RISCV_ALIGN"),
+    (44, "R_RISCV_RVC_BRANCH"),
+    (45, "R_RISCV_RVC_JUMP"),
+    (46, "R_RISCV_RVC_LUI"),
+    (47, "R_RISCV_GPREL_I"),
+    (48, "R_RISCV_GPREL_S"),
+    (49, "R_RISCV_TPREL_I"),
+    (50, "R_RISCV_TPREL_S"),
+    (51, "R_RISCV_RELAX"),
+    (52, "R_RISCV_SUB6"),
+    (53, "R_RISCV_SET6"),
+    (54, "R_RISCV_SET8"),
+    (55, "R_RISCV_SET16"),
+    (56, "R_RISCV_SET32"),
+    (57, "R_RISCV_32_PCREL"),
+  ]
+}
+
+pub fn r_riscv_string(i: Int) -> Str { string_name(i, t_r_riscv(), false) }
+
+pub fn r_riscv_go_string(i: Int) -> Str { string_name(i, t_r_riscv(), true) }
+
+fn t_r_390() -> List<(Int, Str)> {
+  [
+    (0, "R_390_NONE"),
+    (1, "R_390_8"),
+    (2, "R_390_12"),
+    (3, "R_390_16"),
+    (4, "R_390_32"),
+    (5, "R_390_PC32"),
+    (6, "R_390_GOT12"),
+    (7, "R_390_GOT32"),
+    (8, "R_390_PLT32"),
+    (9, "R_390_COPY"),
+    (10, "R_390_GLOB_DAT"),
+    (11, "R_390_JMP_SLOT"),
+    (12, "R_390_RELATIVE"),
+    (13, "R_390_GOTOFF"),
+    (14, "R_390_GOTPC"),
+    (15, "R_390_GOT16"),
+    (16, "R_390_PC16"),
+    (17, "R_390_PC16DBL"),
+    (18, "R_390_PLT16DBL"),
+    (19, "R_390_PC32DBL"),
+    (20, "R_390_PLT32DBL"),
+    (21, "R_390_GOTPCDBL"),
+    (22, "R_390_64"),
+    (23, "R_390_PC64"),
+    (24, "R_390_GOT64"),
+    (25, "R_390_PLT64"),
+    (26, "R_390_GOTENT"),
+    (27, "R_390_GOTOFF16"),
+    (28, "R_390_GOTOFF64"),
+    (29, "R_390_GOTPLT12"),
+    (30, "R_390_GOTPLT16"),
+    (31, "R_390_GOTPLT32"),
+    (32, "R_390_GOTPLT64"),
+    (33, "R_390_GOTPLTENT"),
+    (34, "R_390_GOTPLTOFF16"),
+    (35, "R_390_GOTPLTOFF32"),
+    (36, "R_390_GOTPLTOFF64"),
+    (37, "R_390_TLS_LOAD"),
+    (38, "R_390_TLS_GDCALL"),
+    (39, "R_390_TLS_LDCALL"),
+    (40, "R_390_TLS_GD32"),
+    (41, "R_390_TLS_GD64"),
+    (42, "R_390_TLS_GOTIE12"),
+    (43, "R_390_TLS_GOTIE32"),
+    (44, "R_390_TLS_GOTIE64"),
+    (45, "R_390_TLS_LDM32"),
+    (46, "R_390_TLS_LDM64"),
+    (47, "R_390_TLS_IE32"),
+    (48, "R_390_TLS_IE64"),
+    (49, "R_390_TLS_IEENT"),
+    (50, "R_390_TLS_LE32"),
+    (51, "R_390_TLS_LE64"),
+    (52, "R_390_TLS_LDO32"),
+    (53, "R_390_TLS_LDO64"),
+    (54, "R_390_TLS_DTPMOD"),
+    (55, "R_390_TLS_DTPOFF"),
+    (56, "R_390_TLS_TPOFF"),
+    (57, "R_390_20"),
+    (58, "R_390_GOT20"),
+    (59, "R_390_GOTPLT20"),
+    (60, "R_390_TLS_GOTIE20"),
+  ]
+}
+
+pub fn r_390_string(i: Int) -> Str { string_name(i, t_r_390(), false) }
+
+pub fn r_390_go_string(i: Int) -> Str { string_name(i, t_r_390(), true) }
+
+fn t_r_sparc() -> List<(Int, Str)> {
+  [
+    (0, "R_SPARC_NONE"),
+    (1, "R_SPARC_8"),
+    (2, "R_SPARC_16"),
+    (3, "R_SPARC_32"),
+    (4, "R_SPARC_DISP8"),
+    (5, "R_SPARC_DISP16"),
+    (6, "R_SPARC_DISP32"),
+    (7, "R_SPARC_WDISP30"),
+    (8, "R_SPARC_WDISP22"),
+    (9, "R_SPARC_HI22"),
+    (10, "R_SPARC_22"),
+    (11, "R_SPARC_13"),
+    (12, "R_SPARC_LO10"),
+    (13, "R_SPARC_GOT10"),
+    (14, "R_SPARC_GOT13"),
+    (15, "R_SPARC_GOT22"),
+    (16, "R_SPARC_PC10"),
+    (17, "R_SPARC_PC22"),
+    (18, "R_SPARC_WPLT30"),
+    (19, "R_SPARC_COPY"),
+    (20, "R_SPARC_GLOB_DAT"),
+    (21, "R_SPARC_JMP_SLOT"),
+    (22, "R_SPARC_RELATIVE"),
+    (23, "R_SPARC_UA32"),
+    (24, "R_SPARC_PLT32"),
+    (25, "R_SPARC_HIPLT22"),
+    (26, "R_SPARC_LOPLT10"),
+    (27, "R_SPARC_PCPLT32"),
+    (28, "R_SPARC_PCPLT22"),
+    (29, "R_SPARC_PCPLT10"),
+    (30, "R_SPARC_10"),
+    (31, "R_SPARC_11"),
+    (32, "R_SPARC_64"),
+    (33, "R_SPARC_OLO10"),
+    (34, "R_SPARC_HH22"),
+    (35, "R_SPARC_HM10"),
+    (36, "R_SPARC_LM22"),
+    (37, "R_SPARC_PC_HH22"),
+    (38, "R_SPARC_PC_HM10"),
+    (39, "R_SPARC_PC_LM22"),
+    (40, "R_SPARC_WDISP16"),
+    (41, "R_SPARC_WDISP19"),
+    (42, "R_SPARC_GLOB_JMP"),
+    (43, "R_SPARC_7"),
+    (44, "R_SPARC_5"),
+    (45, "R_SPARC_6"),
+    (46, "R_SPARC_DISP64"),
+    (47, "R_SPARC_PLT64"),
+    (48, "R_SPARC_HIX22"),
+    (49, "R_SPARC_LOX10"),
+    (50, "R_SPARC_H44"),
+    (51, "R_SPARC_M44"),
+    (52, "R_SPARC_L44"),
+    (53, "R_SPARC_REGISTER"),
+    (54, "R_SPARC_UA64"),
+    (55, "R_SPARC_UA16"),
+  ]
+}
+
+pub fn r_sparc_string(i: Int) -> Str { string_name(i, t_r_sparc(), false) }
+
+pub fn r_sparc_go_string(i: Int) -> Str { string_name(i, t_r_sparc(), true) }
