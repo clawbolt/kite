@@ -5,6 +5,7 @@
 set -e
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 KITEC=${1:-$ROOT/bin/kitec}
+case "$KITEC" in /*) ;; *) KITEC=$(pwd)/$KITEC ;; esac
 [ "$2" = "--update" ] && UPDATE=1 || UPDATE=
 export KITE_HOME=${KITE_HOME:-$ROOT}
 T=$(mktemp -d)
