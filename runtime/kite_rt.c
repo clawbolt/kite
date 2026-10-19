@@ -141,6 +141,7 @@ static void __attribute__((noreturn)) fatal(const char *fmt, ...) { va_list ap; 
 #include <netinet/tcp.h>
 #include <arpa/inet.h>
 #include <netdb.h>
+#include <sys/un.h>
 #include <fcntl.h>
 #include <sys/stat.h>
 #include <dirent.h>
@@ -2615,30 +2616,43 @@ static NetBuf *netb(int64_t fd) {
 static V net_err(const char *what) { char m[512]; snprintf(m, sizeof m, "%s: %s", what, strerror(errno)); return kErr(cstr(m)); }
 static V net_closed(void) { return kErr(cstr("连接已关闭")); }
 static void set_nb(int fd) { fcntl(fd, F_SETFL, fcntl(fd, F_GETFL, 0) | O_NONBLOCK); }
-static int net_addr(const char *host, int64_t port, struct sockaddr_in *sa) {
-    struct addrinfo hints, *res; memset(&hints, 0, sizeof hints);
-    hints.ai_family = AF_INET; hints.ai_socktype = SOCK_STREAM;
+/* 解析主机（IPv4 优先，其次 IPv6；host 为 "" 时是 0.0.0.0），结果写进 sa，返回地址长度；失败返回 -1 */
+static int net_addr_t(const char *host, int64_t port, struct sockaddr_storage *sa, int socktype) {
+    struct addrinfo hints, *res, *r; memset(&hints, 0, sizeof hints);
+    hints.ai_family = AF_UNSPEC; hints.ai_socktype = socktype;
     if (!*host) host = "0.0.0.0";
+    char h2[300]; size_t hl = strlen(host);
+    if (hl >= 2 && host[0] == '[' && host[hl - 1] == ']' && hl < sizeof h2) { memcpy(h2, host + 1, hl - 2); h2[hl - 2] = 0; host = h2; }
     gc_block_enter(); int rc = getaddrinfo(host, NULL, &hints, &res); gc_block_leave();
     if (rc != 0 || !res) return -1;
-    memcpy(sa, res->ai_addr, sizeof *sa); sa->sin_port = htons((uint16_t)port);
-    freeaddrinfo(res); return 0;
+    struct addrinfo *pick = NULL;
+    for (r = res; r; r = r->ai_next) if (r->ai_family == AF_INET) { pick = r; break; }
+    if (!pick) for (r = res; r; r = r->ai_next) if (r->ai_family == AF_INET6) { pick = r; break; }
+    if (!pick) { freeaddrinfo(res); return -1; }
+    int n = (int)pick->ai_addrlen; memset(sa, 0, sizeof *sa); memcpy(sa, pick->ai_addr, n);
+    if (sa->ss_family == AF_INET) ((struct sockaddr_in *)sa)->sin_port = htons((uint16_t)port);
+    else ((struct sockaddr_in6 *)sa)->sin6_port = htons((uint16_t)port);
+    freeaddrinfo(res); return n;
 }
+static int net_addr(const char *host, int64_t port, struct sockaddr_storage *sa) { return net_addr_t(host, port, sa, SOCK_STREAM); }
+static V no_host(const char *h) { char m[300]; snprintf(m, sizeof m, "无法解析主机 %s", h); return kErr(cstr(m)); }
 B(b_tcp_listen) {
     NARGS(2, 2); const char *h = CSTR(argv[0]); int64_t port = argv[1].u.i; char what[300];
     snprintf(what, sizeof what, "无法监听 %s:%lld", h, (long long)port);
-    struct sockaddr_in sa;
-    if (net_addr(h, port, &sa) < 0) { char m[300]; snprintf(m, sizeof m, "无法解析主机 %s", h); return kErr(cstr(m)); }
-    int fd = socket(AF_INET, SOCK_STREAM, 0); if (fd < 0) return net_err(what);
+    struct sockaddr_storage sa; int sl = net_addr(h, port, &sa);
+    if (sl < 0) return no_host(h);
+    int fd = socket(sa.ss_family, SOCK_STREAM, 0); if (fd < 0) return net_err(what);
     int one = 1; setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &one, sizeof one);
-    if (bind(fd, (struct sockaddr *)&sa, sizeof sa) < 0 || listen(fd, 128) < 0) { V e = net_err(what); close(fd); return e; }
+    if (bind(fd, (struct sockaddr *)&sa, sl) < 0 || listen(fd, 128) < 0) { V e = net_err(what); close(fd); return e; }
     if (fd >= NET_MAX) { close(fd); return kErr(cstr("文件描述符太多")); }
     set_nb(fd); return kOk(mkint(fd));
 }
 B(b_tcp_port) {
-    NARGS(1, 1); struct sockaddr_in sa; socklen_t n = sizeof sa;
+    NARGS(1, 1); struct sockaddr_storage sa; socklen_t n = sizeof sa;
     if (getsockname((int)argv[0].u.i, (struct sockaddr *)&sa, &n) < 0) return mkint(-1);
-    return mkint(ntohs(sa.sin_port));
+    if (sa.ss_family == AF_INET) return mkint(ntohs(((struct sockaddr_in *)&sa)->sin_port));
+    if (sa.ss_family == AF_INET6) return mkint(ntohs(((struct sockaddr_in6 *)&sa)->sin6_port));
+    return mkint(0);
 }
 B(b_tcp_accept) {
     NARGS(1, 1); int c = accept((int)argv[0].u.i, NULL, NULL);
@@ -2653,15 +2667,151 @@ B(b_tcp_accept) {
 B(b_tcp_connect) {
     NARGS(2, 2); const char *h = CSTR(argv[0]); int64_t port = argv[1].u.i; char what[300];
     snprintf(what, sizeof what, "无法连接 %s:%lld", h, (long long)port);
-    struct sockaddr_in sa;
-    if (net_addr(h, port, &sa) < 0) { char m[300]; snprintf(m, sizeof m, "无法解析主机 %s", h); return kErr(cstr(m)); }
-    int fd = socket(AF_INET, SOCK_STREAM, 0); if (fd < 0) return net_err(what);
-    gc_block_enter(); int rc = connect(fd, (struct sockaddr *)&sa, sizeof sa); int en = errno; gc_block_leave();
+    struct sockaddr_storage sa; int sl = net_addr(h, port, &sa);
+    if (sl < 0) return no_host(h);
+    int fd = socket(sa.ss_family, SOCK_STREAM, 0); if (fd < 0) return net_err(what);
+    gc_block_enter(); int rc = connect(fd, (struct sockaddr *)&sa, sl); int en = errno; gc_block_leave();
     if (rc < 0) { errno = en; V e = net_err(what); close(fd); return e; }
     if (fd >= NET_MAX) { close(fd); return kErr(cstr("文件描述符太多")); }
     set_nb(fd); int one = 1; setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &one, sizeof one);
     return kOk(mkint(fd));
 }
+/* ── UDP / Unix 套接字 / DNS（std/net.kite 用）：数据报按字节列表收发；"会阻塞" 时返回 None ── */
+static V sockaddr_val(struct sockaddr_storage *sa, socklen_t n) {
+    char ip[INET6_ADDRSTRLEN + 1] = { 0 }; int port = 0;
+    if (sa->ss_family == AF_INET) {
+        inet_ntop(AF_INET, &((struct sockaddr_in *)sa)->sin_addr, ip, sizeof ip); port = ntohs(((struct sockaddr_in *)sa)->sin_port);
+    } else if (sa->ss_family == AF_INET6) {
+        struct sockaddr_in6 *s6 = (struct sockaddr_in6 *)sa;
+        inet_ntop(AF_INET6, &s6->sin6_addr, ip, sizeof ip); port = ntohs(s6->sin6_port);
+        if (s6->sin6_scope_id) { char z[24]; snprintf(z, sizeof z, "%%%u", (unsigned)s6->sin6_scope_id); strncat(ip, z, sizeof ip - strlen(ip) - 1); }
+    } else if (sa->ss_family == AF_UNIX) {
+        struct sockaddr_un *su = (struct sockaddr_un *)sa;
+        size_t off = offsetof(struct sockaddr_un, sun_path);
+        size_t l = n > off ? strnlen(su->sun_path, n - off) : 0;
+        V t[2] = { mkstr(su->sun_path, l), mkint(-1) }; return mktuple(2, t);
+    }
+    V t[2] = { cstr(ip), mkint(port) }; return mktuple(2, t);
+}
+B(b_sock_name) {
+    NARGS(2, 2); struct sockaddr_storage sa; socklen_t n = sizeof sa; memset(&sa, 0, sizeof sa);
+    int r = (argv[1].t == T_BOOL && argv[1].u.i) ? getpeername((int)argv[0].u.i, (struct sockaddr *)&sa, &n)
+                                                  : getsockname((int)argv[0].u.i, (struct sockaddr *)&sa, &n);
+    if (r < 0) { V t[2] = { cstr(""), mkint(0) }; return mktuple(2, t); }
+    return sockaddr_val(&sa, n);
+}
+/* __udp_open(host, port, connect)：connect 为 false 时绑定 host:port；为 true 时连接到 host:port */
+B(b_udp_open) {
+    NARGS(3, 3); const char *h = CSTR(argv[0]); int64_t port = argv[1].u.i; int conn = argv[2].t == T_BOOL && argv[2].u.i;
+    char what[300]; snprintf(what, sizeof what, conn ? "无法连接 udp %s:%lld" : "无法监听 udp %s:%lld", h, (long long)port);
+    struct sockaddr_storage sa; int sl = net_addr_t(h, port, &sa, SOCK_DGRAM);
+    if (sl < 0) return no_host(h);
+    int fd = socket(sa.ss_family, SOCK_DGRAM, 0); if (fd < 0) return net_err(what);
+    int rc = conn ? connect(fd, (struct sockaddr *)&sa, sl) : bind(fd, (struct sockaddr *)&sa, sl);
+    if (rc < 0) { V e = net_err(what); close(fd); return e; }
+    if (fd >= NET_MAX) { close(fd); return kErr(cstr("文件描述符太多")); }
+    set_nb(fd); return kOk(mkint(fd));
+}
+static int bytes_arg(V v, char **out, int64_t *n) {
+    KList *l = LIST(v); char *b = malloc(l->len ? l->len : 1);
+    for (int64_t i = 0; i < l->len; i++) b[i] = (char)(l->a[i].t == T_INT ? l->a[i].u.i : 0);
+    *out = b; *n = l->len; return 0;
+}
+static V bytes_val(const char *b, int64_t n) {
+    KList *l = newlist(n); for (int64_t i = 0; i < n; i++) l->a[i] = mkint((unsigned char)b[i]);
+    l->len = n; return mkp(T_LIST, l);
+}
+static int unix_addr(const char *path, struct sockaddr_un *su) {
+    memset(su, 0, sizeof *su); su->sun_family = AF_UNIX;
+    size_t l = strlen(path); if (l >= sizeof su->sun_path) return -1;
+    memcpy(su->sun_path, path, l);
+    if (path[0] == '@') su->sun_path[0] = 0;   /* Linux 抽象命名空间 */
+    return (int)(offsetof(struct sockaddr_un, sun_path) + l);
+}
+/* __sock_sendto(fd, kind, host, port, data)：kind 0 = 已连接（忽略地址），1 = IP 地址，2 = Unix 路径 */
+B(b_sock_sendto) {
+    NARGS(5, 5); int fd = (int)argv[0].u.i; int64_t kind = argv[1].u.i; const char *h = CSTR(argv[2]);
+    char *buf; int64_t n; bytes_arg(argv[4], &buf, &n); ssize_t r;
+    if (kind == 0) r = send(fd, buf, n, MSG_NOSIGNAL);
+    else if (kind == 1) {
+        struct sockaddr_storage sa; int sl = net_addr_t(h, argv[3].u.i, &sa, SOCK_DGRAM);
+        if (sl < 0) { free(buf); return no_host(h); }
+        r = sendto(fd, buf, n, MSG_NOSIGNAL, (struct sockaddr *)&sa, sl);
+    } else {
+        struct sockaddr_un su; int sl = unix_addr(h, &su);
+        if (sl < 0) { free(buf); return kErr(cstr("Unix 套接字路径太长")); }
+        r = sendto(fd, buf, n, MSG_NOSIGNAL, (struct sockaddr *)&su, sl);
+    }
+    free(buf);
+    if (r < 0) { if (errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR) return kOk(kNone()); return net_err("发送失败"); }
+    return kOk(kSome(mkint(r)));
+}
+/* __sock_recvfrom(fd, max) → Some((字节, 地址, 端口)) */
+B(b_sock_recvfrom) {
+    NARGS(2, 2); int fd = (int)argv[0].u.i; int64_t mx = argv[1].u.i; if (mx <= 0) mx = 65536;
+    char *buf = malloc(mx); struct sockaddr_storage sa; socklen_t sl = sizeof sa; memset(&sa, 0, sizeof sa);
+    ssize_t r = recvfrom(fd, buf, mx, 0, (struct sockaddr *)&sa, &sl);
+    if (r < 0) { free(buf); if (errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR) return kOk(kNone()); return net_err("接收失败"); }
+    V a = sockaddr_val(&sa, sl);
+    if (sl == 0) { V t2[2] = { cstr(""), mkint(0) }; a = mktuple(2, t2); }
+    V t[3] = { bytes_val(buf, r), TUP(a)->a[0], TUP(a)->a[1] }; free(buf);
+    return kOk(kSome(mktuple(3, t)));
+}
+/* __unix_open(path, dgram, mode)：mode 0 = 监听/绑定，1 = 连接 */
+B(b_unix_open) {
+    NARGS(3, 3); const char *p = CSTR(argv[0]); int dg = argv[1].t == T_BOOL && argv[1].u.i; int64_t mode = argv[2].u.i;
+    char what[400]; snprintf(what, sizeof what, mode ? "无法连接 unix %s" : "无法监听 unix %s", p);
+    struct sockaddr_un su; int sl = unix_addr(p, &su);
+    if (sl < 0) return kErr(cstr("Unix 套接字路径太长"));
+    int fd = socket(AF_UNIX, dg ? SOCK_DGRAM : SOCK_STREAM, 0); if (fd < 0) return net_err(what);
+    int rc;
+    if (mode) { gc_block_enter(); rc = connect(fd, (struct sockaddr *)&su, sl); gc_block_leave(); }
+    else { rc = bind(fd, (struct sockaddr *)&su, sl); if (rc == 0 && !dg) rc = listen(fd, 128); }
+    if (rc < 0) { V e = net_err(what); close(fd); return e; }
+    if (fd >= NET_MAX) { close(fd); return kErr(cstr("文件描述符太多")); }
+    set_nb(fd); return kOk(mkint(fd));
+}
+/* __dns_lookup(host, canon)：canon 为 false 时返回全部地址（按 getaddrinfo 顺序去重）；为 true 时返回 [规范名] */
+B(b_dns_lookup) {
+    NARGS(2, 2); const char *h = CSTR(argv[0]); int canon = argv[1].t == T_BOOL && argv[1].u.i;
+    struct addrinfo hints, *res, *r; memset(&hints, 0, sizeof hints);
+    hints.ai_family = AF_UNSPEC; hints.ai_socktype = SOCK_STREAM; if (canon) hints.ai_flags = AI_CANONNAME;
+    gc_block_enter(); int rc = getaddrinfo(h, NULL, &hints, &res); gc_block_leave();
+    if (rc != 0) { char m[400]; snprintf(m, sizeof m, "lookup %s: %s", h, rc == EAI_NONAME ? "no such host" : gai_strerror(rc)); return kErr(cstr(m)); }
+    KList *l = newlist(8);
+    if (canon) { lpush(l, cstr(res && res->ai_canonname ? res->ai_canonname : h)); freeaddrinfo(res); return kOk(mkp(T_LIST, l)); }
+    for (r = res; r; r = r->ai_next) {
+        char ip[INET6_ADDRSTRLEN] = { 0 };
+        if (r->ai_family == AF_INET) inet_ntop(AF_INET, &((struct sockaddr_in *)r->ai_addr)->sin_addr, ip, sizeof ip);
+        else if (r->ai_family == AF_INET6) inet_ntop(AF_INET6, &((struct sockaddr_in6 *)r->ai_addr)->sin6_addr, ip, sizeof ip);
+        else continue;
+        int dup = 0; for (int64_t i = 0; i < l->len; i++) if (strcmp(STR(l->a[i])->s, ip) == 0) dup = 1;
+        if (!dup) lpush(l, cstr(ip));
+    }
+    freeaddrinfo(res); return kOk(mkp(T_LIST, l));
+}
+/* __dns_reverse(ip) → 主机名 */
+B(b_dns_reverse) {
+    NARGS(1, 1); const char *ip = CSTR(argv[0]); struct sockaddr_storage sa; memset(&sa, 0, sizeof sa); socklen_t sl;
+    if (inet_pton(AF_INET, ip, &((struct sockaddr_in *)&sa)->sin_addr) == 1) { sa.ss_family = AF_INET; sl = sizeof(struct sockaddr_in); }
+    else if (inet_pton(AF_INET6, ip, &((struct sockaddr_in6 *)&sa)->sin6_addr) == 1) { sa.ss_family = AF_INET6; sl = sizeof(struct sockaddr_in6); }
+    else { char m[300]; snprintf(m, sizeof m, "unrecognized address: %s", ip); return kErr(cstr(m)); }
+    char host[NI_MAXHOST];
+    gc_block_enter(); int rc = getnameinfo((struct sockaddr *)&sa, sl, host, sizeof host, NULL, 0, NI_NAMEREQD); gc_block_leave();
+    if (rc != 0) { char m[400]; snprintf(m, sizeof m, "lookup %s: %s", ip, rc == EAI_NONAME ? "no such host" : gai_strerror(rc)); return kErr(cstr(m)); }
+    return kOk(cstr(host));
+}
+/* __dns_port(network, service) → 端口（/etc/services） */
+B(b_dns_port) {
+    NARGS(2, 2); const char *net = CSTR(argv[0]), *svc = CSTR(argv[1]);
+    const char *proto = strncmp(net, "udp", 3) == 0 ? "udp" : "tcp";
+    struct servent *se = getservbyname(svc, proto);
+    if (!se) { char m[400]; snprintf(m, sizeof m, "lookup %s/%s: unknown port", net, svc); return kErr(cstr(m)); }
+    return kOk(mkint(ntohs((uint16_t)se->s_port)));
+}
+BF(b_sock_name, "__sock_name"); BF(b_udp_open, "__udp_open"); BF(b_sock_sendto, "__sock_sendto");
+BF(b_sock_recvfrom, "__sock_recvfrom"); BF(b_unix_open, "__unix_open"); BF(b_dns_lookup, "__dns_lookup");
+BF(b_dns_reverse, "__dns_reverse"); BF(b_dns_port, "__dns_port");
 /* ── TLS：运行时 dlopen libssl（不需要头文件，也不需要编译期链接）；SSL 对象挂在 NetBuf 上，
    读写缓冲层把 SSL_ERROR_WANT_READ/WRITE 当作"会阻塞" ── */
 typedef struct {

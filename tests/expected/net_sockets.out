@@ -1,0 +1,20 @@
+4
+srv 收到 ping 来自 127.0.0.1 端口相同=true
+4
+cli 收到 pong 对端=true
+截断 0123
+v6 收到 v6 地址以 [::1]: 开头=true
+unix: hello unix 本端是路径=true
+unix: bye
+套接字文件已删除=true
+unixgram 收到 dgram 本端=true
+unixgram 文件已删除=true
+tcp6: v6 tcp true
+localhost 有 127.0.0.1=true
+["192.0.2.7"]
+127.0.0.1
+true
+443
+Err("address 70000: invalid port")
+true
+Err("unrecognized address: not-an-ip")

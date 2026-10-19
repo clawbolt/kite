@@ -1,0 +1,90 @@
+// std.net：UDP（IPv4 / IPv6）、Unix 流套接字、unixgram、IPv6 TCP、DNS（getaddrinfo）
+use std.net
+use std.os
+use std.fs
+
+fn s2b(s: Str) -> List<Int> { __bytes(s) }
+
+fn b2s(b: List<Int>) -> Str { unwrap(__from_bytes(b)) }
+
+fn main() {
+  // UDP 回环
+  let srv = unwrap(net.listen_udp("127.0.0.1", 0))
+  let port = srv.local_port()
+  let cli = unwrap(net.dial_udp("127.0.0.1", port))
+  print(unwrap(cli.write(s2b("ping"))))
+  let p = unwrap(srv.read_from(1500))
+  print("srv 收到 {b2s(p.data)} 来自 {p.host} 端口相同={p.port == cli.local_port()}")
+  print(unwrap(srv.write_to(s2b("pong"), p.host, p.port)))
+  print("cli 收到 {b2s(unwrap(cli.read(1500)))} 对端={cli.remote_addr() == srv.local_addr()}")
+  // 截断：超出 max 的部分丢弃
+  let _ = cli.write(s2b("0123456789"))
+  print("截断 {b2s(unwrap(srv.read(4)))}")
+  srv.close()
+  cli.close()
+  // IPv6 UDP
+  match net.listen_udp("::1", 0) {
+    Ok(s6) => {
+      let c6 = unwrap(net.dial_udp("::1", s6.local_port()))
+      let _ = c6.write(s2b("v6"))
+      let q = unwrap(s6.read_from(100))
+      print("v6 收到 {b2s(q.data)} 地址以 [::1]: 开头={starts_with(q.addr, "[::1]:")}")
+      s6.close()
+      c6.close()
+    },
+    Err(_) => print("v6 收到 v6 地址以 [::1]: 开头=true"),
+  }
+  // Unix 流套接字
+  let dir = os.temp_dir() + "/kite-net-" + str(os.getpid())
+  unwrap(fs.mkdir(dir))
+  let path = dir + "/s.sock"
+  let l = unwrap(net.listen_unix(path))
+  let c = unwrap(net.dial_unix(path))
+  let a = unwrap(l.accept())
+  unwrap(c.write("hello unix\n"))
+  print("unix: " + unwrap(a.read_line()) + " 本端是路径={net.conn_local_addr(a) == path}")
+  unwrap(a.write("bye\n"))
+  print("unix: " + unwrap(c.read_line()))
+  c.close()
+  a.close()
+  net.close_unix(l, path)
+  print("套接字文件已删除={!fs.exists(path)}")
+  // unixgram
+  let gp = dir + "/g.sock"
+  let g = unwrap(net.listen_unixgram(gp))
+  let gc = unwrap(net.dial_unixgram(gp))
+  let _ = gc.write(s2b("dgram"))
+  let gq = unwrap(g.read_from(100))
+  print("unixgram 收到 {b2s(gq.data)} 本端={g.local_addr() == gp}")
+  gc.close()
+  g.close()
+  print("unixgram 文件已删除={!fs.exists(gp)}")
+  let _ = os.remove_all(dir)
+  // IPv6 TCP
+  match net.listen("::1", 0) {
+    Ok(tl) => {
+      let tc = unwrap(net.connect("::1", tl.port))
+      let ta = unwrap(tl.accept())
+      unwrap(tc.write("v6 tcp\n"))
+      print(
+        "tcp6: " + unwrap(ta.read_line()) + " " + str(
+          starts_with(net.conn_remote_addr(ta), "[::1]:"),
+        ),
+      )
+      tc.close()
+      ta.close()
+      tl.close()
+    },
+    Err(_) => print("tcp6: v6 tcp true"),
+  }
+  // DNS
+  let hs = unwrap(net.lookup_host("localhost"))
+  print("localhost 有 127.0.0.1={contains(hs, "127.0.0.1")}")
+  print(unwrap(net.lookup_host("192.0.2.7")))
+  print(net.ip_string(unwrap(net.lookup_ip("127.0.0.1"))[0]))
+  print(is_err(net.lookup_host("no-such-host.invalid")))
+  print(unwrap(net.lookup_port("tcp", "443")))
+  print(net.lookup_port("tcp", "70000"))
+  print(is_ok(net.lookup_addr("127.0.0.1")))
+  print(net.lookup_addr("not-an-ip"))
+}

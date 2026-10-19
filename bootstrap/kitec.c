@@ -141,6 +141,7 @@ static void __attribute__((noreturn)) fatal(const char *fmt, ...) { va_list ap; 
 #include <netinet/tcp.h>
 #include <arpa/inet.h>
 #include <netdb.h>
+#include <sys/un.h>
 #include <fcntl.h>
 #include <sys/stat.h>
 #include <dirent.h>
@@ -5528,30 +5529,43 @@ static NetBuf *netb(int64_t fd) {
 static V net_err(const char *what) { char m[512]; snprintf(m, sizeof m, "%s: %s", what, strerror(errno)); return kErr(cstr(m)); }
 static V net_closed(void) { return kErr(cstr("连接已关闭")); }
 static void set_nb(int fd) { fcntl(fd, F_SETFL, fcntl(fd, F_GETFL, 0) | O_NONBLOCK); }
-static int net_addr(const char *host, int64_t port, struct sockaddr_in *sa) {
-    struct addrinfo hints, *res; memset(&hints, 0, sizeof hints);
-    hints.ai_family = AF_INET; hints.ai_socktype = SOCK_STREAM;
+/* 解析主机（IPv4 优先，其次 IPv6；host 为 "" 时是 0.0.0.0），结果写进 sa，返回地址长度；失败返回 -1 */
+static int net_addr_t(const char *host, int64_t port, struct sockaddr_storage *sa, int socktype) {
+    struct addrinfo hints, *res, *r; memset(&hints, 0, sizeof hints);
+    hints.ai_family = AF_UNSPEC; hints.ai_socktype = socktype;
     if (!*host) host = "0.0.0.0";
+    char h2[300]; size_t hl = strlen(host);
+    if (hl >= 2 && host[0] == '[' && host[hl - 1] == ']' && hl < sizeof h2) { memcpy(h2, host + 1, hl - 2); h2[hl - 2] = 0; host = h2; }
     gc_block_enter(); int rc = getaddrinfo(host, NULL, &hints, &res); gc_block_leave();
     if (rc != 0 || !res) return -1;
-    memcpy(sa, res->ai_addr, sizeof *sa); sa->sin_port = htons((uint16_t)port);
-    freeaddrinfo(res); return 0;
+    struct addrinfo *pick = NULL;
+    for (r = res; r; r = r->ai_next) if (r->ai_family == AF_INET) { pick = r; break; }
+    if (!pick) for (r = res; r; r = r->ai_next) if (r->ai_family == AF_INET6) { pick = r; break; }
+    if (!pick) { freeaddrinfo(res); return -1; }
+    int n = (int)pick->ai_addrlen; memset(sa, 0, sizeof *sa); memcpy(sa, pick->ai_addr, n);
+    if (sa->ss_family == AF_INET) ((struct sockaddr_in *)sa)->sin_port = htons((uint16_t)port);
+    else ((struct sockaddr_in6 *)sa)->sin6_port = htons((uint16_t)port);
+    freeaddrinfo(res); return n;
 }
+static int net_addr(const char *host, int64_t port, struct sockaddr_storage *sa) { return net_addr_t(host, port, sa, SOCK_STREAM); }
+static V no_host(const char *h) { char m[300]; snprintf(m, sizeof m, "无法解析主机 %s", h); return kErr(cstr(m)); }
 B(b_tcp_listen) {
     NARGS(2, 2); const char *h = CSTR(argv[0]); int64_t port = argv[1].u.i; char what[300];
     snprintf(what, sizeof what, "无法监听 %s:%lld", h, (long long)port);
-    struct sockaddr_in sa;
-    if (net_addr(h, port, &sa) < 0) { char m[300]; snprintf(m, sizeof m, "无法解析主机 %s", h); return kErr(cstr(m)); }
-    int fd = socket(AF_INET, SOCK_STREAM, 0); if (fd < 0) return net_err(what);
+    struct sockaddr_storage sa; int sl = net_addr(h, port, &sa);
+    if (sl < 0) return no_host(h);
+    int fd = socket(sa.ss_family, SOCK_STREAM, 0); if (fd < 0) return net_err(what);
     int one = 1; setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &one, sizeof one);
-    if (bind(fd, (struct sockaddr *)&sa, sizeof sa) < 0 || listen(fd, 128) < 0) { V e = net_err(what); close(fd); return e; }
+    if (bind(fd, (struct sockaddr *)&sa, sl) < 0 || listen(fd, 128) < 0) { V e = net_err(what); close(fd); return e; }
     if (fd >= NET_MAX) { close(fd); return kErr(cstr("文件描述符太多")); }
     set_nb(fd); return kOk(mkint(fd));
 }
 B(b_tcp_port) {
-    NARGS(1, 1); struct sockaddr_in sa; socklen_t n = sizeof sa;
+    NARGS(1, 1); struct sockaddr_storage sa; socklen_t n = sizeof sa;
     if (getsockname((int)argv[0].u.i, (struct sockaddr *)&sa, &n) < 0) return mkint(-1);
-    return mkint(ntohs(sa.sin_port));
+    if (sa.ss_family == AF_INET) return mkint(ntohs(((struct sockaddr_in *)&sa)->sin_port));
+    if (sa.ss_family == AF_INET6) return mkint(ntohs(((struct sockaddr_in6 *)&sa)->sin6_port));
+    return mkint(0);
 }
 B(b_tcp_accept) {
     NARGS(1, 1); int c = accept((int)argv[0].u.i, NULL, NULL);
@@ -5566,15 +5580,151 @@ B(b_tcp_accept) {
 B(b_tcp_connect) {
     NARGS(2, 2); const char *h = CSTR(argv[0]); int64_t port = argv[1].u.i; char what[300];
     snprintf(what, sizeof what, "无法连接 %s:%lld", h, (long long)port);
-    struct sockaddr_in sa;
-    if (net_addr(h, port, &sa) < 0) { char m[300]; snprintf(m, sizeof m, "无法解析主机 %s", h); return kErr(cstr(m)); }
-    int fd = socket(AF_INET, SOCK_STREAM, 0); if (fd < 0) return net_err(what);
-    gc_block_enter(); int rc = connect(fd, (struct sockaddr *)&sa, sizeof sa); int en = errno; gc_block_leave();
+    struct sockaddr_storage sa; int sl = net_addr(h, port, &sa);
+    if (sl < 0) return no_host(h);
+    int fd = socket(sa.ss_family, SOCK_STREAM, 0); if (fd < 0) return net_err(what);
+    gc_block_enter(); int rc = connect(fd, (struct sockaddr *)&sa, sl); int en = errno; gc_block_leave();
     if (rc < 0) { errno = en; V e = net_err(what); close(fd); return e; }
     if (fd >= NET_MAX) { close(fd); return kErr(cstr("文件描述符太多")); }
     set_nb(fd); int one = 1; setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &one, sizeof one);
     return kOk(mkint(fd));
 }
+/* ── UDP / Unix 套接字 / DNS（std/net.kite 用）：数据报按字节列表收发；"会阻塞" 时返回 None ── */
+static V sockaddr_val(struct sockaddr_storage *sa, socklen_t n) {
+    char ip[INET6_ADDRSTRLEN + 1] = { 0 }; int port = 0;
+    if (sa->ss_family == AF_INET) {
+        inet_ntop(AF_INET, &((struct sockaddr_in *)sa)->sin_addr, ip, sizeof ip); port = ntohs(((struct sockaddr_in *)sa)->sin_port);
+    } else if (sa->ss_family == AF_INET6) {
+        struct sockaddr_in6 *s6 = (struct sockaddr_in6 *)sa;
+        inet_ntop(AF_INET6, &s6->sin6_addr, ip, sizeof ip); port = ntohs(s6->sin6_port);
+        if (s6->sin6_scope_id) { char z[24]; snprintf(z, sizeof z, "%%%u", (unsigned)s6->sin6_scope_id); strncat(ip, z, sizeof ip - strlen(ip) - 1); }
+    } else if (sa->ss_family == AF_UNIX) {
+        struct sockaddr_un *su = (struct sockaddr_un *)sa;
+        size_t off = offsetof(struct sockaddr_un, sun_path);
+        size_t l = n > off ? strnlen(su->sun_path, n - off) : 0;
+        V t[2] = { mkstr(su->sun_path, l), mkint(-1) }; return mktuple(2, t);
+    }
+    V t[2] = { cstr(ip), mkint(port) }; return mktuple(2, t);
+}
+B(b_sock_name) {
+    NARGS(2, 2); struct sockaddr_storage sa; socklen_t n = sizeof sa; memset(&sa, 0, sizeof sa);
+    int r = (argv[1].t == T_BOOL && argv[1].u.i) ? getpeername((int)argv[0].u.i, (struct sockaddr *)&sa, &n)
+                                                  : getsockname((int)argv[0].u.i, (struct sockaddr *)&sa, &n);
+    if (r < 0) { V t[2] = { cstr(""), mkint(0) }; return mktuple(2, t); }
+    return sockaddr_val(&sa, n);
+}
+/* __udp_open(host, port, connect)：connect 为 false 时绑定 host:port；为 true 时连接到 host:port */
+B(b_udp_open) {
+    NARGS(3, 3); const char *h = CSTR(argv[0]); int64_t port = argv[1].u.i; int conn = argv[2].t == T_BOOL && argv[2].u.i;
+    char what[300]; snprintf(what, sizeof what, conn ? "无法连接 udp %s:%lld" : "无法监听 udp %s:%lld", h, (long long)port);
+    struct sockaddr_storage sa; int sl = net_addr_t(h, port, &sa, SOCK_DGRAM);
+    if (sl < 0) return no_host(h);
+    int fd = socket(sa.ss_family, SOCK_DGRAM, 0); if (fd < 0) return net_err(what);
+    int rc = conn ? connect(fd, (struct sockaddr *)&sa, sl) : bind(fd, (struct sockaddr *)&sa, sl);
+    if (rc < 0) { V e = net_err(what); close(fd); return e; }
+    if (fd >= NET_MAX) { close(fd); return kErr(cstr("文件描述符太多")); }
+    set_nb(fd); return kOk(mkint(fd));
+}
+static int bytes_arg(V v, char **out, int64_t *n) {
+    KList *l = LIST(v); char *b = malloc(l->len ? l->len : 1);
+    for (int64_t i = 0; i < l->len; i++) b[i] = (char)(l->a[i].t == T_INT ? l->a[i].u.i : 0);
+    *out = b; *n = l->len; return 0;
+}
+static V bytes_val(const char *b, int64_t n) {
+    KList *l = newlist(n); for (int64_t i = 0; i < n; i++) l->a[i] = mkint((unsigned char)b[i]);
+    l->len = n; return mkp(T_LIST, l);
+}
+static int unix_addr(const char *path, struct sockaddr_un *su) {
+    memset(su, 0, sizeof *su); su->sun_family = AF_UNIX;
+    size_t l = strlen(path); if (l >= sizeof su->sun_path) return -1;
+    memcpy(su->sun_path, path, l);
+    if (path[0] == '@') su->sun_path[0] = 0;   /* Linux 抽象命名空间 */
+    return (int)(offsetof(struct sockaddr_un, sun_path) + l);
+}
+/* __sock_sendto(fd, kind, host, port, data)：kind 0 = 已连接（忽略地址），1 = IP 地址，2 = Unix 路径 */
+B(b_sock_sendto) {
+    NARGS(5, 5); int fd = (int)argv[0].u.i; int64_t kind = argv[1].u.i; const char *h = CSTR(argv[2]);
+    char *buf; int64_t n; bytes_arg(argv[4], &buf, &n); ssize_t r;
+    if (kind == 0) r = send(fd, buf, n, MSG_NOSIGNAL);
+    else if (kind == 1) {
+        struct sockaddr_storage sa; int sl = net_addr_t(h, argv[3].u.i, &sa, SOCK_DGRAM);
+        if (sl < 0) { free(buf); return no_host(h); }
+        r = sendto(fd, buf, n, MSG_NOSIGNAL, (struct sockaddr *)&sa, sl);
+    } else {
+        struct sockaddr_un su; int sl = unix_addr(h, &su);
+        if (sl < 0) { free(buf); return kErr(cstr("Unix 套接字路径太长")); }
+        r = sendto(fd, buf, n, MSG_NOSIGNAL, (struct sockaddr *)&su, sl);
+    }
+    free(buf);
+    if (r < 0) { if (errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR) return kOk(kNone()); return net_err("发送失败"); }
+    return kOk(kSome(mkint(r)));
+}
+/* __sock_recvfrom(fd, max) → Some((字节, 地址, 端口)) */
+B(b_sock_recvfrom) {
+    NARGS(2, 2); int fd = (int)argv[0].u.i; int64_t mx = argv[1].u.i; if (mx <= 0) mx = 65536;
+    char *buf = malloc(mx); struct sockaddr_storage sa; socklen_t sl = sizeof sa; memset(&sa, 0, sizeof sa);
+    ssize_t r = recvfrom(fd, buf, mx, 0, (struct sockaddr *)&sa, &sl);
+    if (r < 0) { free(buf); if (errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR) return kOk(kNone()); return net_err("接收失败"); }
+    V a = sockaddr_val(&sa, sl);
+    if (sl == 0) { V t2[2] = { cstr(""), mkint(0) }; a = mktuple(2, t2); }
+    V t[3] = { bytes_val(buf, r), TUP(a)->a[0], TUP(a)->a[1] }; free(buf);
+    return kOk(kSome(mktuple(3, t)));
+}
+/* __unix_open(path, dgram, mode)：mode 0 = 监听/绑定，1 = 连接 */
+B(b_unix_open) {
+    NARGS(3, 3); const char *p = CSTR(argv[0]); int dg = argv[1].t == T_BOOL && argv[1].u.i; int64_t mode = argv[2].u.i;
+    char what[400]; snprintf(what, sizeof what, mode ? "无法连接 unix %s" : "无法监听 unix %s", p);
+    struct sockaddr_un su; int sl = unix_addr(p, &su);
+    if (sl < 0) return kErr(cstr("Unix 套接字路径太长"));
+    int fd = socket(AF_UNIX, dg ? SOCK_DGRAM : SOCK_STREAM, 0); if (fd < 0) return net_err(what);
+    int rc;
+    if (mode) { gc_block_enter(); rc = connect(fd, (struct sockaddr *)&su, sl); gc_block_leave(); }
+    else { rc = bind(fd, (struct sockaddr *)&su, sl); if (rc == 0 && !dg) rc = listen(fd, 128); }
+    if (rc < 0) { V e = net_err(what); close(fd); return e; }
+    if (fd >= NET_MAX) { close(fd); return kErr(cstr("文件描述符太多")); }
+    set_nb(fd); return kOk(mkint(fd));
+}
+/* __dns_lookup(host, canon)：canon 为 false 时返回全部地址（按 getaddrinfo 顺序去重）；为 true 时返回 [规范名] */
+B(b_dns_lookup) {
+    NARGS(2, 2); const char *h = CSTR(argv[0]); int canon = argv[1].t == T_BOOL && argv[1].u.i;
+    struct addrinfo hints, *res, *r; memset(&hints, 0, sizeof hints);
+    hints.ai_family = AF_UNSPEC; hints.ai_socktype = SOCK_STREAM; if (canon) hints.ai_flags = AI_CANONNAME;
+    gc_block_enter(); int rc = getaddrinfo(h, NULL, &hints, &res); gc_block_leave();
+    if (rc != 0) { char m[400]; snprintf(m, sizeof m, "lookup %s: %s", h, rc == EAI_NONAME ? "no such host" : gai_strerror(rc)); return kErr(cstr(m)); }
+    KList *l = newlist(8);
+    if (canon) { lpush(l, cstr(res && res->ai_canonname ? res->ai_canonname : h)); freeaddrinfo(res); return kOk(mkp(T_LIST, l)); }
+    for (r = res; r; r = r->ai_next) {
+        char ip[INET6_ADDRSTRLEN] = { 0 };
+        if (r->ai_family == AF_INET) inet_ntop(AF_INET, &((struct sockaddr_in *)r->ai_addr)->sin_addr, ip, sizeof ip);
+        else if (r->ai_family == AF_INET6) inet_ntop(AF_INET6, &((struct sockaddr_in6 *)r->ai_addr)->sin6_addr, ip, sizeof ip);
+        else continue;
+        int dup = 0; for (int64_t i = 0; i < l->len; i++) if (strcmp(STR(l->a[i])->s, ip) == 0) dup = 1;
+        if (!dup) lpush(l, cstr(ip));
+    }
+    freeaddrinfo(res); return kOk(mkp(T_LIST, l));
+}
+/* __dns_reverse(ip) → 主机名 */
+B(b_dns_reverse) {
+    NARGS(1, 1); const char *ip = CSTR(argv[0]); struct sockaddr_storage sa; memset(&sa, 0, sizeof sa); socklen_t sl;
+    if (inet_pton(AF_INET, ip, &((struct sockaddr_in *)&sa)->sin_addr) == 1) { sa.ss_family = AF_INET; sl = sizeof(struct sockaddr_in); }
+    else if (inet_pton(AF_INET6, ip, &((struct sockaddr_in6 *)&sa)->sin6_addr) == 1) { sa.ss_family = AF_INET6; sl = sizeof(struct sockaddr_in6); }
+    else { char m[300]; snprintf(m, sizeof m, "unrecognized address: %s", ip); return kErr(cstr(m)); }
+    char host[NI_MAXHOST];
+    gc_block_enter(); int rc = getnameinfo((struct sockaddr *)&sa, sl, host, sizeof host, NULL, 0, NI_NAMEREQD); gc_block_leave();
+    if (rc != 0) { char m[400]; snprintf(m, sizeof m, "lookup %s: %s", ip, rc == EAI_NONAME ? "no such host" : gai_strerror(rc)); return kErr(cstr(m)); }
+    return kOk(cstr(host));
+}
+/* __dns_port(network, service) → 端口（/etc/services） */
+B(b_dns_port) {
+    NARGS(2, 2); const char *net = CSTR(argv[0]), *svc = CSTR(argv[1]);
+    const char *proto = strncmp(net, "udp", 3) == 0 ? "udp" : "tcp";
+    struct servent *se = getservbyname(svc, proto);
+    if (!se) { char m[400]; snprintf(m, sizeof m, "lookup %s/%s: unknown port", net, svc); return kErr(cstr(m)); }
+    return kOk(mkint(ntohs((uint16_t)se->s_port)));
+}
+BF(b_sock_name, "__sock_name"); BF(b_udp_open, "__udp_open"); BF(b_sock_sendto, "__sock_sendto");
+BF(b_sock_recvfrom, "__sock_recvfrom"); BF(b_unix_open, "__unix_open"); BF(b_dns_lookup, "__dns_lookup");
+BF(b_dns_reverse, "__dns_reverse"); BF(b_dns_port, "__dns_port");
 /* ── TLS：运行时 dlopen libssl（不需要头文件，也不需要编译期链接）；SSL 对象挂在 NetBuf 上，
    读写缓冲层把 SSL_ERROR_WANT_READ/WRITE 当作"会阻塞" ── */
 typedef struct {
@@ -6006,7 +6156,7 @@ int main(int argc, char **argv) {
 const char *SYMS[] = {"Ok", "Err", "Some", "None", "protos", "code", "f", "ns", "nl", "name", "np", "lines", "upd", "scopes", "upn", "depth", "loops", "nd", "ln", "chunk", "par", "orb", "orb_on", "outer", "gmut", "gord", "gval", "mord", "mtab", "traits", "err", "NAssign", "NField", "NIndex", "NName", "line", "k", "NExprStmt", "label", "res", "defers", "slot", "cont", "breaks", "NLet", "PBind", "PVar", "PAt", "POr", "PTuple", "PList", "PVariant", "PStruct", "NStruct", "NEnum", "NTrait", "NUse", "UGroup", "UName", "NFn", "NImpl", "methods", "body", "params", "ext", "varargs", "x", "va", "target", "tr", "GFn", "GStruct", "GEnum", "EvList", "EvRec", "EvNone", "NLit", "NInterp", "IStr", "IExpr", "NBin", "NUnary", "NTuple", "NList", "NBlock", "NLoop", "NIf", "NMatch", "NIs", "NLambda", "NCall", "NPipe", "NTupleIndex", "NTry", "NStructLit", "NSelect", "NRace", "NSpawn", "NAwait", "ret", "gen", "is_async", "is_unsafe", "cname", "kind", "guard", "a", "b", "pat", "subject", "arms", "is_conj", "let_else", "NReturn", "NBreak", "NContinue", "NWhile", "NFor", "NDefer", "pid", "bs", "pname", "syms", "symid", "strs", "strid", "gnames", "gid", "types", "tid", "pats", "fsyms", "fsym_id", "assigned", "structs", "enums", "variants", "bmap", "ext_id", "cstructs", "cs_n", "out", "kf", "kprot", "knames", "VB", "VI", "VBig", "VF", "VS", "VQ", "VN", "GExt", "VT", "ext_tys", "lams", "GEVal", "GMod", "GCtor", "GBuiltin", "GMember", "GOther", "VR", "R", "CU", "CS", "CB", "CI", "CF", "XR", "XS", "XI", "XL", "XST", "XP", "TNone", "TUnr", "TBr", "TCbr", "TRet", "TPanic", "blocks", "ins", "d", "op", "closure", "caps", "ndefer", "npb", "id", "t", "args", "read", "write", "remove", "exists", "msg", "warns", "val", "col", "read_line", "cur", "nreg", "rn", "g", "captured", "mut_names", "cell_names", "in_or", "sigs", "user", "pre", "fsigs", "impl_info", "dflt", "msigs", "sub", "ck", "TC", "LBool", "LInt", "LBig", "LFlt", "LStr", "brk", "has_res", "YCon", "PWild", "TR", "PLit", "PRange", "XN", "diags", "locs", "pits", "kdir", "cache", "docs", "ro", "running", "bnames", "stdm", "s", "TSym", "TLocal", "is_pub", "path", "alias", "ids", "detail", "JBool", "doc", "JNull", "JArr", "list", "is_dir", "end", "SExpr", "JObj", "root", "NAlias", "NExtern", "vis", "deps", "version", "desc", "source", "is_file", "file", "sha256", "checksum", "next", "typeflag", "read_all", "close", "linkname", "uid", "uname", "gname", "access_time", "change_time", "devmajor", "devminor", "xattrs", "pax_records", "size", "mode", "mod_time", "format", "write_header", "bytes", "TArr", "TTab", "dir", "TStr", "cons", "result", "seen", "i", "cs", "alloc", "read_byte", "free", "mkdir", "data", "pos", "pad", "nb", "sparse", "holes", "spos", "read_old_gnu_sparse_map", "read_gnu_sparse_pax_headers", "next_inner", "read_header", "handle_regular_file", "read_special", "handle_sparse_file", "sparse_read", "reg_read", "avail", "reg_read_full", "read_gnu_sparse_map1x0", "read_block", "logical_remaining", "sec", "nsec", "chunks", "flush", "emit", "raw_header", "raw_file", "is_zero", "round_second", "write_ustar", "write_pax", "write_gnu", "pax", "why_ustar", "why_pax", "why_gnu", "prefer_pax", "to_string", "counts", "fast", "comment", "mtime", "os", "JNum", "JInt", "JStr", "allow_invalid_utf8", "allow_dup", "legacy", "canonical", "multiline", "prefix", "indent", "obj", "buf", "prev_end", "stack", "what", "ptr", "o", "n", "offset", "eof", "pointer", "dup", "ioeof", "prev_start", "peek_pos", "peek_err", "names", "raw", "ty", "value", "bounds", "cgens", "NMod", "NCast", "NTypeApp", "bare", "static_of", "const_name", "assoc", "supers", "consts", "target_t", "attrs", "NmS", "NmQ", "ks", "PDots", "has_vis", "YTup", "YDyn", "YImpl", "YUnsafe", "YFn", "XdH", "XdS", "XdF", "nv", "variant_owner", "variant_alts", "aliases", "type_bounds", "impls", "errors", "ord_sites", "loop_depth", "labels", "rigid", "const_lits", "unsafe_d", "va_ok", "vav", "umeth", "tcg", "tc_info", "tconsts", "fcga", "mcga", "pend", "cg_node", "cg_fns", "cg_sites", "cg_ctx", "trait_assoc", "impl_assoc", "deferred", "patch", "idn", "upd_n", "in_pre", "c", "FVar", "FDict", "FTy", "AT", "AN", "mt", "bi", "TG", "TV", "sch", "gens", "cga", "dep", "STop", "SFr", "KB", "KLit", "KT", "KVn", "KS", "KLen", "KRest", "owned", "sup", "CN", "CW", "CP", "PtBounds", "PtExt", "PtParams", "PtArgs", "PtName", "CgTc", "CgT", "KVar", "KImpl", "KNum", "KAdd", "toks", "ETk", "spc", "EBr", "FB", "FT", "bol", "EGp", "DT", "DC", "DN", "DNB", "DG", "DL", "DH", "DCm", "DA", "DAs", "sp", "gap", "gd", "AI", "TkParts", "SStr", "AC", "AB", "key", "imports", "items", "pkg", "pubs", "inl", "inl_pub", "parent", "children", "ren", "mods", "src", "cwd", "main", "loading", "order", "nfiles", "files", "by_path", "lm", "dtab", "dunsup", "ov", "ovsrc", "old", "new", "exact", "no_struct", "top", "in_mod", "in_extern", "in_async", "loopfr", "impl_target", "in_guard", "slice_start", "last_bounds", "last_cgens", "TkInt", "TkFlt", "TkBig", "TkNone", "TkStr", "VNil", "VL", "VD", "mtime_ms", "is_symlink", "expbits", "bias", "mantbits", "dp", "neg", "trunc", "is_nan", "nan", "inf", "signbit", "is_inf", "ok", "hex", "mant", "exp", "output", "message", "location", "PanicCalled", "max_restarts", "within_ms", "backoff_ms", "max_backoff_ms", "cmp", "fold", "run", "DivByZero", "IntOverflow", "IndexOutOfRange", "UnwrapFailed", "AssertFailed", "ChannelClosed", "RuntimeFault", "_0", "_1", "_2", "mutable", "is_const", "left", "right", "operand", "KOrd", "fields", "TInt", "TBool", "_3", "_4", "add", "mul", "div", "rem", "write_string"};
 const char *TNAMES[] = {"Unit", "Bool", "Int", "Float", "Str", "List", "Tuple", "Map", "Fn", "Result", "Option", "Chan", "Set", "PanicKind", "Panic", "RestartPolicy", "Future", "std.kite.ty.Ty", "std.kite.val.V", "std.kite.ast.Lit", "std.kite.ast.Nm", "std.kite.ast.TyX", "std.kite.ast.Pat", "std.kite.ast.Attr", "std.kite.ast.Vis", "std.kite.ast.EvF", "std.kite.ast.UseP", "std.kite.ast.IPart", "std.kite.ast.AConst", "std.kite.ast.TAssoc", "std.kite.ast.Arm", "std.kite.ast.SArm", "std.kite.ast.Gen", "std.kite.ast.FnD", "std.kite.ast.FnX", "std.kite.ast.XD", "std.kite.ast.ImplD", "std.kite.ast.TraitD", "std.kite.ast.MatchD", "std.kite.ast.K", "std.kite.ast.Node", "std.kite.ast.Cur", "std.kite.scanner.SPart", "std.kite.scanner.TV", "std.kite.scanner.Tok", "std.kite.parser.P", "std.kite.parser.Desugar", "std.kite.check.FT", "std.kite.check.Ent", "std.kite.check.Sc", "std.kite.check.Kd", "std.kite.check.CgV", "std.kite.check.Arg", "std.kite.check.Pt", "std.kite.check.C", "std.kite.check.F", "std.kite.check.Saved", "std.kite.check.Key", "std.kite.check.Cell", "std.kite.check.LC", "std.kite.modules.Pkg", "std.kite.modules.Mod", "std.kite.modules.ME", "std.kite.modules.L", "std.kite.modules.Rn", "std.kite.modules.R", "bc.Lp", "bc.FC", "bc.PR", "bc.GV", "bc.S", "kir.A", "kir.X", "kir.T", "kir.In", "kir.Bk", "kir.KF", "kir.G", "kir.Lp", "kir.L", "cgen.Gn", "std.os.FileInfo", "std.strconv.Dec", "std.strconv.FltInfo", "std.strconv.RF", "std.encoding.json.jsontext.Opts", "std.encoding.json.jsontext.WErr", "std.encoding.json.jsontext.SynErr", "std.encoding.json.jsontext.Ent", "std.encoding.json.jsontext.Dec", "std.encoding.json.jsontext.Tok", "std.encoding.json.Json", "std.encoding.json.SyntaxError", "std.compress.flate.Huff", "std.hash.crc32.Table", "std.compress.gzip.Header", "std.archive.tar.Time", "std.archive.tar.Header", "std.archive.tar.Allowed", "std.archive.tar.Writer", "std.archive.tar.Reader", "pkg.Tv", "pkg.Tp", "pkg.Dep", "pkg.Manifest", "pkg.Entry", "pkg.VInfo", "pkg.Rs", "std.kite.format.T", "std.kite.format.Fe", "std.kite.format.El", "std.kite.format.D", "std.kite.format.Ai", "std.kite.format.Cx", "std.kite.format.At", "std.kite.format.Pp", "testing.Outcome", "lsp.Sym", "lsp.An", "lsp.U", "lsp.S", "lsp.Tg"};
 static V G[2137];
-static V KS[2952];
+static V KS[2966];
 static const int FS0[] = {7, 8, 9, 10, 5, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22};
 static const int FS1[] = {6, 23, 4, 24, 25, 26, 27, 28, 29, 30};
 static const int FS2[] = {24, 6, 23, 4, 25, 26, 27, 28, 29, 30};
@@ -186728,6 +186878,30 @@ static V kf757_std_kite_builtins_builtin_sigs(void) {
   V r442 = UNIT;
   V r443 = UNIT;
   V r444 = UNIT;
+  V r445 = UNIT;
+  V r446 = UNIT;
+  V r447 = UNIT;
+  V r448 = UNIT;
+  V r449 = UNIT;
+  V r450 = UNIT;
+  V r451 = UNIT;
+  V r452 = UNIT;
+  V r453 = UNIT;
+  V r454 = UNIT;
+  V r455 = UNIT;
+  V r456 = UNIT;
+  V r457 = UNIT;
+  V r458 = UNIT;
+  V r459 = UNIT;
+  V r460 = UNIT;
+  V r461 = UNIT;
+  V r462 = UNIT;
+  V r463 = UNIT;
+  V r464 = UNIT;
+  V r465 = UNIT;
+  V r466 = UNIT;
+  V r467 = UNIT;
+  V r468 = UNIT;
   SAFEPOINT(); CANCEL_POINT();
  B0:;
   r0 = mklist(0, NULL);
@@ -187117,65 +187291,89 @@ static V kf757_std_kite_builtins_builtin_sigs(void) {
   { V a_[2] = {KS[64], KS[2144]}; r384 = mktuple(2, a_); }
   { V a_[1] = {r384}; r385 = mklist(1, a_); }
   { V a_[3] = {KS[2146], KS[886], r385}; r386 = mktuple(3, a_); }
-  { V a_[2] = {KS[64], KS[2081]}; r387 = mktuple(2, a_); }
+  { V a_[2] = {KS[64], KS[2147]}; r387 = mktuple(2, a_); }
   { V a_[1] = {r387}; r388 = mklist(1, a_); }
-  { V a_[3] = {KS[2147], KS[886], r388}; r389 = mktuple(3, a_); }
-  { V a_[2] = {KS[64], KS[1933]}; r390 = mktuple(2, a_); }
+  { V a_[3] = {KS[2148], KS[886], r388}; r389 = mktuple(3, a_); }
+  { V a_[2] = {KS[64], KS[2149]}; r390 = mktuple(2, a_); }
   { V a_[1] = {r390}; r391 = mklist(1, a_); }
-  { V a_[3] = {KS[2148], KS[886], r391}; r392 = mktuple(3, a_); }
-  { V a_[2] = {KS[64], KS[2149]}; r393 = mktuple(2, a_); }
+  { V a_[3] = {KS[2150], KS[886], r391}; r392 = mktuple(3, a_); }
+  { V a_[2] = {KS[64], KS[2151]}; r393 = mktuple(2, a_); }
   { V a_[1] = {r393}; r394 = mklist(1, a_); }
-  { V a_[3] = {KS[2150], KS[886], r394}; r395 = mktuple(3, a_); }
-  { V a_[2] = {KS[64], KS[2151]}; r396 = mktuple(2, a_); }
+  { V a_[3] = {KS[2152], KS[886], r394}; r395 = mktuple(3, a_); }
+  { V a_[2] = {KS[64], KS[2153]}; r396 = mktuple(2, a_); }
   { V a_[1] = {r396}; r397 = mklist(1, a_); }
-  { V a_[3] = {KS[2152], KS[886], r397}; r398 = mktuple(3, a_); }
-  { V a_[2] = {KS[64], KS[2153]}; r399 = mktuple(2, a_); }
+  { V a_[3] = {KS[2154], KS[886], r397}; r398 = mktuple(3, a_); }
+  { V a_[2] = {KS[64], KS[2155]}; r399 = mktuple(2, a_); }
   { V a_[1] = {r399}; r400 = mklist(1, a_); }
-  { V a_[3] = {KS[2154], KS[886], r400}; r401 = mktuple(3, a_); }
-  { V a_[2] = {KS[64], KS[2155]}; r402 = mktuple(2, a_); }
+  { V a_[3] = {KS[2156], KS[886], r400}; r401 = mktuple(3, a_); }
+  { V a_[2] = {KS[64], KS[2157]}; r402 = mktuple(2, a_); }
   { V a_[1] = {r402}; r403 = mklist(1, a_); }
-  { V a_[3] = {KS[2156], KS[886], r403}; r404 = mktuple(3, a_); }
-  { V a_[2] = {KS[64], KS[2071]}; r405 = mktuple(2, a_); }
+  { V a_[3] = {KS[2158], KS[886], r403}; r404 = mktuple(3, a_); }
+  { V a_[2] = {KS[64], KS[2159]}; r405 = mktuple(2, a_); }
   { V a_[1] = {r405}; r406 = mklist(1, a_); }
-  { V a_[3] = {KS[2157], KS[886], r406}; r407 = mktuple(3, a_); }
-  { V a_[2] = {KS[64], KS[2158]}; r408 = mktuple(2, a_); }
+  { V a_[3] = {KS[2160], KS[886], r406}; r407 = mktuple(3, a_); }
+  { V a_[2] = {KS[64], KS[2138]}; r408 = mktuple(2, a_); }
   { V a_[1] = {r408}; r409 = mklist(1, a_); }
-  { V a_[3] = {KS[2159], KS[886], r409}; r410 = mktuple(3, a_); }
-  { V a_[2] = {KS[64], KS[2160]}; r411 = mktuple(2, a_); }
+  { V a_[3] = {KS[2161], KS[886], r409}; r410 = mktuple(3, a_); }
+  { V a_[2] = {KS[64], KS[2081]}; r411 = mktuple(2, a_); }
   { V a_[1] = {r411}; r412 = mklist(1, a_); }
-  { V a_[3] = {KS[2161], KS[886], r412}; r413 = mktuple(3, a_); }
-  { V a_[2] = {KS[64], KS[2162]}; r414 = mktuple(2, a_); }
+  { V a_[3] = {KS[2162], KS[886], r412}; r413 = mktuple(3, a_); }
+  { V a_[2] = {KS[64], KS[1933]}; r414 = mktuple(2, a_); }
   { V a_[1] = {r414}; r415 = mklist(1, a_); }
   { V a_[3] = {KS[2163], KS[886], r415}; r416 = mktuple(3, a_); }
-  { V a_[2] = {KS[64], KS[2153]}; r417 = mktuple(2, a_); }
+  { V a_[2] = {KS[64], KS[2164]}; r417 = mktuple(2, a_); }
   { V a_[1] = {r417}; r418 = mklist(1, a_); }
-  { V a_[3] = {KS[2164], KS[886], r418}; r419 = mktuple(3, a_); }
-  { V a_[2] = {KS[64], KS[2108]}; r420 = mktuple(2, a_); }
+  { V a_[3] = {KS[2165], KS[886], r418}; r419 = mktuple(3, a_); }
+  { V a_[2] = {KS[64], KS[2166]}; r420 = mktuple(2, a_); }
   { V a_[1] = {r420}; r421 = mklist(1, a_); }
-  { V a_[3] = {KS[2165], KS[886], r421}; r422 = mktuple(3, a_); }
-  { V a_[2] = {KS[64], KS[2071]}; r423 = mktuple(2, a_); }
+  { V a_[3] = {KS[2167], KS[886], r421}; r422 = mktuple(3, a_); }
+  { V a_[2] = {KS[64], KS[2168]}; r423 = mktuple(2, a_); }
   { V a_[1] = {r423}; r424 = mklist(1, a_); }
-  { V a_[3] = {KS[2166], KS[886], r424}; r425 = mktuple(3, a_); }
-  { V a_[2] = {KS[64], KS[2083]}; r426 = mktuple(2, a_); }
+  { V a_[3] = {KS[2169], KS[886], r424}; r425 = mktuple(3, a_); }
+  { V a_[2] = {KS[64], KS[2170]}; r426 = mktuple(2, a_); }
   { V a_[1] = {r426}; r427 = mklist(1, a_); }
-  { V a_[3] = {KS[2167], KS[886], r427}; r428 = mktuple(3, a_); }
-  { V a_[2] = {KS[64], KS[2168]}; r429 = mktuple(2, a_); }
+  { V a_[3] = {KS[2171], KS[886], r427}; r428 = mktuple(3, a_); }
+  { V a_[2] = {KS[64], KS[2071]}; r429 = mktuple(2, a_); }
   { V a_[1] = {r429}; r430 = mklist(1, a_); }
-  { V a_[3] = {KS[2169], KS[886], r430}; r431 = mktuple(3, a_); }
-  { V a_[2] = {KS[64], KS[2170]}; r432 = mktuple(2, a_); }
+  { V a_[3] = {KS[2172], KS[886], r430}; r431 = mktuple(3, a_); }
+  { V a_[2] = {KS[64], KS[2173]}; r432 = mktuple(2, a_); }
   { V a_[1] = {r432}; r433 = mklist(1, a_); }
-  { V a_[3] = {KS[2171], KS[886], r433}; r434 = mktuple(3, a_); }
-  { V a_[2] = {KS[64], KS[2037]}; r435 = mktuple(2, a_); }
+  { V a_[3] = {KS[2174], KS[886], r433}; r434 = mktuple(3, a_); }
+  { V a_[2] = {KS[64], KS[2175]}; r435 = mktuple(2, a_); }
   { V a_[1] = {r435}; r436 = mklist(1, a_); }
-  { V a_[3] = {KS[2172], KS[886], r436}; r437 = mktuple(3, a_); }
-  { V a_[2] = {KS[64], KS[2173]}; r438 = mktuple(2, a_); }
+  { V a_[3] = {KS[2176], KS[886], r436}; r437 = mktuple(3, a_); }
+  { V a_[2] = {KS[64], KS[2177]}; r438 = mktuple(2, a_); }
   { V a_[1] = {r438}; r439 = mklist(1, a_); }
-  { V a_[3] = {KS[2174], KS[886], r439}; r440 = mktuple(3, a_); }
-  { V a_[2] = {KS[64], KS[2083]}; r441 = mktuple(2, a_); }
+  { V a_[3] = {KS[2178], KS[886], r439}; r440 = mktuple(3, a_); }
+  { V a_[2] = {KS[64], KS[2168]}; r441 = mktuple(2, a_); }
   { V a_[1] = {r441}; r442 = mklist(1, a_); }
-  { V a_[3] = {KS[2175], KS[886], r442}; r443 = mktuple(3, a_); }
-  { V a_[139] = {r1, r7, r10, r13, r16, r19, r22, r25, r28, r31, r34, r37, r40, r44, r47, r50, r53, r56, r59, r63, r66, r69, r73, r76, r79, r82, r85, r88, r91, r94, r97, r100, r106, r110, r114, r117, r120, r123, r126, r129, r132, r135, r138, r141, r144, r148, r151, r155, r159, r162, r165, r168, r171, r174, r177, r180, r183, r186, r189, r192, r195, r198, r201, r204, r210, r214, r218, r222, r225, r229, r233, r236, r239, r242, r245, r249, r253, r257, r260, r264, r267, r270, r273, r276, r279, r282, r285, r288, r291, r294, r297, r300, r303, r306, r309, r312, r316, r319, r322, r325, r328, r331, r334, r338, r341, r344, r347, r350, r353, r356, r359, r362, r365, r368, r371, r374, r377, r380, r383, r386, r389, r392, r395, r398, r401, r404, r407, r410, r413, r416, r419, r422, r425, r428, r431, r434, r437, r440, r443}; r444 = mklist(139, a_); }
-  return r444;
+  { V a_[3] = {KS[2179], KS[886], r442}; r443 = mktuple(3, a_); }
+  { V a_[2] = {KS[64], KS[2108]}; r444 = mktuple(2, a_); }
+  { V a_[1] = {r444}; r445 = mklist(1, a_); }
+  { V a_[3] = {KS[2180], KS[886], r445}; r446 = mktuple(3, a_); }
+  { V a_[2] = {KS[64], KS[2071]}; r447 = mktuple(2, a_); }
+  { V a_[1] = {r447}; r448 = mklist(1, a_); }
+  { V a_[3] = {KS[2181], KS[886], r448}; r449 = mktuple(3, a_); }
+  { V a_[2] = {KS[64], KS[2083]}; r450 = mktuple(2, a_); }
+  { V a_[1] = {r450}; r451 = mklist(1, a_); }
+  { V a_[3] = {KS[2182], KS[886], r451}; r452 = mktuple(3, a_); }
+  { V a_[2] = {KS[64], KS[2183]}; r453 = mktuple(2, a_); }
+  { V a_[1] = {r453}; r454 = mklist(1, a_); }
+  { V a_[3] = {KS[2184], KS[886], r454}; r455 = mktuple(3, a_); }
+  { V a_[2] = {KS[64], KS[2185]}; r456 = mktuple(2, a_); }
+  { V a_[1] = {r456}; r457 = mklist(1, a_); }
+  { V a_[3] = {KS[2186], KS[886], r457}; r458 = mktuple(3, a_); }
+  { V a_[2] = {KS[64], KS[2037]}; r459 = mktuple(2, a_); }
+  { V a_[1] = {r459}; r460 = mklist(1, a_); }
+  { V a_[3] = {KS[2187], KS[886], r460}; r461 = mktuple(3, a_); }
+  { V a_[2] = {KS[64], KS[2188]}; r462 = mktuple(2, a_); }
+  { V a_[1] = {r462}; r463 = mklist(1, a_); }
+  { V a_[3] = {KS[2189], KS[886], r463}; r464 = mktuple(3, a_); }
+  { V a_[2] = {KS[64], KS[2083]}; r465 = mktuple(2, a_); }
+  { V a_[1] = {r465}; r466 = mklist(1, a_); }
+  { V a_[3] = {KS[2190], KS[886], r466}; r467 = mktuple(3, a_); }
+  { V a_[147] = {r1, r7, r10, r13, r16, r19, r22, r25, r28, r31, r34, r37, r40, r44, r47, r50, r53, r56, r59, r63, r66, r69, r73, r76, r79, r82, r85, r88, r91, r94, r97, r100, r106, r110, r114, r117, r120, r123, r126, r129, r132, r135, r138, r141, r144, r148, r151, r155, r159, r162, r165, r168, r171, r174, r177, r180, r183, r186, r189, r192, r195, r198, r201, r204, r210, r214, r218, r222, r225, r229, r233, r236, r239, r242, r245, r249, r253, r257, r260, r264, r267, r270, r273, r276, r279, r282, r285, r288, r291, r294, r297, r300, r303, r306, r309, r312, r316, r319, r322, r325, r328, r331, r334, r338, r341, r344, r347, r350, r353, r356, r359, r362, r365, r368, r371, r374, r377, r380, r383, r386, r389, r392, r395, r398, r401, r404, r407, r410, r413, r416, r419, r422, r425, r428, r431, r434, r437, r440, r443, r446, r449, r452, r455, r458, r461, r464, r467}; r468 = mklist(147, a_); }
+  return r468;
 }
 static V kf758_std_kite_builtins_std_sigs(void) {
   V r0 = UNIT;
@@ -187424,217 +187622,217 @@ static V kf758_std_kite_builtins_std_sigs(void) {
   r0 = mklist(0, NULL);
   { V a_[3] = {KS[1931], KS[859], r0}; r1 = mktuple(3, a_); }
   r2 = mklist(0, NULL);
-  { V a_[3] = {KS[2176], KS[859], r2}; r3 = mktuple(3, a_); }
-  { V a_[2] = {KS[64], KS[2177]}; r4 = mktuple(2, a_); }
+  { V a_[3] = {KS[2191], KS[859], r2}; r3 = mktuple(3, a_); }
+  { V a_[2] = {KS[64], KS[2192]}; r4 = mktuple(2, a_); }
   { V a_[1] = {r4}; r5 = mklist(1, a_); }
-  { V a_[3] = {KS[2178], KS[886], r5}; r6 = mktuple(3, a_); }
+  { V a_[3] = {KS[2193], KS[886], r5}; r6 = mktuple(3, a_); }
   { V a_[3] = {r1, r3, r6}; r7 = mklist(3, a_); }
   { V a_[2] = {KS[393], r7}; r8 = mktuple(2, a_); }
-  { V a_[2] = {KS[64], KS[2179]}; r9 = mktuple(2, a_); }
+  { V a_[2] = {KS[64], KS[2159]}; r9 = mktuple(2, a_); }
   { V a_[1] = {r9}; r10 = mklist(1, a_); }
-  { V a_[3] = {KS[2180], KS[886], r10}; r11 = mktuple(3, a_); }
-  { V a_[2] = {KS[64], KS[2181]}; r12 = mktuple(2, a_); }
+  { V a_[3] = {KS[2194], KS[886], r10}; r11 = mktuple(3, a_); }
+  { V a_[2] = {KS[64], KS[2195]}; r12 = mktuple(2, a_); }
   { V a_[1] = {r12}; r13 = mklist(1, a_); }
-  { V a_[3] = {KS[2182], KS[886], r13}; r14 = mktuple(3, a_); }
-  { V a_[2] = {KS[64], KS[2181]}; r15 = mktuple(2, a_); }
+  { V a_[3] = {KS[2196], KS[886], r13}; r14 = mktuple(3, a_); }
+  { V a_[2] = {KS[64], KS[2195]}; r15 = mktuple(2, a_); }
   { V a_[1] = {r15}; r16 = mklist(1, a_); }
-  { V a_[3] = {KS[2183], KS[886], r16}; r17 = mktuple(3, a_); }
-  { V a_[2] = {KS[64], KS[2184]}; r18 = mktuple(2, a_); }
+  { V a_[3] = {KS[2197], KS[886], r16}; r17 = mktuple(3, a_); }
+  { V a_[2] = {KS[64], KS[2198]}; r18 = mktuple(2, a_); }
   { V a_[1] = {r18}; r19 = mklist(1, a_); }
-  { V a_[3] = {KS[2185], KS[886], r19}; r20 = mktuple(3, a_); }
-  { V a_[2] = {KS[64], KS[2184]}; r21 = mktuple(2, a_); }
+  { V a_[3] = {KS[2199], KS[886], r19}; r20 = mktuple(3, a_); }
+  { V a_[2] = {KS[64], KS[2198]}; r21 = mktuple(2, a_); }
   { V a_[1] = {r21}; r22 = mklist(1, a_); }
-  { V a_[3] = {KS[2186], KS[886], r22}; r23 = mktuple(3, a_); }
-  { V a_[2] = {KS[64], KS[2184]}; r24 = mktuple(2, a_); }
+  { V a_[3] = {KS[2200], KS[886], r22}; r23 = mktuple(3, a_); }
+  { V a_[2] = {KS[64], KS[2198]}; r24 = mktuple(2, a_); }
   { V a_[1] = {r24}; r25 = mklist(1, a_); }
-  { V a_[3] = {KS[2187], KS[886], r25}; r26 = mktuple(3, a_); }
+  { V a_[3] = {KS[2201], KS[886], r25}; r26 = mktuple(3, a_); }
   { V a_[2] = {KS[64], KS[2012]}; r27 = mktuple(2, a_); }
   { V a_[1] = {r27}; r28 = mklist(1, a_); }
   { V a_[3] = {KS[1215], KS[886], r28}; r29 = mktuple(3, a_); }
-  { V a_[2] = {KS[64], KS[2188]}; r30 = mktuple(2, a_); }
+  { V a_[2] = {KS[64], KS[2202]}; r30 = mktuple(2, a_); }
   { V a_[1] = {r30}; r31 = mklist(1, a_); }
   { V a_[3] = {KS[58], KS[886], r31}; r32 = mktuple(3, a_); }
-  { V a_[2] = {KS[64], KS[2158]}; r33 = mktuple(2, a_); }
+  { V a_[2] = {KS[64], KS[2173]}; r33 = mktuple(2, a_); }
   { V a_[1] = {r33}; r34 = mklist(1, a_); }
-  { V a_[3] = {KS[2189], KS[886], r34}; r35 = mktuple(3, a_); }
-  { V a_[2] = {KS[64], KS[2158]}; r36 = mktuple(2, a_); }
+  { V a_[3] = {KS[2203], KS[886], r34}; r35 = mktuple(3, a_); }
+  { V a_[2] = {KS[64], KS[2173]}; r36 = mktuple(2, a_); }
   { V a_[1] = {r36}; r37 = mklist(1, a_); }
   { V a_[3] = {KS[2020], KS[886], r37}; r38 = mktuple(3, a_); }
-  { V a_[2] = {KS[64], KS[2181]}; r39 = mktuple(2, a_); }
+  { V a_[2] = {KS[64], KS[2195]}; r39 = mktuple(2, a_); }
   { V a_[1] = {r39}; r40 = mklist(1, a_); }
-  { V a_[3] = {KS[2190], KS[886], r40}; r41 = mktuple(3, a_); }
+  { V a_[3] = {KS[2204], KS[886], r40}; r41 = mktuple(3, a_); }
   { V a_[11] = {r11, r14, r17, r20, r23, r26, r29, r32, r35, r38, r41}; r42 = mklist(11, a_); }
   { V a_[2] = {KS[394], r42}; r43 = mktuple(2, a_); }
-  { V a_[2] = {KS[64], KS[2191]}; r44 = mktuple(2, a_); }
+  { V a_[2] = {KS[64], KS[2205]}; r44 = mktuple(2, a_); }
   { V a_[1] = {r44}; r45 = mklist(1, a_); }
   { V a_[3] = {KS[1276], KS[886], r45}; r46 = mktuple(3, a_); }
-  { V a_[2] = {KS[64], KS[2192]}; r47 = mktuple(2, a_); }
+  { V a_[2] = {KS[64], KS[2206]}; r47 = mktuple(2, a_); }
   { V a_[1] = {r47}; r48 = mklist(1, a_); }
-  { V a_[3] = {KS[2193], KS[886], r48}; r49 = mktuple(3, a_); }
-  { V a_[2] = {KS[64], KS[2194]}; r50 = mktuple(2, a_); }
+  { V a_[3] = {KS[2207], KS[886], r48}; r49 = mktuple(3, a_); }
+  { V a_[2] = {KS[64], KS[2208]}; r50 = mktuple(2, a_); }
   { V a_[1] = {r50}; r51 = mklist(1, a_); }
-  { V a_[3] = {KS[2195], KS[886], r51}; r52 = mktuple(3, a_); }
-  { V a_[2] = {KS[64], KS[2196]}; r53 = mktuple(2, a_); }
+  { V a_[3] = {KS[2209], KS[886], r51}; r52 = mktuple(3, a_); }
+  { V a_[2] = {KS[64], KS[2210]}; r53 = mktuple(2, a_); }
   { V a_[1] = {r53}; r54 = mklist(1, a_); }
-  { V a_[3] = {KS[2197], KS[886], r54}; r55 = mktuple(3, a_); }
-  { V a_[2] = {KS[64], KS[2198]}; r56 = mktuple(2, a_); }
+  { V a_[3] = {KS[2211], KS[886], r54}; r55 = mktuple(3, a_); }
+  { V a_[2] = {KS[64], KS[2212]}; r56 = mktuple(2, a_); }
   { V a_[1] = {r56}; r57 = mklist(1, a_); }
-  { V a_[3] = {KS[2199], KS[886], r57}; r58 = mktuple(3, a_); }
-  { V a_[2] = {KS[64], KS[2198]}; r59 = mktuple(2, a_); }
+  { V a_[3] = {KS[2213], KS[886], r57}; r58 = mktuple(3, a_); }
+  { V a_[2] = {KS[64], KS[2212]}; r59 = mktuple(2, a_); }
   { V a_[1] = {r59}; r60 = mklist(1, a_); }
-  { V a_[3] = {KS[2200], KS[886], r60}; r61 = mktuple(3, a_); }
-  { V a_[2] = {KS[64], KS[2201]}; r62 = mktuple(2, a_); }
+  { V a_[3] = {KS[2214], KS[886], r60}; r61 = mktuple(3, a_); }
+  { V a_[2] = {KS[64], KS[2215]}; r62 = mktuple(2, a_); }
   { V a_[1] = {r62}; r63 = mklist(1, a_); }
-  { V a_[3] = {KS[2202], KS[886], r63}; r64 = mktuple(3, a_); }
-  { V a_[2] = {KS[64], KS[2203]}; r65 = mktuple(2, a_); }
+  { V a_[3] = {KS[2216], KS[886], r63}; r64 = mktuple(3, a_); }
+  { V a_[2] = {KS[64], KS[2217]}; r65 = mktuple(2, a_); }
   { V a_[1] = {r65}; r66 = mklist(1, a_); }
-  { V a_[3] = {KS[2204], KS[886], r66}; r67 = mktuple(3, a_); }
-  { V a_[2] = {KS[64], KS[2205]}; r68 = mktuple(2, a_); }
+  { V a_[3] = {KS[2218], KS[886], r66}; r67 = mktuple(3, a_); }
+  { V a_[2] = {KS[64], KS[2219]}; r68 = mktuple(2, a_); }
   { V a_[1] = {r68}; r69 = mklist(1, a_); }
-  { V a_[3] = {KS[2206], KS[886], r69}; r70 = mktuple(3, a_); }
-  { V a_[2] = {KS[64], KS[2207]}; r71 = mktuple(2, a_); }
+  { V a_[3] = {KS[2220], KS[886], r69}; r70 = mktuple(3, a_); }
+  { V a_[2] = {KS[64], KS[2221]}; r71 = mktuple(2, a_); }
   { V a_[1] = {r71}; r72 = mklist(1, a_); }
-  { V a_[3] = {KS[2208], KS[886], r72}; r73 = mktuple(3, a_); }
-  { V a_[2] = {KS[64], KS[2209]}; r74 = mktuple(2, a_); }
+  { V a_[3] = {KS[2222], KS[886], r72}; r73 = mktuple(3, a_); }
+  { V a_[2] = {KS[64], KS[2223]}; r74 = mktuple(2, a_); }
   { V a_[1] = {r74}; r75 = mklist(1, a_); }
-  { V a_[3] = {KS[2210], KS[886], r75}; r76 = mktuple(3, a_); }
-  { V a_[2] = {KS[64], KS[2203]}; r77 = mktuple(2, a_); }
+  { V a_[3] = {KS[2224], KS[886], r75}; r76 = mktuple(3, a_); }
+  { V a_[2] = {KS[64], KS[2217]}; r77 = mktuple(2, a_); }
   { V a_[1] = {r77}; r78 = mklist(1, a_); }
-  { V a_[3] = {KS[2211], KS[886], r78}; r79 = mktuple(3, a_); }
-  { V a_[2] = {KS[64], KS[2205]}; r80 = mktuple(2, a_); }
+  { V a_[3] = {KS[2225], KS[886], r78}; r79 = mktuple(3, a_); }
+  { V a_[2] = {KS[64], KS[2219]}; r80 = mktuple(2, a_); }
   { V a_[1] = {r80}; r81 = mklist(1, a_); }
-  { V a_[3] = {KS[2212], KS[886], r81}; r82 = mktuple(3, a_); }
-  { V a_[2] = {KS[64], KS[2213]}; r83 = mktuple(2, a_); }
+  { V a_[3] = {KS[2226], KS[886], r81}; r82 = mktuple(3, a_); }
+  { V a_[2] = {KS[64], KS[2227]}; r83 = mktuple(2, a_); }
   { V a_[1] = {r83}; r84 = mklist(1, a_); }
-  { V a_[3] = {KS[2214], KS[886], r84}; r85 = mktuple(3, a_); }
-  { V a_[2] = {KS[64], KS[2215]}; r86 = mktuple(2, a_); }
+  { V a_[3] = {KS[2228], KS[886], r84}; r85 = mktuple(3, a_); }
+  { V a_[2] = {KS[64], KS[2229]}; r86 = mktuple(2, a_); }
   { V a_[1] = {r86}; r87 = mklist(1, a_); }
-  { V a_[3] = {KS[2216], KS[886], r87}; r88 = mktuple(3, a_); }
+  { V a_[3] = {KS[2230], KS[886], r87}; r88 = mktuple(3, a_); }
   { V a_[15] = {r46, r49, r52, r55, r58, r61, r64, r67, r70, r73, r76, r79, r82, r85, r88}; r89 = mklist(15, a_); }
   { V a_[2] = {KS[396], r89}; r90 = mktuple(2, a_); }
-  { V a_[2] = {KS[64], KS[2217]}; r91 = mktuple(2, a_); }
+  { V a_[2] = {KS[64], KS[2231]}; r91 = mktuple(2, a_); }
   { V a_[1] = {r91}; r92 = mklist(1, a_); }
-  { V a_[3] = {KS[2218], KS[886], r92}; r93 = mktuple(3, a_); }
-  { V a_[2] = {KS[64], KS[2217]}; r94 = mktuple(2, a_); }
+  { V a_[3] = {KS[2232], KS[886], r92}; r93 = mktuple(3, a_); }
+  { V a_[2] = {KS[64], KS[2231]}; r94 = mktuple(2, a_); }
   { V a_[1] = {r94}; r95 = mklist(1, a_); }
-  { V a_[3] = {KS[2219], KS[886], r95}; r96 = mktuple(3, a_); }
-  { V a_[2] = {KS[64], KS[2217]}; r97 = mktuple(2, a_); }
+  { V a_[3] = {KS[2233], KS[886], r95}; r96 = mktuple(3, a_); }
+  { V a_[2] = {KS[64], KS[2231]}; r97 = mktuple(2, a_); }
   { V a_[1] = {r97}; r98 = mklist(1, a_); }
-  { V a_[3] = {KS[2220], KS[886], r98}; r99 = mktuple(3, a_); }
-  { V a_[2] = {KS[64], KS[2217]}; r100 = mktuple(2, a_); }
+  { V a_[3] = {KS[2234], KS[886], r98}; r99 = mktuple(3, a_); }
+  { V a_[2] = {KS[64], KS[2231]}; r100 = mktuple(2, a_); }
   { V a_[1] = {r100}; r101 = mklist(1, a_); }
-  { V a_[3] = {KS[2221], KS[886], r101}; r102 = mktuple(3, a_); }
-  { V a_[2] = {KS[64], KS[2217]}; r103 = mktuple(2, a_); }
+  { V a_[3] = {KS[2235], KS[886], r101}; r102 = mktuple(3, a_); }
+  { V a_[2] = {KS[64], KS[2231]}; r103 = mktuple(2, a_); }
   { V a_[1] = {r103}; r104 = mklist(1, a_); }
-  { V a_[3] = {KS[2222], KS[886], r104}; r105 = mktuple(3, a_); }
-  { V a_[2] = {KS[64], KS[2217]}; r106 = mktuple(2, a_); }
+  { V a_[3] = {KS[2236], KS[886], r104}; r105 = mktuple(3, a_); }
+  { V a_[2] = {KS[64], KS[2231]}; r106 = mktuple(2, a_); }
   { V a_[1] = {r106}; r107 = mklist(1, a_); }
-  { V a_[3] = {KS[2223], KS[886], r107}; r108 = mktuple(3, a_); }
-  { V a_[2] = {KS[64], KS[2217]}; r109 = mktuple(2, a_); }
+  { V a_[3] = {KS[2237], KS[886], r107}; r108 = mktuple(3, a_); }
+  { V a_[2] = {KS[64], KS[2231]}; r109 = mktuple(2, a_); }
   { V a_[1] = {r109}; r110 = mklist(1, a_); }
-  { V a_[3] = {KS[2224], KS[886], r110}; r111 = mktuple(3, a_); }
-  { V a_[2] = {KS[64], KS[2217]}; r112 = mktuple(2, a_); }
+  { V a_[3] = {KS[2238], KS[886], r110}; r111 = mktuple(3, a_); }
+  { V a_[2] = {KS[64], KS[2231]}; r112 = mktuple(2, a_); }
   { V a_[1] = {r112}; r113 = mklist(1, a_); }
-  { V a_[3] = {KS[2225], KS[886], r113}; r114 = mktuple(3, a_); }
-  { V a_[2] = {KS[64], KS[2217]}; r115 = mktuple(2, a_); }
+  { V a_[3] = {KS[2239], KS[886], r113}; r114 = mktuple(3, a_); }
+  { V a_[2] = {KS[64], KS[2231]}; r115 = mktuple(2, a_); }
   { V a_[1] = {r115}; r116 = mklist(1, a_); }
-  { V a_[3] = {KS[2226], KS[886], r116}; r117 = mktuple(3, a_); }
-  { V a_[2] = {KS[64], KS[2217]}; r118 = mktuple(2, a_); }
+  { V a_[3] = {KS[2240], KS[886], r116}; r117 = mktuple(3, a_); }
+  { V a_[2] = {KS[64], KS[2231]}; r118 = mktuple(2, a_); }
   { V a_[1] = {r118}; r119 = mklist(1, a_); }
-  { V a_[3] = {KS[2227], KS[886], r119}; r120 = mktuple(3, a_); }
-  { V a_[2] = {KS[64], KS[2217]}; r121 = mktuple(2, a_); }
+  { V a_[3] = {KS[2241], KS[886], r119}; r120 = mktuple(3, a_); }
+  { V a_[2] = {KS[64], KS[2231]}; r121 = mktuple(2, a_); }
   { V a_[1] = {r121}; r122 = mklist(1, a_); }
-  { V a_[3] = {KS[2228], KS[886], r122}; r123 = mktuple(3, a_); }
-  { V a_[2] = {KS[64], KS[2217]}; r124 = mktuple(2, a_); }
+  { V a_[3] = {KS[2242], KS[886], r122}; r123 = mktuple(3, a_); }
+  { V a_[2] = {KS[64], KS[2231]}; r124 = mktuple(2, a_); }
   { V a_[1] = {r124}; r125 = mklist(1, a_); }
-  { V a_[3] = {KS[2229], KS[886], r125}; r126 = mktuple(3, a_); }
-  { V a_[2] = {KS[64], KS[2217]}; r127 = mktuple(2, a_); }
+  { V a_[3] = {KS[2243], KS[886], r125}; r126 = mktuple(3, a_); }
+  { V a_[2] = {KS[64], KS[2231]}; r127 = mktuple(2, a_); }
   { V a_[1] = {r127}; r128 = mklist(1, a_); }
-  { V a_[3] = {KS[2230], KS[886], r128}; r129 = mktuple(3, a_); }
-  { V a_[2] = {KS[64], KS[2217]}; r130 = mktuple(2, a_); }
+  { V a_[3] = {KS[2244], KS[886], r128}; r129 = mktuple(3, a_); }
+  { V a_[2] = {KS[64], KS[2231]}; r130 = mktuple(2, a_); }
   { V a_[1] = {r130}; r131 = mklist(1, a_); }
-  { V a_[3] = {KS[2231], KS[886], r131}; r132 = mktuple(3, a_); }
-  { V a_[2] = {KS[64], KS[2217]}; r133 = mktuple(2, a_); }
+  { V a_[3] = {KS[2245], KS[886], r131}; r132 = mktuple(3, a_); }
+  { V a_[2] = {KS[64], KS[2231]}; r133 = mktuple(2, a_); }
   { V a_[1] = {r133}; r134 = mklist(1, a_); }
-  { V a_[3] = {KS[2232], KS[886], r134}; r135 = mktuple(3, a_); }
-  { V a_[2] = {KS[64], KS[2217]}; r136 = mktuple(2, a_); }
+  { V a_[3] = {KS[2246], KS[886], r134}; r135 = mktuple(3, a_); }
+  { V a_[2] = {KS[64], KS[2231]}; r136 = mktuple(2, a_); }
   { V a_[1] = {r136}; r137 = mklist(1, a_); }
-  { V a_[3] = {KS[2233], KS[886], r137}; r138 = mktuple(3, a_); }
-  { V a_[2] = {KS[64], KS[2217]}; r139 = mktuple(2, a_); }
+  { V a_[3] = {KS[2247], KS[886], r137}; r138 = mktuple(3, a_); }
+  { V a_[2] = {KS[64], KS[2231]}; r139 = mktuple(2, a_); }
   { V a_[1] = {r139}; r140 = mklist(1, a_); }
-  { V a_[3] = {KS[2234], KS[886], r140}; r141 = mktuple(3, a_); }
-  { V a_[2] = {KS[64], KS[2217]}; r142 = mktuple(2, a_); }
+  { V a_[3] = {KS[2248], KS[886], r140}; r141 = mktuple(3, a_); }
+  { V a_[2] = {KS[64], KS[2231]}; r142 = mktuple(2, a_); }
   { V a_[1] = {r142}; r143 = mklist(1, a_); }
-  { V a_[3] = {KS[2235], KS[886], r143}; r144 = mktuple(3, a_); }
-  { V a_[2] = {KS[64], KS[2217]}; r145 = mktuple(2, a_); }
+  { V a_[3] = {KS[2249], KS[886], r143}; r144 = mktuple(3, a_); }
+  { V a_[2] = {KS[64], KS[2231]}; r145 = mktuple(2, a_); }
   { V a_[1] = {r145}; r146 = mklist(1, a_); }
-  { V a_[3] = {KS[2236], KS[886], r146}; r147 = mktuple(3, a_); }
-  { V a_[2] = {KS[64], KS[2217]}; r148 = mktuple(2, a_); }
+  { V a_[3] = {KS[2250], KS[886], r146}; r147 = mktuple(3, a_); }
+  { V a_[2] = {KS[64], KS[2231]}; r148 = mktuple(2, a_); }
   { V a_[1] = {r148}; r149 = mklist(1, a_); }
-  { V a_[3] = {KS[2237], KS[886], r149}; r150 = mktuple(3, a_); }
-  { V a_[2] = {KS[64], KS[2217]}; r151 = mktuple(2, a_); }
+  { V a_[3] = {KS[2251], KS[886], r149}; r150 = mktuple(3, a_); }
+  { V a_[2] = {KS[64], KS[2231]}; r151 = mktuple(2, a_); }
   { V a_[1] = {r151}; r152 = mklist(1, a_); }
-  { V a_[3] = {KS[2238], KS[886], r152}; r153 = mktuple(3, a_); }
-  { V a_[2] = {KS[64], KS[2239]}; r154 = mktuple(2, a_); }
+  { V a_[3] = {KS[2252], KS[886], r152}; r153 = mktuple(3, a_); }
+  { V a_[2] = {KS[64], KS[2253]}; r154 = mktuple(2, a_); }
   { V a_[1] = {r154}; r155 = mklist(1, a_); }
-  { V a_[3] = {KS[2240], KS[886], r155}; r156 = mktuple(3, a_); }
-  { V a_[2] = {KS[64], KS[2239]}; r157 = mktuple(2, a_); }
+  { V a_[3] = {KS[2254], KS[886], r155}; r156 = mktuple(3, a_); }
+  { V a_[2] = {KS[64], KS[2253]}; r157 = mktuple(2, a_); }
   { V a_[1] = {r157}; r158 = mklist(1, a_); }
-  { V a_[3] = {KS[2241], KS[886], r158}; r159 = mktuple(3, a_); }
-  { V a_[2] = {KS[64], KS[2239]}; r160 = mktuple(2, a_); }
+  { V a_[3] = {KS[2255], KS[886], r158}; r159 = mktuple(3, a_); }
+  { V a_[2] = {KS[64], KS[2253]}; r160 = mktuple(2, a_); }
   { V a_[1] = {r160}; r161 = mklist(1, a_); }
-  { V a_[3] = {KS[2242], KS[886], r161}; r162 = mktuple(3, a_); }
-  { V a_[2] = {KS[64], KS[2239]}; r163 = mktuple(2, a_); }
+  { V a_[3] = {KS[2256], KS[886], r161}; r162 = mktuple(3, a_); }
+  { V a_[2] = {KS[64], KS[2253]}; r163 = mktuple(2, a_); }
   { V a_[1] = {r163}; r164 = mklist(1, a_); }
-  { V a_[3] = {KS[2243], KS[886], r164}; r165 = mktuple(3, a_); }
-  { V a_[2] = {KS[64], KS[2239]}; r166 = mktuple(2, a_); }
+  { V a_[3] = {KS[2257], KS[886], r164}; r165 = mktuple(3, a_); }
+  { V a_[2] = {KS[64], KS[2253]}; r166 = mktuple(2, a_); }
   { V a_[1] = {r166}; r167 = mklist(1, a_); }
-  { V a_[3] = {KS[2244], KS[886], r167}; r168 = mktuple(3, a_); }
-  { V a_[2] = {KS[64], KS[2239]}; r169 = mktuple(2, a_); }
+  { V a_[3] = {KS[2258], KS[886], r167}; r168 = mktuple(3, a_); }
+  { V a_[2] = {KS[64], KS[2253]}; r169 = mktuple(2, a_); }
   { V a_[1] = {r169}; r170 = mklist(1, a_); }
-  { V a_[3] = {KS[2245], KS[886], r170}; r171 = mktuple(3, a_); }
-  { V a_[2] = {KS[64], KS[2246]}; r172 = mktuple(2, a_); }
+  { V a_[3] = {KS[2259], KS[886], r170}; r171 = mktuple(3, a_); }
+  { V a_[2] = {KS[64], KS[2260]}; r172 = mktuple(2, a_); }
   { V a_[1] = {r172}; r173 = mklist(1, a_); }
-  { V a_[3] = {KS[2247], KS[886], r173}; r174 = mktuple(3, a_); }
-  { V a_[2] = {KS[64], KS[2246]}; r175 = mktuple(2, a_); }
+  { V a_[3] = {KS[2261], KS[886], r173}; r174 = mktuple(3, a_); }
+  { V a_[2] = {KS[64], KS[2260]}; r175 = mktuple(2, a_); }
   { V a_[1] = {r175}; r176 = mklist(1, a_); }
-  { V a_[3] = {KS[2248], KS[886], r176}; r177 = mktuple(3, a_); }
-  { V a_[2] = {KS[64], KS[2246]}; r178 = mktuple(2, a_); }
+  { V a_[3] = {KS[2262], KS[886], r176}; r177 = mktuple(3, a_); }
+  { V a_[2] = {KS[64], KS[2260]}; r178 = mktuple(2, a_); }
   { V a_[1] = {r178}; r179 = mklist(1, a_); }
-  { V a_[3] = {KS[2249], KS[886], r179}; r180 = mktuple(3, a_); }
-  { V a_[2] = {KS[64], KS[2246]}; r181 = mktuple(2, a_); }
+  { V a_[3] = {KS[2263], KS[886], r179}; r180 = mktuple(3, a_); }
+  { V a_[2] = {KS[64], KS[2260]}; r181 = mktuple(2, a_); }
   { V a_[1] = {r181}; r182 = mklist(1, a_); }
-  { V a_[3] = {KS[2250], KS[886], r182}; r183 = mktuple(3, a_); }
-  { V a_[2] = {KS[64], KS[2251]}; r184 = mktuple(2, a_); }
+  { V a_[3] = {KS[2264], KS[886], r182}; r183 = mktuple(3, a_); }
+  { V a_[2] = {KS[64], KS[2265]}; r184 = mktuple(2, a_); }
   { V a_[1] = {r184}; r185 = mklist(1, a_); }
-  { V a_[3] = {KS[2252], KS[886], r185}; r186 = mktuple(3, a_); }
-  { V a_[2] = {KS[64], KS[2251]}; r187 = mktuple(2, a_); }
+  { V a_[3] = {KS[2266], KS[886], r185}; r186 = mktuple(3, a_); }
+  { V a_[2] = {KS[64], KS[2265]}; r187 = mktuple(2, a_); }
   { V a_[1] = {r187}; r188 = mklist(1, a_); }
-  { V a_[3] = {KS[2253], KS[886], r188}; r189 = mktuple(3, a_); }
-  { V a_[2] = {KS[64], KS[2251]}; r190 = mktuple(2, a_); }
+  { V a_[3] = {KS[2267], KS[886], r188}; r189 = mktuple(3, a_); }
+  { V a_[2] = {KS[64], KS[2265]}; r190 = mktuple(2, a_); }
   { V a_[1] = {r190}; r191 = mklist(1, a_); }
-  { V a_[3] = {KS[2254], KS[886], r191}; r192 = mktuple(3, a_); }
+  { V a_[3] = {KS[2268], KS[886], r191}; r192 = mktuple(3, a_); }
   { V a_[2] = {KS[64], KS[270]}; r193 = mktuple(2, a_); }
   { V a_[1] = {r193}; r194 = mklist(1, a_); }
-  { V a_[3] = {KS[2255], KS[886], r194}; r195 = mktuple(3, a_); }
+  { V a_[3] = {KS[2269], KS[886], r194}; r195 = mktuple(3, a_); }
   { V a_[2] = {KS[64], KS[270]}; r196 = mktuple(2, a_); }
   { V a_[1] = {r196}; r197 = mklist(1, a_); }
   { V a_[3] = {KS[401], KS[886], r197}; r198 = mktuple(3, a_); }
   { V a_[2] = {KS[64], KS[270]}; r199 = mktuple(2, a_); }
   { V a_[1] = {r199}; r200 = mklist(1, a_); }
-  { V a_[3] = {KS[2256], KS[886], r200}; r201 = mktuple(3, a_); }
+  { V a_[3] = {KS[2270], KS[886], r200}; r201 = mktuple(3, a_); }
   { V a_[2] = {KS[64], KS[270]}; r202 = mktuple(2, a_); }
   { V a_[1] = {r202}; r203 = mklist(1, a_); }
-  { V a_[3] = {KS[2257], KS[886], r203}; r204 = mktuple(3, a_); }
+  { V a_[3] = {KS[2271], KS[886], r203}; r204 = mktuple(3, a_); }
   { V a_[2] = {KS[64], KS[270]}; r205 = mktuple(2, a_); }
   { V a_[1] = {r205}; r206 = mklist(1, a_); }
-  { V a_[3] = {KS[2258], KS[886], r206}; r207 = mktuple(3, a_); }
+  { V a_[3] = {KS[2272], KS[886], r206}; r207 = mktuple(3, a_); }
   { V a_[2] = {KS[64], KS[270]}; r208 = mktuple(2, a_); }
   { V a_[1] = {r208}; r209 = mklist(1, a_); }
-  { V a_[3] = {KS[2259], KS[886], r209}; r210 = mktuple(3, a_); }
+  { V a_[3] = {KS[2273], KS[886], r209}; r210 = mktuple(3, a_); }
   { V a_[2] = {KS[64], KS[270]}; r211 = mktuple(2, a_); }
   { V a_[1] = {r211}; r212 = mklist(1, a_); }
-  { V a_[3] = {KS[2260], KS[886], r212}; r213 = mktuple(3, a_); }
+  { V a_[3] = {KS[2274], KS[886], r212}; r213 = mktuple(3, a_); }
   { V a_[2] = {KS[64], KS[270]}; r214 = mktuple(2, a_); }
   { V a_[1] = {r214}; r215 = mklist(1, a_); }
   { V a_[3] = {KS[399], KS[886], r215}; r216 = mktuple(3, a_); }
@@ -187643,22 +187841,22 @@ static V kf758_std_kite_builtins_std_sigs(void) {
   { V a_[3] = {KS[400], KS[886], r218}; r219 = mktuple(3, a_); }
   { V a_[2] = {KS[64], KS[270]}; r220 = mktuple(2, a_); }
   { V a_[1] = {r220}; r221 = mklist(1, a_); }
-  { V a_[3] = {KS[2261], KS[886], r221}; r222 = mktuple(3, a_); }
+  { V a_[3] = {KS[2275], KS[886], r221}; r222 = mktuple(3, a_); }
   { V a_[2] = {KS[64], KS[270]}; r223 = mktuple(2, a_); }
   { V a_[1] = {r223}; r224 = mklist(1, a_); }
-  { V a_[3] = {KS[2262], KS[886], r224}; r225 = mktuple(3, a_); }
+  { V a_[3] = {KS[2276], KS[886], r224}; r225 = mktuple(3, a_); }
   { V a_[2] = {KS[64], KS[2036]}; r226 = mktuple(2, a_); }
   { V a_[1] = {r226}; r227 = mklist(1, a_); }
-  { V a_[3] = {KS[2263], KS[886], r227}; r228 = mktuple(3, a_); }
+  { V a_[3] = {KS[2277], KS[886], r227}; r228 = mktuple(3, a_); }
   { V a_[2] = {KS[64], KS[2036]}; r229 = mktuple(2, a_); }
   { V a_[1] = {r229}; r230 = mklist(1, a_); }
-  { V a_[3] = {KS[2264], KS[886], r230}; r231 = mktuple(3, a_); }
+  { V a_[3] = {KS[2278], KS[886], r230}; r231 = mktuple(3, a_); }
   { V a_[2] = {KS[64], KS[269]}; r232 = mktuple(2, a_); }
   { V a_[1] = {r232}; r233 = mklist(1, a_); }
-  { V a_[3] = {KS[2265], KS[886], r233}; r234 = mktuple(3, a_); }
+  { V a_[3] = {KS[2279], KS[886], r233}; r234 = mktuple(3, a_); }
   { V a_[2] = {KS[64], KS[269]}; r235 = mktuple(2, a_); }
   { V a_[1] = {r235}; r236 = mklist(1, a_); }
-  { V a_[3] = {KS[2266], KS[886], r236}; r237 = mktuple(3, a_); }
+  { V a_[3] = {KS[2280], KS[886], r236}; r237 = mktuple(3, a_); }
   { V a_[49] = {r93, r96, r99, r102, r105, r108, r111, r114, r117, r120, r123, r126, r129, r132, r135, r138, r141, r144, r147, r150, r153, r156, r159, r162, r165, r168, r171, r174, r177, r180, r183, r186, r189, r192, r195, r198, r201, r204, r207, r210, r213, r216, r219, r222, r225, r228, r231, r234, r237}; r238 = mklist(49, a_); }
   { V a_[2] = {KS[395], r238}; r239 = mktuple(2, a_); }
   { V a_[4] = {r8, r43, r90, r239}; r240 = mklist(4, a_); }
@@ -188130,7 +188328,7 @@ static V kf762_std_kite_check_any_t(void) {
   SAFEPOINT(); CANCEL_POINT();
  B0:;
   kline = 9000155;
-  r0 = kf1334_std_kite_ty_tcon(KS[2267]);
+  r0 = kf1334_std_kite_ty_tcon(KS[2281]);
   return r0;
 }
 static V kf763_std_kite_check_apply(V r0, V r1, V r2, V r3, int64_t r4, V r5) {
@@ -188471,7 +188669,7 @@ static V kf763_std_kite_check_apply(V r0, V r1, V r2, V r3, int64_t r4, V r5) {
   if (r41) goto B18; else goto B20;
  B18:;
   kline = 9003922;
-  { V a_[2] = {r5, KS[2268]}; r42 = k_interp(2, a_); }
+  { V a_[2] = {r5, KS[2282]}; r42 = k_interp(2, a_); }
   r43 = kf972_std_kite_check_te(r29, r4, r42);
   { V a_[1] = {r43}; r44 = call_v(kir_gload(151, "Err"), 1, a_); }
   return r44;
@@ -188535,7 +188733,7 @@ static V kf763_std_kite_check_apply(V r0, V r1, V r2, V r3, int64_t r4, V r5) {
   if (r73) goto B30; else goto B32;
  B30:;
   kline = 9003932;
-  { V a_[3] = {KS[2269], r5, KS[2270]}; r74 = k_interp(3, a_); }
+  { V a_[3] = {KS[2283], r5, KS[2284]}; r74 = k_interp(3, a_); }
   r75 = kf972_std_kite_check_te(r29, r4, r74);
   { V a_[1] = {r75}; r76 = call_v(kir_gload(151, "Err"), 1, a_); }
   return r76;
@@ -188547,14 +188745,14 @@ static V kf763_std_kite_check_apply(V r0, V r1, V r2, V r3, int64_t r4, V r5) {
  B33:;
   kline = 9003935;
   r79 = kf948_std_kite_check_sh(r29, r56);
-  { V a_[2] = {r79, KS[2271]}; r80 = k_interp(2, a_); }
+  { V a_[2] = {r79, KS[2285]}; r80 = k_interp(2, a_); }
   r81 = kf972_std_kite_check_te(r29, r4, r80);
   { V a_[1] = {r81}; r82 = call_v(kir_gload(151, "Err"), 1, a_); }
   return r82;
  B35:;
   kline = 9003941;
   r83 = kf948_std_kite_check_sh(r29, r56);
-  { V a_[4] = {r5, KS[2272], r83, KS[2273]}; r84 = k_interp(4, a_); }
+  { V a_[4] = {r5, KS[2286], r83, KS[2287]}; r84 = k_interp(4, a_); }
   { V c_ = mkclosure(kl157, "<lambda>", 0); KFn *f_ = FN(c_);  r85 = c_; }
   { V a_[2] = {r28, r85}; r86 = call_v(kir_gload(192, "map"), 2, a_); }
   { V a_[2] = {r86, KS[140]}; r87 = call_v(kir_gload(188, "join"), 2, a_); }
@@ -188604,7 +188802,7 @@ static V kf763_std_kite_check_apply(V r0, V r1, V r2, V r3, int64_t r4, V r5) {
  B44:;
   kline = 9003955;
   r110 = kf1335_std_kite_ty_tname(r107);
-  r111 = kir_vbin(9, r110, KS[2274]);
+  r111 = kir_vbin(9, r110, KS[2288]);
   r112 = ((r111).u.i != 0);
   r108 = r112;
   goto B45;
@@ -188623,7 +188821,7 @@ static V kf763_std_kite_check_apply(V r0, V r1, V r2, V r3, int64_t r4, V r5) {
  B49:;
   kline = 9003957;
   r116 = kf948_std_kite_check_sh(r105, r107);
-  { V a_[5] = {KS[2275], r5, KS[1064], r116, KS[2276]}; r117 = k_interp(5, a_); }
+  { V a_[5] = {KS[2289], r5, KS[1064], r116, KS[2290]}; r117 = k_interp(5, a_); }
   r118 = kf972_std_kite_check_te(r105, r4, r117);
   { V a_[1] = {r118}; r119 = call_v(kir_gload(151, "Err"), 1, a_); }
   return r119;
@@ -188688,7 +188886,7 @@ static V kf763_std_kite_check_apply(V r0, V r1, V r2, V r3, int64_t r4, V r5) {
  B61:;
   kline = 9003967;
   r151 = kf948_std_kite_check_sh(r105, r107);
-  { V a_[2] = {r151, KS[2277]}; r152 = k_interp(2, a_); }
+  { V a_[2] = {r151, KS[2291]}; r152 = k_interp(2, a_); }
   r153 = kf972_std_kite_check_te(r105, r4, r152);
   { V a_[1] = {r153}; r154 = call_v(kir_gload(151, "Err"), 1, a_); }
   return r154;
@@ -188725,7 +188923,7 @@ static V kf763_std_kite_check_apply(V r0, V r1, V r2, V r3, int64_t r4, V r5) {
   { V a_[1] = {r6}; r177 = call_v(kir_gload(163, "len"), 1, a_); }
   r178 = (r177).u.i;
   r179 = mkint(r178);
-  { V a_[6] = {r5, KS[2278], r176, KS[2279], r179, KS[2280]}; r180 = k_interp(6, a_); }
+  { V a_[6] = {r5, KS[2292], r176, KS[2293], r179, KS[2294]}; r180 = k_interp(6, a_); }
   r181 = kf972_std_kite_check_te(r105, r4, r180);
   { V a_[1] = {r181}; r182 = call_v(kir_gload(151, "Err"), 1, a_); }
   return r182;
@@ -188836,13 +189034,13 @@ static V kf763_std_kite_check_apply(V r0, V r1, V r2, V r3, int64_t r4, V r5) {
  B85:;
   kline = 9003990; die("解构失败: %s", cshow(r220));
  B86:;
-  r230 = KS[2281];
+  r230 = KS[2295];
   goto B88;
  B87:;
   if (__builtin_add_overflow(r211, INT64_C(1), &r233)) { kline = 9003994; die("整数溢出"); }
   r234 = mkint(r233);
   kline = 9003994;
-  { V a_[4] = {r5, KS[2282], r234, KS[2283]}; r235 = k_interp(4, a_); }
+  { V a_[4] = {r5, KS[2296], r234, KS[2297]}; r235 = k_interp(4, a_); }
   r230 = r235;
   goto B88;
  B88:;
@@ -189260,7 +189458,7 @@ static V kf766_std_kite_check_assign(V r0, V r1, V r2) {
   SAFEPOINT(); CANCEL_POINT(); goto B7;
  B17:;
   kline = 9002640;
-  r30 = kf972_std_kite_check_te(r0, r5, KS[2284]);
+  r30 = kf972_std_kite_check_te(r0, r5, KS[2298]);
   { V a_[1] = {r30}; r31 = call_v(kir_gload(151, "Err"), 1, a_); }
   return r31;
  B18:;
@@ -189288,13 +189486,13 @@ static V kf766_std_kite_check_assign(V r0, V r1, V r2) {
   kline = 9002642; die("match 没有覆盖值 %s", cshow(r34));
  B24:;
   kline = 9002644;
-  { V a_[2] = {KS[2285], r32}; r38 = k_interp(2, a_); }
+  { V a_[2] = {KS[2299], r32}; r38 = k_interp(2, a_); }
   r39 = kf972_std_kite_check_te(r0, r5, r38);
   { V a_[1] = {r39}; r40 = call_v(kir_gload(151, "Err"), 1, a_); }
   return r40;
  B25:;
   kline = 9002646;
-  { V a_[3] = {KS[2286], r32, KS[2287]}; r45 = k_interp(3, a_); }
+  { V a_[3] = {KS[2300], r32, KS[2301]}; r45 = k_interp(3, a_); }
   r46 = kf972_std_kite_check_te(r0, r5, r45);
   { V a_[1] = {r46}; r47 = call_v(kir_gload(151, "Err"), 1, a_); }
   return r47;
@@ -189304,7 +189502,7 @@ static V kf766_std_kite_check_assign(V r0, V r1, V r2) {
   if (r48) goto B28; else goto B30;
  B28:;
   kline = 9002648;
-  { V a_[3] = {KS[2288], r32, KS[2289]}; r49 = k_interp(3, a_); }
+  { V a_[3] = {KS[2302], r32, KS[2303]}; r49 = k_interp(3, a_); }
   r50 = kf972_std_kite_check_te(r0, r5, r49);
   { V a_[1] = {r50}; r51 = call_v(kir_gload(151, "Err"), 1, a_); }
   return r51;
@@ -189346,7 +189544,7 @@ static V kf766_std_kite_check_assign(V r0, V r1, V r2) {
   goto B37;
  B37:;
   r69 = r62;
-  { V a_[5] = {KS[2290], KS[2291], KS[2292], KS[2293], KS[2294]}; r72 = mklist(5, a_); }
+  { V a_[5] = {KS[2304], KS[2305], KS[2306], KS[2307], KS[2308]}; r72 = mklist(5, a_); }
   kline = 9002654;
   { V a_[2] = {r72, r61}; r73 = call_v(kir_gload(292, "contains"), 2, a_); }
   r74 = ((r73).u.i != 0);
@@ -189354,7 +189552,7 @@ static V kf766_std_kite_check_assign(V r0, V r1, V r2) {
   if (r71) goto B39; else goto B38;
  B38:;
   kline = 9002655;
-  r76 = kir_vbin(9, r61, KS[2295]);
+  r76 = kir_vbin(9, r61, KS[2309]);
   r77 = ((r76).u.i != 0);
   r75 = r77;
   if (r75) goto B40; else goto B41;
@@ -189445,7 +189643,7 @@ static V kf766_std_kite_check_assign(V r0, V r1, V r2) {
   r108 = PB[16];
   r109 = PB[17];
   kline = 9002660;
-  r110 = kf978_std_kite_check_unify(r107, r58, r108, r5, KS[2296]);
+  r110 = kf978_std_kite_check_unify(r107, r58, r108, r5, KS[2310]);
   r111 = kir_try(r110);
   if (r111) goto B59; else goto B60;
  B58:;
@@ -189492,7 +189690,7 @@ static V kf766_std_kite_check_assign(V r0, V r1, V r2) {
   r141 = PB[19];
   r142 = PB[20];
   kline = 9002665;
-  r143 = kf978_std_kite_check_unify(r140, r58, r141, r5, KS[2296]);
+  r143 = kf978_std_kite_check_unify(r140, r58, r141, r5, KS[2310]);
   r144 = kir_try(r143);
   if (r144) goto B65; else goto B66;
  B64:;
@@ -189508,7 +189706,7 @@ static V kf766_std_kite_check_assign(V r0, V r1, V r2) {
   return r143;
  B67:;
   kline = 9002666;
-  r149 = kir_vbin(9, r61, KS[2297]);
+  r149 = kir_vbin(9, r61, KS[2311]);
   r150 = ((r149).u.i != 0);
   if (r150) goto B70; else goto B71;
  B69:;
@@ -189668,7 +189866,7 @@ static V kf768_std_kite_check_async_body(V r0, V r1, V r2, V r3, int64_t r4, V r
   if (__builtin_sub_overflow(r20, INT64_C(1), &r21)) { kline = 9002110; die("整数溢出"); }
   r22 = mkint(r21);
   r23 = k_index(r18, r22);
-  { V a_[3] = {KS[2298], r5, KS[2299]}; r24 = k_interp(3, a_); }
+  { V a_[3] = {KS[2312], r5, KS[2313]}; r24 = k_interp(3, a_); }
   r25 = kf978_std_kite_check_unify(r13, r3, r23, r4, r24);
   r26 = kir_try(r25);
   if (r26) goto B5; else goto B6;
@@ -190105,7 +190303,7 @@ static V kf774_std_kite_check_bindv(V r0, int64_t r1, V r2, int64_t r3) {
   kline = 9001093;
   { V a_[1] = {r6}; r7 = call_v(kir_gload(530, "TV"), 1, a_); }
   r8 = kf948_std_kite_check_sh(r0, r7);
-  r9 = kir_vbin(0, KS[2300], r8);
+  r9 = kir_vbin(0, KS[2314], r8);
   r10 = kir_vbin(0, r9, KS[415]);
   r11 = kf948_std_kite_check_sh(r0, r2);
   r12 = kir_vbin(0, r10, r11);
@@ -190443,7 +190641,7 @@ static V kf775_std_kite_check_binop(V r0, V r1, V r2) {
   if (r25) goto B11; else goto B12;
  B9:;
   kline = 9003499;
-  r21 = kf972_std_kite_check_te(r16, INT64_C(0), KS[2301]);
+  r21 = kf972_std_kite_check_te(r16, INT64_C(0), KS[2315]);
   { V a_[1] = {r21}; r22 = call_v(kir_gload(151, "Err"), 1, a_); }
   return r22;
  B11:;
@@ -190480,7 +190678,7 @@ static V kf775_std_kite_check_binop(V r0, V r1, V r2) {
  B17:;
   kline = 9003503;
   r40 = kf779_std_kite_check_bool_t();
-  { V a_[2] = {r5, KS[2302]}; r41 = k_interp(2, a_); }
+  { V a_[2] = {r5, KS[2316]}; r41 = k_interp(2, a_); }
   r42 = kf978_std_kite_check_unify(r28, r40, r17, r10, r41);
   r43 = kir_try(r42);
   if (r43) goto B20; else goto B21;
@@ -190495,7 +190693,7 @@ static V kf775_std_kite_check_binop(V r0, V r1, V r2) {
   r45 = r44;
   kline = 9003504;
   r46 = kf779_std_kite_check_bool_t();
-  { V a_[2] = {r5, KS[2303]}; r47 = k_interp(2, a_); }
+  { V a_[2] = {r5, KS[2317]}; r47 = k_interp(2, a_); }
   r48 = kf978_std_kite_check_unify(r45, r46, r29, r10, r47);
   r49 = kir_try(r48);
   if (r49) goto B22; else goto B23;
@@ -190522,7 +190720,7 @@ static V kf775_std_kite_check_binop(V r0, V r1, V r2) {
  B26:;
   kline = 9003508;
   r60 = kf871_std_kite_check_int_t();
-  r61 = kf978_std_kite_check_unify(r28, r60, r17, r10, KS[2304]);
+  r61 = kf978_std_kite_check_unify(r28, r60, r17, r10, KS[2318]);
   r62 = kir_try(r61);
   if (r62) goto B29; else goto B30;
  B28:;
@@ -190536,7 +190734,7 @@ static V kf775_std_kite_check_binop(V r0, V r1, V r2) {
   r64 = r63;
   kline = 9003509;
   r65 = kf871_std_kite_check_int_t();
-  r66 = kf978_std_kite_check_unify(r64, r65, r29, r10, KS[2305]);
+  r66 = kf978_std_kite_check_unify(r64, r65, r29, r10, KS[2319]);
   r67 = kir_try(r66);
   if (r67) goto B31; else goto B32;
  B30:;
@@ -190554,7 +190752,7 @@ static V kf775_std_kite_check_binop(V r0, V r1, V r2) {
   return r66;
  B33:;
   kline = 9003513;
-  r79 = kir_vbin(9, r5, KS[2306]);
+  r79 = kir_vbin(9, r5, KS[2320]);
   r80 = ((r79).u.i != 0);
   r76 = r80;
   goto B34;
@@ -190563,7 +190761,7 @@ static V kf775_std_kite_check_binop(V r0, V r1, V r2) {
   if (r75) goto B36; else goto B35;
  B35:;
   kline = 9003514;
-  r81 = kir_vbin(9, r5, KS[2307]);
+  r81 = kir_vbin(9, r5, KS[2321]);
   r82 = ((r81).u.i != 0);
   r75 = r82;
   goto B36;
@@ -190610,7 +190808,7 @@ static V kf775_std_kite_check_binop(V r0, V r1, V r2) {
  B45:;
   kline = 9003516;
   r96 = kf871_std_kite_check_int_t();
-  { V a_[3] = {KS[2308], r5, KS[2302]}; r97 = k_interp(3, a_); }
+  { V a_[3] = {KS[2322], r5, KS[2316]}; r97 = k_interp(3, a_); }
   r98 = kf978_std_kite_check_unify(r28, r96, r17, r10, r97);
   r99 = kir_try(r98);
   if (r99) goto B48; else goto B49;
@@ -190625,7 +190823,7 @@ static V kf775_std_kite_check_binop(V r0, V r1, V r2) {
   r101 = r100;
   kline = 9003517;
   r102 = kf871_std_kite_check_int_t();
-  { V a_[3] = {KS[2308], r5, KS[2303]}; r103 = k_interp(3, a_); }
+  { V a_[3] = {KS[2322], r5, KS[2317]}; r103 = k_interp(3, a_); }
   r104 = kf978_std_kite_check_unify(r101, r102, r29, r10, r103);
   r105 = kir_try(r104);
   if (r105) goto B50; else goto B51;
@@ -190672,7 +190870,7 @@ static V kf775_std_kite_check_binop(V r0, V r1, V r2) {
   goto B60;
  B59:;
   kline = 9003524;
-  r118 = kir_vbin(9, r5, KS[2306]);
+  r118 = kir_vbin(9, r5, KS[2320]);
   r119 = ((r118).u.i != 0);
   if (r119) goto B61; else goto B62;
  B60:;
@@ -190751,7 +190949,7 @@ static V kf775_std_kite_check_binop(V r0, V r1, V r2) {
   { V a_[1] = {r148}; r149 = mklist(1, a_); }
   kline = 9003534;
   { V a_[2] = {KS[1936], r149}; r150 = call_v(kir_gload(178, "TC"), 2, a_); }
-  { V a_[3] = {KS[2308], r5, KS[2302]}; r151 = k_interp(3, a_); }
+  { V a_[3] = {KS[2322], r5, KS[2316]}; r151 = k_interp(3, a_); }
   r152 = kf978_std_kite_check_unify(r147, r150, r17, r10, r151);
   r153 = kir_try(r152);
   if (r153) goto B79; else goto B80;
@@ -190763,7 +190961,7 @@ static V kf775_std_kite_check_binop(V r0, V r1, V r2) {
   { V a_[1] = {r148}; r156 = mklist(1, a_); }
   kline = 9003535;
   { V a_[2] = {KS[1936], r156}; r157 = call_v(kir_gload(178, "TC"), 2, a_); }
-  { V a_[3] = {KS[2308], r5, KS[2303]}; r158 = k_interp(3, a_); }
+  { V a_[3] = {KS[2322], r5, KS[2317]}; r158 = k_interp(3, a_); }
   r159 = kf978_std_kite_check_unify(r155, r157, r29, r10, r158);
   r160 = kir_try(r159);
   if (r160) goto B81; else goto B82;
@@ -190833,7 +191031,7 @@ static V kf775_std_kite_check_binop(V r0, V r1, V r2) {
   return r185;
  B97:;
   kline = 9003549;
-  { V a_[3] = {KS[2308], r5, KS[2309]}; r186 = k_interp(3, a_); }
+  { V a_[3] = {KS[2322], r5, KS[2323]}; r186 = k_interp(3, a_); }
   r187 = kf978_std_kite_check_unify(r28, r17, r29, r10, r186);
   r188 = kir_try(r187);
   if (r188) goto B98; else goto B99;
@@ -191375,7 +191573,7 @@ static V kf777_std_kite_check_block(V r0, V r1, V r2, V r3) {
  B52:;
   kline = 9002366;
   r125 = kf862_std_kite_check_head(r4, r111);
-  r126 = kir_vbin(9, r125, KS[2310]);
+  r126 = kir_vbin(9, r125, KS[2324]);
   r127 = ((r126).u.i != 0);
   r121 = r127;
   goto B53;
@@ -191386,7 +191584,7 @@ static V kf777_std_kite_check_block(V r0, V r1, V r2, V r3) {
   kline = 9002367;
   r128 = k_field(r57, 35);
   r129 = (r128).u.i;
-  r130 = kf997_std_kite_check_warn(r4, r129, KS[2311]);
+  r130 = kf997_std_kite_check_warn(r4, r129, KS[2325]);
   r4 = r130;
   SAFEPOINT(); CANCEL_POINT(); goto B45;
  B57:;
@@ -191879,7 +192077,7 @@ static V kf781_std_kite_check_brk(V r0, V r1, V r2, bool r3, V r4, V r5) {
  B17:;
   kline = 9002588;
   { V a_[2] = {r4, KS[64]}; r40 = call_v(kir_gload(191, "unwrap_or"), 2, a_); }
-  { V a_[2] = {KS[2312], r40}; r41 = k_interp(2, a_); }
+  { V a_[2] = {KS[2326], r40}; r41 = k_interp(2, a_); }
   r42 = kf972_std_kite_check_te(r0, r8, r41);
   { V a_[1] = {r42}; r43 = call_v(kir_gload(151, "Err"), 1, a_); }
   return r43;
@@ -191913,7 +192111,7 @@ static V kf781_std_kite_check_brk(V r0, V r1, V r2, bool r3, V r4, V r5) {
   if (r53) goto B26; else goto B28;
  B26:;
   kline = 9002596;
-  r54 = kf972_std_kite_check_te(r44, r8, KS[2313]);
+  r54 = kf972_std_kite_check_te(r44, r8, KS[2327]);
   { V a_[1] = {r54}; r55 = call_v(kir_gload(151, "Err"), 1, a_); }
   return r55;
  B28:;
@@ -192104,7 +192302,7 @@ static V kf781_std_kite_check_brk(V r0, V r1, V r2, bool r3, V r4, V r5) {
   kline = 9002603; die("解构失败: %s", cshow(r135));
  B39:;
   kline = 9002609;
-  r217 = kf978_std_kite_check_unify(r44, r127, r129, r211, KS[2314]);
+  r217 = kf978_std_kite_check_unify(r44, r127, r129, r211, KS[2328]);
   kline = 9002612;
   r218 = kir_try(r217);
   if (r218) goto B44; else goto B45;
@@ -192215,7 +192413,7 @@ static int64_t kf783_std_kite_check_builtin_generic(V r0) {
   bool r8 = 0;
   SAFEPOINT(); CANCEL_POINT();
  B0:;
-  { V a_[5] = {KS[838], KS[1936], KS[106], KS[839], KS[2315]}; r1 = mklist(5, a_); }
+  { V a_[5] = {KS[838], KS[1936], KS[106], KS[839], KS[2329]}; r1 = mklist(5, a_); }
   kline = 9000170;
   { V a_[2] = {r1, r0}; r2 = call_v(kir_gload(292, "contains"), 2, a_); }
   r3 = ((r2).u.i != 0);
@@ -192258,7 +192456,7 @@ static V kf784_std_kite_check_builtin_impls(V r0) {
   SAFEPOINT(); CANCEL_POINT();
  B0:;
   kline = 9000178;
-  r1 = kir_vbin(9, r0, KS[2316]);
+  r1 = kir_vbin(9, r0, KS[2330]);
   r2 = ((r1).u.i != 0);
   if (r2) goto B1; else goto B3;
  B1:;
@@ -192266,7 +192464,7 @@ static V kf784_std_kite_check_builtin_impls(V r0) {
   return r3;
  B3:;
   kline = 9000179;
-  r4 = kir_vbin(9, r0, KS[2317]);
+  r4 = kir_vbin(9, r0, KS[2331]);
   r5 = ((r4).u.i != 0);
   if (r5) goto B4; else goto B6;
  B4:;
@@ -192274,7 +192472,7 @@ static V kf784_std_kite_check_builtin_impls(V r0) {
   return r6;
  B6:;
   kline = 9000180;
-  r7 = kir_vbin(9, r0, KS[2318]);
+  r7 = kir_vbin(9, r0, KS[2332]);
   r8 = ((r7).u.i != 0);
   if (r8) goto B7; else goto B9;
  B7:;
@@ -192282,7 +192480,7 @@ static V kf784_std_kite_check_builtin_impls(V r0) {
   return r9;
  B9:;
   kline = 9000185;
-  r10 = kir_vbin(9, r0, KS[2319]);
+  r10 = kir_vbin(9, r0, KS[2333]);
   r11 = ((r10).u.i != 0);
   if (r11) goto B10; else goto B12;
  B10:;
@@ -192296,7 +192494,7 @@ static V kf785_std_kite_check_builtin_traits(void) {
   V r0 = UNIT;
   SAFEPOINT(); CANCEL_POINT();
  B0:;
-  { V a_[5] = {KS[2318], KS[2317], KS[2320], KS[2316], KS[2319]}; r0 = mklist(5, a_); }
+  { V a_[5] = {KS[2332], KS[2331], KS[2334], KS[2330], KS[2333]}; r0 = mklist(5, a_); }
   return r0;
 }
 static V kf786_std_kite_check_c_callback_ok(V r0, V r1) {
@@ -193699,7 +193897,7 @@ static V kf788_std_kite_check_call(V r0, V r1, V r2, V r3, int64_t r4) {
   if (r115) goto B20; else goto B18;
  B18:;
   kline = 9003785;
-  { V a_[4] = {KS[2321], r81, KS[2322], r77}; r121 = k_interp(4, a_); }
+  { V a_[4] = {KS[2335], r81, KS[2336], r77}; r121 = k_interp(4, a_); }
   r122 = kf972_std_kite_check_te(r71, r4, r121);
   { V a_[1] = {r122}; r123 = call_v(kir_gload(151, "Err"), 1, a_); }
   return r123;
@@ -193710,7 +193908,7 @@ static V kf788_std_kite_check_call(V r0, V r1, V r2, V r3, int64_t r4) {
   if (r117) goto B21; else { SAFEPOINT(); CANCEL_POINT(); goto B18; }
  B21:;
   kline = 9003782;
-  { V a_[6] = {r81, KS[69], r77, KS[2323], r77, KS[2324]}; r118 = k_interp(6, a_); }
+  { V a_[6] = {r81, KS[69], r77, KS[2337], r77, KS[2338]}; r118 = k_interp(6, a_); }
   r119 = kf972_std_kite_check_te(r71, r4, r118);
   { V a_[1] = {r119}; r120 = call_v(kir_gload(151, "Err"), 1, a_); }
   return r120;
@@ -193762,7 +193960,7 @@ static V kf788_std_kite_check_call(V r0, V r1, V r2, V r3, int64_t r4) {
   r148 = kf862_std_kite_check_head(r140, r147);
   r149 = r148;
   kline = 9003793;
-  r150 = kf958_std_kite_check_starts(r149, KS[2325]);
+  r150 = kf958_std_kite_check_starts(r149, KS[2339]);
   if (r150) goto B36; else goto B38;
  B35:;
   kline = 9003789; die("解构失败: %s", cshow(r138));
@@ -193912,14 +194110,14 @@ static V kf788_std_kite_check_call(V r0, V r1, V r2, V r3, int64_t r4) {
   if (r206) goto B69; else goto B71;
  B69:;
   kline = 9003812;
-  { V a_[3] = {KS[2326], r77, KS[2327]}; r213 = k_interp(3, a_); }
+  { V a_[3] = {KS[2340], r77, KS[2341]}; r213 = k_interp(3, a_); }
   r214 = kf972_std_kite_check_te(r140, r4, r213);
   { V a_[1] = {r214}; r215 = call_v(kir_gload(151, "Err"), 1, a_); }
   return r215;
  B71:;
   kline = 9003814;
   { r216 = call_v(kir_gload(208, "Map"), 0, NULL); }
-  { V a_[3] = {r216, KS[2328], r147}; r217 = call_v(kir_gload(209, "set"), 3, a_); }
+  { V a_[3] = {r216, KS[2342], r147}; r217 = call_v(kir_gload(209, "set"), 3, a_); }
   { V a_[1] = {r147}; r218 = call_v(kir_gload(247, "Some"), 1, a_); }
   r219 = kf844_std_kite_check_fn_sig(r140, r201, r217, r218);
   r220 = kir_try(r219);
@@ -193982,23 +194180,23 @@ static V kf788_std_kite_check_call(V r0, V r1, V r2, V r3, int64_t r4) {
   r244 = r248;
   goto B85;
  B84:;
-  r244 = KS[2329];
+  r244 = KS[2343];
   goto B85;
  B85:;
   r249 = r244;
   kline = 9003822;
-  r251 = kf958_std_kite_check_starts(r187, KS[2330]);
+  r251 = kf958_std_kite_check_starts(r187, KS[2344]);
   if (r251) goto B86; else goto B87;
  B86:;
   r250 = KS[64];
   goto B88;
  B87:;
-  r250 = KS[2331];
+  r250 = KS[2345];
   goto B88;
  B88:;
   r252 = r250;
   kline = 9003823;
-  { V a_[6] = {r187, KS[2332], r77, KS[2333], r249, KS[1123]}; r253 = k_interp(6, a_); }
+  { V a_[6] = {r187, KS[2346], r77, KS[2347], r249, KS[1123]}; r253 = k_interp(6, a_); }
   r254 = kir_vbin(0, r252, r253);
   r255 = kf972_std_kite_check_te(r140, r4, r254);
   { V a_[1] = {r255}; r256 = call_v(kir_gload(151, "Err"), 1, a_); }
@@ -194032,7 +194230,7 @@ static V kf788_std_kite_check_call(V r0, V r1, V r2, V r3, int64_t r4) {
   if (r266) goto B95; else goto B97;
  B95:;
   kline = 9003828;
-  { V a_[5] = {KS[2326], r149, KS[69], r77, KS[2327]}; r275 = k_interp(5, a_); }
+  { V a_[5] = {KS[2340], r149, KS[69], r77, KS[2341]}; r275 = k_interp(5, a_); }
   r276 = kf972_std_kite_check_te(r140, r4, r275);
   { V a_[1] = {r276}; r277 = call_v(kir_gload(151, "Err"), 1, a_); }
   return r277;
@@ -194121,7 +194319,7 @@ static V kf788_std_kite_check_call(V r0, V r1, V r2, V r3, int64_t r4) {
   { V a_[49] = {r286, r287, r290, r291, r292, r293, r294, r295, r296, r297, r298, r299, r300, r301, r302, r303, r304, r305, r308, r309, r310, r311, r312, r313, r314, r315, r318, r321, r322, r323, r324, r325, r326, r327, r328, r329, r330, r331, r332, r333, r334, r335, r336, r337, r340, r343, r346, r347, r348}; r349 = k_struct(&ST_54, 49, FS177, a_); }
   kline = 9003835;
   r350 = k_field(r140, 424);
-  r351 = kir_vbin(0, r149, KS[2334]);
+  r351 = kir_vbin(0, r149, KS[2348]);
   r352 = kir_vbin(0, r351, r77);
   { V a_[2] = {r350, r352}; r353 = call_v(kir_gload(180, "get"), 2, a_); }
   r354 = mklist(0, NULL);
@@ -194236,7 +194434,7 @@ static V kf788_std_kite_check_call(V r0, V r1, V r2, V r3, int64_t r4) {
   if (r431) goto B137; else goto B139;
  B126:;
   kline = 9003847;
-  { V a_[3] = {KS[2335], r77, KS[2336]}; r407 = k_interp(3, a_); }
+  { V a_[3] = {KS[2349], r77, KS[2350]}; r407 = k_interp(3, a_); }
   r408 = kf972_std_kite_check_te(r140, r4, r407);
   { V a_[1] = {r408}; r409 = call_v(kir_gload(151, "Err"), 1, a_); }
   return r409;
@@ -194286,14 +194484,14 @@ static V kf788_std_kite_check_call(V r0, V r1, V r2, V r3, int64_t r4) {
   kline = 9003849; die("解构失败: %s", cshow(r424));
  B137:;
   kline = 9003852;
-  { V a_[3] = {KS[2335], r77, KS[2336]}; r432 = k_interp(3, a_); }
+  { V a_[3] = {KS[2349], r77, KS[2350]}; r432 = k_interp(3, a_); }
   r433 = kf972_std_kite_check_te(r140, r4, r432);
   { V a_[1] = {r433}; r434 = call_v(kir_gload(151, "Err"), 1, a_); }
   return r434;
  B139:;
   kline = 9003853;
   r435 = kf948_std_kite_check_sh(r140, r147);
-  { V a_[3] = {r435, KS[2332], r77}; r436 = k_interp(3, a_); }
+  { V a_[3] = {r435, KS[2346], r77}; r436 = k_interp(3, a_); }
   r437 = kf972_std_kite_check_te(r140, r4, r436);
   { V a_[1] = {r437}; r438 = call_v(kir_gload(151, "Err"), 1, a_); }
   return r438;
@@ -194507,13 +194705,13 @@ static V kf788_std_kite_check_call(V r0, V r1, V r2, V r3, int64_t r4) {
   r657 = r660;
   SAFEPOINT(); CANCEL_POINT(); goto B158;
  B161:;
-  r657 = KS[2337];
+  r657 = KS[2351];
   SAFEPOINT(); CANCEL_POINT(); goto B158;
  B162:;
   r662 = PB[47];
   kline = 9003873;
   r663 = kf909_std_kite_check_name_of(r662);
-  { V a_[2] = {r663, KS[2337]}; r664 = call_v(kir_gload(191, "unwrap_or"), 2, a_); }
+  { V a_[2] = {r663, KS[2351]}; r664 = call_v(kir_gload(191, "unwrap_or"), 2, a_); }
   r657 = r664;
   SAFEPOINT(); CANCEL_POINT(); goto B158;
  B164:;
@@ -194863,7 +195061,7 @@ static V kf792_std_kite_check_cast(V r0, V r1, V r2) {
   if (r8) goto B3; else goto B2;
  B2:;
   kline = 9003329;
-  r12 = kf972_std_kite_check_te(r0, r5, KS[2338]);
+  r12 = kf972_std_kite_check_te(r0, r5, KS[2352]);
   { V a_[1] = {r12}; r13 = call_v(kir_gload(151, "Err"), 1, a_); }
   return r13;
  B3:;
@@ -194931,7 +195129,7 @@ static V kf792_std_kite_check_cast(V r0, V r1, V r2) {
   kline = 9003332; die("解构失败: %s", cshow(r28));
  B15:;
   kline = 9003337;
-  r41 = kf972_std_kite_check_te(r30, r5, KS[2339]);
+  r41 = kf972_std_kite_check_te(r30, r5, KS[2353]);
   { V a_[1] = {r41}; r42 = call_v(kir_gload(151, "Err"), 1, a_); }
   return r42;
  B17:;
@@ -195030,7 +195228,7 @@ static V kf792_std_kite_check_cast(V r0, V r1, V r2) {
   kline = 9003354;
   r95 = kf948_std_kite_check_sh(r30, r33);
   r96 = kf948_std_kite_check_sh(r30, r35);
-  { V a_[5] = {KS[2340], r95, KS[2341], r96, KS[2342]}; r97 = k_interp(5, a_); }
+  { V a_[5] = {KS[2354], r95, KS[2355], r96, KS[2356]}; r97 = k_interp(5, a_); }
   kline = 9003351;
   r98 = kf972_std_kite_check_te(r30, r5, r97);
   kline = 9003350;
@@ -196580,7 +196778,7 @@ static V kf800_std_kite_check_check_extern(V r0, V r1, V r2) {
   { V a_[1] = {r97}; r98 = call_v(kir_gload(150, "Ok"), 1, a_); }
   return r98;
  B4:;
-  r23 = KS[2343];
+  r23 = KS[2357];
   goto B6;
  B5:;
   r24 = mkint(r10);
@@ -196698,11 +196896,11 @@ static V kf800_std_kite_check_check_extern(V r0, V r1, V r2) {
   r10 = r83;
   SAFEPOINT(); CANCEL_POINT(); goto B1;
  B37:;
-  r67 = KS[2343];
+  r67 = KS[2357];
   goto B39;
  B38:;
   kline = 9002272;
-  r68 = kir_vbin(0, KS[2344], r27);
+  r68 = kir_vbin(0, KS[2358], r27);
   r69 = kir_vbin(0, r68, KS[73]);
   r67 = r69;
   goto B39;
@@ -196710,16 +196908,16 @@ static V kf800_std_kite_check_check_extern(V r0, V r1, V r2) {
   r70 = r67;
   if (r22) goto B40; else goto B41;
  B40:;
-  r71 = KS[2345];
+  r71 = KS[2359];
   goto B42;
  B41:;
-  r71 = KS[2346];
+  r71 = KS[2360];
   goto B42;
  B42:;
   r72 = r71;
   if (r22) goto B43; else goto B44;
  B43:;
-  r73 = KS[2347];
+  r73 = KS[2361];
   goto B45;
  B44:;
   r73 = KS[64];
@@ -196731,7 +196929,7 @@ static V kf800_std_kite_check_check_extern(V r0, V r1, V r2) {
   r76 = (r75).u.i;
   kline = 9002283;
   r77 = kf948_std_kite_check_sh(r3, r37);
-  { V a_[8] = {KS[2348], r14, KS[2349], r70, KS[2350], r77, KS[2351], r74}; r78 = k_interp(8, a_); }
+  { V a_[8] = {KS[2362], r14, KS[2363], r70, KS[2364], r77, KS[2365], r74}; r78 = k_interp(8, a_); }
   r79 = kir_vbin(0, r78, r72);
   r80 = kir_vbin(0, r79, KS[1123]);
   kline = 9002280;
@@ -197454,7 +197652,7 @@ static V kf802_std_kite_check_check_fn_body2(V r0, V r1, V r2, V r3, V r4) {
  B47:;
   kline = 9002064;
   r249 = kf862_std_kite_check_head(r56, r55);
-  r250 = kir_vbin(9, r249, KS[2310]);
+  r250 = kir_vbin(9, r249, KS[2324]);
   r251 = ((r250).u.i != 0);
   r246 = r251;
   goto B48;
@@ -198144,7 +198342,7 @@ static V kf804_std_kite_check_check_impl_sig(V r0, V r1, V r2, V r3, V r4, V r5)
   kline = 9001848;
   r18 = k_field(r7, 68);
   r19 = k_field(r12, 9);
-  { V a_[6] = {KS[1019], r10, KS[1020], r18, KS[2352], r19}; r20 = k_interp(6, a_); }
+  { V a_[6] = {KS[1019], r10, KS[1020], r18, KS[2366], r19}; r20 = k_interp(6, a_); }
   r16 = r20;
   SAFEPOINT(); CANCEL_POINT(); goto B1;
  B4:;
@@ -198153,14 +198351,14 @@ static V kf804_std_kite_check_check_impl_sig(V r0, V r1, V r2, V r3, V r4, V r5)
   r22 = PB[0];
   kline = 9001849;
   r23 = k_field(r7, 68);
-  { V a_[6] = {KS[1019], r10, KS[1020], r23, KS[2353], r22}; r24 = k_interp(6, a_); }
+  { V a_[6] = {KS[1019], r10, KS[1020], r23, KS[2367], r22}; r24 = k_interp(6, a_); }
   r16 = r24;
   SAFEPOINT(); CANCEL_POINT(); goto B1;
  B6:;
   kline = 9001852;
   r29 = k_field(r2, 35);
   r30 = (r29).u.i;
-  { V a_[2] = {r25, KS[2354]}; r31 = k_interp(2, a_); }
+  { V a_[2] = {r25, KS[2368]}; r31 = k_interp(2, a_); }
   r33 = kf860_std_kite_check_has_self(r2);
   if (r33) goto B9; else goto B10;
  B8:;
@@ -198175,10 +198373,10 @@ static V kf804_std_kite_check_check_impl_sig(V r0, V r1, V r2, V r3, V r4, V r5)
   r43 = r42 != r40;
   if (r43) goto B12; else goto B14;
  B9:;
-  r32 = KS[2355];
+  r32 = KS[2369];
   goto B11;
  B10:;
-  r32 = KS[2356];
+  r32 = KS[2370];
   goto B11;
  B11:;
   kline = 9001852;
@@ -198190,7 +198388,7 @@ static V kf804_std_kite_check_check_impl_sig(V r0, V r1, V r2, V r3, V r4, V r5)
   kline = 9001860;
   r44 = k_field(r2, 35);
   r45 = (r44).u.i;
-  { V a_[2] = {r25, KS[2357]}; r46 = k_interp(2, a_); }
+  { V a_[2] = {r25, KS[2371]}; r46 = k_interp(2, a_); }
   if (r40) goto B15; else goto B16;
  B14:;
   kline = 9001866;
@@ -198208,10 +198406,10 @@ static V kf804_std_kite_check_check_impl_sig(V r0, V r1, V r2, V r3, V r4, V r5)
   r61 = r55 != r60;
   if (r61) goto B18; else goto B20;
  B15:;
-  r47 = KS[2358];
+  r47 = KS[2372];
   goto B17;
  B16:;
-  r47 = KS[2359];
+  r47 = KS[2373];
   goto B17;
  B17:;
   kline = 9001860;
@@ -198225,7 +198423,7 @@ static V kf804_std_kite_check_check_impl_sig(V r0, V r1, V r2, V r3, V r4, V r5)
   r63 = (r62).u.i;
   r64 = mkint(r55);
   r65 = mkint(r60);
-  { V a_[6] = {r25, KS[2360], r64, KS[2361], r65, KS[2280]}; r66 = k_interp(6, a_); }
+  { V a_[6] = {r25, KS[2374], r64, KS[2375], r65, KS[2294]}; r66 = k_interp(6, a_); }
   r67 = kf972_std_kite_check_te(r0, r63, r66);
   { V a_[1] = {r67}; r68 = call_v(kir_gload(151, "Err"), 1, a_); }
   return r68;
@@ -198328,7 +198526,7 @@ static V kf804_std_kite_check_check_impl_sig(V r0, V r1, V r2, V r3, V r4, V r5)
   r118 = mkint(r117);
   r119 = k_index(r103, r118);
   r120 = kf948_std_kite_check_sh(r114, r119);
-  { V a_[5] = {r25, KS[2362], r113, KS[2363], r120}; r121 = k_interp(5, a_); }
+  { V a_[5] = {r25, KS[2376], r113, KS[2377], r120}; r121 = k_interp(5, a_); }
   kline = 9001882;
   r122 = kf972_std_kite_check_te(r104, r106, r121);
   kline = 9001881;
@@ -198345,7 +198543,7 @@ static V kf804_std_kite_check_check_impl_sig(V r0, V r1, V r2, V r3, V r4, V r5)
   r128 = kf948_std_kite_check_sh(r127, r5);
   r129 = k_field(r97, 437);
   r130 = kf948_std_kite_check_sh(r129, r4);
-  { V a_[5] = {r25, KS[2364], r128, KS[2363], r130}; r131 = k_interp(5, a_); }
+  { V a_[5] = {r25, KS[2378], r128, KS[2377], r130}; r131 = k_interp(5, a_); }
   kline = 9001890;
   r132 = kf972_std_kite_check_te(r124, r126, r131);
   kline = 9001889;
@@ -198726,7 +198924,7 @@ static V kf805_std_kite_check_check_supers(V r0, V r1) {
   r30 = k_field(r6, 35);
   r31 = (r30).u.i;
   r32 = mkint(r31);
-  { V a_[5] = {KS[2365], r10, KS[2366], r19, KS[2367]}; r33 = k_interp(5, a_); }
+  { V a_[5] = {KS[2379], r10, KS[2380], r19, KS[2381]}; r33 = k_interp(5, a_); }
   { V a_[2] = {r32, r33}; r34 = mktuple(2, a_); }
   { V a_[2] = {r29, r34}; r35 = call_v(kir_gload(179, "push"), 2, a_); }
   kline = 9001648;
@@ -198826,7 +199024,7 @@ static V kf805_std_kite_check_check_supers(V r0, V r1) {
   r119 = k_field(r6, 35);
   r120 = (r119).u.i;
   r121 = mkint(r120);
-  { V a_[3] = {KS[2365], r10, KS[2368]}; r122 = k_interp(3, a_); }
+  { V a_[3] = {KS[2379], r10, KS[2382]}; r122 = k_interp(3, a_); }
   { V a_[2] = {r121, r122}; r123 = mktuple(2, a_); }
   { V a_[2] = {r118, r123}; r124 = call_v(kir_gload(179, "push"), 2, a_); }
   kline = 9001660;
@@ -198966,7 +199164,7 @@ static V kf805_std_kite_check_check_supers(V r0, V r1) {
   if (r220) goto B38; else goto B39;
  B38:;
   kline = 9001680;
-  r225 = kir_vbin(9, r219, KS[2320]);
+  r225 = kir_vbin(9, r219, KS[2334]);
   r226 = ((r225).u.i != 0);
   r224 = r226;
   if (r224) goto B41; else goto B40;
@@ -198998,7 +199196,7 @@ static V kf805_std_kite_check_check_supers(V r0, V r1) {
   r237 = k_field(r199, 35);
   r238 = (r237).u.i;
   r239 = mkint(r238);
-  { V a_[8] = {KS[2369], r209, KS[1020], r211, KS[1128], r211, KS[2370], r219}; r240 = k_interp(8, a_); }
+  { V a_[8] = {KS[2383], r209, KS[1020], r211, KS[1128], r211, KS[2384], r219}; r240 = k_interp(8, a_); }
   { V a_[2] = {r239, r240}; r241 = mktuple(2, a_); }
   kline = 9001685;
   { V a_[2] = {r236, r241}; r242 = call_v(kir_gload(179, "push"), 2, a_); }
@@ -199855,7 +200053,7 @@ static V kf811_std_kite_check_conv2(V r0, V r1, V r2, bool r3, bool r4, bool r5)
   r57 = PB[12];
   { V a_[1] = {r57}; r58 = mklist(1, a_); }
   kline = 9000912;
-  { V a_[2] = {KS[2274], r58}; r59 = call_v(kir_gload(178, "TC"), 2, a_); }
+  { V a_[2] = {KS[2288], r58}; r59 = call_v(kir_gload(178, "TC"), 2, a_); }
   { V a_[2] = {r56, r59}; r60 = mktuple(2, a_); }
   { V a_[1] = {r60}; r61 = call_v(kir_gload(150, "Ok"), 1, a_); }
   return r61;
@@ -199870,9 +200068,9 @@ static V kf811_std_kite_check_conv2(V r0, V r1, V r2, bool r3, bool r4, bool r5)
   r64 = PB[14];
   kline = 9000915;
   r65 = (r64).u.i;
-  { V a_[2] = {r63, KS[2371]}; r66 = call_v(kir_gload(188, "join"), 2, a_); }
+  { V a_[2] = {r63, KS[2385]}; r66 = call_v(kir_gload(188, "join"), 2, a_); }
   r67 = kir_vbin(0, KS[1019], r66);
-  r68 = kir_vbin(0, r67, KS[2372]);
+  r68 = kir_vbin(0, r67, KS[2386]);
   r69 = kf972_std_kite_check_te(r0, r65, r68);
   { V a_[1] = {r69}; r70 = call_v(kir_gload(151, "Err"), 1, a_); }
   return r70;
@@ -199898,8 +200096,8 @@ static V kf811_std_kite_check_conv2(V r0, V r1, V r2, bool r3, bool r4, bool r5)
   if (r79) goto B36; else { SAFEPOINT(); CANCEL_POINT(); goto B33; }
  B35:;
   kline = 9000919;
-  { V a_[2] = {r72, KS[2371]}; r84 = call_v(kir_gload(188, "join"), 2, a_); }
-  r85 = kir_vbin(0, KS[2330], r84);
+  { V a_[2] = {r72, KS[2385]}; r84 = call_v(kir_gload(188, "join"), 2, a_); }
+  r85 = kir_vbin(0, KS[2344], r84);
   { V a_[2] = {r85, r72}; r86 = call_v(kir_gload(524, "TR"), 2, a_); }
   { V a_[2] = {r0, r86}; r87 = mktuple(2, a_); }
   { V a_[1] = {r87}; r88 = call_v(kir_gload(150, "Ok"), 1, a_); }
@@ -199907,7 +200105,7 @@ static V kf811_std_kite_check_conv2(V r0, V r1, V r2, bool r3, bool r4, bool r5)
  B36:;
   kline = 9000918;
   r80 = (r73).u.i;
-  { V a_[2] = {KS[2373], r77}; r81 = k_interp(2, a_); }
+  { V a_[2] = {KS[2387], r77}; r81 = k_interp(2, a_); }
   r82 = kf972_std_kite_check_te(r0, r80, r81);
   { V a_[1] = {r82}; r83 = call_v(kir_gload(151, "Err"), 1, a_); }
   return r83;
@@ -199930,7 +200128,7 @@ static V kf811_std_kite_check_conv2(V r0, V r1, V r2, bool r3, bool r4, bool r5)
   if (r95) goto B44; else goto B46;
  B43:;
   kline = 9000939;
-  r109 = kir_vbin(9, r13, KS[2374]);
+  r109 = kir_vbin(9, r13, KS[2388]);
   r110 = ((r109).u.i != 0);
   r108 = r110;
   if (r108) goto B47; else goto B48;
@@ -199941,7 +200139,7 @@ static V kf811_std_kite_check_conv2(V r0, V r1, V r2, bool r3, bool r4, bool r5)
   r98 = mkint(INT64_C(1));
   r99 = mkint(r97);
   { V a_[3] = {r13, r98, r99}; r100 = call_v(kir_gload(181, "__str_slice"), 3, a_); }
-  { V a_[3] = {KS[2375], r100, KS[2376]}; r101 = k_interp(3, a_); }
+  { V a_[3] = {KS[2389], r100, KS[2390]}; r101 = k_interp(3, a_); }
   kline = 9000930;
   r102 = kf972_std_kite_check_te(r0, r16, r101);
   kline = 9000929;
@@ -200007,7 +200205,7 @@ static V kf811_std_kite_check_conv2(V r0, V r1, V r2, bool r3, bool r4, bool r5)
   r131 = PB[23];
   { V a_[2] = {r122, r131}; r132 = mklist(2, a_); }
   kline = 9000942;
-  { V a_[2] = {KS[2374], r132}; r133 = call_v(kir_gload(178, "TC"), 2, a_); }
+  { V a_[2] = {KS[2388], r132}; r133 = call_v(kir_gload(178, "TC"), 2, a_); }
   { V a_[2] = {r130, r133}; r134 = mktuple(2, a_); }
   { V a_[1] = {r134}; r135 = call_v(kir_gload(150, "Ok"), 1, a_); }
   return r135;
@@ -200032,7 +200230,7 @@ static V kf811_std_kite_check_conv2(V r0, V r1, V r2, bool r3, bool r4, bool r5)
   if (r143) goto B66; else goto B67;
  B66:;
   kline = 9000946;
-  r145 = kir_vbin(0, KS[2377], r13);
+  r145 = kir_vbin(0, KS[2391], r13);
   { V a_[2] = {r2, r145}; r146 = call_v(kir_gload(292, "contains"), 2, a_); }
   r147 = ((r146).u.i != 0);
   r143 = r147;
@@ -200066,7 +200264,7 @@ static V kf811_std_kite_check_conv2(V r0, V r1, V r2, bool r3, bool r4, bool r5)
   if (r153) goto B74; else goto B76;
  B74:;
   kline = 9000947;
-  { V a_[2] = {r13, KS[2378]}; r155 = k_interp(2, a_); }
+  { V a_[2] = {r13, KS[2392]}; r155 = k_interp(2, a_); }
   r156 = kf972_std_kite_check_te(r0, r16, r155);
   { V a_[1] = {r156}; r157 = call_v(kir_gload(151, "Err"), 1, a_); }
   return r157;
@@ -200081,7 +200279,7 @@ static V kf811_std_kite_check_conv2(V r0, V r1, V r2, bool r3, bool r4, bool r5)
   if (r158) goto B79; else goto B81;
  B79:;
   kline = 9000948;
-  { V a_[3] = {KS[2379], r13, KS[2380]}; r160 = k_interp(3, a_); }
+  { V a_[3] = {KS[2393], r13, KS[2394]}; r160 = k_interp(3, a_); }
   r161 = kf972_std_kite_check_te(r0, r16, r160);
   { V a_[1] = {r161}; r162 = call_v(kir_gload(151, "Err"), 1, a_); }
   return r162;
@@ -200092,7 +200290,7 @@ static V kf811_std_kite_check_conv2(V r0, V r1, V r2, bool r3, bool r4, bool r5)
   return r164;
  B83:;
   kline = 9000952;
-  { V a_[5] = {KS[2379], r13, KS[2381], r13, KS[2382]}; r165 = k_interp(5, a_); }
+  { V a_[5] = {KS[2393], r13, KS[2395], r13, KS[2396]}; r165 = k_interp(5, a_); }
   r166 = kf972_std_kite_check_te(r0, r16, r165);
   { V a_[1] = {r166}; r167 = call_v(kir_gload(151, "Err"), 1, a_); }
   return r167;
@@ -200204,7 +200402,7 @@ static V kf811_std_kite_check_conv2(V r0, V r1, V r2, bool r3, bool r4, bool r5)
   if (r210) goto B108; else { SAFEPOINT(); CANCEL_POINT(); goto B105; }
  B108:;
   kline = 9000969;
-  { V a_[3] = {r182, KS[2383], r191}; r211 = k_interp(3, a_); }
+  { V a_[3] = {r182, KS[2397], r191}; r211 = k_interp(3, a_); }
   r212 = kf972_std_kite_check_te(r0, r16, r211);
   { V a_[1] = {r212}; r213 = call_v(kir_gload(151, "Err"), 1, a_); }
   return r213;
@@ -200280,7 +200478,7 @@ static V kf811_std_kite_check_conv2(V r0, V r1, V r2, bool r3, bool r4, bool r5)
   { V a_[1] = {r15}; r247 = call_v(kir_gload(163, "len"), 1, a_); }
   r248 = (r247).u.i;
   r249 = mkint(r248);
-  { V a_[7] = {KS[2384], r13, KS[2278], r246, KS[2385], r249, KS[2280]}; r250 = k_interp(7, a_); }
+  { V a_[7] = {KS[2398], r13, KS[2292], r246, KS[2399], r249, KS[2294]}; r250 = k_interp(7, a_); }
   r251 = kf972_std_kite_check_te(r0, r16, r250);
   { V a_[1] = {r251}; r252 = call_v(kir_gload(151, "Err"), 1, a_); }
   return r252;
@@ -200365,7 +200563,7 @@ static V kf811_std_kite_check_conv2(V r0, V r1, V r2, bool r3, bool r4, bool r5)
  B144:;
   kline = 9000993;
   r286 = kf948_std_kite_check_sh(r253, r278);
-  { V a_[12] = {r13, KS[12], r286, KS[2386], r280, KS[135], r276, KS[2387], r280, KS[2388], r276, KS[1123]}; r287 = k_interp(12, a_); }
+  { V a_[12] = {r13, KS[12], r286, KS[2400], r280, KS[135], r276, KS[2401], r280, KS[2402], r276, KS[1123]}; r287 = k_interp(12, a_); }
   r288 = kf972_std_kite_check_te(r253, r16, r287);
   { V a_[1] = {r288}; r289 = call_v(kir_gload(151, "Err"), 1, a_); }
   return r289;
@@ -200385,7 +200583,7 @@ static V kf811_std_kite_check_conv2(V r0, V r1, V r2, bool r3, bool r4, bool r5)
  B149:;
   kline = 9000998;
   r297 = kf948_std_kite_check_sh(r253, r278);
-  { V a_[12] = {r13, KS[12], r297, KS[2386], r291, KS[135], r276, KS[2387], r291, KS[2388], r276, KS[1123]}; r298 = k_interp(12, a_); }
+  { V a_[12] = {r13, KS[12], r297, KS[2400], r291, KS[135], r276, KS[2401], r291, KS[2402], r276, KS[1123]}; r298 = k_interp(12, a_); }
   r299 = kf972_std_kite_check_te(r253, r16, r298);
   { V a_[1] = {r299}; r300 = call_v(kir_gload(151, "Err"), 1, a_); }
   return r300;
@@ -200493,7 +200691,7 @@ static V kf811_std_kite_check_conv2(V r0, V r1, V r2, bool r3, bool r4, bool r5)
   SAFEPOINT(); CANCEL_POINT(); goto B175;
  B178:;
   kline = 9001017;
-  { V a_[5] = {r13, KS[2389], r336, KS[2390], r339}; r349 = k_interp(5, a_); }
+  { V a_[5] = {r13, KS[2403], r336, KS[2404], r339}; r349 = k_interp(5, a_); }
   r350 = kf972_std_kite_check_te(r313, r16, r349);
   { V a_[1] = {r350}; r351 = call_v(kir_gload(151, "Err"), 1, a_); }
   return r351;
@@ -200518,7 +200716,7 @@ static V kf811_std_kite_check_conv2(V r0, V r1, V r2, bool r3, bool r4, bool r5)
   r359 = mkint(INT64_C(1));
   r360 = mkint(r358);
   { V a_[3] = {r339, r359, r360}; r361 = call_v(kir_gload(181, "__str_slice"), 3, a_); }
-  { V a_[5] = {r13, KS[2391], r336, KS[2392], r361}; r362 = k_interp(5, a_); }
+  { V a_[5] = {r13, KS[2405], r336, KS[2406], r361}; r362 = k_interp(5, a_); }
   r363 = kf972_std_kite_check_te(r313, r16, r362);
   kline = 9001020;
   { V a_[1] = {r363}; r364 = call_v(kir_gload(151, "Err"), 1, a_); }
@@ -200603,7 +200801,7 @@ static V kf811_std_kite_check_conv2(V r0, V r1, V r2, bool r3, bool r4, bool r5)
   { V a_[1] = {r312}; r402 = call_v(kir_gload(163, "len"), 1, a_); }
   r403 = (r402).u.i;
   r404 = mkint(r403);
-  { V a_[6] = {r13, KS[2278], r401, KS[2385], r404, KS[2280]}; r405 = k_interp(6, a_); }
+  { V a_[6] = {r13, KS[2292], r401, KS[2399], r404, KS[2294]}; r405 = k_interp(6, a_); }
   r406 = kf972_std_kite_check_te(r313, r16, r405);
   { V a_[1] = {r406}; r407 = call_v(kir_gload(151, "Err"), 1, a_); }
   return r407;
@@ -200636,7 +200834,7 @@ static V kf811_std_kite_check_conv2(V r0, V r1, V r2, bool r3, bool r4, bool r5)
   if (r422) goto B211; else goto B212;
  B210:;
   kline = 9001057;
-  { V a_[2] = {KS[2393], r13}; r451 = k_interp(2, a_); }
+  { V a_[2] = {KS[2407], r13}; r451 = k_interp(2, a_); }
   r452 = kf972_std_kite_check_te(r313, r16, r451);
   { V a_[1] = {r452}; r453 = call_v(kir_gload(151, "Err"), 1, a_); }
   return r453;
@@ -200655,7 +200853,7 @@ static V kf811_std_kite_check_conv2(V r0, V r1, V r2, bool r3, bool r4, bool r5)
   { V a_[1] = {r312}; r430 = call_v(kir_gload(163, "len"), 1, a_); }
   r431 = (r430).u.i;
   r432 = mkint(r431);
-  { V a_[6] = {r13, KS[2278], r429, KS[2385], r432, KS[2280]}; r433 = k_interp(6, a_); }
+  { V a_[6] = {r13, KS[2292], r429, KS[2399], r432, KS[2294]}; r433 = k_interp(6, a_); }
   r434 = kf972_std_kite_check_te(r313, r16, r433);
   { V a_[1] = {r434}; r435 = call_v(kir_gload(151, "Err"), 1, a_); }
   return r435;
@@ -201190,7 +201388,7 @@ static V kf814_std_kite_check_decl_item(V r0, V r1, V r2) {
   kline = 9001419;
   r30 = k_field(r2, 35);
   r31 = (r30).u.i;
-  { V a_[2] = {KS[2373], r27}; r32 = k_interp(2, a_); }
+  { V a_[2] = {KS[2387], r27}; r32 = k_interp(2, a_); }
   r33 = kf972_std_kite_check_te(r3, r31, r32);
   { V a_[1] = {r33}; r34 = call_v(kir_gload(151, "Err"), 1, a_); }
   return r34;
@@ -201251,7 +201449,7 @@ static V kf814_std_kite_check_decl_item(V r0, V r1, V r2) {
  B25:;
   r58 = *r45->ref;
   kline = 9001430;
-  r59 = kir_vbin(0, KS[2377], r51);
+  r59 = kir_vbin(0, KS[2391], r51);
   r60 = kf762_std_kite_check_any_t();
   { V a_[3] = {r58, r59, r60}; r61 = call_v(kir_gload(209, "set"), 3, a_); }
   k_store_up(r45, r61);
@@ -201579,7 +201777,7 @@ static V kf814_std_kite_check_decl_item(V r0, V r1, V r2) {
   r281 = r284;
   r292 = r281;
   kline = 9001483;
-  r293 = kir_vbin(0, KS[2394], r8);
+  r293 = kir_vbin(0, KS[2408], r8);
   r262 = r293;
   kline = 9001484;
   r294 = k_field(r183, 65);
@@ -201618,7 +201816,7 @@ static V kf814_std_kite_check_decl_item(V r0, V r1, V r2) {
   return r291;
  B69:;
   kline = 9001497;
-  r308 = kir_vbin(0, KS[2395], r8);
+  r308 = kir_vbin(0, KS[2409], r8);
   r262 = r308;
   goto B71;
  B71:;
@@ -204166,7 +204364,7 @@ static V kf816_std_kite_check_declare_impl(V r0, V r1) {
   kline = 9001711;
   r24 = k_field(r1, 35);
   r25 = (r24).u.i;
-  { V a_[2] = {KS[2373], r21}; r26 = k_interp(2, a_); }
+  { V a_[2] = {KS[2387], r21}; r26 = k_interp(2, a_); }
   r27 = kf972_std_kite_check_te(r2, r25, r26);
   { V a_[1] = {r27}; r28 = call_v(kir_gload(151, "Err"), 1, a_); }
   return r28;
@@ -204311,7 +204509,7 @@ static V kf816_std_kite_check_declare_impl(V r0, V r1) {
   if (r101) goto B46; else goto B47;
  B43:;
   kline = 9001737;
-  r96 = kir_vbin(0, KS[2377], r90);
+  r96 = kir_vbin(0, KS[2391], r90);
   r97 = kf762_std_kite_check_any_t();
   { V a_[3] = {r83, r96, r97}; r98 = call_v(kir_gload(209, "set"), 3, a_); }
   r83 = r98;
@@ -204328,7 +204526,7 @@ static V kf816_std_kite_check_declare_impl(V r0, V r1) {
  B48:;
   kline = 9001741;
   r107 = kf762_std_kite_check_any_t();
-  { V a_[3] = {r83, KS[2396], r107}; r108 = call_v(kir_gload(209, "set"), 3, a_); }
+  { V a_[3] = {r83, KS[2410], r107}; r108 = call_v(kir_gload(209, "set"), 3, a_); }
   r83 = r108;
   goto B50;
  B50:;
@@ -204372,7 +204570,7 @@ static V kf816_std_kite_check_declare_impl(V r0, V r1) {
   kline = 9001746;
   r125 = k_field(r1, 35);
   r126 = (r125).u.i;
-  { V a_[3] = {KS[2397], r9, KS[2398]}; r127 = k_interp(3, a_); }
+  { V a_[3] = {KS[2411], r9, KS[2412]}; r127 = k_interp(3, a_); }
   r128 = kf972_std_kite_check_te(r2, r126, r127);
   { V a_[1] = {r128}; r129 = call_v(kir_gload(151, "Err"), 1, a_); }
   return r129;
@@ -204395,7 +204593,7 @@ static V kf816_std_kite_check_declare_impl(V r0, V r1) {
   r137 = PB[6];
   r2 = r136;
   kline = 9001750;
-  { V a_[3] = {r83, KS[2328], r137}; r138 = call_v(kir_gload(209, "set"), 3, a_); }
+  { V a_[3] = {r83, KS[2342], r137}; r138 = call_v(kir_gload(209, "set"), 3, a_); }
   r83 = r138;
   kline = 9001751;
   r139 = k_field(r2, 61);
@@ -204507,7 +204705,7 @@ static V kf816_std_kite_check_declare_impl(V r0, V r1) {
   kline = 9001762;
   { V a_[2] = {r217, r226}; r227 = call_v(kir_gload(192, "map"), 2, a_); }
   { V a_[2] = {r227, KS[140]}; r228 = call_v(kir_gload(188, "join"), 2, a_); }
-  r229 = kir_vbin(0, KS[2399], r228);
+  r229 = kir_vbin(0, KS[2413], r228);
   r230 = kir_vbin(0, r229, KS[1123]);
   kline = 9001759;
   r231 = kf972_std_kite_check_te(r2, r225, r230);
@@ -204630,7 +204828,7 @@ static V kf816_std_kite_check_declare_impl(V r0, V r1) {
   kline = 9001770;
   r249 = k_field(r1, 35);
   r250 = (r249).u.i;
-  { V a_[4] = {KS[2400], r215, KS[2401], r244}; r251 = k_interp(4, a_); }
+  { V a_[4] = {KS[2414], r215, KS[2415], r244}; r251 = k_interp(4, a_); }
   r252 = kf972_std_kite_check_te(r2, r250, r251);
   { V a_[1] = {r252}; r253 = call_v(kir_gload(151, "Err"), 1, a_); }
   return r253;
@@ -204845,7 +205043,7 @@ static V kf816_std_kite_check_declare_impl(V r0, V r1) {
   kline = 9001779;
   r275 = k_field(r1, 35);
   r276 = (r275).u.i;
-  { V a_[9] = {KS[1019], r215, KS[1020], r9, KS[2402], r258, KS[2403], r258, KS[2404]}; r277 = k_interp(9, a_); }
+  { V a_[9] = {KS[1019], r215, KS[1020], r9, KS[2416], r258, KS[2417], r258, KS[2418]}; r277 = k_interp(9, a_); }
   r278 = kf972_std_kite_check_te(r2, r276, r277);
   { V a_[1] = {r278}; r279 = call_v(kir_gload(151, "Err"), 1, a_); }
   return r279;
@@ -204892,7 +205090,7 @@ static V kf816_std_kite_check_declare_impl(V r0, V r1) {
   kline = 9001789;
   r441 = k_field(r1, 35);
   r442 = (r441).u.i;
-  { V a_[2] = {KS[2373], r215}; r443 = k_interp(2, a_); }
+  { V a_[2] = {KS[2387], r215}; r443 = k_interp(2, a_); }
   r444 = kf972_std_kite_check_te(r2, r442, r443);
   { V a_[1] = {r444}; r445 = call_v(kir_gload(151, "Err"), 1, a_); }
   return r445;
@@ -204948,7 +205146,7 @@ static V kf816_std_kite_check_declare_impl(V r0, V r1) {
   kline = 9001802;
   r476 = k_field(r1, 35);
   r477 = (r476).u.i;
-  { V a_[6] = {KS[1019], r215, KS[1020], r9, KS[2405], r460}; r478 = k_interp(6, a_); }
+  { V a_[6] = {KS[1019], r215, KS[1020], r9, KS[2419], r460}; r478 = k_interp(6, a_); }
   r479 = kf972_std_kite_check_te(r2, r477, r478);
   { V a_[1] = {r479}; r480 = call_v(kir_gload(151, "Err"), 1, a_); }
   return r480;
@@ -204957,7 +205155,7 @@ static V kf816_std_kite_check_declare_impl(V r0, V r1) {
   kline = 9001799;
   r471 = k_field(r1, 35);
   r472 = (r471).u.i;
-  { V a_[9] = {KS[1019], r215, KS[1020], r9, KS[2406], r470, KS[2407], r470, KS[2408]}; r473 = k_interp(9, a_); }
+  { V a_[9] = {KS[1019], r215, KS[1020], r9, KS[2420], r470, KS[2421], r470, KS[2422]}; r473 = k_interp(9, a_); }
   r474 = kf972_std_kite_check_te(r2, r472, r473);
   kline = 9001798;
   { V a_[1] = {r474}; r475 = call_v(kir_gload(151, "Err"), 1, a_); }
@@ -205005,7 +205203,7 @@ static V kf816_std_kite_check_declare_impl(V r0, V r1) {
   r572 = kf839_std_kite_check_fkey(r557);
   r573 = kir_vbin(0, r571, r572);
   { V a_[3] = {r570, r573, r569}; r574 = call_v(kir_gload(209, "set"), 3, a_); }
-  r575 = kir_vbin(0, r9, KS[2334]);
+  r575 = kir_vbin(0, r9, KS[2348]);
   r576 = kir_vbin(0, r575, r561);
   { V a_[3] = {r574, r576, r569}; r577 = call_v(kir_gload(209, "set"), 3, a_); }
   r578 = k_field(r567, 216);
@@ -205698,7 +205896,7 @@ static V kf819_std_kite_check_depr_msg(V r0, V r1) {
   r8 = r6;
   kline = 9001520;
   r9 = k_field(r8, 9);
-  r10 = kir_vbin(9, r9, KS[2409]);
+  r10 = kir_vbin(9, r9, KS[2423]);
   r11 = ((r10).u.i != 0);
   if (r11) goto B4; else { SAFEPOINT(); CANCEL_POINT(); goto B1; }
  B3:;
@@ -205718,7 +205916,7 @@ static V kf819_std_kite_check_depr_msg(V r0, V r1) {
   if (r16) goto B10; else goto B11;
  B9:;
   kline = 9001524;
-  { V a_[3] = {KS[2410], r1, KS[2411]}; r21 = k_interp(3, a_); }
+  { V a_[3] = {KS[2424], r1, KS[2425]}; r21 = k_interp(3, a_); }
   return r21;
  B10:;
   r17 = PB[0];
@@ -205730,7 +205928,7 @@ static V kf819_std_kite_check_depr_msg(V r0, V r1) {
  B14:;
   r19 = PB[1];
   kline = 9001522;
-  { V a_[4] = {KS[2410], r1, KS[2412], r19}; r20 = k_interp(4, a_); }
+  { V a_[4] = {KS[2424], r1, KS[2426], r19}; r20 = k_interp(4, a_); }
   return r20;
 }
 static V kf820_std_kite_check_dget_t(V r0, V r1) {
@@ -206245,7 +206443,7 @@ static V kf826_std_kite_check_exhaustive(V r0, int64_t r1, V r2, V r3) {
   if (r83) goto B38; else { SAFEPOINT(); CANCEL_POINT(); goto B16; }
  B38:;
   kline = 9004158;
-  { V a_[3] = {KS[2413], r22, KS[2414]}; r90 = k_interp(3, a_); }
+  { V a_[3] = {KS[2427], r22, KS[2428]}; r90 = k_interp(3, a_); }
   { V a_[2] = {r80, KS[140]}; r91 = call_v(kir_gload(188, "join"), 2, a_); }
   r92 = kir_vbin(0, r90, r91);
   r93 = kf972_std_kite_check_te(r26, r1, r92);
@@ -206270,7 +206468,7 @@ static V kf826_std_kite_check_exhaustive(V r0, int64_t r1, V r2, V r3) {
   SAFEPOINT(); CANCEL_POINT(); goto B42;
  B45:;
   kline = 9004162;
-  r103 = kf972_std_kite_check_te(r26, r1, KS[2415]);
+  r103 = kf972_std_kite_check_te(r26, r1, KS[2429]);
   { V a_[1] = {r103}; r104 = call_v(kir_gload(151, "Err"), 1, a_); }
   return r104;
  B47:;
@@ -206281,13 +206479,13 @@ static V kf826_std_kite_check_exhaustive(V r0, int64_t r1, V r2, V r3) {
  B48:;
   kline = 9004164;
   r107 = kf948_std_kite_check_sh(r26, r20);
-  { V a_[3] = {KS[2416], r107, KS[2417]}; r108 = k_interp(3, a_); }
+  { V a_[3] = {KS[2430], r107, KS[2431]}; r108 = k_interp(3, a_); }
   r109 = kf972_std_kite_check_te(r26, r1, r108);
   { V a_[1] = {r109}; r110 = call_v(kir_gload(151, "Err"), 1, a_); }
   return r110;
  B50:;
   kline = 9004165;
-  { V a_[2] = {KS[2418], r33}; r111 = k_interp(2, a_); }
+  { V a_[2] = {KS[2432], r33}; r111 = k_interp(2, a_); }
   r112 = kf972_std_kite_check_te(r26, r1, r111);
   { V a_[1] = {r112}; r113 = call_v(kir_gload(151, "Err"), 1, a_); }
   return r113;
@@ -206536,7 +206734,7 @@ static V kf827_std_kite_check_expand_dots(V r0, V r1, int64_t r2, V r3, int64_t 
   r23 = mkint(r2);
   r24 = mkint(r21);
   kline = 9004487;
-  { V a_[6] = {r3, KS[2419], r23, KS[2420], r24, KS[2421]}; r25 = k_interp(6, a_); }
+  { V a_[6] = {r3, KS[2433], r23, KS[2434], r24, KS[2435]}; r25 = k_interp(6, a_); }
   r26 = kf972_std_kite_check_te(r0, r4, r25);
   { V a_[1] = {r26}; r27 = call_v(kir_gload(151, "Err"), 1, a_); }
   return r27;
@@ -208603,7 +208801,7 @@ static V kf830_std_kite_check_expr_(V r0, V r1, V r2, V r3) {
  B1:;
   kline = 9003143;
   r1704 = kf733_std_kite_ast_kname(r1);
-  { V a_[2] = {KS[2301], r1704}; r1705 = k_interp(2, a_); }
+  { V a_[2] = {KS[2315], r1704}; r1705 = k_interp(2, a_); }
   r1706 = kf972_std_kite_check_te(r0, r6, r1705);
   { V a_[1] = {r1706}; r1707 = call_v(kir_gload(151, "Err"), 1, a_); }
   return r1707;
@@ -208801,7 +208999,7 @@ static V kf830_std_kite_check_expr_(V r0, V r1, V r2, V r3) {
  B29:;
   kline = 9002773;
   r62 = k_field(r58, 64);
-  r63 = kf958_std_kite_check_starts(r62, KS[2395]);
+  r63 = kf958_std_kite_check_starts(r62, KS[2409]);
   r59 = r63;
   goto B30;
  B30:;
@@ -208958,7 +209156,7 @@ static V kf830_std_kite_check_expr_(V r0, V r1, V r2, V r3) {
   { V a_[49] = {r139, r140, r143, r144, r145, r146, r147, r148, r149, r150, r151, r152, r153, r154, r155, r156, r157, r158, r161, r162, r163, r164, r165, r166, r167, r168, r171, r172, r173, r174, r175, r176, r177, r178, r179, r180, r181, r182, r183, r184, r185, r186, r187, r188, r191, r194, r197, r198, r199}; r200 = k_struct(&ST_54, 49, FS186, a_); }
   r201 = kf853_std_kite_check_ft_ty(r136);
   { V a_[1] = {r201}; r202 = mklist(1, a_); }
-  { V a_[2] = {KS[2274], r202}; r203 = call_v(kir_gload(178, "TC"), 2, a_); }
+  { V a_[2] = {KS[2288], r202}; r203 = call_v(kir_gload(178, "TC"), 2, a_); }
   { V a_[3] = {r200, r203, r1}; r204 = mktuple(3, a_); }
   { V a_[1] = {r204}; r205 = call_v(kir_gload(150, "Ok"), 1, a_); }
   return r205;
@@ -209048,7 +209246,7 @@ static V kf830_std_kite_check_expr_(V r0, V r1, V r2, V r3) {
   r341 = k_field(r274, 197);
   r342 = k_field(r274, 233);
   { V a_[49] = {r280, r281, r284, r285, r286, r287, r288, r289, r290, r291, r292, r293, r294, r295, r296, r297, r298, r299, r302, r303, r304, r305, r306, r307, r308, r309, r312, r315, r316, r317, r318, r319, r320, r321, r322, r323, r324, r325, r326, r327, r328, r329, r330, r331, r334, r337, r340, r341, r342}; r343 = k_struct(&ST_54, 49, FS177, a_); }
-  { V a_[2] = {r32, KS[2422]}; r344 = k_interp(2, a_); }
+  { V a_[2] = {r32, KS[2436]}; r344 = k_interp(2, a_); }
   r345 = kf972_std_kite_check_te(r343, r6, r344);
   kline = 9002783;
   { V a_[1] = {r345}; r346 = call_v(kir_gload(151, "Err"), 1, a_); }
@@ -209085,7 +209283,7 @@ static V kf830_std_kite_check_expr_(V r0, V r1, V r2, V r3) {
   kline = 9002788; die("match 没有覆盖值 %s", cshow(r275));
  B56:;
   kline = 9002792;
-  { V a_[3] = {KS[2423], r32, KS[2424]}; r360 = k_interp(3, a_); }
+  { V a_[3] = {KS[2437], r32, KS[2438]}; r360 = k_interp(3, a_); }
   r361 = kf972_std_kite_check_te(r347, r6, r360);
   { V a_[1] = {r361}; r362 = call_v(kir_gload(151, "Err"), 1, a_); }
   return r362;
@@ -209188,7 +209386,7 @@ static V kf830_std_kite_check_expr_(V r0, V r1, V r2, V r3) {
  B80:;
   r400 = PB[18];
   kline = 9002815;
-  r401 = kir_vbin(9, r400, KS[2425]);
+  r401 = kir_vbin(9, r400, KS[2439]);
   r402 = ((r401).u.i != 0);
   if (r402) goto B81; else { SAFEPOINT(); CANCEL_POINT(); goto B77; }
  B81:;
@@ -209271,13 +209469,13 @@ static V kf830_std_kite_check_expr_(V r0, V r1, V r2, V r3) {
  B101:;
   kline = 9002826;
   r439 = kf871_std_kite_check_int_t();
-  r440 = kf978_std_kite_check_unify(r424, r439, r422, r6, KS[2426]);
+  r440 = kf978_std_kite_check_unify(r424, r439, r422, r6, KS[2440]);
   r441 = kir_try(r440);
   if (r441) goto B104; else goto B105;
  B102:;
   kline = 9002828;
   r443 = kf948_std_kite_check_sh(r424, r422);
-  { V a_[3] = {KS[2427], r443, KS[2428]}; r444 = k_interp(3, a_); }
+  { V a_[3] = {KS[2441], r443, KS[2442]}; r444 = k_interp(3, a_); }
   r445 = kf972_std_kite_check_te(r424, r6, r444);
   { V a_[1] = {r445}; r446 = call_v(kir_gload(151, "Err"), 1, a_); }
   return r446;
@@ -209289,7 +209487,7 @@ static V kf830_std_kite_check_expr_(V r0, V r1, V r2, V r3) {
   return r440;
  B106:;
   kline = 9002833;
-  r449 = kf972_std_kite_check_te(r424, r6, KS[2429]);
+  r449 = kf972_std_kite_check_te(r424, r6, KS[2443]);
   kline = 9002832;
   { V a_[1] = {r449}; r450 = call_v(kir_gload(151, "Err"), 1, a_); }
   return r450;
@@ -209312,7 +209510,7 @@ static V kf830_std_kite_check_expr_(V r0, V r1, V r2, V r3) {
  B111:;
   kline = 9002840;
   r461 = kf779_std_kite_check_bool_t();
-  r462 = kf978_std_kite_check_unify(r424, r461, r422, r6, KS[2430]);
+  r462 = kf978_std_kite_check_unify(r424, r461, r422, r6, KS[2444]);
   r463 = kir_try(r462);
   if (r463) goto B114; else goto B115;
  B113:;
@@ -209344,7 +209542,7 @@ static V kf830_std_kite_check_expr_(V r0, V r1, V r2, V r3) {
   if (r473) goto B120; else goto B122;
  B118:;
   kline = 9002843;
-  r478 = kf919_std_kite_check_op_bound(r424, r422, KS[2431]);
+  r478 = kf919_std_kite_check_op_bound(r424, r422, KS[2445]);
   r476 = r478;
   goto B119;
  B119:;
@@ -209352,7 +209550,7 @@ static V kf830_std_kite_check_expr_(V r0, V r1, V r2, V r3) {
   SAFEPOINT(); CANCEL_POINT(); goto B117;
  B120:;
   kline = 9002844;
-  r479 = kf922_std_kite_check_overload(r424, r1, KS[2431], r422, r2);
+  r479 = kf922_std_kite_check_overload(r424, r1, KS[2445], r422, r2);
   return r479;
  B122:;
   kline = 9002846;
@@ -209433,7 +209631,7 @@ static V kf830_std_kite_check_expr_(V r0, V r1, V r2, V r3) {
  B137:;
   kline = 9002856;
   r517 = kf1335_std_kite_ty_tname(r513);
-  r518 = kir_vbin(9, r517, KS[2374]);
+  r518 = kir_vbin(9, r517, KS[2388]);
   r519 = ((r518).u.i != 0);
   r516 = r519;
   if (r516) goto B139; else goto B140;
@@ -209500,7 +209698,7 @@ static V kf830_std_kite_check_expr_(V r0, V r1, V r2, V r3) {
   r560 = mklist(0, NULL);
   { V a_[2] = {r559, r560}; r561 = call_v(kir_gload(178, "TC"), 2, a_); }
   { V a_[2] = {r528, r561}; r562 = mklist(2, a_); }
-  { V a_[2] = {KS[2374], r562}; r563 = call_v(kir_gload(178, "TC"), 2, a_); }
+  { V a_[2] = {KS[2388], r562}; r563 = call_v(kir_gload(178, "TC"), 2, a_); }
   { V a_[1] = {r537}; r564 = call_v(kir_gload(285, "NList"), 1, a_); }
   r565 = kf999_std_kite_check_with_k(r1, r564);
   { V a_[3] = {r535, r563, r565}; r566 = mktuple(3, a_); }
@@ -209520,7 +209718,7 @@ static V kf830_std_kite_check_expr_(V r0, V r1, V r2, V r3) {
   kline = 9002865;
   r550 = k_field(r541, 35);
   r551 = (r550).u.i;
-  r552 = kf978_std_kite_check_unify(r547, r528, r548, r551, KS[2432]);
+  r552 = kf978_std_kite_check_unify(r547, r528, r548, r551, KS[2446]);
   r553 = kir_try(r552);
   if (r553) goto B156; else goto B157;
  B155:;
@@ -209632,7 +209830,7 @@ static V kf830_std_kite_check_expr_(V r0, V r1, V r2, V r3) {
   kline = 9002883;
   r612 = k_field(r603, 35);
   r613 = (r612).u.i;
-  r614 = kf978_std_kite_check_unify(r609, r572, r610, r613, KS[2433]);
+  r614 = kf978_std_kite_check_unify(r609, r572, r610, r613, KS[2447]);
   r615 = kir_try(r614);
   if (r615) goto B181; else goto B182;
  B180:;
@@ -209902,7 +210100,7 @@ static V kf830_std_kite_check_expr_(V r0, V r1, V r2, V r3) {
   r811 = PB[54];
   kline = 9002909;
   r812 = kf779_std_kite_check_bool_t();
-  r813 = kf978_std_kite_check_unify(r809, r812, r810, r6, KS[2434]);
+  r813 = kf978_std_kite_check_unify(r809, r812, r810, r6, KS[2448]);
   r814 = kir_try(r813);
   if (r814) goto B207; else goto B208;
  B206:;
@@ -209978,7 +210176,7 @@ static V kf830_std_kite_check_expr_(V r0, V r1, V r2, V r3) {
   kline = 9002915; die("解构失败: %s", cshow(r837));
  B222:;
   kline = 9002925;
-  r860 = kf884_std_kite_check_join_t(r839, r822, r840, r6, KS[2435]);
+  r860 = kf884_std_kite_check_join_t(r839, r822, r840, r6, KS[2449]);
   r861 = kir_try(r860);
   if (r861) goto B233; else goto B234;
  B224:;
@@ -209989,14 +210187,14 @@ static V kf830_std_kite_check_expr_(V r0, V r1, V r2, V r3) {
   if (r849) goto B225; else { SAFEPOINT(); CANCEL_POINT(); goto B222; }
  B225:;
   kline = 9002920;
-  r850 = kf978_std_kite_check_unify(r839, r847, r822, r6, KS[2436]);
+  r850 = kf978_std_kite_check_unify(r839, r847, r822, r6, KS[2450]);
   r851 = kir_try(r850);
   if (r851) goto B228; else goto B229;
  B228:;
   r852 = ENUMV(r850)->a[0];
   r853 = r852;
   kline = 9002921;
-  r854 = kf978_std_kite_check_unify(r853, r847, r840, r6, KS[2437]);
+  r854 = kf978_std_kite_check_unify(r853, r847, r840, r6, KS[2451]);
   r855 = kir_try(r854);
   if (r855) goto B230; else goto B231;
  B229:;
@@ -210103,7 +210301,7 @@ static V kf830_std_kite_check_expr_(V r0, V r1, V r2, V r3) {
   { V a_[2] = {r898, KS[64]}; r899 = call_v(kir_gload(191, "unwrap_or"), 2, a_); }
   r900 = r899;
   kline = 9002937;
-  r902 = kir_vbin(9, r900, KS[2438]);
+  r902 = kir_vbin(9, r900, KS[2452]);
   r903 = ((r902).u.i != 0);
   r901 = r903;
   if (r901) goto B253; else goto B254;
@@ -210146,7 +210344,7 @@ static V kf830_std_kite_check_expr_(V r0, V r1, V r2, V r3) {
   r918 = r917;
   kline = 9002940;
   r920 = kf1335_std_kite_ty_tname(r918);
-  r921 = kir_vbin(10, r920, KS[2310]);
+  r921 = kir_vbin(10, r920, KS[2324]);
   r922 = ((r921).u.i != 0);
   r919 = r922;
   if (r919) goto B262; else goto B263;
@@ -210173,7 +210371,7 @@ static V kf830_std_kite_check_expr_(V r0, V r1, V r2, V r3) {
  B266:;
   kline = 9002942;
   r929 = kf948_std_kite_check_sh(r914, r918);
-  { V a_[2] = {KS[2439], r929}; r930 = k_interp(2, a_); }
+  { V a_[2] = {KS[2453], r929}; r930 = k_interp(2, a_); }
   r931 = kf972_std_kite_check_te(r914, r6, r930);
   kline = 9002941;
   { V a_[1] = {r931}; r932 = call_v(kir_gload(151, "Err"), 1, a_); }
@@ -210314,7 +210512,7 @@ static V kf830_std_kite_check_expr_(V r0, V r1, V r2, V r3) {
  B292:;
   kline = 9002958;
   r1004 = kf1335_std_kite_ty_tname(r1001);
-  r1005 = kir_vbin(9, r1004, KS[2374]);
+  r1005 = kir_vbin(9, r1004, KS[2388]);
   r1006 = ((r1005).u.i != 0);
   r1002 = r1006;
   goto B293;
@@ -210365,7 +210563,7 @@ static V kf830_std_kite_check_expr_(V r0, V r1, V r2, V r3) {
   r1031 = mkint(INT64_C(0));
   r1032 = k_index(r1030, r1031);
   { V a_[2] = {r1032, r1028}; r1033 = mklist(2, a_); }
-  { V a_[2] = {KS[2374], r1033}; r1034 = call_v(kir_gload(178, "TC"), 2, a_); }
+  { V a_[2] = {KS[2388], r1033}; r1034 = call_v(kir_gload(178, "TC"), 2, a_); }
   { V a_[3] = {r1019, r1034, r1025}; r1035 = mktuple(3, a_); }
   { V a_[1] = {r1035}; r1036 = call_v(kir_gload(150, "Ok"), 1, a_); }
   r1026 = r1036;
@@ -210683,7 +210881,7 @@ static V kf830_std_kite_check_expr_(V r0, V r1, V r2, V r3) {
   if (r1255) goto B349; else goto B351;
  B349:;
   kline = 9003005;
-  { V a_[4] = {KS[2440], r1251, KS[56], r1248}; r1256 = k_interp(4, a_); }
+  { V a_[4] = {KS[2454], r1251, KS[56], r1248}; r1256 = k_interp(4, a_); }
   r1257 = r1256;
   kline = 9003006;
   r1259 = k_field(r0, 429);
@@ -210742,7 +210940,7 @@ static V kf830_std_kite_check_expr_(V r0, V r1, V r2, V r3) {
   if (r1281) goto B362; else goto B363;
  B362:;
   kline = 9003013;
-  r1292 = kf958_std_kite_check_starts(r1251, KS[2440]);
+  r1292 = kf958_std_kite_check_starts(r1251, KS[2454]);
   r1293 = !r1292;
   r1291 = r1293;
   if (r1291) goto B364; else goto B365;
@@ -210760,7 +210958,7 @@ static V kf830_std_kite_check_expr_(V r0, V r1, V r2, V r3) {
   SAFEPOINT(); CANCEL_POINT(); goto B363;
  B366:;
   kline = 9003019;
-  { V a_[9] = {KS[2441], r1251, KS[2442], r1248, KS[2443], r1251, KS[2444], r1248, KS[2445]}; r1297 = k_interp(9, a_); }
+  { V a_[9] = {KS[2455], r1251, KS[2456], r1248, KS[2457], r1251, KS[2458], r1248, KS[2459]}; r1297 = k_interp(9, a_); }
   kline = 9003016;
   r1298 = kf972_std_kite_check_te(r0, r6, r1297);
   kline = 9003015;
@@ -210832,7 +211030,7 @@ static V kf830_std_kite_check_expr_(V r0, V r1, V r2, V r3) {
   kline = 9003038;
   r1342 = kf948_std_kite_check_sh(r1309, r1313);
   r1343 = mkint(r1318);
-  { V a_[4] = {r1342, KS[2446], r1343, KS[2447]}; r1344 = k_interp(4, a_); }
+  { V a_[4] = {r1342, KS[2460], r1343, KS[2461]}; r1344 = k_interp(4, a_); }
   r1345 = kf972_std_kite_check_te(r1309, r6, r1344);
   { V a_[1] = {r1345}; r1346 = call_v(kir_gload(151, "Err"), 1, a_); }
   return r1346;
@@ -210842,7 +211040,7 @@ static V kf830_std_kite_check_expr_(V r0, V r1, V r2, V r3) {
   { V a_[1] = {r1328}; r1329 = call_v(kir_gload(163, "len"), 1, a_); }
   r1330 = (r1329).u.i;
   r1331 = mkint(r1330);
-  { V a_[3] = {KS[2448], r1331, KS[2449]}; r1332 = k_interp(3, a_); }
+  { V a_[3] = {KS[2462], r1331, KS[2463]}; r1332 = k_interp(3, a_); }
   r1333 = kf972_std_kite_check_te(r1309, r6, r1332);
   { V a_[1] = {r1333}; r1334 = call_v(kir_gload(151, "Err"), 1, a_); }
   return r1334;
@@ -210916,7 +211114,7 @@ static V kf830_std_kite_check_expr_(V r0, V r1, V r2, V r3) {
  B398:;
   kline = 9003047;
   r1375 = kf871_std_kite_check_int_t();
-  r1376 = kf978_std_kite_check_unify(r1363, r1375, r1364, r6, KS[2450]);
+  r1376 = kf978_std_kite_check_unify(r1363, r1375, r1364, r6, KS[2464]);
   r1377 = kir_try(r1376);
   if (r1377) goto B401; else goto B402;
  B400:;
@@ -210941,7 +211139,7 @@ static V kf830_std_kite_check_expr_(V r0, V r1, V r2, V r3) {
   r1387 = kf1333_std_kite_ty_targs(r1370);
   r1388 = mkint(INT64_C(0));
   r1389 = k_index(r1387, r1388);
-  r1390 = kf978_std_kite_check_unify(r1363, r1389, r1364, r6, KS[2451]);
+  r1390 = kf978_std_kite_check_unify(r1363, r1389, r1364, r6, KS[2465]);
   r1391 = kir_try(r1390);
   if (r1391) goto B406; else goto B407;
  B405:;
@@ -210964,7 +211162,7 @@ static V kf830_std_kite_check_expr_(V r0, V r1, V r2, V r3) {
  B408:;
   kline = 9003055;
   r1401 = kf871_std_kite_check_int_t();
-  r1402 = kf978_std_kite_check_unify(r1363, r1401, r1364, r6, KS[2450]);
+  r1402 = kf978_std_kite_check_unify(r1363, r1401, r1364, r6, KS[2464]);
   r1403 = kir_try(r1402);
   if (r1403) goto B411; else goto B412;
  B410:;
@@ -210989,7 +211187,7 @@ static V kf830_std_kite_check_expr_(V r0, V r1, V r2, V r3) {
  B415:;
   kline = 9003064;
   r1426 = kf948_std_kite_check_sh(r1363, r1370);
-  { V a_[2] = {r1426, KS[2452]}; r1427 = k_interp(2, a_); }
+  { V a_[2] = {r1426, KS[2466]}; r1427 = k_interp(2, a_); }
   r1428 = kf972_std_kite_check_te(r1363, r6, r1427);
   { V a_[1] = {r1428}; r1429 = call_v(kir_gload(151, "Err"), 1, a_); }
   return r1429;
@@ -211061,7 +211259,7 @@ static V kf830_std_kite_check_expr_(V r0, V r1, V r2, V r3) {
   kline = 9003067; die("解构失败: %s", cshow(r1435));
  B428:;
   kline = 9003070;
-  r1449 = kf972_std_kite_check_te(r1437, r6, KS[2453]);
+  r1449 = kf972_std_kite_check_te(r1437, r6, KS[2467]);
   { V a_[1] = {r1449}; r1450 = call_v(kir_gload(151, "Err"), 1, a_); }
   return r1450;
  B430:;
@@ -211079,7 +211277,7 @@ static V kf830_std_kite_check_expr_(V r0, V r1, V r2, V r3) {
   if (r1459) goto B431; else goto B433;
  B431:;
   kline = 9003072;
-  r1460 = kf972_std_kite_check_te(r1437, r6, KS[2454]);
+  r1460 = kf972_std_kite_check_te(r1437, r6, KS[2468]);
   { V a_[1] = {r1460}; r1461 = call_v(kir_gload(151, "Err"), 1, a_); }
   return r1461;
  B433:;
@@ -211110,7 +211308,7 @@ static V kf830_std_kite_check_expr_(V r0, V r1, V r2, V r3) {
   { V a_[2] = {r1469, r1472}; r1473 = mklist(2, a_); }
   { V a_[2] = {KS[110], r1473}; r1474 = call_v(kir_gload(178, "TC"), 2, a_); }
   kline = 9003076;
-  r1475 = kf978_std_kite_check_unify(r1468, r1458, r1474, r6, KS[2455]);
+  r1475 = kf978_std_kite_check_unify(r1468, r1458, r1474, r6, KS[2469]);
   kline = 9003082;
   r1476 = kir_try(r1475);
   if (r1476) goto B439; else goto B440;
@@ -211136,7 +211334,7 @@ static V kf830_std_kite_check_expr_(V r0, V r1, V r2, V r3) {
  B443:;
   kline = 9003090;
   r1501 = kf948_std_kite_check_sh(r1437, r1444);
-  { V a_[2] = {KS[2456], r1501}; r1502 = k_interp(2, a_); }
+  { V a_[2] = {KS[2470], r1501}; r1502 = k_interp(2, a_); }
   r1503 = kf972_std_kite_check_te(r1437, r6, r1502);
   { V a_[1] = {r1503}; r1504 = call_v(kir_gload(151, "Err"), 1, a_); }
   return r1504;
@@ -211146,7 +211344,7 @@ static V kf830_std_kite_check_expr_(V r0, V r1, V r2, V r3) {
   { V a_[1] = {r1489}; r1490 = mklist(1, a_); }
   kline = 9003087;
   { V a_[2] = {KS[106], r1490}; r1491 = call_v(kir_gload(178, "TC"), 2, a_); }
-  r1492 = kf978_std_kite_check_unify(r1488, r1458, r1491, r6, KS[2457]);
+  r1492 = kf978_std_kite_check_unify(r1488, r1458, r1491, r6, KS[2471]);
   r1493 = kir_try(r1492);
   if (r1493) goto B446; else goto B447;
  B445:;
@@ -211331,7 +211529,7 @@ static V kf830_std_kite_check_expr_(V r0, V r1, V r2, V r3) {
   r1579 = r1578;
   kline = 9003115;
   r1581 = kf1335_std_kite_ty_tname(r1576);
-  r1582 = kir_vbin(9, r1581, KS[2310]);
+  r1582 = kir_vbin(9, r1581, KS[2324]);
   r1583 = ((r1582).u.i != 0);
   r1580 = r1583;
   if (r1580) goto B483; else goto B484;
@@ -211351,7 +211549,7 @@ static V kf830_std_kite_check_expr_(V r0, V r1, V r2, V r3) {
   kline = 9003116;
   r1585 = k_field(r1572, 35);
   r1586 = (r1585).u.i;
-  r1587 = kf897_std_kite_check_lookup(r1563, KS[2438], r2, r1586);
+  r1587 = kf897_std_kite_check_lookup(r1563, KS[2452], r2, r1586);
   r1588 = kir_try(r1587);
   if (r1588) goto B488; else goto B489;
  B487:;
@@ -211404,7 +211602,7 @@ static V kf830_std_kite_check_expr_(V r0, V r1, V r2, V r3) {
   r1610 = mkint(r1568);
   r1611 = k_index(r1557, r1610);
   { V a_[1] = {r1611}; r1612 = mklist(1, a_); }
-  r1613 = kf790_std_kite_check_call_node(r1609, KS[2438], r1612);
+  r1613 = kf790_std_kite_check_call_node(r1609, KS[2452], r1612);
   r1614 = kf977_std_kite_check_typed_node(r1563, r1613, r1576);
   r1615 = pat5428(r1614, PB);
   if (r1615) goto B494; else goto B495;
@@ -212152,7 +212350,7 @@ static V kf836_std_kite_check_field(V r0, V r1, V r2) {
   if (r8) goto B3; else goto B2;
  B2:;
   kline = 9003681;
-  r12 = kf972_std_kite_check_te(r0, r5, KS[2338]);
+  r12 = kf972_std_kite_check_te(r0, r5, KS[2352]);
   { V a_[1] = {r12}; r13 = call_v(kir_gload(151, "Err"), 1, a_); }
   return r13;
  B3:;
@@ -212205,7 +212403,7 @@ static V kf836_std_kite_check_field(V r0, V r1, V r2) {
   if (r30) goto B15; else goto B17;
  B15:;
   kline = 9003686;
-  { V a_[3] = {r21, KS[2458], r18}; r31 = k_interp(3, a_); }
+  { V a_[3] = {r21, KS[2472], r18}; r31 = k_interp(3, a_); }
   r32 = kf972_std_kite_check_te(r0, r5, r31);
   { V a_[1] = {r32}; r33 = call_v(kir_gload(151, "Err"), 1, a_); }
   return r33;
@@ -212261,7 +212459,7 @@ static V kf836_std_kite_check_field(V r0, V r1, V r2) {
   r59 = kf862_std_kite_check_head(r51, r58);
   r60 = r59;
   kline = 9003696;
-  r61 = kf958_std_kite_check_starts(r60, KS[2325]);
+  r61 = kf958_std_kite_check_starts(r60, KS[2339]);
   if (r61) goto B29; else goto B31;
  B28:;
   kline = 9003692; die("解构失败: %s", cshow(r49));
@@ -212331,7 +212529,7 @@ static V kf836_std_kite_check_field(V r0, V r1, V r2) {
   SAFEPOINT(); CANCEL_POINT(); goto B40;
  B43:;
   kline = 9003702;
-  { V a_[5] = {KS[2459], r67, KS[69], r18, KS[2327]}; r86 = k_interp(5, a_); }
+  { V a_[5] = {KS[2473], r67, KS[69], r18, KS[2341]}; r86 = k_interp(5, a_); }
   r87 = kf972_std_kite_check_te(r76, r5, r86);
   { V a_[1] = {r87}; r88 = call_v(kir_gload(151, "Err"), 1, a_); }
   return r88;
@@ -212367,7 +212565,7 @@ static V kf836_std_kite_check_field(V r0, V r1, V r2) {
   kline = 9003698; die("match 没有覆盖值 %s", cshow(r68));
  B53:;
   kline = 9003712;
-  { V a_[4] = {KS[902], r67, KS[2460], r18}; r104 = k_interp(4, a_); }
+  { V a_[4] = {KS[902], r67, KS[2474], r18}; r104 = k_interp(4, a_); }
   r105 = kf972_std_kite_check_te(r51, r5, r104);
   { V a_[1] = {r105}; r106 = call_v(kir_gload(151, "Err"), 1, a_); }
   return r106;
@@ -212436,7 +212634,7 @@ static V kf836_std_kite_check_field(V r0, V r1, V r2) {
   if (r135) goto B69; else { SAFEPOINT(); CANCEL_POINT(); goto B66; }
  B68:;
   kline = 9003725;
-  { V a_[3] = {r60, KS[2461], r18}; r145 = k_interp(3, a_); }
+  { V a_[3] = {r60, KS[2475], r18}; r145 = k_interp(3, a_); }
   r146 = kf972_std_kite_check_te(r51, r5, r145);
   { V a_[1] = {r146}; r147 = call_v(kir_gload(151, "Err"), 1, a_); }
   return r147;
@@ -212464,14 +212662,14 @@ static V kf836_std_kite_check_field(V r0, V r1, V r2) {
   kline = 9003721; die("解构失败: %s", cshow(r139));
  B76:;
   kline = 9003727;
-  { V a_[3] = {KS[2335], r18, KS[2462]}; r149 = k_interp(3, a_); }
+  { V a_[3] = {KS[2349], r18, KS[2476]}; r149 = k_interp(3, a_); }
   r150 = kf972_std_kite_check_te(r51, r5, r149);
   { V a_[1] = {r150}; r151 = call_v(kir_gload(151, "Err"), 1, a_); }
   return r151;
  B78:;
   kline = 9003728;
   r152 = kf948_std_kite_check_sh(r51, r58);
-  { V a_[3] = {r152, KS[2461], r18}; r153 = k_interp(3, a_); }
+  { V a_[3] = {r152, KS[2475], r18}; r153 = k_interp(3, a_); }
   r154 = kf972_std_kite_check_te(r51, r5, r153);
   { V a_[1] = {r154}; r155 = call_v(kir_gload(151, "Err"), 1, a_); }
   return r155;
@@ -212687,7 +212885,7 @@ static V kf843_std_kite_check_fn_body2(V r0, V r1, V r2, V r3, V r4) {
  B5:;
   kline = 9002296;
   r15 = kf889_std_kite_check_last_line(r1);
-  { V a_[3] = {KS[2463], r4, KS[2299]}; r16 = k_interp(3, a_); }
+  { V a_[3] = {KS[2477], r4, KS[2313]}; r16 = k_interp(3, a_); }
   r17 = kf978_std_kite_check_unify(r10, r3, r11, r15, r16);
   r18 = kir_try(r17);
   if (r18) goto B8; else goto B9;
@@ -212891,20 +213089,20 @@ static V kf845_std_kite_check_fn_sig0(V r0, V r1, V r2, V r3) {
   kline = 9001338;
   r26 = k_field(r1, 35);
   r27 = (r26).u.i;
-  { V a_[2] = {KS[2373], r23}; r28 = k_interp(2, a_); }
+  { V a_[2] = {KS[2387], r23}; r28 = k_interp(2, a_); }
   r29 = kf972_std_kite_check_te(r0, r27, r28);
   { V a_[1] = {r29}; r30 = call_v(kir_gload(151, "Err"), 1, a_); }
   return r30;
  B10:;
   kline = 9001341;
-  r36 = kir_vbin(0, KS[2377], r18);
+  r36 = kir_vbin(0, KS[2391], r18);
   r37 = kf762_std_kite_check_any_t();
   { V a_[3] = {r4, r36, r37}; r38 = call_v(kir_gload(209, "set"), 3, a_); }
   r4 = r38;
   SAFEPOINT(); CANCEL_POINT(); goto B1;
  B11:;
   kline = 9001341;
-  r39 = kir_vbin(0, KS[2377], r18);
+  r39 = kir_vbin(0, KS[2391], r18);
   { V a_[2] = {r4, r39}; r40 = call_v(kir_gload(605, "remove"), 2, a_); }
   r4 = r40;
   SAFEPOINT(); CANCEL_POINT(); goto B1;
@@ -212962,7 +213160,7 @@ static V kf845_std_kite_check_fn_sig0(V r0, V r1, V r2, V r3) {
   kline = 9001349;
   r60 = k_field(r1, 35);
   r61 = (r60).u.i;
-  r62 = kf972_std_kite_check_te(r41, r61, KS[2464]);
+  r62 = kf972_std_kite_check_te(r41, r61, KS[2478]);
   { V a_[1] = {r62}; r63 = call_v(kir_gload(151, "Err"), 1, a_); }
   return r63;
  B26:;
@@ -213334,7 +213532,7 @@ static V kf846_std_kite_check_fn_sig3(V r0, V r1, V r2, V r3) {
   if (r31) goto B8; else goto B9;
  B7:;
   kline = 9001297;
-  { V a_[2] = {r19, KS[2396]}; r37 = call_v(kir_gload(292, "contains"), 2, a_); }
+  { V a_[2] = {r19, KS[2410]}; r37 = call_v(kir_gload(292, "contains"), 2, a_); }
   r38 = ((r37).u.i != 0);
   r39 = r38;
   r40 = mklist(0, NULL);
@@ -213346,14 +213544,14 @@ static V kf846_std_kite_check_fn_sig3(V r0, V r1, V r2, V r3) {
   goto B11;
  B8:;
   kline = 9001295;
-  r32 = kir_vbin(0, KS[2377], r26);
+  r32 = kir_vbin(0, KS[2391], r26);
   r33 = kf762_std_kite_check_any_t();
   { V a_[3] = {r19, r32, r33}; r34 = call_v(kir_gload(209, "set"), 3, a_); }
   r19 = r34;
   SAFEPOINT(); CANCEL_POINT(); goto B5;
  B9:;
   kline = 9001295;
-  r35 = kir_vbin(0, KS[2377], r26);
+  r35 = kir_vbin(0, KS[2391], r26);
   { V a_[2] = {r19, r35}; r36 = call_v(kir_gload(605, "remove"), 2, a_); }
   r19 = r36;
   SAFEPOINT(); CANCEL_POINT(); goto B5;
@@ -213407,7 +213605,7 @@ static V kf846_std_kite_check_fn_sig3(V r0, V r1, V r2, V r3) {
  B23:;
   r62 = r60;
   kline = 9001305;
-  r64 = kir_vbin(0, KS[2377], r62);
+  r64 = kir_vbin(0, KS[2391], r62);
   { V a_[2] = {r19, r64}; r65 = call_v(kir_gload(292, "contains"), 2, a_); }
   r66 = ((r65).u.i != 0);
   r63 = r66;
@@ -213460,7 +213658,7 @@ static V kf846_std_kite_check_fn_sig3(V r0, V r1, V r2, V r3) {
  B40:;
   r83 = PB[2];
   kline = 9001314;
-  r85 = kir_vbin(0, KS[2377], r80);
+  r85 = kir_vbin(0, KS[2391], r80);
   { V a_[2] = {r19, r85}; r86 = call_v(kir_gload(292, "contains"), 2, a_); }
   r87 = ((r86).u.i != 0);
   r84 = r87;
@@ -213504,7 +213702,7 @@ static V kf846_std_kite_check_fn_sig3(V r0, V r1, V r2, V r3) {
   r104 = PB[3];
   r105 = PB[4];
   kline = 9001317;
-  { V a_[4] = {KS[2440], r80, KS[56], r104}; r106 = k_interp(4, a_); }
+  { V a_[4] = {KS[2454], r80, KS[56], r104}; r106 = k_interp(4, a_); }
   r107 = r106;
   kline = 9001318;
   { V a_[2] = {r57, r107}; r109 = call_v(kir_gload(292, "contains"), 2, a_); }
@@ -214451,7 +214649,7 @@ static V kf857_std_kite_check_group_t(V r0, V r1, V r2, V r3) {
   r17 = k_index(r2, r16);
   r18 = k_field(r17, 35);
   r19 = (r18).u.i;
-  r20 = kf884_std_kite_check_join_t(r6, r9, r15, r19, KS[2465]);
+  r20 = kf884_std_kite_check_join_t(r6, r9, r15, r19, KS[2479]);
   r21 = kir_try(r20);
   if (r21) goto B7; else goto B8;
  B6:;
@@ -214675,7 +214873,7 @@ static V kf862_std_kite_check_head(V r0, V r1) {
  B1:;
   kline = 9000424;
   r7 = kf1335_std_kite_ty_tname(r3);
-  r8 = kir_vbin(9, r7, KS[2374]);
+  r8 = kir_vbin(9, r7, KS[2388]);
   r9 = ((r8).u.i != 0);
   r6 = r9;
   if (r6) goto B3; else goto B4;
@@ -214788,13 +214986,13 @@ static bool kf864_std_kite_check_implements(V r0, V r1, V r2) {
  B9:;
   r12 = PB[1];
   kline = 9000676;
-  r15 = kir_vbin(9, r2, KS[2320]);
+  r15 = kir_vbin(9, r2, KS[2334]);
   r16 = ((r15).u.i != 0);
   r14 = r16;
   if (r14) goto B11; else goto B10;
  B10:;
   kline = 9000676;
-  r17 = kir_vbin(9, r12, KS[2267]);
+  r17 = kir_vbin(9, r12, KS[2281]);
   r18 = ((r17).u.i != 0);
   r14 = r18;
   goto B11;
@@ -214840,19 +215038,19 @@ static V kf865_std_kite_check_implied(V r0) {
   SAFEPOINT(); CANCEL_POINT();
  B0:;
   kline = 9000190;
-  r1 = kir_vbin(9, r0, KS[2317]);
+  r1 = kir_vbin(9, r0, KS[2331]);
   r2 = ((r1).u.i != 0);
   if (r2) goto B1; else goto B3;
  B1:;
-  { V a_[1] = {KS[2318]}; r3 = mklist(1, a_); }
+  { V a_[1] = {KS[2332]}; r3 = mklist(1, a_); }
   return r3;
  B3:;
   kline = 9000191;
-  r4 = kir_vbin(9, r0, KS[2316]);
+  r4 = kir_vbin(9, r0, KS[2330]);
   r5 = ((r4).u.i != 0);
   if (r5) goto B4; else goto B6;
  B4:;
-  { V a_[2] = {KS[2317], KS[2318]}; r6 = mklist(2, a_); }
+  { V a_[2] = {KS[2331], KS[2332]}; r6 = mklist(2, a_); }
   return r6;
  B6:;
   r7 = mklist(0, NULL);
@@ -215655,8 +215853,8 @@ static V kf869_std_kite_check_install(V r0) {
  B0:;
   r1 = r0;
   kline = 9001226;
-  r2 = kf808_std_kite_check_con_t(KS[2466]);
-  { V a_[2] = {KS[2467], r2}; r3 = mktuple(2, a_); }
+  r2 = kf808_std_kite_check_con_t(KS[2480]);
+  { V a_[2] = {KS[2481], r2}; r3 = mktuple(2, a_); }
   { V a_[1] = {r3}; r4 = mklist(1, a_); }
   { V a_[1] = {r4}; r5 = call_v(kir_gload(439, "EvList"), 1, a_); }
   { V a_[2] = {KS[111], r5}; r6 = mktuple(2, a_); }
@@ -215666,26 +215864,26 @@ static V kf869_std_kite_check_install(V r0) {
   { V a_[2] = {KS[107], r8}; r9 = mktuple(2, a_); }
   r10 = r9;
   kline = 9001228;
-  r11 = kf808_std_kite_check_con_t(KS[2466]);
-  { V a_[2] = {KS[2467], r11}; r12 = mktuple(2, a_); }
+  r11 = kf808_std_kite_check_con_t(KS[2480]);
+  { V a_[2] = {KS[2481], r11}; r12 = mktuple(2, a_); }
   { V a_[1] = {r12}; r13 = mklist(1, a_); }
   { V a_[1] = {r13}; r14 = call_v(kir_gload(439, "EvList"), 1, a_); }
   { V a_[2] = {KS[108], r14}; r15 = mktuple(2, a_); }
   r16 = r15;
   kline = 9001229;
   r17 = kf808_std_kite_check_con_t(KS[1331]);
-  { V a_[2] = {KS[2467], r17}; r18 = mktuple(2, a_); }
+  { V a_[2] = {KS[2481], r17}; r18 = mktuple(2, a_); }
   { V a_[1] = {r18}; r19 = mklist(1, a_); }
   { V a_[1] = {r19}; r20 = call_v(kir_gload(439, "EvList"), 1, a_); }
   { V a_[2] = {KS[109], r20}; r21 = mktuple(2, a_); }
   r22 = r21;
   kline = 9001231;
   r23 = k_field(r1, 135);
-  { V a_[1] = {KS[2466]}; r24 = mklist(1, a_); }
+  { V a_[1] = {KS[2480]}; r24 = mklist(1, a_); }
   { V a_[2] = {r7, r10}; r25 = mklist(2, a_); }
   { V a_[2] = {r24, r25}; r26 = mktuple(2, a_); }
   { V a_[3] = {r23, KS[106], r26}; r27 = call_v(kir_gload(209, "set"), 3, a_); }
-  { V a_[2] = {KS[2466], KS[1331]}; r28 = mklist(2, a_); }
+  { V a_[2] = {KS[2480], KS[1331]}; r28 = mklist(2, a_); }
   { V a_[2] = {r16, r22}; r29 = mklist(2, a_); }
   { V a_[2] = {r28, r29}; r30 = mktuple(2, a_); }
   { V a_[3] = {r27, KS[110], r30}; r31 = call_v(kir_gload(209, "set"), 3, a_); }
@@ -216289,7 +216487,7 @@ static bool kf873_std_kite_check_is_anyn(V r0) {
  B3:;
   r3 = PB[0];
   kline = 9001086;
-  r5 = kir_vbin(9, r3, KS[2267]);
+  r5 = kir_vbin(9, r3, KS[2281]);
   r6 = ((r5).u.i != 0);
   r4 = r6;
   if (r4) goto B5; else goto B4;
@@ -216352,7 +216550,7 @@ static bool kf876_std_kite_check_is_dyn(V r0) {
  B3:;
   r3 = PB[0];
   kline = 9000417;
-  r4 = kf958_std_kite_check_starts(r3, KS[2330]);
+  r4 = kf958_std_kite_check_starts(r3, KS[2344]);
   r1 = r4;
   SAFEPOINT(); CANCEL_POINT(); goto B1;
 }
@@ -216516,7 +216714,7 @@ static bool kf882_std_kite_check_is_spawn(V r0) {
  B0:;
   kline = 9000469;
   r1 = kf1335_std_kite_ty_tname(r0);
-  r2 = kir_vbin(9, r1, KS[2468]);
+  r2 = kir_vbin(9, r1, KS[2482]);
   r3 = ((r2).u.i != 0);
   return r3;
 }
@@ -216994,7 +217192,7 @@ static V kf887_std_kite_check_lam(V r0, V r1, V r2, V r3) {
   if (r9) goto B3; else goto B2;
  B2:;
   kline = 9003618;
-  r14 = kf972_std_kite_check_te(r0, r6, KS[2338]);
+  r14 = kf972_std_kite_check_te(r0, r6, KS[2352]);
   { V a_[1] = {r14}; r15 = call_v(kir_gload(151, "Err"), 1, a_); }
   return r15;
  B3:;
@@ -217234,7 +217432,7 @@ static V kf887_std_kite_check_lam(V r0, V r1, V r2, V r3) {
   r84 = mkint(r66);
   kline = 9003643;
   r85 = k_index(r25, r84);
-  { V a_[2] = {KS[2469], r72}; r86 = k_interp(2, a_); }
+  { V a_[2] = {KS[2483], r72}; r86 = k_interp(2, a_); }
   r87 = kf978_std_kite_check_unify(r82, r83, r85, r6, r86);
   r88 = kir_try(r87);
   if (r88) goto B33; else goto B34;
@@ -217263,7 +217461,7 @@ static V kf887_std_kite_check_lam(V r0, V r1, V r2, V r3) {
  B37:;
   r172 = r166;
   kline = 9003656;
-  { V a_[2] = {r19, KS[2470]}; r173 = call_v(kir_gload(191, "unwrap_or"), 2, a_); }
+  { V a_[2] = {r19, KS[2484]}; r173 = call_v(kir_gload(191, "unwrap_or"), 2, a_); }
   r174 = kf888_std_kite_check_lam_body(r23, r18, r65, r27, r172, r173, r6);
   r175 = kf940_std_kite_check_rest_r(r174, r102);
   r176 = kir_try(r175);
@@ -217912,7 +218110,7 @@ static V kf897_std_kite_check_lookup(V r0, V r1, V r2, int64_t r3) {
   if (r12) goto B6; else goto B8;
  B6:;
   kline = 9002685;
-  { V a_[5] = {KS[2471], r1, KS[2472], r1, KS[1123]}; r13 = k_interp(5, a_); }
+  { V a_[5] = {KS[2485], r1, KS[2486], r1, KS[1123]}; r13 = k_interp(5, a_); }
   r14 = kf972_std_kite_check_te(r4, r3, r13);
   { V a_[1] = {r14}; r15 = call_v(kir_gload(151, "Err"), 1, a_); }
   return r15;
@@ -217934,13 +218132,13 @@ static V kf897_std_kite_check_lookup(V r0, V r1, V r2, int64_t r3) {
   if (r16) goto B11; else goto B13;
  B11:;
   kline = 9002688;
-  { V a_[2] = {r1, KS[2473]}; r23 = k_interp(2, a_); }
+  { V a_[2] = {r1, KS[2487]}; r23 = k_interp(2, a_); }
   r24 = kf972_std_kite_check_te(r4, r3, r23);
   { V a_[1] = {r24}; r25 = call_v(kir_gload(151, "Err"), 1, a_); }
   return r25;
  B13:;
   kline = 9002690;
-  { V a_[2] = {KS[2471], r1}; r26 = k_interp(2, a_); }
+  { V a_[2] = {KS[2485], r1}; r26 = k_interp(2, a_); }
   r27 = kf972_std_kite_check_te(r4, r3, r26);
   { V a_[1] = {r27}; r28 = call_v(kir_gload(151, "Err"), 1, a_); }
   return r28;
@@ -217964,7 +218162,7 @@ static V kf897_std_kite_check_lookup(V r0, V r1, V r2, int64_t r3) {
   SAFEPOINT(); CANCEL_POINT(); goto B15;
  B18:;
   kline = 9002694;
-  { V a_[3] = {KS[2474], r1, KS[2475]}; r39 = k_interp(3, a_); }
+  { V a_[3] = {KS[2488], r1, KS[2489]}; r39 = k_interp(3, a_); }
   r40 = kf972_std_kite_check_te(r4, r3, r39);
   { V a_[1] = {r40}; r41 = call_v(kir_gload(151, "Err"), 1, a_); }
   return r41;
@@ -218003,7 +218201,7 @@ static V kf897_std_kite_check_lookup(V r0, V r1, V r2, int64_t r3) {
   r56 = k_index(r54, r55);
   r57 = mkint(INT64_C(1));
   r58 = k_index(r54, r57);
-  { V a_[5] = {KS[2476], r56, KS[73], r58, KS[2327]}; r59 = k_interp(5, a_); }
+  { V a_[5] = {KS[2490], r56, KS[73], r58, KS[2341]}; r59 = k_interp(5, a_); }
   r60 = kf972_std_kite_check_te(r4, r3, r59);
   { V a_[1] = {r60}; r61 = call_v(kir_gload(151, "Err"), 1, a_); }
   return r61;
@@ -218511,7 +218709,7 @@ static V kf898_std_kite_check_lower_consts(V r0) {
   r69 = r59;
   kline = 9005106;
   r70 = k_field(r58, 9);
-  r71 = kir_vbin(0, KS[2477], r70);
+  r71 = kir_vbin(0, KS[2491], r70);
   r72 = k_field(r58, 35);
   r73 = (r72).u.i;
   r74 = k_field(r58, 376);
@@ -218616,7 +218814,7 @@ static V kf898_std_kite_check_lower_consts(V r0) {
   r125 = (r124).u.i;
   r126 = mkint(r125);
   r127 = k_field(r116, 9);
-  { V a_[4] = {KS[2365], r105, KS[2442], r127}; r128 = k_interp(4, a_); }
+  { V a_[4] = {KS[2379], r105, KS[2456], r127}; r128 = k_interp(4, a_); }
   { V a_[2] = {r126, r128}; r129 = mktuple(2, a_); }
   { V a_[1] = {r129}; r130 = call_v(kir_gload(151, "Err"), 1, a_); }
   return r130;
@@ -218691,7 +218889,7 @@ static V kf898_std_kite_check_lower_consts(V r0) {
   r181 = kf789_std_kite_check_call_n(r159, r179, r180);
   r182 = r181;
   kline = 9005144;
-  r183 = kir_vbin(0, KS[2477], r161);
+  r183 = kir_vbin(0, KS[2491], r161);
   r184 = k_field(r156, 376);
   r185 = kf907_std_kite_check_mk_body(r182, r159);
   { V a_[1] = {r185}; r186 = call_v(kir_gload(247, "Some"), 1, a_); }
@@ -219727,7 +219925,7 @@ static V kf901_std_kite_check_match_e(V r0, V r1, V r2, V r3) {
   if (r9) goto B3; else goto B2;
  B2:;
   kline = 9004010;
-  r11 = kf972_std_kite_check_te(r0, r6, KS[2338]);
+  r11 = kf972_std_kite_check_te(r0, r6, KS[2352]);
   { V a_[1] = {r11}; r12 = call_v(kir_gload(151, "Err"), 1, a_); }
   return r12;
  B3:;
@@ -219788,7 +219986,7 @@ static V kf901_std_kite_check_match_e(V r0, V r1, V r2, V r3) {
   if (r36) goto B18; else { SAFEPOINT(); CANCEL_POINT(); goto B12; }
  B18:;
   r37 = PB[3];
-  { V a_[2] = {KS[2063], KS[2478]}; r38 = mklist(2, a_); }
+  { V a_[2] = {KS[2063], KS[2492]}; r38 = mklist(2, a_); }
   kline = 9004018;
   r39 = kf909_std_kite_check_name_of(r37);
   { V a_[2] = {r39, KS[64]}; r40 = call_v(kir_gload(191, "unwrap_or"), 2, a_); }
@@ -219801,7 +219999,7 @@ static V kf901_std_kite_check_match_e(V r0, V r1, V r2, V r3) {
   r44 = k_field(r16, 35);
   r45 = (r44).u.i;
   kline = 9004023;
-  r46 = kf972_std_kite_check_te(r0, r45, KS[2479]);
+  r46 = kf972_std_kite_check_te(r0, r45, KS[2493]);
   kline = 9004022;
   { V a_[1] = {r46}; r47 = call_v(kir_gload(151, "Err"), 1, a_); }
   return r47;
@@ -219901,7 +220099,7 @@ static V kf901_std_kite_check_match_e(V r0, V r1, V r2, V r3) {
   r90 = PB[13];
   kline = 9004042;
   r91 = kf779_std_kite_check_bool_t();
-  r92 = kf978_std_kite_check_unify(r88, r91, r89, r6, KS[2480]);
+  r92 = kf978_std_kite_check_unify(r88, r91, r89, r6, KS[2494]);
   r93 = kir_try(r92);
   if (r93) goto B43; else goto B44;
  B42:;
@@ -219952,7 +220150,7 @@ static V kf901_std_kite_check_match_e(V r0, V r1, V r2, V r3) {
   r112 = k_field(r68, 62);
   r113 = k_field(r112, 35);
   r114 = (r113).u.i;
-  r115 = kf978_std_kite_check_unify(r57, r109, r107, r114, KS[2481]);
+  r115 = kf978_std_kite_check_unify(r57, r109, r107, r114, KS[2495]);
   r116 = kir_try(r115);
   if (r116) goto B56; else goto B57;
  B56:;
@@ -219979,7 +220177,7 @@ static V kf901_std_kite_check_match_e(V r0, V r1, V r2, V r3) {
   r122 = k_field(r68, 62);
   r123 = k_field(r122, 35);
   r124 = (r123).u.i;
-  r125 = kf884_std_kite_check_join_t(r57, r121, r107, r124, KS[2482]);
+  r125 = kf884_std_kite_check_join_t(r57, r121, r107, r124, KS[2496]);
   r126 = kir_try(r125);
   if (r126) goto B64; else goto B65;
  B64:;
@@ -220151,7 +220349,7 @@ static bool kf903_std_kite_check_mentions_self(V r0) {
   r3 = PB[0];
   r4 = PB[1];
   kline = 9001275;
-  r6 = kir_vbin(9, r3, KS[2328]);
+  r6 = kir_vbin(9, r3, KS[2342]);
   r7 = ((r6).u.i != 0);
   r5 = r7;
   if (r5) goto B5; else goto B4;
@@ -220265,9 +220463,9 @@ static V kf904_std_kite_check_mismatch(V r0, V r1, V r2, int64_t r3, V r4) {
   r16 = PB[2];
   kline = 9001081;
   r17 = kf933_std_kite_check_pre(r4);
-  r18 = kir_vbin(0, r17, KS[2483]);
+  r18 = kir_vbin(0, r17, KS[2497]);
   r19 = kir_vbin(0, r18, r11);
-  r20 = kir_vbin(0, r19, KS[2363]);
+  r20 = kir_vbin(0, r19, KS[2377]);
   r21 = kir_vbin(0, r20, r16);
   r22 = kf972_std_kite_check_te(r0, r3, r21);
   return r22;
@@ -221281,7 +221479,7 @@ static V kf914_std_kite_check_norm(V r0, V r1) {
  B15:;
   kline = 9004208;
   r26 = kf930_std_kite_check_pdump(r1);
-  r27 = kir_vbin(0, KS[2484], r26);
+  r27 = kir_vbin(0, KS[2498], r26);
   { V a_[1] = {r27}; r28 = call_v(kir_gload(744, "KLit"), 1, a_); }
   r29 = mklist(0, NULL);
   { V a_[2] = {r28, r29}; r30 = call_v(kir_gload(742, "CN"), 2, a_); }
@@ -221396,7 +221594,7 @@ static V kf914_std_kite_check_norm(V r0, V r1) {
  B32:;
   kline = 9004236;
   r121 = kf930_std_kite_check_pdump(r1);
-  r122 = kir_vbin(0, KS[2485], r121);
+  r122 = kir_vbin(0, KS[2499], r121);
   { V a_[1] = {r122}; r123 = call_v(kir_gload(744, "KLit"), 1, a_); }
   r124 = mklist(0, NULL);
   { V a_[2] = {r123, r124}; r125 = call_v(kir_gload(742, "CN"), 2, a_); }
@@ -221776,7 +221974,7 @@ static V kf915_std_kite_check_norm_proj(V r0, V r1) {
   return r1;
  B21:;
   kline = 9000352;
-  r46 = kir_vbin(9, r42, KS[2267]);
+  r46 = kir_vbin(9, r42, KS[2281]);
   r47 = ((r46).u.i != 0);
   r45 = r47;
   if (r45) goto B23; else goto B22;
@@ -221899,7 +222097,7 @@ static V kf915_std_kite_check_norm_proj(V r0, V r1) {
   if (r98) goto B53; else { SAFEPOINT(); CANCEL_POINT(); goto B50; }
  B52:;
   kline = 9000371;
-  { V a_[3] = {r66, KS[2328], r14}; r99 = call_v(kir_gload(209, "set"), 3, a_); }
+  { V a_[3] = {r66, KS[2342], r14}; r99 = call_v(kir_gload(209, "set"), 3, a_); }
   r66 = r99;
   kline = 9000372;
   { V a_[1] = {r59}; r101 = call_v(kir_gload(247, "Some"), 1, a_); }
@@ -222126,10 +222324,10 @@ static bool kf919_std_kite_check_op_bound(V r0, V r1, V r2) {
   r17 = ((r16).u.i != 0);
   if (r17) goto B9; else goto B10;
  B9:;
-  r14 = KS[2317];
+  r14 = KS[2331];
   goto B11;
  B10:;
-  r14 = KS[2316];
+  r14 = KS[2330];
   goto B11;
  B11:;
   r18 = r14;
@@ -222196,7 +222394,7 @@ static V kf920_std_kite_check_op_method(V r0) {
   r13 = ((r12).u.i != 0);
   if (r13) goto B16; else goto B18;
  B16:;
-  return KS[2486];
+  return KS[2500];
  B18:;
   return KS[64];
 }
@@ -222223,42 +222421,42 @@ static V kf921_std_kite_check_op_trait(V r0) {
   r2 = ((r1).u.i != 0);
   if (r2) goto B1; else goto B3;
  B1:;
-  return KS[2487];
+  return KS[2501];
  B3:;
   kline = 9000207;
   r3 = kir_vbin(9, r0, KS[8]);
   r4 = ((r3).u.i != 0);
   if (r4) goto B4; else goto B6;
  B4:;
-  return KS[2488];
+  return KS[2502];
  B6:;
   kline = 9000208;
   r5 = kir_vbin(9, r0, KS[9]);
   r6 = ((r5).u.i != 0);
   if (r6) goto B7; else goto B9;
  B7:;
-  return KS[2489];
+  return KS[2503];
  B9:;
   kline = 9000209;
   r7 = kir_vbin(9, r0, KS[10]);
   r8 = ((r7).u.i != 0);
   if (r8) goto B10; else goto B12;
  B10:;
-  return KS[2490];
+  return KS[2504];
  B12:;
   kline = 9000210;
   r9 = kir_vbin(9, r0, KS[11]);
   r10 = ((r9).u.i != 0);
   if (r10) goto B13; else goto B15;
  B13:;
-  return KS[2491];
+  return KS[2505];
  B15:;
   kline = 9000211;
-  r11 = kir_vbin(9, r0, KS[2431]);
+  r11 = kir_vbin(9, r0, KS[2445]);
   r12 = ((r11).u.i != 0);
   if (r12) goto B16; else goto B18;
  B16:;
-  return KS[2492];
+  return KS[2506];
  B18:;
   { V a_[4] = {KS[12], KS[13], KS[14], KS[15]}; r13 = mklist(4, a_); }
   kline = 9000212;
@@ -222266,7 +222464,7 @@ static V kf921_std_kite_check_op_trait(V r0) {
   r15 = ((r14).u.i != 0);
   if (r15) goto B19; else goto B21;
  B19:;
-  return KS[2493];
+  return KS[2507];
  B21:;
   return KS[64];
 }
@@ -222368,11 +222566,11 @@ static V kf922_std_kite_check_overload(V r0, V r1, V r2, V r3, V r4) {
   r6 = (r5).u.i;
   r7 = r6;
   kline = 9003579;
-  r9 = kir_vbin(9, r2, KS[2431]);
+  r9 = kir_vbin(9, r2, KS[2445]);
   r10 = ((r9).u.i != 0);
   if (r10) goto B1; else goto B2;
  B1:;
-  r8 = KS[2431];
+  r8 = KS[2445];
   goto B3;
  B2:;
   kline = 9003579;
@@ -222405,7 +222603,7 @@ static V kf922_std_kite_check_overload(V r0, V r1, V r2, V r3, V r4) {
   if (r15) goto B6; else goto B8;
  B6:;
   kline = 9003582;
-  r27 = kir_vbin(9, r2, KS[2431]);
+  r27 = kir_vbin(9, r2, KS[2445]);
   r28 = ((r27).u.i != 0);
   if (r28) goto B9; else goto B10;
  B8:;
@@ -222414,7 +222612,7 @@ static V kf922_std_kite_check_overload(V r0, V r1, V r2, V r3, V r4) {
   r36 = pat6027(r35, PB);
   if (r36) goto B14; else goto B13;
  B9:;
-  r26 = KS[2494];
+  r26 = KS[2508];
   goto B11;
  B10:;
   r26 = r2;
@@ -222423,7 +222621,7 @@ static V kf922_std_kite_check_overload(V r0, V r1, V r2, V r3, V r4) {
   r29 = r26;
   kline = 9003584;
   r30 = kf948_std_kite_check_sh(r0, r3);
-  { V a_[10] = {r30, KS[2332], r12, KS[2495], r29, KS[2496], r14, KS[2497], r12, KS[1123]}; r31 = k_interp(10, a_); }
+  { V a_[10] = {r30, KS[2346], r12, KS[2509], r29, KS[2510], r14, KS[2511], r12, KS[1123]}; r31 = k_interp(10, a_); }
   r32 = kf972_std_kite_check_te(r0, r7, r31);
   kline = 9003583;
   { V a_[1] = {r32}; r33 = call_v(kir_gload(151, "Err"), 1, a_); }
@@ -222496,7 +222694,7 @@ static V kf922_std_kite_check_overload(V r0, V r1, V r2, V r3, V r4) {
   r67 = PB[8];
   kline = 9003596;
   r68 = kf871_std_kite_check_int_t();
-  { V a_[2] = {r14, KS[2498]}; r69 = k_interp(2, a_); }
+  { V a_[2] = {r14, KS[2512]}; r69 = k_interp(2, a_); }
   r70 = kf978_std_kite_check_unify(r65, r68, r66, r7, r69);
   r71 = kir_try(r70);
   if (r71) goto B27; else goto B28;
@@ -223390,7 +223588,7 @@ static V kf924_std_kite_check_pat(V r0, V r1, V r2, V r3, bool r4, int64_t r5) {
   kline = 9004574;
   { V a_[1] = {r17}; r39 = call_v(r38, 1, a_); }
   { V a_[1] = {r34}; r40 = call_v(r38, 1, a_); }
-  { V a_[4] = {KS[2499], r39, KS[2500], r40}; r41 = k_interp(4, a_); }
+  { V a_[4] = {KS[2513], r39, KS[2514], r40}; r41 = k_interp(4, a_); }
   r42 = kf972_std_kite_check_te(r6, r5, r41);
   { V a_[1] = {r42}; r43 = call_v(kir_gload(151, "Err"), 1, a_); }
   return r43;
@@ -223439,7 +223637,7 @@ static V kf924_std_kite_check_pat(V r0, V r1, V r2, V r3, bool r4, int64_t r5) {
   r64 = k_index(r23, r63);
   r65 = k_field(r62, 190);
   r66 = kf853_std_kite_check_ft_ty(r65);
-  { V a_[2] = {KS[2501], r59}; r67 = k_interp(2, a_); }
+  { V a_[2] = {KS[2515], r59}; r67 = k_interp(2, a_); }
   r68 = kf978_std_kite_check_unify(r6, r64, r66, r5, r67);
   r69 = kir_try(r68);
   if (r69) goto B21; else goto B22;
@@ -223524,7 +223722,7 @@ static V kf924_std_kite_check_pat(V r0, V r1, V r2, V r3, bool r4, int64_t r5) {
   r103 = KS[898];
   goto B39;
  B38:;
-  r103 = KS[2502];
+  r103 = KS[2516];
   goto B39;
  B39:;
   kline = 9004599;
@@ -223608,7 +223806,7 @@ static V kf924_std_kite_check_pat(V r0, V r1, V r2, V r3, bool r4, int64_t r5) {
   r139 = PB[21];
   kline = 9004611;
   r140 = kf895_std_kite_check_lit_ty(r139);
-  r141 = kf978_std_kite_check_unify(r6, r2, r140, r5, KS[2503]);
+  r141 = kf978_std_kite_check_unify(r6, r2, r140, r5, KS[2517]);
   r142 = kir_try(r141);
   if (r142) goto B56; else goto B57;
  B56:;
@@ -223660,7 +223858,7 @@ static V kf924_std_kite_check_pat(V r0, V r1, V r2, V r3, bool r4, int64_t r5) {
   if (r183) goto B80; else goto B79;
  B65:;
   kline = 9004618;
-  r164 = kf972_std_kite_check_te(r6, r5, KS[2504]);
+  r164 = kf972_std_kite_check_te(r6, r5, KS[2518]);
   { V a_[1] = {r164}; r165 = call_v(kir_gload(151, "Err"), 1, a_); }
   return r165;
  B67:;
@@ -223687,7 +223885,7 @@ static V kf924_std_kite_check_pat(V r0, V r1, V r2, V r3, bool r4, int64_t r5) {
  B72:;
   kline = 9004624;
   r172 = kf893_std_kite_check_lit_repr(r157);
-  { V a_[3] = {KS[2505], r172, KS[18]}; r173 = k_interp(3, a_); }
+  { V a_[3] = {KS[2519], r172, KS[18]}; r173 = k_interp(3, a_); }
   r175 = ((r150).u.i != 0);
   if (r175) goto B75; else goto B76;
  B75:;
@@ -223700,7 +223898,7 @@ static V kf924_std_kite_check_pat(V r0, V r1, V r2, V r3, bool r4, int64_t r5) {
   kline = 9004624;
   r176 = kir_vbin(0, r173, r174);
   r177 = kf893_std_kite_check_lit_repr(r159);
-  { V a_[2] = {r177, KS[2506]}; r178 = k_interp(2, a_); }
+  { V a_[2] = {r177, KS[2520]}; r178 = k_interp(2, a_); }
   r179 = kir_vbin(0, r176, r178);
   kline = 9004621;
   r180 = kf972_std_kite_check_te(r6, r5, r179);
@@ -223712,7 +223910,7 @@ static V kf924_std_kite_check_pat(V r0, V r1, V r2, V r3, bool r4, int64_t r5) {
   r192 = kf894_std_kite_check_lit_rt(r182);
   r193 = kf1334_std_kite_ty_tcon(r192);
   kline = 9004629;
-  r194 = kf978_std_kite_check_unify(r6, r2, r193, r5, KS[2507]);
+  r194 = kf978_std_kite_check_unify(r6, r2, r193, r5, KS[2521]);
   kline = 9004641;
   r195 = kir_try(r194);
   if (r195) goto B88; else goto B89;
@@ -223764,7 +223962,7 @@ static V kf924_std_kite_check_pat(V r0, V r1, V r2, V r3, bool r4, int64_t r5) {
   if (r203) goto B93; else goto B92;
  B91:;
   kline = 9004644;
-  r201 = kf972_std_kite_check_te(r6, r5, KS[2508]);
+  r201 = kf972_std_kite_check_te(r6, r5, KS[2522]);
   { V a_[1] = {r201}; r202 = call_v(kir_gload(151, "Err"), 1, a_); }
   return r202;
  B92:;
@@ -223806,7 +224004,7 @@ static V kf924_std_kite_check_pat(V r0, V r1, V r2, V r3, bool r4, int64_t r5) {
   if (r216) goto B99; else goto B101;
  B99:;
   kline = 9004650;
-  r217 = kf972_std_kite_check_te(r6, r5, KS[2509]);
+  r217 = kf972_std_kite_check_te(r6, r5, KS[2523]);
   { V a_[1] = {r217}; r218 = call_v(kir_gload(151, "Err"), 1, a_); }
   return r218;
  B101:;
@@ -223814,7 +224012,7 @@ static V kf924_std_kite_check_pat(V r0, V r1, V r2, V r3, bool r4, int64_t r5) {
   r219 = kf1333_std_kite_ty_targs(r210);
   { V a_[1] = {r219}; r220 = call_v(kir_gload(163, "len"), 1, a_); }
   r221 = (r220).u.i;
-  r222 = kf827_std_kite_check_expand_dots(r6, r205, r221, KS[2510], r5);
+  r222 = kf827_std_kite_check_expand_dots(r6, r205, r221, KS[2524], r5);
   r223 = kir_try(r222);
   if (r223) goto B102; else goto B103;
  B102:;
@@ -223828,7 +224026,7 @@ static V kf924_std_kite_check_pat(V r0, V r1, V r2, V r3, bool r4, int64_t r5) {
   r230 = PB[29];
   kline = 9004655;
   { V a_[2] = {KS[1920], r230}; r231 = call_v(kir_gload(178, "TC"), 2, a_); }
-  r232 = kf978_std_kite_check_unify(r229, r2, r231, r5, KS[2511]);
+  r232 = kf978_std_kite_check_unify(r229, r2, r231, r5, KS[2525]);
   r233 = kir_try(r232);
   if (r233) goto B106; else goto B107;
  B105:;
@@ -223877,7 +224075,7 @@ static V kf924_std_kite_check_pat(V r0, V r1, V r2, V r3, bool r4, int64_t r5) {
   r253 = PB[37];
   kline = 9004661;
   r254 = kf1326_std_kite_ty_list_t(r253);
-  r255 = kf978_std_kite_check_unify(r252, r2, r254, r5, KS[2512]);
+  r255 = kf978_std_kite_check_unify(r252, r2, r254, r5, KS[2526]);
   r256 = kir_try(r255);
   if (r256) goto B116; else goto B117;
  B115:;
@@ -223974,7 +224172,7 @@ static V kf924_std_kite_check_pat(V r0, V r1, V r2, V r3, bool r4, int64_t r5) {
   r295 = KS[898];
   goto B138;
  B137:;
-  r295 = KS[2502];
+  r295 = KS[2516];
   goto B138;
  B138:;
   kline = 9004669;
@@ -224117,7 +224315,7 @@ static V kf924_std_kite_check_pat(V r0, V r1, V r2, V r3, bool r4, int64_t r5) {
  B167:;
   kline = 9004697;
   { V a_[2] = {r311, r343}; r355 = call_v(kir_gload(178, "TC"), 2, a_); }
-  { V a_[2] = {KS[2513], r304}; r356 = k_interp(2, a_); }
+  { V a_[2] = {KS[2527], r304}; r356 = k_interp(2, a_); }
   r357 = kf978_std_kite_check_unify(r342, r2, r355, r5, r356);
   r358 = kir_try(r357);
   if (r358) goto B168; else goto B169;
@@ -224144,7 +224342,7 @@ static V kf924_std_kite_check_pat(V r0, V r1, V r2, V r3, bool r4, int64_t r5) {
   kline = 9004703;
   { V a_[1] = {r362}; r370 = call_v(kir_gload(163, "len"), 1, a_); }
   r371 = (r370).u.i;
-  { V a_[3] = {KS[2514], r304, KS[73]}; r372 = k_interp(3, a_); }
+  { V a_[3] = {KS[2528], r304, KS[73]}; r372 = k_interp(3, a_); }
   r373 = kf827_std_kite_check_expand_dots(r6, r369, r371, r372, r5);
   r374 = kir_try(r373);
   if (r374) goto B175; else goto B176;
@@ -224175,7 +224373,7 @@ static V kf924_std_kite_check_pat(V r0, V r1, V r2, V r3, bool r4, int64_t r5) {
   { V a_[1] = {r376}; r385 = call_v(kir_gload(163, "len"), 1, a_); }
   r386 = (r385).u.i;
   r387 = mkint(r386);
-  { V a_[7] = {KS[2513], r304, KS[2278], r384, KS[2515], r387, KS[2280]}; r388 = k_interp(7, a_); }
+  { V a_[7] = {KS[2527], r304, KS[2292], r384, KS[2529], r387, KS[2294]}; r388 = k_interp(7, a_); }
   r389 = kf972_std_kite_check_te(r6, r5, r388);
   { V a_[1] = {r389}; r390 = call_v(kir_gload(151, "Err"), 1, a_); }
   return r390;
@@ -224332,14 +224530,14 @@ static V kf924_std_kite_check_pat(V r0, V r1, V r2, V r3, bool r4, int64_t r5) {
   SAFEPOINT(); CANCEL_POINT(); goto B208;
  B211:;
   kline = 9004726;
-  { V a_[5] = {KS[2516], r304, KS[2517], r304, KS[1123]}; r460 = k_interp(5, a_); }
+  { V a_[5] = {KS[2530], r304, KS[2531], r304, KS[1123]}; r460 = k_interp(5, a_); }
   r461 = kf972_std_kite_check_te(r6, r5, r460);
   kline = 9004725;
   { V a_[1] = {r461}; r462 = call_v(kir_gload(151, "Err"), 1, a_); }
   return r462;
  B213:;
   kline = 9004729;
-  { V a_[2] = {KS[2518], r304}; r463 = k_interp(2, a_); }
+  { V a_[2] = {KS[2532], r304}; r463 = k_interp(2, a_); }
   r464 = kf972_std_kite_check_te(r6, r5, r463);
   { V a_[1] = {r464}; r465 = call_v(kir_gload(151, "Err"), 1, a_); }
   return r465;
@@ -224403,7 +224601,7 @@ static V kf924_std_kite_check_pat(V r0, V r1, V r2, V r3, bool r4, int64_t r5) {
   SAFEPOINT(); CANCEL_POINT(); goto B218;
  B220:;
   kline = 9004744;
-  { V a_[2] = {KS[2393], r470}; r495 = k_interp(2, a_); }
+  { V a_[2] = {KS[2407], r470}; r495 = k_interp(2, a_); }
   r496 = kf972_std_kite_check_te(r6, r5, r495);
   { V a_[1] = {r496}; r497 = call_v(kir_gload(151, "Err"), 1, a_); }
   return r497;
@@ -224436,7 +224634,7 @@ static V kf924_std_kite_check_pat(V r0, V r1, V r2, V r3, bool r4, int64_t r5) {
  B226:;
   kline = 9004753;
   { V a_[2] = {r473, r503}; r515 = call_v(kir_gload(178, "TC"), 2, a_); }
-  { V a_[2] = {KS[2513], r470}; r516 = k_interp(2, a_); }
+  { V a_[2] = {KS[2527], r470}; r516 = k_interp(2, a_); }
   r517 = kf978_std_kite_check_unify(r502, r2, r515, r5, r516);
   r518 = kir_try(r517);
   if (r518) goto B227; else goto B228;
@@ -224494,7 +224692,7 @@ static V kf924_std_kite_check_pat(V r0, V r1, V r2, V r3, bool r4, int64_t r5) {
   SAFEPOINT(); CANCEL_POINT(); goto B232;
  B238:;
   kline = 9004765;
-  { V a_[3] = {r470, KS[2461], r527}; r540 = k_interp(3, a_); }
+  { V a_[3] = {r470, KS[2475], r527}; r540 = k_interp(3, a_); }
   r541 = kf972_std_kite_check_te(r6, r5, r540);
   { V a_[1] = {r541}; r542 = call_v(kir_gload(151, "Err"), 1, a_); }
   return r542;
@@ -224558,11 +224756,11 @@ static V kl225(KFn *self, int argc, V *argv) {
   if (r4) goto B1; else goto B2;
  B1:;
   kline = 9004573;
-  { V a_[2] = {r0, KS[2519]}; r5 = call_v(kir_gload(188, "join"), 2, a_); }
+  { V a_[2] = {r0, KS[2533]}; r5 = call_v(kir_gload(188, "join"), 2, a_); }
   r1 = r5;
   goto B3;
  B2:;
-  r1 = KS[2520];
+  r1 = KS[2534];
   goto B3;
  B3:;
   return r1;
@@ -225281,8 +225479,8 @@ static V kf929_std_kite_check_pattern(V r0, V r1, V r2, V r3, bool r4, int64_t r
  B9:;
   kline = 9004467;
   { V a_[1] = {r9}; r27 = call_v(kir_gload(203, "sort"), 1, a_); }
-  { V a_[2] = {r27, KS[2519]}; r28 = call_v(kir_gload(188, "join"), 2, a_); }
-  r29 = kir_vbin(0, KS[2521], r28);
+  { V a_[2] = {r27, KS[2533]}; r28 = call_v(kir_gload(188, "join"), 2, a_); }
+  r29 = kir_vbin(0, KS[2535], r28);
   r30 = kf972_std_kite_check_te(r0, r5, r29);
   { V a_[1] = {r30}; r31 = call_v(kir_gload(151, "Err"), 1, a_); }
   return r31;
@@ -225396,7 +225594,7 @@ static V kf933_std_kite_check_pre(V r0) {
   goto B3;
  B2:;
   kline = 9000394;
-  r4 = kir_vbin(0, r0, KS[2522]);
+  r4 = kir_vbin(0, r0, KS[2536]);
   r1 = r4;
   goto B3;
  B3:;
@@ -225457,7 +225655,7 @@ static V kf934_std_kite_check_prim(V r0) {
   if (r11) goto B8; else goto B7;
  B7:;
   kline = 9000164;
-  r14 = kir_vbin(9, r0, KS[2523]);
+  r14 = kir_vbin(9, r0, KS[2537]);
   r15 = ((r14).u.i != 0);
   r11 = r15;
   goto B8;
@@ -225469,7 +225667,7 @@ static V kf934_std_kite_check_prim(V r0) {
   { V a_[1] = {r16}; r17 = call_v(kir_gload(247, "Some"), 1, a_); }
   return r17;
  B11:;
-  { V a_[6] = {KS[271], KS[273], KS[2524], KS[274], KS[2267], KS[848]}; r18 = mklist(6, a_); }
+  { V a_[6] = {KS[271], KS[273], KS[2538], KS[274], KS[2281], KS[848]}; r18 = mklist(6, a_); }
   kline = 9000165;
   { V a_[2] = {r18, r0}; r19 = call_v(kir_gload(292, "contains"), 2, a_); }
   r20 = ((r19).u.i != 0);
@@ -226496,7 +226694,7 @@ static V kf946_std_kite_check_select_e(V r0, V r1, V r2) {
   r41 = PB[4];
   kline = 9003215;
   r42 = kf779_std_kite_check_bool_t();
-  r43 = kf978_std_kite_check_unify(r39, r42, r40, r5, KS[2525]);
+  r43 = kf978_std_kite_check_unify(r39, r42, r40, r5, KS[2539]);
   r44 = kir_try(r43);
   if (r44) goto B15; else goto B16;
  B14:;
@@ -226561,7 +226759,7 @@ static V kf946_std_kite_check_select_e(V r0, V r1, V r2) {
   { V a_[1] = {r55}; r66 = mklist(1, a_); }
   kline = 9003221;
   { V a_[2] = {KS[839], r66}; r67 = call_v(kir_gload(178, "TC"), 2, a_); }
-  { V a_[2] = {r22, KS[2526]}; r68 = k_interp(2, a_); }
+  { V a_[2] = {r22, KS[2540]}; r68 = k_interp(2, a_); }
   r69 = kf978_std_kite_check_unify(r63, r67, r64, r5, r68);
   r70 = kir_try(r69);
   if (r70) goto B29; else goto B30;
@@ -226604,7 +226802,7 @@ static V kf946_std_kite_check_select_e(V r0, V r1, V r2) {
   r83 = PB[11];
   r84 = PB[12];
   kline = 9003225;
-  r85 = kf978_std_kite_check_unify(r82, r55, r83, r5, KS[2527]);
+  r85 = kf978_std_kite_check_unify(r82, r55, r83, r5, KS[2541]);
   r86 = kir_try(r85);
   if (r86) goto B38; else goto B39;
  B37:;
@@ -226626,7 +226824,7 @@ static V kf946_std_kite_check_select_e(V r0, V r1, V r2) {
   if (r93) goto B43; else goto B45;
  B43:;
   kline = 9003230;
-  r94 = kf972_std_kite_check_te(r12, r5, KS[2528]);
+  r94 = kf972_std_kite_check_te(r12, r5, KS[2542]);
   kline = 9003229;
   { V a_[1] = {r94}; r95 = call_v(kir_gload(151, "Err"), 1, a_); }
   return r95;
@@ -226673,7 +226871,7 @@ static V kf946_std_kite_check_select_e(V r0, V r1, V r2) {
   r115 = PB[18];
   kline = 9003239;
   r116 = kf871_std_kite_check_int_t();
-  r117 = kf978_std_kite_check_unify(r113, r116, r114, r5, KS[2529]);
+  r117 = kf978_std_kite_check_unify(r113, r116, r114, r5, KS[2543]);
   r118 = kir_try(r117);
   if (r118) goto B58; else goto B59;
  B57:;
@@ -226727,7 +226925,7 @@ static V kf946_std_kite_check_select_e(V r0, V r1, V r2) {
   r138 = k_field(r20, 62);
   r139 = k_field(r138, 35);
   r140 = (r139).u.i;
-  r141 = kf884_std_kite_check_join_t(r12, r137, r128, r140, KS[2530]);
+  r141 = kf884_std_kite_check_join_t(r12, r137, r128, r140, KS[2544]);
   r142 = kir_try(r141);
   if (r142) goto B69; else goto B70;
  B69:;
@@ -226914,7 +227112,7 @@ static V kf949_std_kite_check_show_case(V r0, V r1, int64_t r2) {
  B15:;
   r23 = PB[2];
   kline = 9004394;
-  r24 = kir_vbin(0, r23, KS[2531]);
+  r24 = kir_vbin(0, r23, KS[2545]);
   r3 = r24;
   SAFEPOINT(); CANCEL_POINT(); goto B1;
  B16:;
@@ -226938,7 +227136,7 @@ static V kf949_std_kite_check_show_case(V r0, V r1, int64_t r2) {
   kline = 9004396;
   { V a_[2] = {r1, KS[140]}; r33 = call_v(kir_gload(188, "join"), 2, a_); }
   r34 = kir_vbin(0, KS[888], r33);
-  r35 = kir_vbin(0, r34, KS[2532]);
+  r35 = kir_vbin(0, r34, KS[2546]);
   r27 = r35;
   goto B22;
  B21:;
@@ -227535,14 +227733,14 @@ static V kf950_std_kite_check_solve_cg_sites(V r0) {
  B17:;
   r39 = PB[7];
   kline = 9000773;
-  { V a_[4] = {KS[2440], r39, KS[56], r32}; r40 = k_interp(4, a_); }
+  { V a_[4] = {KS[2454], r39, KS[56], r32}; r40 = k_interp(4, a_); }
   { V a_[2] = {r13, r40}; r41 = call_v(kir_gload(292, "contains"), 2, a_); }
   r42 = ((r41).u.i != 0);
   if (r42) goto B18; else { SAFEPOINT(); CANCEL_POINT(); goto B15; }
  B18:;
   kline = 9000773;
   r43 = (r14).u.i;
-  { V a_[4] = {KS[2440], r39, KS[56], r32}; r44 = k_interp(4, a_); }
+  { V a_[4] = {KS[2454], r39, KS[56], r32}; r44 = k_interp(4, a_); }
   r45 = kf908_std_kite_check_name_n(r43, r44);
   { V a_[1] = {r45}; r46 = call_v(kir_gload(247, "Some"), 1, a_); }
   r37 = r46;
@@ -227567,7 +227765,7 @@ static V kf950_std_kite_check_solve_cg_sites(V r0) {
   kline = 9000782;
   r61 = (r14).u.i;
   r62 = mkint(r61);
-  { V a_[4] = {KS[2533], r15, KS[2534], r32}; r63 = k_interp(4, a_); }
+  { V a_[4] = {KS[2547], r15, KS[2548], r32}; r63 = k_interp(4, a_); }
   { V a_[2] = {r62, r63}; r64 = mktuple(2, a_); }
   kline = 9000780;
   { V a_[2] = {r60, r64}; r65 = call_v(kir_gload(179, "push"), 2, a_); }
@@ -227726,7 +227924,7 @@ static V kf950_std_kite_check_solve_cg_sites(V r0) {
   r191 = *r2->ref;
   kline = 9000798;
   r192 = kf948_std_kite_check_sh(r191, r183);
-  { V a_[3] = {r15, KS[2535], r192}; r193 = k_interp(3, a_); }
+  { V a_[3] = {r15, KS[2549], r192}; r193 = k_interp(3, a_); }
   r184 = r193;
   SAFEPOINT(); CANCEL_POINT(); goto B29;
  B33:;
@@ -227762,7 +227960,7 @@ static V kf950_std_kite_check_solve_cg_sites(V r0) {
   r213 = *r2->ref;
   kline = 9000805;
   r214 = kf948_std_kite_check_sh(r213, r183);
-  { V a_[3] = {r15, KS[2535], r214}; r215 = k_interp(3, a_); }
+  { V a_[3] = {r15, KS[2549], r214}; r215 = k_interp(3, a_); }
   r184 = r215;
   SAFEPOINT(); CANCEL_POINT(); goto B29;
  B38:;
@@ -227789,12 +227987,12 @@ static V kf950_std_kite_check_solve_cg_sites(V r0) {
   r227 = *r2->ref;
   kline = 9000815;
   r228 = kf948_std_kite_check_sh(r227, r183);
-  { V a_[3] = {r15, KS[2535], r228}; r229 = k_interp(3, a_); }
+  { V a_[3] = {r15, KS[2549], r228}; r229 = k_interp(3, a_); }
   r184 = r229;
   SAFEPOINT(); CANCEL_POINT(); goto B29;
  B43:;
   kline = 9000813;
-  { V a_[5] = {KS[2269], r15, KS[2536], r15, KS[2537]}; r226 = k_interp(5, a_); }
+  { V a_[5] = {KS[2283], r15, KS[2550], r15, KS[2551]}; r226 = k_interp(5, a_); }
   r184 = r226;
   SAFEPOINT(); CANCEL_POINT(); goto B29;
  B45:;
@@ -227803,7 +228001,7 @@ static V kf950_std_kite_check_solve_cg_sites(V r0) {
   r233 = k_field(r232, 410);
   r234 = (r14).u.i;
   r235 = mkint(r234);
-  r236 = kir_vbin(0, KS[2538], r184);
+  r236 = kir_vbin(0, KS[2552], r184);
   { V a_[2] = {r235, r236}; r237 = mktuple(2, a_); }
   { V a_[2] = {r233, r237}; r238 = call_v(kir_gload(179, "push"), 2, a_); }
   r239 = *r2->ref;
@@ -229073,10 +229271,10 @@ static V kf951_std_kite_check_solve_constraints(V r0) {
   r107 = (r104).u.i;
   r108 = mkint(r107);
   r109 = kf933_std_kite_check_pre(r105);
-  r110 = kir_vbin(0, KS[2538], r109);
+  r110 = kir_vbin(0, KS[2552], r109);
   r111 = kf948_std_kite_check_sh(r1, r102);
   r112 = kf948_std_kite_check_sh(r1, r103);
-  { V a_[5] = {KS[2539], r111, KS[2540], r112, KS[2541]}; r113 = k_interp(5, a_); }
+  { V a_[5] = {KS[2553], r111, KS[2554], r112, KS[2555]}; r113 = k_interp(5, a_); }
   r114 = kir_vbin(0, r110, r113);
   { V a_[2] = {r108, r114}; r115 = mktuple(2, a_); }
   kline = 9004795;
@@ -229281,7 +229479,7 @@ static V kf951_std_kite_check_solve_constraints(V r0) {
   kline = 9004811;
   { V a_[2] = {r268, r275}; r276 = call_v(kir_gload(178, "TC"), 2, a_); }
   r277 = (r252).u.i;
-  { V a_[2] = {KS[2514], r256}; r278 = k_interp(2, a_); }
+  { V a_[2] = {KS[2528], r256}; r278 = k_interp(2, a_); }
   r279 = kf978_std_kite_check_unify(r274, r254, r276, r277, r278);
   r280 = pat6363(r279, PB);
   if (r280) goto B41; else goto B40;
@@ -229316,13 +229514,13 @@ static V kf951_std_kite_check_solve_constraints(V r0) {
  B49:;
   kline = 9004820;
   r291 = kf948_std_kite_check_sh(r1, r254);
-  { V a_[5] = {KS[2542], r291, KS[135], r286, KS[1123]}; r292 = k_interp(5, a_); }
+  { V a_[5] = {KS[2556], r291, KS[135], r286, KS[1123]}; r292 = k_interp(5, a_); }
   r289 = r292;
   goto B51;
  B50:;
   kline = 9004822;
   r293 = kf948_std_kite_check_sh(r1, r254);
-  { V a_[5] = {KS[2543], r286, KS[1020], r293, KS[1123]}; r294 = k_interp(5, a_); }
+  { V a_[5] = {KS[2557], r286, KS[1020], r293, KS[1123]}; r294 = k_interp(5, a_); }
   r289 = r294;
   goto B51;
  B51:;
@@ -229332,7 +229530,7 @@ static V kf951_std_kite_check_solve_constraints(V r0) {
   r297 = (r252).u.i;
   r298 = mkint(r297);
   r299 = kf948_std_kite_check_sh(r1, r254);
-  { V a_[5] = {KS[2538], r299, KS[2544], r286, r295}; r300 = k_interp(5, a_); }
+  { V a_[5] = {KS[2552], r299, KS[2558], r286, r295}; r300 = k_interp(5, a_); }
   { V a_[2] = {r298, r300}; r301 = mktuple(2, a_); }
   { V a_[2] = {r296, r301}; r302 = call_v(kir_gload(179, "push"), 2, a_); }
   r303 = k_field(r1, 216);
@@ -229410,10 +229608,10 @@ static V kf951_std_kite_check_solve_constraints(V r0) {
   r368 = pat6370(r251, PB);
   if (r368) goto B57; else goto B56;
  B55:;
-  r366 = KS[2545];
+  r366 = KS[2559];
   SAFEPOINT(); CANCEL_POINT(); goto B53;
  B56:;
-  r366 = KS[2546];
+  r366 = KS[2560];
   SAFEPOINT(); CANCEL_POINT(); goto B53;
  B57:;
   r366 = KS[807];
@@ -229426,14 +229624,14 @@ static V kf951_std_kite_check_solve_constraints(V r0) {
   r371 = PB[20];
   r372 = PB[21];
   kline = 9004836;
-  r374 = kir_vbin(9, r369, KS[2546]);
+  r374 = kir_vbin(9, r369, KS[2560]);
   r375 = ((r374).u.i != 0);
   if (r375) goto B62; else goto B63;
  B62:;
-  r373 = KS[2317];
+  r373 = KS[2331];
   goto B64;
  B63:;
-  r373 = KS[2316];
+  r373 = KS[2330];
   goto B64;
  B64:;
   r376 = r373;
@@ -229443,11 +229641,11 @@ static V kf951_std_kite_check_solve_constraints(V r0) {
   if (r378) goto B65; else { SAFEPOINT(); CANCEL_POINT(); goto B24; }
  B65:;
   kline = 9004838;
-  r380 = kir_vbin(9, r369, KS[2545]);
+  r380 = kir_vbin(9, r369, KS[2559]);
   r381 = ((r380).u.i != 0);
   if (r381) goto B68; else goto B69;
  B68:;
-  r379 = KS[2547];
+  r379 = KS[2561];
   goto B70;
  B69:;
   kline = 9004840;
@@ -229461,20 +229659,20 @@ static V kf951_std_kite_check_solve_constraints(V r0) {
   r388 = ((r387).u.i != 0);
   if (r388) goto B74; else goto B75;
  B71:;
-  r382 = KS[2548];
+  r382 = KS[2562];
   goto B73;
  B72:;
-  r382 = KS[2549];
+  r382 = KS[2563];
   goto B73;
  B73:;
   r379 = r382;
   SAFEPOINT(); CANCEL_POINT(); goto B70;
  B74:;
-  r386 = KS[2487];
+  r386 = KS[2501];
   goto B76;
  B75:;
   kline = 9004847;
-  r390 = kir_vbin(9, r369, KS[2546]);
+  r390 = kir_vbin(9, r369, KS[2560]);
   r391 = ((r390).u.i != 0);
   if (r391) goto B77; else goto B78;
  B76:;
@@ -229485,7 +229683,7 @@ static V kf951_std_kite_check_solve_constraints(V r0) {
   r394 = (r252).u.i;
   r395 = mkint(r394);
   kline = 9004857;
-  { V a_[13] = {KS[2550], r371, KS[2551], r385, KS[2552], r371, KS[135], r376, KS[2553], r371, KS[135], r392, KS[1123]}; r396 = k_interp(13, a_); }
+  { V a_[13] = {KS[2564], r371, KS[2565], r385, KS[2566], r371, KS[135], r376, KS[2567], r371, KS[135], r392, KS[1123]}; r396 = k_interp(13, a_); }
   { V a_[2] = {r395, r396}; r397 = mktuple(2, a_); }
   kline = 9004853;
   { V a_[2] = {r393, r397}; r398 = call_v(kir_gload(179, "push"), 2, a_); }
@@ -229556,10 +229754,10 @@ static V kf951_std_kite_check_solve_constraints(V r0) {
   r1 = r461;
   SAFEPOINT(); CANCEL_POINT(); goto B24;
  B77:;
-  r389 = KS[2493];
+  r389 = KS[2507];
   goto B79;
  B78:;
-  r389 = KS[2554];
+  r389 = KS[2568];
   goto B79;
  B79:;
   r386 = r389;
@@ -229646,7 +229844,7 @@ static V kf951_std_kite_check_solve_constraints(V r0) {
   SAFEPOINT(); CANCEL_POINT(); goto B81;
  B87:;
   kline = 9004870;
-  r535 = kir_vbin(9, r369, KS[2545]);
+  r535 = kir_vbin(9, r369, KS[2559]);
   r536 = ((r535).u.i != 0);
   if (r536) goto B88; else goto B89;
  B88:;
@@ -229687,11 +229885,11 @@ static V kf951_std_kite_check_solve_constraints(V r0) {
   if (r549) goto B96; else { SAFEPOINT(); CANCEL_POINT(); goto B24; }
  B96:;
   kline = 9004878;
-  r551 = kir_vbin(9, r369, KS[2545]);
+  r551 = kir_vbin(9, r369, KS[2559]);
   r552 = ((r551).u.i != 0);
   if (r552) goto B99; else goto B100;
  B99:;
-  r550 = KS[2547];
+  r550 = KS[2561];
   goto B101;
  B100:;
   kline = 9004878;
@@ -229705,7 +229903,7 @@ static V kf951_std_kite_check_solve_constraints(V r0) {
   r558 = (r252).u.i;
   r559 = mkint(r558);
   r560 = kf948_std_kite_check_sh(r1, r254);
-  { V a_[4] = {KS[2538], r556, KS[2555], r560}; r561 = k_interp(4, a_); }
+  { V a_[4] = {KS[2552], r556, KS[2569], r560}; r561 = k_interp(4, a_); }
   { V a_[2] = {r559, r561}; r562 = mktuple(2, a_); }
   { V a_[2] = {r557, r562}; r563 = call_v(kir_gload(179, "push"), 2, a_); }
   r564 = k_field(r1, 216);
@@ -229774,10 +229972,10 @@ static V kf951_std_kite_check_solve_constraints(V r0) {
   r1 = r626;
   SAFEPOINT(); CANCEL_POINT(); goto B24;
  B102:;
-  r553 = KS[2548];
+  r553 = KS[2562];
   goto B104;
  B103:;
-  r553 = KS[2549];
+  r553 = KS[2563];
   goto B104;
  B104:;
   r550 = r553;
@@ -230142,7 +230340,7 @@ static V kf952_std_kite_check_solve_ord_sites(V r0) {
  B5:;
   kline = 9004887; die("解构失败: %s", cshow(r4));
  B6:;
-  r14 = KS[2556];
+  r14 = KS[2570];
   goto B8;
  B7:;
   kline = 9004892;
@@ -230156,7 +230354,7 @@ static V kf952_std_kite_check_solve_ord_sites(V r0) {
   r24 = pat6382(r13, PB);
   if (r24) goto B14; else goto B12;
  B9:;
-  r18 = KS[2557];
+  r18 = KS[2571];
   goto B11;
  B10:;
   r18 = KS[64];
@@ -230164,7 +230362,7 @@ static V kf952_std_kite_check_solve_ord_sites(V r0) {
  B11:;
   kline = 9004892;
   r21 = kir_vbin(0, r17, r18);
-  r22 = kir_vbin(0, r21, KS[2558]);
+  r22 = kir_vbin(0, r21, KS[2572]);
   r14 = r22;
   SAFEPOINT(); CANCEL_POINT(); goto B8;
  B12:;
@@ -230180,11 +230378,11 @@ static V kf952_std_kite_check_solve_ord_sites(V r0) {
   r25 = PB[5];
   r26 = PB[6];
   kline = 9004895;
-  r27 = kf859_std_kite_check_has_bound(r1, r26, KS[2317]);
+  r27 = kf859_std_kite_check_has_bound(r1, r26, KS[2331]);
   if (r27) { SAFEPOINT(); CANCEL_POINT(); goto B1; } else goto B17;
  B17:;
   kline = 9004896;
-  r28 = kf859_std_kite_check_has_bound(r1, r26, KS[2493]);
+  r28 = kf859_std_kite_check_has_bound(r1, r26, KS[2507]);
   if (r28) goto B18; else goto B20;
  B18:;
   kline = 9004897;
@@ -230198,7 +230396,7 @@ static V kf952_std_kite_check_solve_ord_sites(V r0) {
   kline = 9004903;
   r32 = (r10).u.i;
   r33 = mkint(r32);
-  { V a_[7] = {KS[2538], r7, KS[2559], r25, KS[2560], r25, KS[2561]}; r34 = k_interp(7, a_); }
+  { V a_[7] = {KS[2552], r7, KS[2573], r25, KS[2574], r25, KS[2575]}; r34 = k_interp(7, a_); }
   { V a_[2] = {r33, r34}; r35 = mktuple(2, a_); }
   kline = 9004901;
   { V a_[2] = {r31, r35}; r36 = call_v(kir_gload(179, "push"), 2, a_); }
@@ -230309,7 +230507,7 @@ static V kf952_std_kite_check_solve_ord_sites(V r0) {
  B32:;
   kline = 9004916;
   r119 = k_field(r1, 409);
-  r120 = kir_vbin(0, r101, KS[2562]);
+  r120 = kir_vbin(0, r101, KS[2576]);
   { V a_[2] = {r119, r120}; r121 = call_v(kir_gload(292, "contains"), 2, a_); }
   r122 = ((r121).u.i != 0);
   r123 = !r122;
@@ -230321,7 +230519,7 @@ static V kf952_std_kite_check_solve_ord_sites(V r0) {
   r125 = (r10).u.i;
   r126 = mkint(r125);
   r127 = kf948_std_kite_check_sh(r1, r13);
-  { V a_[7] = {KS[2538], r7, KS[2563], r127, KS[2564], r101, KS[1123]}; r128 = k_interp(7, a_); }
+  { V a_[7] = {KS[2552], r7, KS[2577], r127, KS[2578], r101, KS[1123]}; r128 = k_interp(7, a_); }
   { V a_[2] = {r126, r128}; r129 = mktuple(2, a_); }
   kline = 9004918;
   { V a_[2] = {r124, r129}; r130 = call_v(kir_gload(179, "push"), 2, a_); }
@@ -230671,7 +230869,7 @@ static V kf956_std_kite_check_spawn_t(void) {
  B0:;
   r0 = mklist(0, NULL);
   kline = 9000467;
-  { V a_[2] = {KS[2468], r0}; r1 = call_v(kir_gload(178, "TC"), 2, a_); }
+  { V a_[2] = {KS[2482], r0}; r1 = call_v(kir_gload(178, "TC"), 2, a_); }
   return r1;
 }
 static V kf957_std_kite_check_specialize(V r0, V r1, int64_t r2) {
@@ -231803,7 +232001,7 @@ static V kf961_std_kite_check_stmt(V r0, V r1, V r2) {
  B23:;
   r62 = PB[14];
   kline = 9002456;
-  r63 = kf978_std_kite_check_unify(r40, r62, r58, r5, KS[2565]);
+  r63 = kf978_std_kite_check_unify(r40, r62, r58, r5, KS[2579]);
   r64 = kir_try(r63);
   if (r64) goto B24; else goto B25;
  B24:;
@@ -232110,7 +232308,7 @@ static V kf961_std_kite_check_stmt(V r0, V r1, V r2) {
   if (r266) goto B64; else goto B66;
  B64:;
   kline = 9002483;
-  r267 = kf972_std_kite_check_te(r0, r5, KS[2566]);
+  r267 = kf972_std_kite_check_te(r0, r5, KS[2580]);
   { V a_[1] = {r267}; r268 = call_v(kir_gload(151, "Err"), 1, a_); }
   return r268;
  B66:;
@@ -232128,7 +232326,7 @@ static V kf961_std_kite_check_stmt(V r0, V r1, V r2) {
   if (r277) goto B67; else goto B69;
  B67:;
   kline = 9002486;
-  r278 = kf972_std_kite_check_te(r0, r5, KS[2567]);
+  r278 = kf972_std_kite_check_te(r0, r5, KS[2581]);
   { V a_[1] = {r278}; r279 = call_v(kir_gload(151, "Err"), 1, a_); }
   return r279;
  B69:;
@@ -232144,7 +232342,7 @@ static V kf961_std_kite_check_stmt(V r0, V r1, V r2) {
   if (r285) goto B72; else goto B70;
  B70:;
   kline = 9002497;
-  r296 = kf978_std_kite_check_unify(r280, r276, r282, r5, KS[2568]);
+  r296 = kf978_std_kite_check_unify(r280, r276, r282, r5, KS[2582]);
   r297 = kir_try(r296);
   if (r297) goto B78; else goto B79;
  B72:;
@@ -232388,7 +232586,7 @@ static V kf961_std_kite_check_stmt(V r0, V r1, V r2) {
   r373 = PB[44];
   kline = 9002513;
   r374 = kf779_std_kite_check_bool_t();
-  r375 = kf978_std_kite_check_unify(r371, r374, r372, r5, KS[2569]);
+  r375 = kf978_std_kite_check_unify(r371, r374, r372, r5, KS[2583]);
   r376 = kir_try(r375);
   if (r376) goto B101; else goto B102;
  B100:;
@@ -232595,7 +232793,7 @@ static V kf961_std_kite_check_stmt(V r0, V r1, V r2) {
  B138:;
   kline = 9002547;
   r550 = kf948_std_kite_check_sh(r510, r512);
-  { V a_[2] = {r550, KS[2570]}; r551 = k_interp(2, a_); }
+  { V a_[2] = {r550, KS[2584]}; r551 = k_interp(2, a_); }
   r552 = kf972_std_kite_check_te(r510, r5, r551);
   { V a_[1] = {r552}; r553 = call_v(kir_gload(151, "Err"), 1, a_); }
   return r553;
@@ -232831,7 +233029,7 @@ static V kf961_std_kite_check_stmt(V r0, V r1, V r2) {
   return r718;
  B168:;
   kline = 9002567;
-  { V a_[2] = {KS[2571], r714}; r719 = k_interp(2, a_); }
+  { V a_[2] = {KS[2585], r714}; r719 = k_interp(2, a_); }
   r720 = kf972_std_kite_check_te(r0, r5, r719);
   { V a_[1] = {r720}; r721 = call_v(kir_gload(151, "Err"), 1, a_); }
   return r721;
@@ -233349,7 +233547,7 @@ static V kf964_std_kite_check_struct_lit(V r0, V r1, V r2, V r3) {
   if (r9) goto B3; else goto B2;
  B2:;
   kline = 9003367;
-  r14 = kf972_std_kite_check_te(r0, r6, KS[2338]);
+  r14 = kf972_std_kite_check_te(r0, r6, KS[2352]);
   { V a_[1] = {r14}; r15 = call_v(kir_gload(151, "Err"), 1, a_); }
   return r15;
  B3:;
@@ -233407,7 +233605,7 @@ static V kf964_std_kite_check_struct_lit(V r0, V r1, V r2, V r3) {
   SAFEPOINT(); CANCEL_POINT(); goto B12;
  B15:;
   kline = 9003375;
-  { V a_[3] = {r25, KS[2458], r21}; r35 = k_interp(3, a_); }
+  { V a_[3] = {r25, KS[2472], r21}; r35 = k_interp(3, a_); }
   r36 = kf972_std_kite_check_te(r0, r6, r35);
   { V a_[1] = {r36}; r37 = call_v(kir_gload(151, "Err"), 1, a_); }
   return r37;
@@ -233518,7 +233716,7 @@ static V kf964_std_kite_check_struct_lit(V r0, V r1, V r2, V r3) {
   if (r88) goto B48; else goto B47;
  B37:;
   kline = 9003386;
-  { V a_[3] = {r25, KS[2458], r21}; r70 = k_interp(3, a_); }
+  { V a_[3] = {r25, KS[2472], r21}; r70 = k_interp(3, a_); }
   r71 = kf972_std_kite_check_te(r0, r6, r70);
   { V a_[1] = {r71}; r72 = call_v(kir_gload(151, "Err"), 1, a_); }
   return r72;
@@ -233563,7 +233761,7 @@ static V kf964_std_kite_check_struct_lit(V r0, V r1, V r2, V r3) {
   if (r88) goto B49; else goto B51;
  B49:;
   kline = 9003393;
-  { V a_[4] = {r87, KS[2572], r21, KS[2573]}; r96 = k_interp(4, a_); }
+  { V a_[4] = {r87, KS[2586], r21, KS[2587]}; r96 = k_interp(4, a_); }
   r97 = kf972_std_kite_check_te(r0, r6, r96);
   { V a_[1] = {r97}; r98 = call_v(kir_gload(151, "Err"), 1, a_); }
   return r98;
@@ -233574,7 +233772,7 @@ static V kf964_std_kite_check_struct_lit(V r0, V r1, V r2, V r3) {
   if (r100) goto B52; else goto B54;
  B52:;
   kline = 9003395;
-  { V a_[3] = {KS[2574], r87, KS[2575]}; r101 = k_interp(3, a_); }
+  { V a_[3] = {KS[2588], r87, KS[2589]}; r101 = k_interp(3, a_); }
   r102 = kf972_std_kite_check_te(r0, r6, r101);
   { V a_[1] = {r102}; r103 = call_v(kir_gload(151, "Err"), 1, a_); }
   return r103;
@@ -233619,13 +233817,13 @@ static V kf964_std_kite_check_struct_lit(V r0, V r1, V r2, V r3) {
   kline = 9003397; die("解构失败: %s", cshow(r108));
  B60:;
   kline = 9003397;
-  { V a_[3] = {r87, KS[2461], r111}; r115 = k_interp(3, a_); }
+  { V a_[3] = {r87, KS[2475], r111}; r115 = k_interp(3, a_); }
   r116 = kf972_std_kite_check_te(r0, r6, r115);
   { V a_[1] = {r116}; r117 = call_v(kir_gload(151, "Err"), 1, a_); }
   return r117;
  B63:;
   kline = 9003400;
-  { V a_[2] = {r87, KS[2576]}; r127 = k_interp(2, a_); }
+  { V a_[2] = {r87, KS[2590]}; r127 = k_interp(2, a_); }
   { V a_[2] = {r123, KS[140]}; r128 = call_v(kir_gload(188, "join"), 2, a_); }
   r129 = kir_vbin(0, r127, r128);
   r130 = kf972_std_kite_check_te(r0, r6, r129);
@@ -233711,7 +233909,7 @@ static V kf964_std_kite_check_struct_lit(V r0, V r1, V r2, V r3) {
   kline = 9003408; die("解构失败: %s", cshow(r160));
  B82:;
   kline = 9003411;
-  { V a_[2] = {KS[2577], r21}; r169 = k_interp(2, a_); }
+  { V a_[2] = {KS[2591], r21}; r169 = k_interp(2, a_); }
   r170 = kf972_std_kite_check_te(r0, r6, r169);
   { V a_[1] = {r170}; r171 = call_v(kir_gload(151, "Err"), 1, a_); }
   return r171;
@@ -233875,7 +234073,7 @@ static V kf964_std_kite_check_struct_lit(V r0, V r1, V r2, V r3) {
   kline = 9003436;
   r247 = k_field(r239, 35);
   r248 = (r247).u.i;
-  { V a_[3] = {KS[2578], r21, KS[1123]}; r249 = k_interp(3, a_); }
+  { V a_[3] = {KS[2592], r21, KS[1123]}; r249 = k_interp(3, a_); }
   r250 = kf978_std_kite_check_unify(r245, r237, r246, r248, r249);
   r251 = kir_try(r250);
   if (r251) goto B114; else goto B115;
@@ -233915,7 +234113,7 @@ static V kf964_std_kite_check_struct_lit(V r0, V r1, V r2, V r3) {
   kline = 9003438; die("解构失败: %s", cshow(r256));
  B121:;
   kline = 9003439;
-  { V a_[3] = {r21, KS[2461], r259}; r264 = k_interp(3, a_); }
+  { V a_[3] = {r21, KS[2475], r259}; r264 = k_interp(3, a_); }
   r265 = kf972_std_kite_check_te(r184, r6, r264);
   { V a_[1] = {r265}; r266 = call_v(kir_gload(151, "Err"), 1, a_); }
   return r266;
@@ -233942,7 +234140,7 @@ static V kf964_std_kite_check_struct_lit(V r0, V r1, V r2, V r3) {
   kline = 9003442;
   r277 = k_field(r260, 35);
   r278 = (r277).u.i;
-  { V a_[2] = {KS[2579], r259}; r279 = k_interp(2, a_); }
+  { V a_[2] = {KS[2593], r259}; r279 = k_interp(2, a_); }
   r280 = kf978_std_kite_check_unify(r274, r268, r275, r278, r279);
   r281 = kir_try(r280);
   if (r281) goto B128; else goto B129;
@@ -234036,7 +234234,7 @@ static V kf964_std_kite_check_struct_lit(V r0, V r1, V r2, V r3) {
   r387 = k_field(r184, 435);
   r388 = (r387).u.i;
   r389 = mkint(r388);
-  { V a_[2] = {KS[2580], r389}; r390 = k_interp(2, a_); }
+  { V a_[2] = {KS[2594], r389}; r390 = k_interp(2, a_); }
   r391 = r390;
   kline = 9003463;
   r392 = kf908_std_kite_check_name_n(r6, r391);
@@ -234160,7 +234358,7 @@ static V kf964_std_kite_check_struct_lit(V r0, V r1, V r2, V r3) {
   kline = 9003468; die("解构失败: %s", cshow(r421));
  B150:;
   kline = 9003471;
-  { V a_[2] = {r21, KS[2576]}; r430 = k_interp(2, a_); }
+  { V a_[2] = {r21, KS[2590]}; r430 = k_interp(2, a_); }
   { V a_[2] = {r235, KS[140]}; r431 = call_v(kir_gload(188, "join"), 2, a_); }
   r432 = kir_vbin(0, r430, r431);
   r433 = kf972_std_kite_check_te(r184, r6, r432);
@@ -234199,7 +234397,7 @@ static V kf964_std_kite_check_struct_lit(V r0, V r1, V r2, V r3) {
   kline = 9003473; die("解构失败: %s", cshow(r438));
  B158:;
   kline = 9003474;
-  { V a_[3] = {r21, KS[2461], r441}; r446 = k_interp(3, a_); }
+  { V a_[3] = {r21, KS[2475], r441}; r446 = k_interp(3, a_); }
   r447 = kf972_std_kite_check_te(r184, r6, r446);
   { V a_[1] = {r447}; r448 = call_v(kir_gload(151, "Err"), 1, a_); }
   return r448;
@@ -234226,7 +234424,7 @@ static V kf964_std_kite_check_struct_lit(V r0, V r1, V r2, V r3) {
   kline = 9003477;
   r459 = k_field(r442, 35);
   r460 = (r459).u.i;
-  { V a_[2] = {KS[2579], r441}; r461 = k_interp(2, a_); }
+  { V a_[2] = {KS[2593], r441}; r461 = k_interp(2, a_); }
   r462 = kf978_std_kite_check_unify(r456, r450, r457, r460, r461);
   r463 = kir_try(r462);
   if (r463) goto B165; else goto B166;
@@ -234419,7 +234617,7 @@ static V kf966_std_kite_check_subst_self1(V r0, V r1) {
   r5 = PB[1];
   r6 = PB[2];
   kline = 9004942;
-  r9 = kir_vbin(9, r4, KS[2328]);
+  r9 = kir_vbin(9, r4, KS[2342]);
   r10 = ((r9).u.i != 0);
   r8 = r10;
   if (r8) goto B4; else goto B5;
@@ -234758,7 +234956,7 @@ static V kf967_std_kite_check_take_cg(V r0, V r1, V r2, int64_t r3) {
   if (r76) goto B4; else goto B6;
  B4:;
   kline = 9000747;
-  { V a_[4] = {r2, KS[2581], r2, KS[2573]}; r77 = k_interp(4, a_); }
+  { V a_[4] = {r2, KS[2595], r2, KS[2587]}; r77 = k_interp(4, a_); }
   r78 = kf972_std_kite_check_te(r70, r3, r77);
   { V a_[1] = {r78}; r79 = call_v(kir_gload(151, "Err"), 1, a_); }
   return r79;
@@ -234993,7 +235191,7 @@ static V kf972_std_kite_check_te(V r0, int64_t r1, V r2) {
  B0:;
   r3 = mkint(r1);
   kline = 9000306;
-  r4 = kir_vbin(0, KS[2538], r2);
+  r4 = kir_vbin(0, KS[2552], r2);
   { V a_[3] = {r0, r3, r4}; r5 = k_struct(&ST_55, 3, FS222, a_); }
   return r5;
 }
@@ -235372,7 +235570,7 @@ static V kf976_std_kite_check_type_app(V r0, V r1, V r2) {
   if (r8) goto B3; else goto B2;
  B2:;
   kline = 9003262;
-  r12 = kf972_std_kite_check_te(r0, r5, KS[2338]);
+  r12 = kf972_std_kite_check_te(r0, r5, KS[2352]);
   { V a_[1] = {r12}; r13 = call_v(kir_gload(151, "Err"), 1, a_); }
   return r13;
  B3:;
@@ -235408,7 +235606,7 @@ static V kf976_std_kite_check_type_app(V r0, V r1, V r2) {
   kline = 9003264; die("match 没有覆盖值 %s", cshow(r18));
  B11:;
   kline = 9003266;
-  r22 = kf972_std_kite_check_te(r0, r5, KS[2582]);
+  r22 = kf972_std_kite_check_te(r0, r5, KS[2596]);
   { V a_[1] = {r22}; r23 = call_v(kir_gload(151, "Err"), 1, a_); }
   return r23;
  B13:;
@@ -235439,7 +235637,7 @@ static V kf976_std_kite_check_type_app(V r0, V r1, V r2) {
   return r30;
  B19:;
   kline = 9003272;
-  { V a_[2] = {r24, KS[2583]}; r34 = k_interp(2, a_); }
+  { V a_[2] = {r24, KS[2597]}; r34 = k_interp(2, a_); }
   r35 = kf972_std_kite_check_te(r0, r5, r34);
   { V a_[1] = {r35}; r36 = call_v(kir_gload(151, "Err"), 1, a_); }
   return r36;
@@ -235447,7 +235645,7 @@ static V kf976_std_kite_check_type_app(V r0, V r1, V r2) {
   kline = 9003271; die("解构失败: %s", cshow(r32));
  B22:;
   kline = 9003277;
-  { V a_[2] = {r24, KS[2583]}; r42 = k_interp(2, a_); }
+  { V a_[2] = {r24, KS[2597]}; r42 = k_interp(2, a_); }
   r43 = kf972_std_kite_check_te(r0, r5, r42);
   { V a_[1] = {r43}; r44 = call_v(kir_gload(151, "Err"), 1, a_); }
   return r44;
@@ -235473,7 +235671,7 @@ static V kf976_std_kite_check_type_app(V r0, V r1, V r2) {
   if (r46) goto B27; else goto B29;
  B27:;
   kline = 9003279;
-  { V a_[2] = {r24, KS[2583]}; r54 = k_interp(2, a_); }
+  { V a_[2] = {r24, KS[2597]}; r54 = k_interp(2, a_); }
   r55 = kf972_std_kite_check_te(r0, r5, r54);
   { V a_[1] = {r55}; r56 = call_v(kir_gload(151, "Err"), 1, a_); }
   return r56;
@@ -235492,7 +235690,7 @@ static V kf976_std_kite_check_type_app(V r0, V r1, V r2) {
   { V a_[1] = {r63}; r64 = call_v(kir_gload(163, "len"), 1, a_); }
   r65 = (r64).u.i;
   r66 = mkint(r65);
-  { V a_[4] = {r24, KS[2360], r66, KS[2584]}; r67 = k_interp(4, a_); }
+  { V a_[4] = {r24, KS[2374], r66, KS[2598]}; r67 = k_interp(4, a_); }
   kline = 9003286;
   r68 = k_field(r37, 448);
   kline = 9003285;
@@ -235502,7 +235700,7 @@ static V kf976_std_kite_check_type_app(V r0, V r1, V r2) {
   { V a_[1] = {r16}; r71 = call_v(kir_gload(163, "len"), 1, a_); }
   r72 = (r71).u.i;
   r73 = mkint(r72);
-  { V a_[3] = {KS[2585], r73, KS[2280]}; r74 = k_interp(3, a_); }
+  { V a_[3] = {KS[2599], r73, KS[2294]}; r74 = k_interp(3, a_); }
   r75 = kir_vbin(0, r70, r74);
   kline = 9003282;
   r76 = kf972_std_kite_check_te(r0, r5, r75);
@@ -235550,7 +235748,7 @@ static V kf976_std_kite_check_type_app(V r0, V r1, V r2) {
  B37:;
   r97 = r95;
   kline = 9003296;
-  r98 = kf958_std_kite_check_starts(r97, KS[2440]);
+  r98 = kf958_std_kite_check_starts(r97, KS[2454]);
   r99 = !r98;
   if (r99) goto B39; else { SAFEPOINT(); CANCEL_POINT(); goto B36; }
  B39:;
@@ -236382,7 +236580,7 @@ static V kf978_std_kite_check_unify(V r0, V r1, V r2, int64_t r3, V r4) {
   r134 = PB[8];
   r135 = PB[9];
   kline = 9001122;
-  r136 = kf958_std_kite_check_starts(r134, KS[2330]);
+  r136 = kf958_std_kite_check_starts(r134, KS[2344]);
   if (r136) goto B49; else { SAFEPOINT(); CANCEL_POINT(); goto B46; }
  B49:;
   kline = 9001123;
@@ -236399,7 +236597,7 @@ static V kf978_std_kite_check_unify(V r0, V r1, V r2, int64_t r3, V r4) {
   r139 = PB[10];
   r140 = PB[11];
   kline = 9001124;
-  r142 = kf958_std_kite_check_starts(r139, KS[2330]);
+  r142 = kf958_std_kite_check_starts(r139, KS[2344]);
   r141 = r142;
   if (r141) goto B55; else goto B56;
  B55:;
@@ -236462,7 +236660,7 @@ static V kf978_std_kite_check_unify(V r0, V r1, V r2, int64_t r3, V r4) {
   if (r164) goto B75; else goto B76;
  B75:;
   kline = 9001133;
-  r165 = kir_vbin(0, r4, KS[2522]);
+  r165 = kir_vbin(0, r4, KS[2536]);
   r162 = r165;
   goto B77;
  B76:;
@@ -236472,7 +236670,7 @@ static V kf978_std_kite_check_unify(V r0, V r1, V r2, int64_t r3, V r4) {
   r166 = r162;
   kline = 9001134;
   r167 = kf948_std_kite_check_sh(r0, r8);
-  { V a_[5] = {r167, KS[2544], r159, KS[2586], r134}; r168 = k_interp(5, a_); }
+  { V a_[5] = {r167, KS[2558], r159, KS[2600], r134}; r168 = k_interp(5, a_); }
   r169 = kir_vbin(0, r166, r168);
   r170 = kf972_std_kite_check_te(r0, r3, r169);
   { V a_[1] = {r170}; r171 = call_v(kir_gload(151, "Err"), 1, a_); }
@@ -236516,7 +236714,7 @@ static V kf978_std_kite_check_unify(V r0, V r1, V r2, int64_t r3, V r4) {
  B95:;
   kline = 9001147;
   r188 = kf1335_std_kite_ty_tname(r6);
-  r189 = kir_vbin(9, r188, KS[2274]);
+  r189 = kir_vbin(9, r188, KS[2288]);
   r190 = ((r189).u.i != 0);
   r187 = r190;
   if (r187) goto B97; else goto B98;
@@ -236595,7 +236793,7 @@ static V kf978_std_kite_check_unify(V r0, V r1, V r2, int64_t r3, V r4) {
  B113:;
   kline = 9001154;
   r217 = kf1335_std_kite_ty_tname(r8);
-  r218 = kir_vbin(9, r217, KS[2274]);
+  r218 = kir_vbin(9, r217, KS[2288]);
   r219 = ((r218).u.i != 0);
   r215 = r219;
   goto B114;
@@ -236614,7 +236812,7 @@ static V kf978_std_kite_check_unify(V r0, V r1, V r2, int64_t r3, V r4) {
   if (r231) goto B121; else goto B122;
  B118:;
   kline = 9001155;
-  r223 = kir_vbin(0, r4, KS[2522]);
+  r223 = kir_vbin(0, r4, KS[2536]);
   r220 = r223;
   goto B120;
  B119:;
@@ -236625,7 +236823,7 @@ static V kf978_std_kite_check_unify(V r0, V r1, V r2, int64_t r3, V r4) {
   kline = 9001156;
   r225 = kf948_std_kite_check_sh(r0, r6);
   r226 = kf948_std_kite_check_sh(r0, r8);
-  { V a_[5] = {KS[2483], r225, KS[2363], r226, KS[2587]}; r227 = k_interp(5, a_); }
+  { V a_[5] = {KS[2497], r225, KS[2377], r226, KS[2601]}; r227 = k_interp(5, a_); }
   r228 = kir_vbin(0, r224, r227);
   r229 = kf972_std_kite_check_te(r0, r3, r228);
   { V a_[1] = {r229}; r230 = call_v(kir_gload(151, "Err"), 1, a_); }
@@ -236661,7 +236859,7 @@ static V kf978_std_kite_check_unify(V r0, V r1, V r2, int64_t r3, V r4) {
  B127:;
   kline = 9001162;
   r245 = kf1335_std_kite_ty_tname(r8);
-  r246 = kir_vbin(9, r245, KS[2374]);
+  r246 = kir_vbin(9, r245, KS[2388]);
   r247 = ((r246).u.i != 0);
   r244 = r247;
   if (r244) goto B129; else goto B130;
@@ -236720,7 +236918,7 @@ static V kf978_std_kite_check_unify(V r0, V r1, V r2, int64_t r3, V r4) {
  B139:;
   kline = 9001170;
   r271 = kf1335_std_kite_ty_tname(r6);
-  r272 = kir_vbin(9, r271, KS[2374]);
+  r272 = kir_vbin(9, r271, KS[2388]);
   r273 = ((r272).u.i != 0);
   r270 = r273;
   if (r270) goto B141; else goto B142;
@@ -236750,7 +236948,7 @@ static V kf978_std_kite_check_unify(V r0, V r1, V r2, int64_t r3, V r4) {
   kline = 9001177;
   r280 = kf948_std_kite_check_sh(r0, r6);
   r281 = kf948_std_kite_check_sh(r0, r8);
-  { V a_[5] = {KS[2483], r280, KS[2363], r281, KS[2588]}; r282 = k_interp(5, a_); }
+  { V a_[5] = {KS[2497], r280, KS[2377], r281, KS[2602]}; r282 = k_interp(5, a_); }
   r283 = kir_vbin(0, r279, r282);
   kline = 9001172;
   r284 = kf972_std_kite_check_te(r0, r3, r283);
@@ -237611,7 +237809,7 @@ static bool kf982_std_kite_check_unsafe_ptr(V r0) {
   bool r3 = 0;
   SAFEPOINT(); CANCEL_POINT();
  B0:;
-  { V a_[11] = {KS[2199], KS[2200], KS[2202], KS[2204], KS[2206], KS[2208], KS[2210], KS[2211], KS[2212], KS[2214], KS[2216]}; r1 = mklist(11, a_); }
+  { V a_[11] = {KS[2213], KS[2214], KS[2216], KS[2218], KS[2220], KS[2222], KS[2224], KS[2225], KS[2226], KS[2228], KS[2230]}; r1 = mklist(11, a_); }
   kline = 9000217;
   { V a_[2] = {r1, r0}; r2 = call_v(kir_gload(292, "contains"), 2, a_); }
   r3 = ((r2).u.i != 0);
@@ -237625,7 +237823,7 @@ static V kf983_std_kite_check_unsup(V r0, V r1) {
  B0:;
   r3 = mkint(INT64_C(-1));
   kline = 9000308;
-  r4 = kir_vbin(0, KS[2589], r1);
+  r4 = kir_vbin(0, KS[2603], r1);
   { V a_[3] = {r0, r3, r4}; r5 = k_struct(&ST_55, 3, FS222, a_); }
   return r5;
 }
@@ -237915,7 +238113,7 @@ static V kf985_std_kite_check_use_item(V r0, V r1, V r2) {
  B18:;
   r37 = PB[5];
   r38 = PB[6];
-  { V a_[4] = {KS[2590], r37, r38, KS[64]}; r39 = mktuple(4, a_); }
+  { V a_[4] = {KS[2604], r37, r38, KS[64]}; r39 = mktuple(4, a_); }
   kline = 9001565;
   { V a_[2] = {r26, r39}; r40 = call_v(kir_gload(179, "push"), 2, a_); }
   r26 = r40;
@@ -237934,7 +238132,7 @@ static V kf985_std_kite_check_use_item(V r0, V r1, V r2) {
  B22:;
   kline = 9001570;
   { V a_[2] = {r13, r42}; r46 = call_v(kir_gload(191, "unwrap_or"), 2, a_); }
-  { V a_[4] = {KS[2590], r42, r46, KS[64]}; r47 = mktuple(4, a_); }
+  { V a_[4] = {KS[2604], r42, r46, KS[64]}; r47 = mktuple(4, a_); }
   { V a_[2] = {r26, r47}; r48 = call_v(kir_gload(179, "push"), 2, a_); }
   r26 = r48;
   SAFEPOINT(); CANCEL_POINT(); goto B12;
@@ -238035,7 +238233,7 @@ static V kf985_std_kite_check_use_item(V r0, V r1, V r2) {
   r88 = r91;
   r98 = r88;
   kline = 9001592;
-  r99 = kir_vbin(9, r84, KS[2590]);
+  r99 = kir_vbin(9, r84, KS[2604]);
   r100 = ((r99).u.i != 0);
   if (r100) goto B48; else goto B49;
  B46:;
@@ -238044,13 +238242,13 @@ static V kf985_std_kite_check_use_item(V r0, V r1, V r2) {
   kline = 9001590;
   r93 = k_field(r2, 35);
   r94 = (r93).u.i;
-  { V a_[2] = {KS[2591], r85}; r95 = k_interp(2, a_); }
+  { V a_[2] = {KS[2605], r85}; r95 = k_interp(2, a_); }
   r96 = kf972_std_kite_check_te(r78, r94, r95);
   { V a_[1] = {r96}; r97 = call_v(kir_gload(151, "Err"), 1, a_); }
   return r97;
  B48:;
   kline = 9001593;
-  r101 = kir_vbin(0, KS[2325], r85);
+  r101 = kir_vbin(0, KS[2339], r85);
   r102 = mklist(0, NULL);
   { V a_[2] = {r101, r102}; r103 = call_v(kir_gload(178, "TC"), 2, a_); }
   r104 = kf824_std_kite_check_ent(r103, 0, 0);
@@ -238123,7 +238321,7 @@ static V kf985_std_kite_check_use_item(V r0, V r1, V r2) {
   if (r125) goto B67; else goto B68;
  B67:;
   kline = 9001599;
-  { V a_[4] = {KS[2395], r85, KS[69], r115}; r129 = k_interp(4, a_); }
+  { V a_[4] = {KS[2409], r85, KS[69], r115}; r129 = k_interp(4, a_); }
   r124 = r129;
   goto B69;
  B68:;
@@ -238187,7 +238385,7 @@ static V kf985_std_kite_check_use_item(V r0, V r1, V r2) {
   if (r153) goto B81; else goto B82;
  B81:;
   kline = 9001618;
-  { V a_[4] = {KS[2395], r85, KS[69], r86}; r157 = k_interp(4, a_); }
+  { V a_[4] = {KS[2409], r85, KS[69], r86}; r157 = k_interp(4, a_); }
   r152 = r157;
   goto B83;
  B82:;
@@ -238220,7 +238418,7 @@ static V kf985_std_kite_check_use_item(V r0, V r1, V r2) {
   kline = 9001633;
   r171 = k_field(r2, 35);
   r172 = (r171).u.i;
-  { V a_[4] = {KS[902], r85, KS[2460], r86}; r173 = k_interp(4, a_); }
+  { V a_[4] = {KS[902], r85, KS[2474], r86}; r173 = k_interp(4, a_); }
   r174 = kf972_std_kite_check_te(r78, r172, r173);
   { V a_[1] = {r174}; r175 = call_v(kir_gload(151, "Err"), 1, a_); }
   return r175;
@@ -238861,7 +239059,7 @@ static V kf988_std_kite_check_va_call(V r0, V r1, V r2, V r3, V r4) {
   { V a_[1] = {r8}; r165 = call_v(kir_gload(163, "len"), 1, a_); }
   r166 = (r165).u.i;
   r167 = mkint(r166);
-  { V a_[6] = {r16, KS[2592], r164, KS[2279], r167, KS[2280]}; r168 = k_interp(6, a_); }
+  { V a_[6] = {r16, KS[2606], r164, KS[2293], r167, KS[2294]}; r168 = k_interp(6, a_); }
   r169 = kf972_std_kite_check_te(r148, r11, r168);
   { V a_[1] = {r169}; r170 = call_v(kir_gload(151, "Err"), 1, a_); }
   return r170;
@@ -238908,7 +239106,7 @@ static V kf988_std_kite_check_va_call(V r0, V r1, V r2, V r3, V r4) {
   r192 = k_index(r8, r191);
   r193 = k_field(r192, 35);
   r194 = (r193).u.i;
-  { V a_[2] = {r16, KS[2593]}; r195 = k_interp(2, a_); }
+  { V a_[2] = {r16, KS[2607]}; r195 = k_interp(2, a_); }
   r196 = kf978_std_kite_check_unify(r186, r190, r187, r194, r195);
   r197 = kir_try(r196);
   if (r197) goto B17; else goto B18;
@@ -238941,7 +239139,7 @@ static V kf988_std_kite_check_va_call(V r0, V r1, V r2, V r3, V r4) {
   if (r210) goto B22; else goto B23;
  B21:;
   kline = 9002161;
-  r237 = kir_vbin(0, r18, KS[2594]);
+  r237 = kir_vbin(0, r18, KS[2608]);
   { V a_[2] = {r202, KS[56]}; r238 = call_v(kir_gload(188, "join"), 2, a_); }
   r239 = kir_vbin(0, r237, r238);
   r240 = r239;
@@ -238995,7 +239193,7 @@ static V kf988_std_kite_check_va_call(V r0, V r1, V r2, V r3, V r4) {
   r229 = (r228).u.i;
   kline = 9002153;
   r230 = kf948_std_kite_check_sh(r148, r218);
-  { V a_[4] = {r16, KS[2595], r230, KS[2596]}; r231 = k_interp(4, a_); }
+  { V a_[4] = {r16, KS[2609], r230, KS[2610]}; r231 = k_interp(4, a_); }
   kline = 9002150;
   r232 = kf972_std_kite_check_te(r148, r229, r231);
   kline = 9002149;
@@ -239242,7 +239440,7 @@ static V kf989_std_kite_check_variant_ctor_type(V r0, V r1, V r2) {
  B4:;
   r25 = *r9->ref;
   kline = 9001067;
-  r26 = kir_vbin(0, KS[2377], r18);
+  r26 = kir_vbin(0, KS[2391], r18);
   r27 = kf762_std_kite_check_any_t();
   { V a_[3] = {r25, r26, r27}; r28 = call_v(kir_gload(209, "set"), 3, a_); }
   k_store_up(r9, r28);
@@ -239681,7 +239879,7 @@ static V kf994_std_kite_check_walk_c(V r0, V r1, V r2, V r3, bool r4) {
  B10:;
   kline = 9005194;
   r26 = k_field(r19, 9);
-  r27 = kf958_std_kite_check_starts(r26, KS[2477]);
+  r27 = kf958_std_kite_check_starts(r26, KS[2491]);
   r28 = !r27;
   r20 = r28;
   goto B11;
@@ -239705,7 +239903,7 @@ static V kf994_std_kite_check_walk_c(V r0, V r1, V r2, V r3, bool r4) {
  B19:;
   r37 = PB[5];
   kline = 9005198;
-  r40 = kir_vbin(9, r37, KS[2328]);
+  r40 = kir_vbin(9, r37, KS[2342]);
   r41 = ((r40).u.i != 0);
   r39 = r41;
   if (r39) goto B20; else goto B21;
@@ -239743,7 +239941,7 @@ static V kf994_std_kite_check_walk_c(V r0, V r1, V r2, V r3, bool r4) {
   return r55;
  B27:;
   kline = 9005202;
-  r57 = kir_vbin(9, r44, KS[2328]);
+  r57 = kir_vbin(9, r44, KS[2342]);
   r58 = ((r57).u.i != 0);
   r56 = r58;
   if (r56) goto B28; else goto B29;
@@ -239798,14 +239996,14 @@ static V kf994_std_kite_check_walk_c(V r0, V r1, V r2, V r3, bool r4) {
  B45:;
   r81 = mkint(r10);
   kline = 9005208;
-  { V a_[2] = {KS[2597], r34}; r82 = k_interp(2, a_); }
+  { V a_[2] = {KS[2611], r34}; r82 = k_interp(2, a_); }
   { V a_[2] = {r81, r82}; r83 = mktuple(2, a_); }
   { V a_[1] = {r83}; r84 = call_v(kir_gload(151, "Err"), 1, a_); }
   return r84;
  B47:;
   kline = 9005209;
   r85 = kf908_std_kite_check_name_n(r10, KS[981]);
-  r86 = kir_vbin(0, KS[2477], r34);
+  r86 = kir_vbin(0, KS[2491], r34);
   { V a_[1] = {r86}; r87 = call_v(kir_gload(368, "NmS"), 1, a_); }
   { V a_[2] = {r85, r87}; r88 = call_v(kir_gload(277, "NField"), 2, a_); }
   r89 = kf735_std_kite_ast_mkn(r10, r88);
@@ -240024,7 +240222,7 @@ static V kf996_std_kite_check_walk_st(V r0, V r1, V r2) {
  B9:;
   r16 = PB[2];
   kline = 9005019;
-  r19 = kir_vbin(9, r16, KS[2328]);
+  r19 = kir_vbin(9, r16, KS[2342]);
   r20 = ((r19).u.i != 0);
   r18 = r20;
   if (r18) goto B10; else goto B11;
@@ -243193,7 +243391,7 @@ static V kf1020_std_kite_format_fmt(V r0) {
   return r9;
  B5:;
   r19 = r13;
-  r20 = KS[2598];
+  r20 = KS[2612];
   kline = 33001560;
   r21 = kir_vbin(10, r19, r4);
   r22 = ((r21).u.i != 0);
@@ -244288,7 +244486,7 @@ static V kf1024_std_kite_format_generic_spans(V r0) {
   r52 = r53;
   if (r52) goto B24; else goto B23;
  B23:;
-  { V a_[5] = {KS[844], KS[2599], KS[893], KS[895], KS[964]}; r60 = mklist(5, a_); }
+  { V a_[5] = {KS[844], KS[2613], KS[893], KS[895], KS[964]}; r60 = mklist(5, a_); }
   kline = 33000271;
   { V a_[2] = {r60, r51}; r61 = call_v(kir_gload(292, "contains"), 2, a_); }
   r62 = ((r61).u.i != 0);
@@ -244359,7 +244557,7 @@ static V kf1024_std_kite_format_generic_spans(V r0) {
  B42:;
   kline = 33000291;
   r90 = k_field(r70, 36);
-  r91 = kir_vbin(9, r90, KS[2545]);
+  r91 = kir_vbin(9, r90, KS[2559]);
   r92 = ((r91).u.i != 0);
   r89 = r92;
   if (r89) goto B44; else goto B45;
@@ -244376,7 +244574,7 @@ static V kf1024_std_kite_format_generic_spans(V r0) {
   r81 = r89;
   SAFEPOINT(); CANCEL_POINT(); goto B43;
  B46:;
-  { V a_[11] = {KS[729], KS[777], KS[7], KS[305], KS[227], KS[888], KS[323], KS[2600], KS[69], KS[192], KS[32]}; r95 = mklist(11, a_); }
+  { V a_[11] = {KS[729], KS[777], KS[7], KS[305], KS[227], KS[888], KS[323], KS[2614], KS[69], KS[192], KS[32]}; r95 = mklist(11, a_); }
   kline = 33000292;
   r96 = k_field(r70, 242);
   { V a_[2] = {r95, r96}; r97 = call_v(kir_gload(292, "contains"), 2, a_); }
@@ -245633,7 +245831,7 @@ static bool kf1035_std_kite_format_is_ws(V r0) {
   if (r2) goto B8; else goto B7;
  B7:;
   kline = 33000063;
-  r14 = kir_vbin(9, r0, KS[2601]);
+  r14 = kir_vbin(9, r0, KS[2615]);
   r15 = ((r14).u.i != 0);
   r2 = r15;
   goto B8;
@@ -246708,7 +246906,7 @@ static V kf1039_std_kite_format_list_doc(V r0, int64_t r1, int64_t r2, V r3, boo
   r211 = mkint(r210);
   r212 = k_index(r209, r211);
   r213 = k_field(r212, 36);
-  r214 = kir_vbin(9, r213, KS[2545]);
+  r214 = kir_vbin(9, r213, KS[2559]);
   r215 = ((r214).u.i != 0);
   r208 = r215;
   if (r208) goto B63; else goto B64;
@@ -247758,7 +247956,7 @@ static V kf1041_std_kite_format_mk_atoms(V r0, V r1) {
   r76 = r77;
   if (r76) goto B32; else goto B31;
  B29:;
-  { V a_[3] = {KS[981], KS[2328], KS[844]}; r85 = mklist(3, a_); }
+  { V a_[3] = {KS[981], KS[2342], KS[844]}; r85 = mklist(3, a_); }
   kline = 33001091;
   r86 = k_field(r75, 242);
   { V a_[2] = {r85, r86}; r87 = call_v(kir_gload(292, "contains"), 2, a_); }
@@ -247974,7 +248172,7 @@ static V kl271(KFn *self, int argc, V *argv) {
   r6 = PB[1];
   kline = 33001519;
   r7 = kf1314_std_kite_scanner_repr_str(r6);
-  r8 = kir_vbin(0, KS[2602], r7);
+  r8 = kir_vbin(0, KS[2616], r7);
   r9 = kir_vbin(0, r8, KS[227]);
   r1 = r9;
   SAFEPOINT(); CANCEL_POINT(); goto B1;
@@ -250247,19 +250445,19 @@ static V kf1053_std_kite_format_sig(V r0) {
   SAFEPOINT(); CANCEL_POINT(); goto B13;
  B18:;
   kline = 33001540;
-  r46 = kir_vbin(9, r22, KS[2307]);
+  r46 = kir_vbin(9, r22, KS[2321]);
   r47 = ((r46).u.i != 0);
   if (r47) goto B19; else goto B20;
  B19:;
   kline = 33001542;
-  { V a_[2] = {r6, KS[2603]}; r48 = call_v(kir_gload(179, "push"), 2, a_); }
-  { V a_[2] = {r48, KS[2603]}; r49 = call_v(kir_gload(179, "push"), 2, a_); }
+  { V a_[2] = {r6, KS[2617]}; r48 = call_v(kir_gload(179, "push"), 2, a_); }
+  { V a_[2] = {r48, KS[2617]}; r49 = call_v(kir_gload(179, "push"), 2, a_); }
   r6 = r49;
   SAFEPOINT(); CANCEL_POINT(); goto B5;
  B20:;
   kline = 33001544;
   r50 = k_field(r15, 104);
-  r51 = kir_vbin(0, r50, KS[2604]);
+  r51 = kir_vbin(0, r50, KS[2618]);
   r52 = k_field(r15, 198);
   r53 = kf1043_std_kite_format_norm_v(r52);
   r54 = kir_vbin(0, r51, r53);
@@ -250894,7 +251092,7 @@ static V kf1054_std_kite_format_spaces(V r0) {
   r148 = r151;
   if (r148) goto B91; else goto B92;
  B91:;
-  { V a_[5] = {KS[2605], KS[468], KS[4], KS[2606], KS[986]}; r152 = mklist(5, a_); }
+  { V a_[5] = {KS[2619], KS[468], KS[4], KS[2620], KS[986]}; r152 = mklist(5, a_); }
   kline = 33000381;
   { V a_[2] = {r152, r33}; r153 = call_v(kir_gload(292, "contains"), 2, a_); }
   r154 = ((r153).u.i != 0);
@@ -251096,7 +251294,7 @@ static V kf1054_std_kite_format_spaces(V r0) {
   r35 = KS[73];
   SAFEPOINT(); CANCEL_POINT(); goto B15;
  B145:;
-  { V a_[4] = {KS[912], KS[897], KS[2545], KS[1941]}; r222 = mklist(4, a_); }
+  { V a_[4] = {KS[912], KS[897], KS[2559], KS[1941]}; r222 = mklist(4, a_); }
   kline = 33000401;
   r223 = k_field(r23, 36);
   { V a_[2] = {r222, r223}; r224 = call_v(kir_gload(292, "contains"), 2, a_); }
@@ -251104,7 +251302,7 @@ static V kf1054_std_kite_format_spaces(V r0) {
   r221 = r225;
   if (r221) goto B147; else goto B148;
  B147:;
-  { V a_[4] = {KS[912], KS[897], KS[2545], KS[1941]}; r226 = mklist(4, a_); }
+  { V a_[4] = {KS[912], KS[897], KS[2559], KS[1941]}; r226 = mklist(4, a_); }
   kline = 33000402;
   r227 = k_field(r17, 36);
   { V a_[2] = {r226, r227}; r228 = call_v(kir_gload(292, "contains"), 2, a_); }
@@ -252184,7 +252382,7 @@ static V kf1061_std_kite_format_tokenize(V r0) {
   if (r36) goto B17; else goto B18;
  B16:;
   kline = 33000122;
-  r42 = kf1004_std_kite_format_at(r2, r12, KS[2607]);
+  r42 = kf1004_std_kite_format_at(r2, r12, KS[2621]);
   if (r42) goto B20; else goto B22;
  B17:;
   r35 = r5;
@@ -252206,7 +252404,7 @@ static V kf1061_std_kite_format_tokenize(V r0) {
  B20:;
   if (__builtin_add_overflow(r12, INT64_C(2), &r43)) { kline = 33000123; die("整数溢出"); }
   kline = 33000123;
-  r44 = kf1016_std_kite_format_find(r2, KS[2608], r43);
+  r44 = kf1016_std_kite_format_find(r2, KS[2622], r43);
   r45 = r44;
   r46 = r45 < INT64_C(0);
   if (r46) goto B23; else goto B25;
@@ -252218,7 +252416,7 @@ static V kf1061_std_kite_format_tokenize(V r0) {
   if (r53) goto B26; else goto B27;
  B23:;
   kline = 33000124;
-  { V a_[1] = {KS[2609]}; r47 = call_v(kir_gload(151, "Err"), 1, a_); }
+  { V a_[1] = {KS[2623]}; r47 = call_v(kir_gload(151, "Err"), 1, a_); }
   return r47;
  B25:;
   if (__builtin_add_overflow(r45, INT64_C(2), &r48)) { kline = 33000125; die("整数溢出"); }
@@ -252318,7 +252516,7 @@ static V kf1061_std_kite_format_tokenize(V r0) {
   if (r93) goto B45; else goto B47;
  B45:;
   kline = 33000136;
-  { V a_[1] = {KS[2610]}; r94 = call_v(kir_gload(151, "Err"), 1, a_); }
+  { V a_[1] = {KS[2624]}; r94 = call_v(kir_gload(151, "Err"), 1, a_); }
   return r94;
  B47:;
   if (__builtin_add_overflow(r92, INT64_C(1), &r95)) { kline = 33000137; die("整数溢出"); }
@@ -252619,7 +252817,7 @@ static V kf1061_std_kite_format_tokenize(V r0) {
  B112:;
   kline = 33000209;
   r301 = kf1057_std_kite_format_sub(r2, r12, r214);
-  r302 = kf1059_std_kite_format_tk(KS[2545], r301, r13, r12);
+  r302 = kf1059_std_kite_format_tk(KS[2559], r301, r13, r12);
   { V a_[2] = {r11, r302}; r303 = call_v(kir_gload(179, "push"), 2, a_); }
   r11 = r303;
   r12 = r214;
@@ -252948,7 +253146,7 @@ static V kf1061_std_kite_format_tokenize(V r0) {
   if (r365) goto B179; else { SAFEPOINT(); CANCEL_POINT(); goto B176; }
  B178:;
   kline = 33000238;
-  r366 = kir_vbin(9, r360, KS[2307]);
+  r366 = kir_vbin(9, r360, KS[2321]);
   r367 = ((r366).u.i != 0);
   if (r367) goto B182; else goto B183;
  B179:;
@@ -252986,7 +253184,7 @@ static V kf1061_std_kite_format_tokenize(V r0) {
   SAFEPOINT(); CANCEL_POINT(); goto B184;
  B186:;
   kline = 33000246;
-  r381 = kf1059_std_kite_format_tk(KS[2611], r17, r13, r12);
+  r381 = kf1059_std_kite_format_tk(KS[2625], r17, r13, r12);
   { V a_[2] = {r11, r381}; r382 = call_v(kir_gload(179, "push"), 2, a_); }
   r11 = r382;
   if (__builtin_add_overflow(r12, INT64_C(1), &r383)) { kline = 33000247; die("整数溢出"); }
@@ -253262,7 +253460,7 @@ static bool kf1063_std_kite_format_unary(V r0) {
   r1 = r5;
   SAFEPOINT(); CANCEL_POINT(); goto B1;
  B10:;
-  { V a_[4] = {KS[981], KS[2328], KS[860], KS[861]}; r19 = mklist(4, a_); }
+  { V a_[4] = {KS[981], KS[2342], KS[860], KS[861]}; r19 = mklist(4, a_); }
   kline = 33000313;
   r20 = k_field(r4, 242);
   { V a_[2] = {r19, r20}; r21 = call_v(kir_gload(292, "contains"), 2, a_); }
@@ -253935,7 +254133,7 @@ static V kf1070_std_kite_modules_declare(V r0, V r1) {
   if (r57) goto B30; else goto B31;
  B30:;
   kline = 11001013;
-  r63 = kir_vbin(0, KS[2612], r55);
+  r63 = kir_vbin(0, KS[2626], r55);
   r56 = r63;
   goto B32;
  B31:;
@@ -254092,14 +254290,14 @@ static V kf1070_std_kite_modules_declare(V r0, V r1) {
   r145 = kf1068_std_kite_modules_decl_name(r141);
   r146 = r145;
   kline = 11001038;
-  r147 = kir_vbin(9, r146, KS[2613]);
+  r147 = kir_vbin(9, r146, KS[2627]);
   r148 = ((r147).u.i != 0);
   if (r148) goto B53; else goto B55;
  B53:;
   kline = 11001038;
   r149 = k_field(r141, 35);
   r150 = (r149).u.i;
-  r151 = kf1101_std_kite_modules_me(r150, KS[2614]);
+  r151 = kf1101_std_kite_modules_me(r150, KS[2628]);
   { V a_[1] = {r151}; r152 = call_v(kir_gload(151, "Err"), 1, a_); }
   return r152;
  B55:;
@@ -254111,7 +254309,7 @@ static V kf1070_std_kite_modules_declare(V r0, V r1) {
   kline = 11001039;
   r155 = k_field(r141, 35);
   r156 = (r155).u.i;
-  { V a_[3] = {KS[2615], r146, KS[2616]}; r157 = k_interp(3, a_); }
+  { V a_[3] = {KS[2629], r146, KS[2630]}; r157 = k_interp(3, a_); }
   r158 = kf1101_std_kite_modules_me(r156, r157);
   { V a_[1] = {r158}; r159 = call_v(kir_gload(151, "Err"), 1, a_); }
   return r159;
@@ -254140,7 +254338,7 @@ static V kf1070_std_kite_modules_declare(V r0, V r1) {
   kline = 11001041;
   r169 = k_field(r141, 35);
   r170 = (r169).u.i;
-  { V a_[5] = {KS[2617], r146, KS[2618], r165, KS[2619]}; r171 = k_interp(5, a_); }
+  { V a_[5] = {KS[2631], r146, KS[2632], r165, KS[2633]}; r171 = k_interp(5, a_); }
   r172 = kf1101_std_kite_modules_me(r170, r171);
   { V a_[1] = {r172}; r173 = call_v(kir_gload(151, "Err"), 1, a_); }
   return r173;
@@ -254154,11 +254352,11 @@ static V kf1070_std_kite_modules_declare(V r0, V r1) {
   { V a_[1] = {r1}; r178 = call_v(kir_gload(247, "Some"), 1, a_); }
   kline = 11001046;
   { r179 = call_v(kir_gload(208, "Map"), 0, NULL); }
-  { V a_[3] = {r179, KS[2613], r1}; r180 = call_v(kir_gload(209, "set"), 3, a_); }
+  { V a_[3] = {r179, KS[2627], r1}; r180 = call_v(kir_gload(209, "set"), 3, a_); }
   kline = 11001047;
   { r181 = call_v(kir_gload(208, "Map"), 0, NULL); }
   r182 = mkbool(0);
-  { V a_[3] = {r181, KS[2613], r182}; r183 = call_v(kir_gload(209, "set"), 3, a_); }
+  { V a_[3] = {r181, KS[2627], r182}; r183 = call_v(kir_gload(209, "set"), 3, a_); }
   kline = 11001043;
   r184 = k_field(r177, 502);
   r185 = k_field(r177, 356);
@@ -254317,7 +254515,7 @@ static V kf1071_std_kite_modules_dep_table(V r0) {
  B0:;
   kline = 11000297;
   r2 = kir_gload(816, "fs");
-  { V a_[2] = {r0, KS[2620]}; r3 = mklist(2, a_); }
+  { V a_[2] = {r0, KS[2634]}; r3 = mklist(2, a_); }
   r4 = kf1463_std_path_join(r3);
   { V a_[2] = {r2, r4}; r5 = call_m(192, 1, a_); }
   r6 = pat7262(r5, PB);
@@ -254337,7 +254535,7 @@ static V kf1071_std_kite_modules_dep_table(V r0) {
   r15 = KS[64];
   r16 = 0;
   kline = 11000306;
-  r17 = kir_vbin(0, r10, KS[2621]);
+  r17 = kir_vbin(0, r10, KS[2635]);
   { V a_[2] = {r17, KS[382]}; r18 = call_v(kir_gload(468, "split"), 2, a_); }
   r19 = k_iter(r18);
   goto B6;
@@ -254345,7 +254543,7 @@ static V kf1071_std_kite_modules_dep_table(V r0) {
   kline = 11000297; die("match 没有覆盖值 %s", cshow(r5));
  B5:;
   kline = 11000299;
-  { V a_[1] = {KS[2622]}; r9 = call_v(kir_gload(151, "Err"), 1, a_); }
+  { V a_[1] = {KS[2636]}; r9 = call_v(kir_gload(151, "Err"), 1, a_); }
   return r9;
  B6:;
   kline = 11000306;
@@ -254413,7 +254611,7 @@ static V kf1071_std_kite_modules_dep_table(V r0) {
   { V a_[1] = {r40}; r41 = call_v(kir_gload(818, "trim"), 1, a_); }
   r42 = r41;
   kline = 11000319;
-  r43 = kir_vbin(9, r42, KS[2623]);
+  r43 = kir_vbin(9, r42, KS[2637]);
   r44 = ((r43).u.i != 0);
   if (r44) goto B20; else goto B22;
  B20:;
@@ -254424,7 +254622,7 @@ static V kf1071_std_kite_modules_dep_table(V r0) {
   goto B22;
  B22:;
   kline = 11000320;
-  r47 = kir_vbin(9, r42, KS[2624]);
+  r47 = kir_vbin(9, r42, KS[2638]);
   r48 = ((r47).u.i != 0);
   if (r48) goto B23; else goto B25;
  B23:;
@@ -254435,7 +254633,7 @@ static V kf1071_std_kite_modules_dep_table(V r0) {
   goto B25;
  B25:;
   kline = 11000321;
-  r51 = kir_vbin(9, r42, KS[2625]);
+  r51 = kir_vbin(9, r42, KS[2639]);
   r52 = ((r51).u.i != 0);
   if (r52) goto B26; else { SAFEPOINT(); CANCEL_POINT(); goto B6; }
  B26:;
@@ -254496,7 +254694,7 @@ static V kf1071_std_kite_modules_dep_table(V r0) {
   if (r86) goto B37; else goto B39;
  B37:;
   kline = 11000331;
-  { V a_[3] = {KS[2626], r64, KS[2627]}; r87 = k_interp(3, a_); }
+  { V a_[3] = {KS[2640], r64, KS[2641]}; r87 = k_interp(3, a_); }
   { V a_[1] = {r87}; r88 = call_v(kir_gload(151, "Err"), 1, a_); }
   return r88;
  B39:;
@@ -254584,7 +254782,7 @@ static V kf1073_std_kite_modules_export(V r0, V r1, V r2, int64_t r3, V r4) {
   if (r10) goto B1; else goto B3;
  B1:;
   kline = 11001216;
-  { V a_[4] = {KS[2615], r1, KS[2628], r2}; r11 = k_interp(4, a_); }
+  { V a_[4] = {KS[2629], r1, KS[2642], r2}; r11 = k_interp(4, a_); }
   r12 = kf1101_std_kite_modules_me(r3, r11);
   { V a_[1] = {r12}; r13 = call_v(kir_gload(151, "Err"), 1, a_); }
   return r13;
@@ -254624,7 +254822,7 @@ static V kf1073_std_kite_modules_export(V r0, V r1, V r2, int64_t r3, V r4) {
   if (r20) goto B11; else goto B13;
  B11:;
   kline = 11001222;
-  { V a_[4] = {r1, KS[69], r2, KS[2629]}; r26 = k_interp(4, a_); }
+  { V a_[4] = {r1, KS[69], r2, KS[2643]}; r26 = k_interp(4, a_); }
   r27 = kf1101_std_kite_modules_me(r3, r26);
   { V a_[1] = {r27}; r28 = call_v(kir_gload(151, "Err"), 1, a_); }
   return r28;
@@ -254652,19 +254850,19 @@ static V kf1073_std_kite_modules_export(V r0, V r1, V r2, int64_t r3, V r4) {
   { V a_[2] = {r34, KS[961]}; r35 = call_v(kir_gload(191, "unwrap_or"), 2, a_); }
   r36 = r35;
   kline = 11001227;
-  r38 = kir_vbin(9, r36, KS[2630]);
+  r38 = kir_vbin(9, r36, KS[2644]);
   r39 = ((r38).u.i != 0);
   if (r39) goto B20; else goto B21;
  B20:;
-  r37 = KS[2631];
+  r37 = KS[2645];
   goto B22;
  B21:;
-  r37 = KS[2632];
+  r37 = KS[2646];
   goto B22;
  B22:;
   r40 = r37;
   kline = 11001228;
-  { V a_[8] = {r1, KS[69], r2, KS[2633], r36, KS[2634], r40, KS[2635]}; r41 = k_interp(8, a_); }
+  { V a_[8] = {r1, KS[69], r2, KS[2647], r36, KS[2648], r40, KS[2649]}; r41 = k_interp(8, a_); }
   r42 = kf1101_std_kite_modules_me(r3, r41);
   { V a_[1] = {r42}; r43 = call_v(kir_gload(151, "Err"), 1, a_); }
   return r43;
@@ -254753,7 +254951,7 @@ static V kf1074_std_kite_modules_find_module_file(V r0, V r1, V r2) {
   kline = 11000812;
   { V a_[2] = {r22, r1}; r23 = call_v(kir_gload(179, "push"), 2, a_); }
   r24 = kir_vbin(0, r23, r15);
-  { V a_[1] = {KS[2636]}; r25 = mklist(1, a_); }
+  { V a_[1] = {KS[2650]}; r25 = mklist(1, a_); }
   r26 = kir_vbin(0, r24, r25);
   r27 = kf1463_std_path_join(r26);
   r28 = r27;
@@ -255599,7 +255797,7 @@ static V kf1075_std_kite_modules_finish(V r0, V r1) {
   r206 = k_field(r129, 35);
   r207 = (r206).u.i;
   r208 = kf1108_std_kite_modules_path_join_strs(r160);
-  { V a_[4] = {KS[902], r208, KS[2637], r205}; r209 = k_interp(4, a_); }
+  { V a_[4] = {KS[902], r208, KS[2651], r205}; r209 = k_interp(4, a_); }
   r210 = kf1101_std_kite_modules_me(r207, r209);
   { V a_[1] = {r210}; r211 = call_v(kir_gload(151, "Err"), 1, a_); }
   return r211;
@@ -255925,7 +256123,7 @@ static V kf1075_std_kite_modules_finish(V r0, V r1) {
   r390 = mkint(r389);
   { V a_[2] = {r245, r390}; r391 = call_v(kir_gload(187, "take"), 2, a_); }
   r392 = kf1108_std_kite_modules_path_join_strs(r391);
-  r393 = kir_vbin(0, KS[2638], r392);
+  r393 = kir_vbin(0, KS[2652], r392);
   r394 = kf1101_std_kite_modules_me(r386, r393);
   { V a_[1] = {r394}; r395 = call_v(kir_gload(151, "Err"), 1, a_); }
   return r395;
@@ -256621,7 +256819,7 @@ static bool kf1087_std_kite_modules_is_lm_use(V r0) {
   kline = 11000708;
   r9 = k_index(r2, r8);
   r10 = kf1160_std_kite_modules_up_s(r9);
-  { V a_[2] = {r10, KS[2639]}; r11 = call_v(kir_gload(205, "starts_with"), 2, a_); }
+  { V a_[2] = {r10, KS[2653]}; r11 = call_v(kir_gload(205, "starts_with"), 2, a_); }
   r12 = ((r11).u.i != 0);
   r7 = r12;
   if (r7) goto B3; else goto B4;
@@ -257222,7 +257420,7 @@ static V kf1095_std_kite_modules_load(V r0, V r1, V r2, V r3, int64_t r4) {
   { V a_[2] = {r52, KS[834]}; r53 = call_v(kir_gload(188, "join"), 2, a_); }
   r54 = r53;
   kline = 11000900;
-  { V a_[2] = {KS[2640], r54}; r55 = k_interp(2, a_); }
+  { V a_[2] = {KS[2654], r54}; r55 = k_interp(2, a_); }
   r56 = kf1101_std_kite_modules_me(r4, r55);
   { V a_[1] = {r56}; r57 = call_v(kir_gload(151, "Err"), 1, a_); }
   return r57;
@@ -257870,7 +258068,7 @@ static V kf1098_std_kite_modules_load_once(V r0, V r1) {
   r121 = ((r120).u.i != 0);
   if (r121) goto B28; else goto B29;
  B28:;
-  r119 = KS[2641];
+  r119 = KS[2655];
   goto B30;
  B29:;
   r119 = r116;
@@ -257882,7 +258080,7 @@ static V kf1098_std_kite_modules_load_once(V r0, V r1) {
   r125 = ((r124).u.i != 0);
   if (r125) goto B31; else goto B32;
  B31:;
-  r123 = KS[2641];
+  r123 = KS[2655];
   goto B33;
  B32:;
   r123 = r98;
@@ -257892,7 +258090,7 @@ static V kf1098_std_kite_modules_load_once(V r0, V r1) {
   kline = 11000967;
   r127 = k_field(r104, 35);
   r128 = (r127).u.i;
-  { V a_[7] = {KS[2642], r113, KS[2643], r122, KS[2540], r126, KS[2644]}; r129 = k_interp(7, a_); }
+  { V a_[7] = {KS[2656], r113, KS[2657], r122, KS[2554], r126, KS[2658]}; r129 = k_interp(7, a_); }
   r130 = kf1101_std_kite_modules_me(r128, r129);
   kline = 11000966;
   { V a_[1] = {r130}; r131 = call_v(kir_gload(151, "Err"), 1, a_); }
@@ -257929,7 +258127,7 @@ static V kf1098_std_kite_modules_load_once(V r0, V r1) {
   r152 = kf1118_std_kite_modules_relpath(r151, r150);
   r153 = r152;
   kline = 11000981;
-  { V a_[2] = {r153, KS[2645]}; r155 = call_v(kir_gload(205, "starts_with"), 2, a_); }
+  { V a_[2] = {r153, KS[2659]}; r155 = call_v(kir_gload(205, "starts_with"), 2, a_); }
   r156 = ((r155).u.i != 0);
   if (r156) goto B42; else goto B43;
  B41:;
@@ -258181,7 +258379,7 @@ static V kf1102_std_kite_modules_mod_scope(V r0, V r1) {
   return r16;
  B3:;
   kline = 11001239;
-  r17 = kir_vbin(9, r10, KS[2636]);
+  r17 = kir_vbin(9, r10, KS[2650]);
   r18 = ((r17).u.i != 0);
   if (r18) goto B4; else goto B6;
  B4:;
@@ -258918,7 +259116,7 @@ static V kf1106_std_kite_modules_parse_file(V r0, V r1) {
  B10:;
   r44 = PB[1];
   kline = 11000760;
-  { V a_[4] = {KS[2646], r1, KS[135], r44}; r45 = k_interp(4, a_); }
+  { V a_[4] = {KS[2660], r1, KS[135], r44}; r45 = k_interp(4, a_); }
   r46 = kf1101_std_kite_modules_me(INT64_C(0), r45);
   { V a_[1] = {r46}; r47 = call_v(kir_gload(151, "Err"), 1, a_); }
   return r47;
@@ -260724,7 +260922,7 @@ static V kf1123_std_kite_modules_resolve_use(V r0, V r1, V r2, int64_t r3) {
   r82 = mkint(r77);
   kline = 11000842;
   r83 = k_index(r73, r82);
-  r84 = kir_vbin(10, r83, KS[2647]);
+  r84 = kir_vbin(10, r83, KS[2661]);
   r85 = ((r84).u.i != 0);
   r78 = r85;
   goto B31;
@@ -260743,7 +260941,7 @@ static V kf1123_std_kite_modules_resolve_use(V r0, V r1, V r2, int64_t r3) {
   if (r91) goto B34; else goto B36;
  B34:;
   kline = 11000844;
-  { V a_[5] = {KS[2648], r75, KS[2649], r76, KS[2650]}; r100 = k_interp(5, a_); }
+  { V a_[5] = {KS[2662], r75, KS[2663], r76, KS[2664]}; r100 = k_interp(5, a_); }
   r101 = kf1101_std_kite_modules_me(r3, r100);
   { V a_[1] = {r101}; r102 = call_v(kir_gload(151, "Err"), 1, a_); }
   return r102;
@@ -260985,7 +261183,7 @@ static V kf1123_std_kite_modules_resolve_use(V r0, V r1, V r2, int64_t r3) {
   r276 = kf1118_std_kite_modules_relpath(r271, r275);
   r277 = r276;
   kline = 11000888;
-  { V a_[5] = {KS[2638], r12, KS[2651], r277, KS[2652]}; r278 = k_interp(5, a_); }
+  { V a_[5] = {KS[2652], r12, KS[2665], r277, KS[2666]}; r278 = k_interp(5, a_); }
   r279 = kf1101_std_kite_modules_me(r3, r278);
   { V a_[1] = {r279}; r280 = call_v(kir_gload(151, "Err"), 1, a_); }
   return r280;
@@ -261043,7 +261241,7 @@ static V kf1123_std_kite_modules_resolve_use(V r0, V r1, V r2, int64_t r3) {
   kline = 11000879; die("解构失败: %s", cshow(r241));
  B89:;
   kline = 11000883;
-  { V a_[3] = {KS[2626], r12, KS[2653]}; r257 = k_interp(3, a_); }
+  { V a_[3] = {KS[2640], r12, KS[2667]}; r257 = k_interp(3, a_); }
   r258 = kf1101_std_kite_modules_me(r3, r257);
   { V a_[1] = {r258}; r259 = call_v(kir_gload(151, "Err"), 1, a_); }
   return r259;
@@ -263512,7 +263710,7 @@ static V kf1131_std_kite_modules_rimpl(V r0, V r1, V r2) {
   r12 = k_field(r11, 374);
   r13 = r12;
   kline = 11001542;
-  { V a_[2] = {r13, KS[2328]}; r14 = call_v(kir_gload(179, "push"), 2, a_); }
+  { V a_[2] = {r13, KS[2342]}; r14 = call_v(kir_gload(179, "push"), 2, a_); }
   r15 = r14;
   kline = 11001543;
   r16 = k_field(r10, 68);
@@ -267384,7 +267582,7 @@ static V kf1151_std_kite_modules_std_find(V r0, V r1) {
   kline = 11000728;
   { V a_[2] = {r25, r5}; r26 = call_v(kir_gload(179, "push"), 2, a_); }
   r27 = kir_vbin(0, r26, r18);
-  { V a_[1] = {KS[2636]}; r28 = mklist(1, a_); }
+  { V a_[1] = {KS[2650]}; r28 = mklist(1, a_); }
   r29 = kir_vbin(0, r27, r28);
   r30 = kf1463_std_path_join(r29);
   r31 = r30;
@@ -267521,7 +267719,7 @@ static V kf1153_std_kite_modules_strip_lm(V r0) {
   r9 = mkint(r7);
   kline = 11001959;
   { V a_[3] = {r0, r8, r9}; r10 = call_v(kir_gload(181, "__str_slice"), 3, a_); }
-  r11 = kir_vbin(9, r10, KS[2639]);
+  r11 = kir_vbin(9, r10, KS[2653]);
   r12 = ((r11).u.i != 0);
   if (r12) goto B4; else goto B6;
  B3:;
@@ -267664,7 +267862,7 @@ static V kf1154_std_kite_modules_sub_mod(V r0, V r1, V r2, int64_t r3, V r4) {
   { V a_[2] = {r8, KS[64]}; r9 = call_v(kir_gload(191, "unwrap_or"), 2, a_); }
   r10 = r9;
   kline = 11001205;
-  r12 = kir_vbin(9, r2, KS[2613]);
+  r12 = kir_vbin(9, r2, KS[2627]);
   r13 = ((r12).u.i != 0);
   r11 = r13;
   if (r11) goto B1; else goto B2;
@@ -267678,7 +267876,7 @@ static V kf1154_std_kite_modules_sub_mod(V r0, V r1, V r2, int64_t r3, V r4) {
   if (r11) goto B3; else goto B5;
  B3:;
   kline = 11001206;
-  { V a_[4] = {r1, KS[2654], r1, KS[2655]}; r16 = k_interp(4, a_); }
+  { V a_[4] = {r1, KS[2668], r1, KS[2669]}; r16 = k_interp(4, a_); }
   r17 = kf1101_std_kite_modules_me(r3, r16);
   { V a_[1] = {r17}; r18 = call_v(kir_gload(151, "Err"), 1, a_); }
   return r18;
@@ -267702,7 +267900,7 @@ static V kf1154_std_kite_modules_sub_mod(V r0, V r1, V r2, int64_t r3, V r4) {
   if (r19) goto B8; else goto B10;
  B8:;
   kline = 11001209;
-  { V a_[6] = {r1, KS[69], r2, KS[2656], r2, KS[2657]}; r28 = k_interp(6, a_); }
+  { V a_[6] = {r1, KS[69], r2, KS[2670], r2, KS[2671]}; r28 = k_interp(6, a_); }
   r29 = kf1101_std_kite_modules_me(r3, r28);
   { V a_[1] = {r29}; r30 = call_v(kir_gload(151, "Err"), 1, a_); }
   return r30;
@@ -268525,7 +268723,7 @@ static V kf1157_std_kite_modules_top(V r0, V r1, V r2) {
   r181 = k_field(r174, 9);
   kline = 11001470;
   r182 = k_field(r174, 214);
-  { V a_[1] = {KS[2328]}; r183 = mklist(1, a_); }
+  { V a_[1] = {KS[2342]}; r183 = mklist(1, a_); }
   r184 = kf1148_std_kite_modules_rtyo(r0, r3, r182, r183);
   r185 = kir_try(r184);
   if (r185) goto B41; else goto B42;
@@ -268545,7 +268743,7 @@ static V kf1157_std_kite_modules_top(V r0, V r1, V r2) {
   r194 = r193;
   kline = 11001474;
   r195 = k_field(r167, 388);
-  { V a_[1] = {KS[2328]}; r196 = mklist(1, a_); }
+  { V a_[1] = {KS[2342]}; r196 = mklist(1, a_); }
   r197 = kf1116_std_kite_modules_rconsts(r0, r3, r195, r196);
   r198 = kir_try(r197);
   if (r198) goto B45; else goto B46;
@@ -268576,7 +268774,7 @@ static V kf1157_std_kite_modules_top(V r0, V r1, V r2) {
   if (r208) goto B50; else goto B51;
  B50:;
   r209 = r207;
-  { V a_[1] = {KS[2328]}; r210 = mklist(1, a_); }
+  { V a_[1] = {KS[2342]}; r210 = mklist(1, a_); }
   kline = 11001478;
   r211 = kf1128_std_kite_modules_rfn(r0, r3, r209, r210);
   r212 = kir_try(r211);
@@ -269490,7 +269688,7 @@ static bool kf1165_std_kite_modules_visible(V r0, V r1, V r2, V r3) {
   return 0;
  B10:;
   kline = 11001248;
-  r28 = kir_vbin(9, r7, KS[2630]);
+  r28 = kir_vbin(9, r7, KS[2644]);
   r29 = ((r28).u.i != 0);
   if (r29) goto B11; else goto B13;
  B11:;
@@ -269971,7 +270169,7 @@ static V kf1167_std_kite_modules_walk_h(V r0, V r1, V r2) {
   r26 = kf1068_std_kite_modules_decl_name(r25);
   r27 = r26;
   kline = 11000637;
-  r28 = kir_vbin(9, r27, KS[2613]);
+  r28 = kir_vbin(9, r27, KS[2627]);
   r29 = ((r28).u.i != 0);
   if (r29) goto B12; else goto B14;
  B11:;
@@ -269986,7 +270184,7 @@ static V kf1167_std_kite_modules_walk_h(V r0, V r1, V r2) {
   kline = 11000637;
   r30 = k_field(r25, 35);
   r31 = (r30).u.i;
-  r32 = kf1101_std_kite_modules_me(r31, KS[2614]);
+  r32 = kf1101_std_kite_modules_me(r31, KS[2628]);
   { V a_[1] = {r32}; r33 = call_v(kir_gload(151, "Err"), 1, a_); }
   return r33;
  B14:;
@@ -269998,7 +270196,7 @@ static V kf1167_std_kite_modules_walk_h(V r0, V r1, V r2) {
   kline = 11000638;
   r36 = k_field(r25, 35);
   r37 = (r36).u.i;
-  { V a_[3] = {KS[2615], r27, KS[2616]}; r38 = k_interp(3, a_); }
+  { V a_[3] = {KS[2629], r27, KS[2630]}; r38 = k_interp(3, a_); }
   r39 = kf1101_std_kite_modules_me(r37, r38);
   { V a_[1] = {r39}; r40 = call_v(kir_gload(151, "Err"), 1, a_); }
   return r40;
@@ -270047,7 +270245,7 @@ static V kf1167_std_kite_modules_walk_h(V r0, V r1, V r2) {
   r75 = k_field(r3, 521);
   r76 = (r75).u.i;
   r77 = mkint(r76);
-  { V a_[4] = {KS[2639], r77, KS[56], r52}; r78 = k_interp(4, a_); }
+  { V a_[4] = {KS[2653], r77, KS[56], r52}; r78 = k_interp(4, a_); }
   r79 = r78;
   { V c_ = mkclosure(kl342, "<lambda>", 2); KFn *f_ = FN(c_); f_->ups[0] = kir_up(r52); f_->ups[1] = kir_up(r79); r80 = c_; }
   kline = 11000648;
@@ -270175,7 +270373,7 @@ static V kf1167_std_kite_modules_walk_h(V r0, V r1, V r2) {
   kline = 11000673;
   r146 = k_field(r134, 35);
   r147 = (r146).u.i;
-  r148 = kf1101_std_kite_modules_me(r147, KS[2658]);
+  r148 = kf1101_std_kite_modules_me(r147, KS[2672]);
   { V a_[1] = {r148}; r149 = call_v(kir_gload(151, "Err"), 1, a_); }
   return r149;
  B34:;
@@ -270250,7 +270448,7 @@ static V kf1167_std_kite_modules_walk_h(V r0, V r1, V r2) {
   r191 = k_field(r3, 521);
   r192 = (r191).u.i;
   r193 = mkint(r192);
-  { V a_[4] = {KS[2659], r193, KS[56], r168}; r194 = k_interp(4, a_); }
+  { V a_[4] = {KS[2673], r193, KS[56], r168}; r194 = k_interp(4, a_); }
   r195 = r194;
   kline = 11000683;
   r196 = k_field(r134, 35);
@@ -270975,7 +271173,7 @@ static V kf1175_std_kite_parser_assoc_const(V r0, V r1, bool r2) {
   SAFEPOINT(); CANCEL_POINT();
  B0:;
   kline = 8001222;
-  r3 = kf1206_std_kite_parser_expect(r0, KS[1021], KS[2660]);
+  r3 = kf1206_std_kite_parser_expect(r0, KS[1021], KS[2674]);
   r4 = kir_try(r3);
   if (r4) goto B1; else goto B2;
  B1:;
@@ -271015,7 +271213,7 @@ static V kf1175_std_kite_parser_assoc_const(V r0, V r1, bool r2) {
   kline = 8001224; die("解构失败: %s", cshow(r13));
  B9:;
   kline = 8001225;
-  { V a_[2] = {KS[2661], r16}; r19 = k_interp(2, a_); }
+  { V a_[2] = {KS[2675], r16}; r19 = k_interp(2, a_); }
   r20 = kf1201_std_kite_parser_e_at(r10, r19);
   { V a_[1] = {r20}; r21 = call_v(kir_gload(151, "Err"), 1, a_); }
   return r21;
@@ -271027,7 +271225,7 @@ static V kf1175_std_kite_parser_assoc_const(V r0, V r1, bool r2) {
   if (r24) goto B12; else goto B14;
  B12:;
   kline = 8001226;
-  { V a_[3] = {KS[2662], r16, KS[2663]}; r25 = k_interp(3, a_); }
+  { V a_[3] = {KS[2676], r16, KS[2677]}; r25 = k_interp(3, a_); }
   r26 = kf1201_std_kite_parser_e_at(r10, r25);
   { V a_[1] = {r26}; r27 = call_v(kir_gload(151, "Err"), 1, a_); }
   return r27;
@@ -271107,7 +271305,7 @@ static V kf1175_std_kite_parser_assoc_const(V r0, V r1, bool r2) {
   kline = 8001232; die("解构失败: %s", cshow(r47));
  B30:;
   kline = 8001236;
-  { V a_[3] = {KS[2664], r16, KS[2665]}; r52 = k_interp(3, a_); }
+  { V a_[3] = {KS[2678], r16, KS[2679]}; r52 = k_interp(3, a_); }
   r53 = kf1201_std_kite_parser_e_at(r10, r52);
   { V a_[1] = {r53}; r54 = call_v(kir_gload(151, "Err"), 1, a_); }
   return r54;
@@ -271322,7 +271520,7 @@ static V kf1177_std_kite_parser_async_expr(V r0) {
   kline = 8001890;
   r7 = k_field(r4, 35);
   r8 = (r7).u.i;
-  r9 = kf1176_std_kite_parser_async_body(r5, r8, KS[2666]);
+  r9 = kf1176_std_kite_parser_async_body(r5, r8, KS[2680]);
   return r9;
  B5:;
   r10 = mklist(0, NULL);
@@ -271345,7 +271543,7 @@ static V kf1177_std_kite_parser_async_expr(V r0) {
   kline = 8001916;
   r64 = k_field(r4, 35);
   r65 = (r64).u.i;
-  r66 = kf1176_std_kite_parser_async_body(r5, r65, KS[2667]);
+  r66 = kf1176_std_kite_parser_async_body(r5, r65, KS[2681]);
   r67 = kir_try(r66);
   if (r67) goto B47; else goto B48;
  B9:;
@@ -271361,7 +271559,7 @@ static V kf1177_std_kite_parser_async_expr(V r0) {
   r5 = r18;
   r11 = r19;
   kline = 8001896;
-  r20 = kf1181_std_kite_parser_at_op(r5, KS[2600]);
+  r20 = kf1181_std_kite_parser_at_op(r5, KS[2614]);
   if (r20) goto B13; else goto B15;
  B12:;
   kline = 8001893; die("解构失败: %s", cshow(r16));
@@ -271410,7 +271608,7 @@ static V kf1177_std_kite_parser_async_expr(V r0) {
  B27:;
   kline = 8001904;
   r36 = kf1259_std_kite_parser_peek(r5, INT64_C(1));
-  r37 = kf1272_std_kite_parser_tis(r36, KS[992], KS[2605]);
+  r37 = kf1272_std_kite_parser_tis(r36, KS[992], KS[2619]);
   r34 = r37;
   goto B28;
  B28:;
@@ -271455,7 +271653,7 @@ static V kf1177_std_kite_parser_async_expr(V r0) {
   if (r52) goto B39; else goto B40;
  B37:;
   kline = 8001914;
-  r62 = kf1201_std_kite_parser_e_at(r4, KS[2668]);
+  r62 = kf1201_std_kite_parser_e_at(r4, KS[2682]);
   { V a_[1] = {r62}; r63 = call_v(kir_gload(151, "Err"), 1, a_); }
   return r63;
  B39:;
@@ -271469,7 +271667,7 @@ static V kf1177_std_kite_parser_async_expr(V r0) {
   r55 = PB[8];
   r56 = PB[9];
   kline = 8001910;
-  r57 = kf1206_std_kite_parser_expect(r55, KS[992], KS[2605]);
+  r57 = kf1206_std_kite_parser_expect(r55, KS[992], KS[2619]);
   r58 = kir_try(r57);
   if (r58) goto B43; else goto B44;
  B42:;
@@ -271638,7 +271836,7 @@ static V kf1178_std_kite_parser_at_gt(V r0) {
   kline = 8000666;
   r8 = k_field(r2, 198);
   r9 = kf1316_std_kite_scanner_sv(r8);
-  r10 = kir_vbin(9, r9, KS[2307]);
+  r10 = kir_vbin(9, r9, KS[2321]);
   r11 = ((r10).u.i != 0);
   r7 = r11;
   if (r7) goto B4; else goto B3;
@@ -271648,7 +271846,7 @@ static V kf1178_std_kite_parser_at_gt(V r0) {
   kline = 8000666;
   r12 = k_field(r2, 198);
   r13 = kf1316_std_kite_scanner_sv(r12);
-  r14 = kir_vbin(9, r13, KS[2294]);
+  r14 = kir_vbin(9, r13, KS[2308]);
   r15 = ((r14).u.i != 0);
   r7 = r15;
   goto B4;
@@ -271999,14 +272197,14 @@ static V kf1184_std_kite_parser_attr_lit(V r0) {
   r2 = r1;
   kline = 8000422;
   r4 = k_field(r2, 104);
-  r5 = kir_vbin(9, r4, KS[2669]);
+  r5 = kir_vbin(9, r4, KS[2683]);
   r6 = ((r5).u.i != 0);
   r3 = r6;
   if (r3) goto B2; else goto B1;
  B1:;
   kline = 8000422;
   r7 = k_field(r2, 104);
-  r8 = kir_vbin(9, r7, KS[2670]);
+  r8 = kir_vbin(9, r7, KS[2684]);
   r9 = ((r8).u.i != 0);
   r3 = r9;
   goto B2;
@@ -272088,7 +272286,7 @@ static V kf1184_std_kite_parser_attr_lit(V r0) {
   return r50;
  B17:;
   kline = 8000429;
-  r51 = kf1201_std_kite_parser_e_at(r2, KS[2671]);
+  r51 = kf1201_std_kite_parser_e_at(r2, KS[2685]);
   { V a_[1] = {r51}; r52 = call_v(kir_gload(151, "Err"), 1, a_); }
   return r52;
 }
@@ -272279,7 +272477,7 @@ static V kf1185_std_kite_parser_attrs(V r0) {
   kline = 8000355; die("解构失败: %s", cshow(r20));
  B17:;
   kline = 8000363;
-  { V a_[3] = {KS[2672], r15, KS[2673]}; r30 = k_interp(3, a_); }
+  { V a_[3] = {KS[2686], r15, KS[2687]}; r30 = k_interp(3, a_); }
   kline = 8000364;
   r31 = kir_gload(28, "std.kite.parser.KNOWN_ATTRS");
   { V c_ = mkclosure(kl348, "<lambda>", 0); KFn *f_ = FN(c_);  r32 = c_; }
@@ -272743,7 +272941,7 @@ static V kf1186_std_kite_parser_binary(V r0, int64_t r1) {
   kline = 8001560; die("解构失败: %s", cshow(r38));
  B24:;
   kline = 8001563;
-  r43 = kf1181_std_kite_parser_at_op(r2, KS[2674]);
+  r43 = kf1181_std_kite_parser_at_op(r2, KS[2688]);
   if (r43) goto B25; else goto B26;
  B25:;
   kline = 8001564;
@@ -272814,7 +273012,7 @@ static V kf1186_std_kite_parser_binary(V r0, int64_t r1) {
   r67 = kf1316_std_kite_scanner_sv(r66);
   r68 = k_field(r65, 198);
   r69 = kf1316_std_kite_scanner_sv(r68);
-  { V a_[5] = {KS[2675], r67, KS[2676], r69, KS[2677]}; r70 = k_interp(5, a_); }
+  { V a_[5] = {KS[2689], r67, KS[2690], r69, KS[2691]}; r70 = k_interp(5, a_); }
   kline = 8001571;
   r71 = kf1201_std_kite_parser_e_at(r65, r70);
   kline = 8001570;
@@ -272988,7 +273186,7 @@ static V kf1186_std_kite_parser_binary(V r0, int64_t r1) {
   kline = 8001607;
   r142 = k_field(r141, 198);
   r143 = kf1316_std_kite_scanner_sv(r142);
-  { V a_[5] = {KS[2678], r97, KS[2500], r143, KS[2679]}; r144 = k_interp(5, a_); }
+  { V a_[5] = {KS[2692], r97, KS[2514], r143, KS[2693]}; r144 = k_interp(5, a_); }
   kline = 8001605;
   r145 = kf1201_std_kite_parser_e_at(r141, r144);
   kline = 8001604;
@@ -272996,7 +273194,7 @@ static V kf1186_std_kite_parser_binary(V r0, int64_t r1) {
   return r146;
  B79:;
   kline = 8001612;
-  r149 = kf1180_std_kite_parser_at_kw(r2, KS[2680]);
+  r149 = kf1180_std_kite_parser_at_kw(r2, KS[2694]);
   r147 = r149;
   goto B80;
  B80:;
@@ -273507,7 +273705,7 @@ static V kf1199_std_kite_parser_dwalk(V r0, V r1, bool r2) {
   r16 = k_wfield(r3, 365, r15);
   r3 = r16;
   kline = 8000932;
-  { V a_[2] = {r6, KS[2371]}; r17 = call_v(kir_gload(188, "join"), 2, a_); }
+  { V a_[2] = {r6, KS[2385]}; r17 = call_v(kir_gload(188, "join"), 2, a_); }
   r18 = kir_vbin(0, KS[1019], r17);
   r19 = k_field(r3, 365);
   r20 = (r19).u.i;
@@ -273738,7 +273936,7 @@ static V kf1203_std_kite_parser_else_part(V r0, int64_t r1) {
   SAFEPOINT(); CANCEL_POINT();
  B0:;
   kline = 8002241;
-  r2 = kf1180_std_kite_parser_at_kw(r0, KS[2681]);
+  r2 = kf1180_std_kite_parser_at_kw(r0, KS[2695]);
   r3 = !r2;
   if (r3) goto B1; else goto B3;
  B1:;
@@ -273752,7 +273950,7 @@ static V kf1203_std_kite_parser_else_part(V r0, int64_t r1) {
   r7 = kf1266_std_kite_parser_skip(r0);
   r8 = r7;
   kline = 8002243;
-  r9 = kf1180_std_kite_parser_at_kw(r8, KS[2606]);
+  r9 = kf1180_std_kite_parser_at_kw(r8, KS[2620]);
   if (r9) goto B4; else goto B6;
  B4:;
   kline = 8002244;
@@ -273856,7 +274054,7 @@ static V kf1204_std_kite_parser_end_stmt(V r0) {
   r11 = kf1195_std_kite_parser_cur(r0);
   r12 = k_field(r11, 198);
   r13 = kf1315_std_kite_scanner_repr_v(r12);
-  r14 = kir_vbin(0, KS[2682], r13);
+  r14 = kir_vbin(0, KS[2696], r13);
   r15 = kf1201_std_kite_parser_e_at(r10, r14);
   { V a_[1] = {r15}; r16 = call_v(kir_gload(151, "Err"), 1, a_); }
   return r16;
@@ -274262,7 +274460,7 @@ static V kf1205_std_kite_parser_enum_decl(V r0) {
   kline = 8001105; die("解构失败: %s", cshow(r77));
  B50:;
   kline = 8001108;
-  { V a_[5] = {KS[2683], r52, KS[2684], r74, KS[2663]}; r83 = k_interp(5, a_); }
+  { V a_[5] = {KS[2697], r52, KS[2698], r74, KS[2677]}; r83 = k_interp(5, a_); }
   r84 = kf1201_std_kite_parser_e_at(r68, r83);
   { V a_[1] = {r84}; r85 = call_v(kir_gload(151, "Err"), 1, a_); }
   return r85;
@@ -274303,7 +274501,7 @@ static V kf1205_std_kite_parser_enum_decl(V r0) {
   SAFEPOINT(); CANCEL_POINT(); goto B35;
  B60:;
   kline = 8001119;
-  { V a_[5] = {KS[2685], r52, KS[2686], r52, KS[1123]}; r101 = k_interp(5, a_); }
+  { V a_[5] = {KS[2699], r52, KS[2700], r52, KS[1123]}; r101 = k_interp(5, a_); }
   r102 = kf1202_std_kite_parser_e_ln(r9, r101);
   kline = 8001118;
   { V a_[1] = {r102}; r103 = call_v(kir_gload(151, "Err"), 1, a_); }
@@ -274522,8 +274720,8 @@ static V kf1206_std_kite_parser_expect(V r0, V r1, V r2) {
   r20 = r17;
   kline = 8000120;
   r21 = kf1314_std_kite_scanner_repr_str(r20);
-  r22 = kir_vbin(0, KS[2687], r21);
-  r23 = kir_vbin(0, r22, KS[2363]);
+  r22 = kir_vbin(0, KS[2701], r21);
+  r23 = kir_vbin(0, r22, KS[2377]);
   r24 = kf1274_std_kite_parser_tval(r4);
   r25 = kir_vbin(0, r23, r24);
   r26 = kf1201_std_kite_parser_e_at(r4, r25);
@@ -274568,7 +274766,7 @@ static V kf1207_std_kite_parser_expect_ident(V r0) {
   if (r1) goto B4; else goto B3;
  B3:;
   kline = 8000126;
-  r5 = kf1180_std_kite_parser_at_kw(r0, KS[2328]);
+  r5 = kf1180_std_kite_parser_at_kw(r0, KS[2342]);
   r1 = r5;
   goto B4;
  B4:;
@@ -274584,7 +274782,7 @@ static V kf1207_std_kite_parser_expect_ident(V r0) {
   r15 = kf1195_std_kite_parser_cur(r0);
   r16 = k_field(r15, 198);
   r17 = kf1315_std_kite_scanner_repr_v(r16);
-  r18 = kir_vbin(0, KS[2688], r17);
+  r18 = kir_vbin(0, KS[2702], r17);
   r19 = kf1201_std_kite_parser_e_at(r14, r18);
   { V a_[1] = {r19}; r20 = call_v(kir_gload(151, "Err"), 1, a_); }
   return r20;
@@ -274966,7 +275164,7 @@ static V kf1211_std_kite_parser_extern_block(V r0) {
  B15:;
   kline = 8000304;
   r26 = kf1314_std_kite_scanner_repr_str(r14);
-  r27 = kir_vbin(0, KS[2689], r26);
+  r27 = kir_vbin(0, KS[2703], r26);
   r28 = kf1201_std_kite_parser_e_at(r13, r27);
   { V a_[1] = {r28}; r29 = call_v(kir_gload(151, "Err"), 1, a_); }
   return r29;
@@ -275055,7 +275253,7 @@ static V kf1211_std_kite_parser_extern_block(V r0) {
  B36:;
   kline = 8000318;
   r56 = kf1195_std_kite_parser_cur(r5);
-  r57 = kf1201_std_kite_parser_e_at(r56, KS[2690]);
+  r57 = kf1201_std_kite_parser_e_at(r56, KS[2704]);
   { V a_[1] = {r57}; r58 = call_v(kir_gload(151, "Err"), 1, a_); }
   return r58;
  B38:;
@@ -275103,7 +275301,7 @@ static V kf1211_std_kite_parser_extern_block(V r0) {
   r77 = k_field(r69, 35);
   r78 = (r77).u.i;
   r79 = k_field(r73, 9);
-  { V a_[3] = {KS[2691], r79, KS[2692]}; r80 = k_interp(3, a_); }
+  { V a_[3] = {KS[2705], r79, KS[2706]}; r80 = k_interp(3, a_); }
   r81 = kf1202_std_kite_parser_e_ln(r78, r80);
   { V a_[1] = {r81}; r82 = call_v(kir_gload(151, "Err"), 1, a_); }
   return r82;
@@ -275120,7 +275318,7 @@ static V kf1211_std_kite_parser_extern_block(V r0) {
   r88 = k_field(r69, 35);
   r89 = (r88).u.i;
   r90 = k_field(r73, 9);
-  { V a_[3] = {KS[2691], r90, KS[2693]}; r91 = k_interp(3, a_); }
+  { V a_[3] = {KS[2705], r90, KS[2707]}; r91 = k_interp(3, a_); }
   r92 = kf1202_std_kite_parser_e_ln(r89, r91);
   { V a_[1] = {r92}; r93 = call_v(kir_gload(151, "Err"), 1, a_); }
   return r93;
@@ -275138,7 +275336,7 @@ static V kf1211_std_kite_parser_extern_block(V r0) {
   r98 = k_field(r97, 9);
   r99 = r98;
   kline = 8000333;
-  r101 = kir_vbin(10, r99, KS[2694]);
+  r101 = kir_vbin(10, r99, KS[2708]);
   r102 = ((r101).u.i != 0);
   r100 = r102;
   if (r100) goto B52; else goto B53;
@@ -275196,7 +275394,7 @@ static V kf1211_std_kite_parser_extern_block(V r0) {
   if (r156) goto B59; else goto B60;
  B52:;
   kline = 8000333;
-  r104 = kir_vbin(10, r99, KS[2695]);
+  r104 = kir_vbin(10, r99, KS[2709]);
   r105 = ((r104).u.i != 0);
   r103 = r105;
   if (r103) goto B54; else goto B55;
@@ -275204,7 +275402,7 @@ static V kf1211_std_kite_parser_extern_block(V r0) {
   if (r100) goto B56; else { SAFEPOINT(); CANCEL_POINT(); goto B49; }
  B54:;
   kline = 8000333;
-  r106 = kir_vbin(10, r99, KS[2409]);
+  r106 = kir_vbin(10, r99, KS[2423]);
   r107 = ((r106).u.i != 0);
   r103 = r107;
   goto B55;
@@ -275215,7 +275413,7 @@ static V kf1211_std_kite_parser_extern_block(V r0) {
   kline = 8000334;
   r108 = k_field(r97, 35);
   r109 = (r108).u.i;
-  { V a_[3] = {KS[2696], r99, KS[2697]}; r110 = k_interp(3, a_); }
+  { V a_[3] = {KS[2710], r99, KS[2711]}; r110 = k_interp(3, a_); }
   r111 = kf1202_std_kite_parser_e_ln(r109, r110);
   { V a_[1] = {r111}; r112 = call_v(kir_gload(151, "Err"), 1, a_); }
   return r112;
@@ -275629,7 +275827,7 @@ static bool kf1214_std_kite_parser_fmt_spec_ok(V r0) {
  B35:;
   if (r61) goto B38; else goto B40;
  B36:;
-  { V a_[6] = {KS[2698], KS[2485], KS[2699], KS[874], KS[401], KS[32]}; r64 = mklist(6, a_); }
+  { V a_[6] = {KS[2712], KS[2499], KS[2713], KS[874], KS[401], KS[32]}; r64 = mklist(6, a_); }
   r65 = mkint(r33);
   kline = 8001988;
   r66 = k_index(r2, r65);
@@ -275892,7 +276090,7 @@ static V kf1216_std_kite_parser_fn_decl(V r0) {
   r2 = 0;
   r3 = 0;
   kline = 8000972;
-  r4 = kf1180_std_kite_parser_at_kw(r1, KS[2700]);
+  r4 = kf1180_std_kite_parser_at_kw(r1, KS[2714]);
   if (r4) goto B1; else goto B3;
  B1:;
   kline = 8000973;
@@ -276007,12 +276205,12 @@ static V kf1216_std_kite_parser_fn_decl(V r0) {
   if (r44) goto B25; else goto B27;
  B25:;
   kline = 8000991;
-  r48 = kf1202_std_kite_parser_e_ln(r16, KS[2701]);
+  r48 = kf1202_std_kite_parser_e_ln(r16, KS[2715]);
   { V a_[1] = {r48}; r49 = call_v(kir_gload(151, "Err"), 1, a_); }
   return r49;
  B27:;
   kline = 8000992;
-  r50 = kf1181_std_kite_parser_at_op(r1, KS[2600]);
+  r50 = kf1181_std_kite_parser_at_op(r1, KS[2614]);
   if (r50) goto B28; else goto B30;
  B28:;
   kline = 8000993;
@@ -276159,7 +276357,7 @@ static V kf1216_std_kite_parser_fn_decl(V r0) {
   r110 = r109;
   { V a_[1] = {r110}; r111 = mklist(1, a_); }
   kline = 8001020;
-  r112 = kf1193_std_kite_parser_con(KS[2310], r111, r16);
+  r112 = kf1193_std_kite_parser_con(KS[2324], r111, r16);
   { V a_[1] = {r112}; r113 = call_v(kir_gload(247, "Some"), 1, a_); }
   r40 = r113;
   kline = 8001021;
@@ -276192,7 +276390,7 @@ static V kf1216_std_kite_parser_fn_decl(V r0) {
   r115 = PB[18];
   r116 = mklist(0, NULL);
   kline = 8001022;
-  { V a_[3] = {KS[2298], r22, KS[2299]}; r117 = k_interp(3, a_); }
+  { V a_[3] = {KS[2312], r22, KS[2313]}; r117 = k_interp(3, a_); }
   { V a_[1] = {r117}; r118 = call_v(kir_gload(247, "Some"), 1, a_); }
   { V a_[3] = {r116, r115, r118}; r119 = call_v(kir_gload(282, "NLambda"), 3, a_); }
   r120 = kf735_std_kite_ast_mkn(r16, r119);
@@ -276216,7 +276414,7 @@ static V kf1217_std_kite_parser_future_lit(int64_t r0, V r1) {
   SAFEPOINT(); CANCEL_POINT();
  B0:;
   kline = 8000965;
-  { V a_[1] = {KS[2310]}; r2 = call_v(kir_gload(368, "NmS"), 1, a_); }
+  { V a_[1] = {KS[2324]}; r2 = call_v(kir_gload(368, "NmS"), 1, a_); }
   { V a_[2] = {KS[1028], r1}; r3 = mktuple(2, a_); }
   { V a_[1] = {r3}; r4 = mklist(1, a_); }
   r5 = kir_gload(211, "None");
@@ -276384,7 +276582,7 @@ static V kf1219_std_kite_parser_generics(V r0) {
   kline = 8000728; die("解构失败: %s", cshow(r10));
  B11:;
   kline = 8000731;
-  r15 = kf1180_std_kite_parser_at_kw(r1, KS[2660]);
+  r15 = kf1180_std_kite_parser_at_kw(r1, KS[2674]);
   if (r15) goto B12; else goto B14;
  B12:;
   kline = 8000732;
@@ -276452,7 +276650,7 @@ static V kf1219_std_kite_parser_generics(V r0) {
   kline = 8000736; die("解构失败: %s", cshow(r32));
  B27:;
   kline = 8000739;
-  { V a_[2] = {KS[2702], r24}; r38 = k_interp(2, a_); }
+  { V a_[2] = {KS[2716], r24}; r38 = k_interp(2, a_); }
   r39 = kf1201_std_kite_parser_e_at(r18, r38);
   { V a_[1] = {r39}; r40 = call_v(kir_gload(151, "Err"), 1, a_); }
   return r40;
@@ -276487,7 +276685,7 @@ static V kf1219_std_kite_parser_generics(V r0) {
   SAFEPOINT(); CANCEL_POINT(); goto B30;
  B36:;
   kline = 8000745;
-  { V a_[3] = {KS[2703], r24, KS[2704]}; r53 = k_interp(3, a_); }
+  { V a_[3] = {KS[2717], r24, KS[2718]}; r53 = k_interp(3, a_); }
   r54 = kf1201_std_kite_parser_e_at(r18, r53);
   { V a_[1] = {r54}; r55 = call_v(kir_gload(151, "Err"), 1, a_); }
   return r55;
@@ -276890,7 +277088,7 @@ static V kf1223_std_kite_parser_if_expr(V r0) {
   SAFEPOINT(); CANCEL_POINT();
  B0:;
   kline = 8002266;
-  r1 = kf1206_std_kite_parser_expect(r0, KS[1021], KS[2606]);
+  r1 = kf1206_std_kite_parser_expect(r0, KS[1021], KS[2620]);
   r2 = kir_try(r1);
   if (r2) goto B1; else goto B2;
  B1:;
@@ -276908,7 +277106,7 @@ static V kf1223_std_kite_parser_if_expr(V r0) {
   r8 = (r7).u.i;
   r9 = r8;
   kline = 8002268;
-  r10 = kf1180_std_kite_parser_at_kw(r5, KS[2502]);
+  r10 = kf1180_std_kite_parser_at_kw(r5, KS[2516]);
   if (r10) goto B5; else goto B7;
  B4:;
   kline = 8002266; die("解构失败: %s", cshow(r3));
@@ -277371,7 +277569,7 @@ static V kf1224_std_kite_parser_impl_decl(V r0) {
   r28 = r27;
   r29 = r25;
   kline = 8001251;
-  r30 = kf1180_std_kite_parser_at_kw(r26, KS[2705]);
+  r30 = kf1180_std_kite_parser_at_kw(r26, KS[2719]);
   if (r30) goto B13; else goto B15;
  B12:;
   kline = 8001247; die("解构失败: %s", cshow(r22));
@@ -277516,7 +277714,7 @@ static V kf1224_std_kite_parser_impl_decl(V r0) {
   goto B41;
  B41:;
   kline = 8001273;
-  r76 = kf1180_std_kite_parser_at_kw(r26, KS[2599]);
+  r76 = kf1180_std_kite_parser_at_kw(r26, KS[2613]);
   if (r76) goto B42; else goto B43;
  B42:;
   kline = 8001274;
@@ -277525,7 +277723,7 @@ static V kf1224_std_kite_parser_impl_decl(V r0) {
   if (r78) goto B45; else goto B46;
  B43:;
   kline = 8001282;
-  r106 = kf1180_std_kite_parser_at_kw(r26, KS[2660]);
+  r106 = kf1180_std_kite_parser_at_kw(r26, KS[2674]);
   if (r106) goto B62; else goto B63;
  B44:;
   kline = 8001291;
@@ -277576,7 +277774,7 @@ static V kf1224_std_kite_parser_impl_decl(V r0) {
   kline = 8001276; die("解构失败: %s", cshow(r89));
  B55:;
   kline = 8001278;
-  { V a_[3] = {KS[2706], r86, KS[2663]}; r95 = k_interp(3, a_); }
+  { V a_[3] = {KS[2720], r86, KS[2677]}; r95 = k_interp(3, a_); }
   r96 = kf1201_std_kite_parser_e_at(r80, r95);
   { V a_[1] = {r96}; r97 = call_v(kir_gload(151, "Err"), 1, a_); }
   return r97;
@@ -277949,7 +278147,7 @@ static bool kf1230_std_kite_parser_is_fn_decl(V r0) {
   r4 = k_field(r0, 190);
   r5 = mkint(r3);
   r6 = k_index(r4, r5);
-  r7 = kf1272_std_kite_parser_tis(r6, KS[1021], KS[2700]);
+  r7 = kf1272_std_kite_parser_tis(r6, KS[1021], KS[2714]);
   if (r7) goto B1; else goto B3;
  B1:;
   if (__builtin_add_overflow(r3, INT64_C(1), &r8)) { kline = 8001865; die("整数溢出"); }
@@ -278157,7 +278355,7 @@ static bool kf1231_std_kite_parser_is_paren_lambda(V r0) {
   if (__builtin_add_overflow(r4, INT64_C(1), &r44)) { kline = 8001854; die("整数溢出"); }
   r45 = mkint(r44);
   r46 = k_index(r43, r45);
-  r47 = kf1272_std_kite_parser_tis(r46, KS[992], KS[2605]);
+  r47 = kf1272_std_kite_parser_tis(r46, KS[992], KS[2619]);
   return r47;
  B25:;
   return 0;
@@ -278344,7 +278542,7 @@ static V kf1232_std_kite_parser_item(V r0, bool r1) {
   r24 = k_field(r23, 9);
   r25 = r24;
   kline = 8000459;
-  r26 = kir_vbin(9, r25, KS[2707]);
+  r26 = kir_vbin(9, r25, KS[2721]);
   r27 = ((r26).u.i != 0);
   if (r27) goto B15; else goto B16;
  B14:;
@@ -278382,7 +278580,7 @@ static V kf1232_std_kite_parser_item(V r0, bool r1) {
   goto B18;
  B16:;
   kline = 8000466;
-  r39 = kir_vbin(10, r25, KS[2694]);
+  r39 = kir_vbin(10, r25, KS[2708]);
   r40 = ((r39).u.i != 0);
   r38 = r40;
   if (r38) goto B25; else goto B26;
@@ -278405,7 +278603,7 @@ static V kf1232_std_kite_parser_item(V r0, bool r1) {
   SAFEPOINT(); CANCEL_POINT(); goto B18;
  B25:;
   kline = 8000466;
-  r41 = kir_vbin(10, r25, KS[2695]);
+  r41 = kir_vbin(10, r25, KS[2709]);
   r42 = ((r41).u.i != 0);
   r38 = r42;
   goto B26;
@@ -278415,7 +278613,7 @@ static V kf1232_std_kite_parser_item(V r0, bool r1) {
   kline = 8000467;
   r43 = k_field(r23, 35);
   r44 = (r43).u.i;
-  { V a_[2] = {KS[2708], r25}; r45 = k_interp(2, a_); }
+  { V a_[2] = {KS[2722], r25}; r45 = k_interp(2, a_); }
   r46 = kf1202_std_kite_parser_e_ln(r44, r45);
   { V a_[1] = {r46}; r47 = call_v(kir_gload(151, "Err"), 1, a_); }
   return r47;
@@ -278427,7 +278625,7 @@ static V kf1232_std_kite_parser_item(V r0, bool r1) {
   r74 = r72;
   kline = 8000482;
   r75 = k_field(r74, 9);
-  r76 = kir_vbin(9, r75, KS[2707]);
+  r76 = kir_vbin(9, r75, KS[2721]);
   r77 = ((r76).u.i != 0);
   if (r77) goto B34; else { SAFEPOINT(); CANCEL_POINT(); goto B31; }
  B33:;
@@ -278442,7 +278640,7 @@ static V kf1232_std_kite_parser_item(V r0, bool r1) {
   r79 = k_index(r7, r78);
   r80 = k_field(r79, 35);
   r81 = (r80).u.i;
-  r82 = kf1202_std_kite_parser_e_ln(r81, KS[2709]);
+  r82 = kf1202_std_kite_parser_e_ln(r81, KS[2723]);
   { V a_[1] = {r82}; r83 = call_v(kir_gload(151, "Err"), 1, a_); }
   return r83;
  B37:;
@@ -278461,7 +278659,7 @@ static V kf1232_std_kite_parser_item(V r0, bool r1) {
   r90 = k_index(r7, r89);
   r91 = k_field(r90, 35);
   r92 = (r91).u.i;
-  r93 = kf1202_std_kite_parser_e_ln(r92, KS[2710]);
+  r93 = kf1202_std_kite_parser_e_ln(r92, KS[2724]);
   kline = 8000486;
   { V a_[1] = {r93}; r94 = call_v(kir_gload(151, "Err"), 1, a_); }
   return r94;
@@ -278491,7 +278689,7 @@ static V kf1232_std_kite_parser_item(V r0, bool r1) {
   return r119;
  B46:;
   kline = 8000492;
-  r106 = kir_vbin(9, r100, KS[2711]);
+  r106 = kir_vbin(9, r100, KS[2725]);
   r107 = ((r106).u.i != 0);
   r103 = r107;
   goto B47;
@@ -278500,7 +278698,7 @@ static V kf1232_std_kite_parser_item(V r0, bool r1) {
   if (r102) goto B49; else goto B48;
  B48:;
   kline = 8000492;
-  r108 = kir_vbin(9, r100, KS[2712]);
+  r108 = kir_vbin(9, r100, KS[2726]);
   r109 = ((r108).u.i != 0);
   r102 = r109;
   goto B49;
@@ -278519,7 +278717,7 @@ static V kf1232_std_kite_parser_item(V r0, bool r1) {
   kline = 8000493;
   r112 = k_field(r98, 35);
   r113 = (r112).u.i;
-  { V a_[3] = {KS[2696], r100, KS[2713]}; r114 = k_interp(3, a_); }
+  { V a_[3] = {KS[2710], r100, KS[2727]}; r114 = k_interp(3, a_); }
   r115 = kf1202_std_kite_parser_e_ln(r113, r114);
   { V a_[1] = {r115}; r116 = call_v(kir_gload(151, "Err"), 1, a_); }
   return r116;
@@ -278752,14 +278950,14 @@ static V kf1233_std_kite_parser_item0(V r0, bool r1) {
   r13 = kf1195_std_kite_parser_cur(r2);
   r14 = r13;
   kline = 8000513;
-  r15 = kf1180_std_kite_parser_at_kw(r2, KS[2590]);
+  r15 = kf1180_std_kite_parser_at_kw(r2, KS[2604]);
   if (r15) goto B7; else goto B8;
  B7:;
   kline = 8000514;
   r16 = kf1266_std_kite_parser_skip(r2);
   r2 = r16;
   kline = 8000515;
-  { V a_[1] = {KS[2590]}; r17 = call_v(kir_gload(247, "Some"), 1, a_); }
+  { V a_[1] = {KS[2604]}; r17 = call_v(kir_gload(247, "Some"), 1, a_); }
   r7 = r17;
   goto B9;
  B8:;
@@ -278784,20 +278982,20 @@ static V kf1233_std_kite_parser_item0(V r0, bool r1) {
   r23 = PB[1];
   r2 = r22;
   kline = 8000519;
-  r24 = kir_vbin(10, r23, KS[2630]);
+  r24 = kir_vbin(10, r23, KS[2644]);
   r25 = ((r24).u.i != 0);
   if (r25) goto B14; else goto B16;
  B13:;
   kline = 8000517; die("解构失败: %s", cshow(r20));
  B14:;
   kline = 8000520;
-  { V a_[3] = {KS[2714], r23, KS[227]}; r26 = k_interp(3, a_); }
+  { V a_[3] = {KS[2728], r23, KS[227]}; r26 = k_interp(3, a_); }
   r27 = kf1201_std_kite_parser_e_at(r14, r26);
   { V a_[1] = {r27}; r28 = call_v(kir_gload(151, "Err"), 1, a_); }
   return r28;
  B16:;
   kline = 8000522;
-  { V a_[1] = {KS[2630]}; r29 = call_v(kir_gload(247, "Some"), 1, a_); }
+  { V a_[1] = {KS[2644]}; r29 = call_v(kir_gload(247, "Some"), 1, a_); }
   r7 = r29;
   SAFEPOINT(); CANCEL_POINT(); goto B9;
  B17:;
@@ -278994,7 +279192,7 @@ static V kf1234_std_kite_parser_item1(V r0) {
   if (r3) goto B2; else goto B1;
  B1:;
   kline = 8000534;
-  r5 = kf1180_std_kite_parser_at_kw(r1, KS[2700]);
+  r5 = kf1180_std_kite_parser_at_kw(r1, KS[2714]);
   r3 = r5;
   goto B2;
  B2:;
@@ -279022,7 +279220,7 @@ static V kf1234_std_kite_parser_item1(V r0) {
   return r10;
  B9:;
   kline = 8000537;
-  r11 = kf1180_std_kite_parser_at_kw(r1, KS[2599]);
+  r11 = kf1180_std_kite_parser_at_kw(r1, KS[2613]);
   if (r11) goto B10; else goto B12;
  B10:;
   kline = 8000537;
@@ -279062,7 +279260,7 @@ static V kf1234_std_kite_parser_item1(V r0) {
   return r20;
  B24:;
   kline = 8000542;
-  r21 = kf1180_std_kite_parser_at_kw(r1, KS[2590]);
+  r21 = kf1180_std_kite_parser_at_kw(r1, KS[2604]);
   if (r21) goto B25; else goto B27;
  B25:;
   kline = 8000543;
@@ -279132,7 +279330,7 @@ static V kf1234_std_kite_parser_item1(V r0) {
   if (r57) goto B42; else goto B44;
  B39:;
   kline = 8000551;
-  r47 = kf1202_std_kite_parser_e_ln(r28, KS[2715]);
+  r47 = kf1202_std_kite_parser_e_ln(r28, KS[2729]);
   { V a_[1] = {r47}; r48 = call_v(kir_gload(151, "Err"), 1, a_); }
   return r48;
  B41:;
@@ -279146,7 +279344,7 @@ static V kf1234_std_kite_parser_item1(V r0) {
   return r54;
  B42:;
   kline = 8000554;
-  r58 = kf1201_std_kite_parser_e_at(r38, KS[2716]);
+  r58 = kf1201_std_kite_parser_e_at(r38, KS[2730]);
   { V a_[1] = {r58}; r59 = call_v(kir_gload(151, "Err"), 1, a_); }
   return r59;
  B44:;
@@ -279207,7 +279405,7 @@ static V kf1234_std_kite_parser_item1(V r0) {
   return r112;
  B48:;
   kline = 8000561;
-  { V a_[3] = {KS[2717], r63, KS[2718]}; r79 = k_interp(3, a_); }
+  { V a_[3] = {KS[2731], r63, KS[2732]}; r79 = k_interp(3, a_); }
   r80 = kf1202_std_kite_parser_e_ln(r28, r79);
   { V a_[1] = {r80}; r81 = call_v(kir_gload(151, "Err"), 1, a_); }
   return r81;
@@ -279273,13 +279471,13 @@ static V kf1234_std_kite_parser_item1(V r0) {
   if (r116) goto B65; else goto B67;
  B64:;
   kline = 8000580;
-  r122 = kf1180_std_kite_parser_at_kw(r1, KS[2660]);
+  r122 = kf1180_std_kite_parser_at_kw(r1, KS[2674]);
   r121 = r122;
   if (r121) goto B69; else goto B68;
  B65:;
   kline = 8000577;
   r117 = kf1195_std_kite_parser_cur(r1);
-  r118 = kf1201_std_kite_parser_e_at(r117, KS[2719]);
+  r118 = kf1201_std_kite_parser_e_at(r117, KS[2733]);
   { V a_[1] = {r118}; r119 = call_v(kir_gload(151, "Err"), 1, a_); }
   return r119;
  B67:;
@@ -279314,7 +279512,7 @@ static V kf1234_std_kite_parser_item1(V r0) {
   kline = 8000582;
   r135 = k_field(r129, 198);
   r136 = kf1316_std_kite_scanner_sv(r135);
-  r137 = kir_vbin(9, r136, KS[2502]);
+  r137 = kir_vbin(9, r136, KS[2516]);
   r138 = ((r137).u.i != 0);
   r134 = r138;
   if (r134) goto B76; else goto B75;
@@ -279335,7 +279533,7 @@ static V kf1234_std_kite_parser_item1(V r0) {
   kline = 8000586;
   r143 = k_field(r129, 198);
   r144 = kf1316_std_kite_scanner_sv(r143);
-  { V a_[3] = {KS[2720], r144, KS[2721]}; r145 = k_interp(3, a_); }
+  { V a_[3] = {KS[2734], r144, KS[2735]}; r145 = k_interp(3, a_); }
   kline = 8000584;
   r146 = kf1201_std_kite_parser_e_at(r129, r145);
   kline = 8000583;
@@ -279343,7 +279541,7 @@ static V kf1234_std_kite_parser_item1(V r0) {
   return r147;
  B79:;
   kline = 8000591;
-  r148 = kf1201_std_kite_parser_e_at(r129, KS[2722]);
+  r148 = kf1201_std_kite_parser_e_at(r129, KS[2736]);
   kline = 8000590;
   { V a_[1] = {r148}; r149 = call_v(kir_gload(151, "Err"), 1, a_); }
   return r149;
@@ -279741,7 +279939,7 @@ static V kf1240_std_kite_parser_match_expr(V r0) {
   SAFEPOINT(); CANCEL_POINT();
  B0:;
   kline = 8002377;
-  r1 = kf1206_std_kite_parser_expect(r0, KS[1021], KS[2723]);
+  r1 = kf1206_std_kite_parser_expect(r0, KS[1021], KS[2737]);
   r2 = kir_try(r1);
   if (r2) goto B1; else goto B2;
  B1:;
@@ -279829,7 +280027,7 @@ static V kf1240_std_kite_parser_match_expr(V r0) {
   r33 = kir_gload(211, "None");
   r34 = r33;
   kline = 8002387;
-  r35 = kf1180_std_kite_parser_at_kw(r22, KS[2606]);
+  r35 = kf1180_std_kite_parser_at_kw(r22, KS[2620]);
   if (r35) goto B20; else goto B22;
  B19:;
   kline = 8002384; die("解构失败: %s", cshow(r29));
@@ -279841,7 +280039,7 @@ static V kf1240_std_kite_parser_match_expr(V r0) {
   if (r38) goto B23; else goto B24;
  B22:;
   kline = 8002392;
-  r44 = kf1206_std_kite_parser_expect(r22, KS[992], KS[2605]);
+  r44 = kf1206_std_kite_parser_expect(r22, KS[992], KS[2619]);
   r45 = kir_try(r44);
   if (r45) goto B27; else goto B28;
  B23:;
@@ -280027,7 +280225,7 @@ static V kf1244_std_kite_parser_neg(V r0) {
  B7:;
   r15 = PB[2];
   kline = 8002430;
-  r17 = kir_vbin(9, r15, KS[2425]);
+  r17 = kir_vbin(9, r15, KS[2439]);
   r18 = ((r17).u.i != 0);
   if (r18) goto B8; else goto B9;
  B8:;
@@ -280282,7 +280480,7 @@ static V kf1248_std_kite_parser_params(V r0) {
   if (r26) goto B16; else { SAFEPOINT(); CANCEL_POINT(); goto B7; }
  B16:;
   kline = 8000889;
-  r27 = kf1201_std_kite_parser_e_at(r18, KS[2724]);
+  r27 = kf1201_std_kite_parser_e_at(r18, KS[2738]);
   { V a_[1] = {r27}; r28 = call_v(kir_gload(151, "Err"), 1, a_); }
   return r28;
  B19:;
@@ -280473,7 +280671,7 @@ static V kf1249_std_kite_parser_paren_expr(V r0, V r1) {
   r7 = PB[0];
   r8 = PB[1];
   kline = 8002148;
-  r9 = kf1206_std_kite_parser_expect(r7, KS[992], KS[2605]);
+  r9 = kf1206_std_kite_parser_expect(r7, KS[992], KS[2619]);
   r10 = kir_try(r9);
   if (r10) goto B8; else goto B9;
  B7:;
@@ -280843,7 +281041,7 @@ static V kf1253_std_kite_parser_pat_lit(V r0) {
   r8 = PB[1];
   kline = 8002443;
   r10 = k_field(r8, 104);
-  r11 = kir_vbin(10, r10, KS[2669]);
+  r11 = kir_vbin(10, r10, KS[2683]);
   r12 = ((r11).u.i != 0);
   r9 = r12;
   if (r9) goto B6; else goto B7;
@@ -280852,7 +281050,7 @@ static V kf1253_std_kite_parser_pat_lit(V r0) {
  B6:;
   kline = 8002443;
   r13 = k_field(r8, 104);
-  r14 = kir_vbin(10, r13, KS[2670]);
+  r14 = kir_vbin(10, r13, KS[2684]);
   r15 = ((r14).u.i != 0);
   r9 = r15;
   goto B7;
@@ -280860,7 +281058,7 @@ static V kf1253_std_kite_parser_pat_lit(V r0) {
   if (r9) goto B8; else goto B10;
  B8:;
   kline = 8002443;
-  r16 = kf1201_std_kite_parser_e_at(r8, KS[2725]);
+  r16 = kf1201_std_kite_parser_e_at(r8, KS[2739]);
   { V a_[1] = {r16}; r17 = call_v(kir_gload(151, "Err"), 1, a_); }
   return r17;
  B10:;
@@ -280880,13 +281078,13 @@ static V kf1253_std_kite_parser_pat_lit(V r0) {
  B13:;
   kline = 8002452;
   r39 = k_field(r2, 104);
-  r40 = kir_vbin(9, r39, KS[2669]);
+  r40 = kir_vbin(9, r39, KS[2683]);
   r41 = ((r40).u.i != 0);
   r38 = r41;
   if (r38) goto B18; else goto B17;
  B14:;
   kline = 8002448;
-  r29 = kf1201_std_kite_parser_e_at(r2, KS[2726]);
+  r29 = kf1201_std_kite_parser_e_at(r2, KS[2740]);
   { V a_[1] = {r29}; r30 = call_v(kir_gload(151, "Err"), 1, a_); }
   return r30;
  B16:;
@@ -280902,7 +281100,7 @@ static V kf1253_std_kite_parser_pat_lit(V r0) {
  B17:;
   kline = 8002452;
   r42 = k_field(r2, 104);
-  r43 = kir_vbin(9, r42, KS[2670]);
+  r43 = kir_vbin(9, r42, KS[2684]);
   r44 = ((r43).u.i != 0);
   r38 = r44;
   goto B18;
@@ -280920,7 +281118,7 @@ static V kf1253_std_kite_parser_pat_lit(V r0) {
   kline = 8002453;
   r50 = k_field(r2, 198);
   r51 = kf1315_std_kite_scanner_repr_v(r50);
-  r52 = kir_vbin(0, KS[2727], r51);
+  r52 = kir_vbin(0, KS[2741], r51);
   r53 = kf1201_std_kite_parser_e_at(r2, r52);
   { V a_[1] = {r53}; r54 = call_v(kir_gload(151, "Err"), 1, a_); }
   return r54;
@@ -280977,14 +281175,14 @@ static bool kf1254_std_kite_parser_pat_lit_start(V r0, int64_t r1) {
   r10 = r9;
   kline = 8002420;
   r14 = k_field(r6, 104);
-  r15 = kir_vbin(9, r14, KS[2669]);
+  r15 = kir_vbin(9, r14, KS[2683]);
   r16 = ((r15).u.i != 0);
   r13 = r16;
   if (r13) goto B5; else goto B4;
  B4:;
   kline = 8002421;
   r17 = k_field(r6, 104);
-  r18 = kir_vbin(9, r17, KS[2670]);
+  r18 = kir_vbin(9, r17, KS[2684]);
   r19 = ((r18).u.i != 0);
   r13 = r19;
   goto B5;
@@ -281010,7 +281208,7 @@ static bool kf1254_std_kite_parser_pat_lit_start(V r0, int64_t r1) {
   return r11;
  B10:;
   kline = 8002423;
-  r26 = kir_vbin(9, r10, KS[2669]);
+  r26 = kir_vbin(9, r10, KS[2683]);
   r27 = ((r26).u.i != 0);
   r25 = r27;
   if (r25) goto B13; else goto B12;
@@ -281019,7 +281217,7 @@ static bool kf1254_std_kite_parser_pat_lit_start(V r0, int64_t r1) {
   SAFEPOINT(); CANCEL_POINT(); goto B9;
  B12:;
   kline = 8002423;
-  r28 = kir_vbin(9, r10, KS[2670]);
+  r28 = kir_vbin(9, r10, KS[2684]);
   r29 = ((r28).u.i != 0);
   r25 = r29;
   goto B13;
@@ -281948,7 +282146,7 @@ static V kf1258_std_kite_parser_pattern1(V r0) {
   if (r20) goto B13; else goto B15;
  B13:;
   kline = 8002502;
-  r32 = kf1201_std_kite_parser_e_at(r19, KS[2728]);
+  r32 = kf1201_std_kite_parser_e_at(r19, KS[2742]);
   { V a_[1] = {r32}; r33 = call_v(kir_gload(151, "Err"), 1, a_); }
   return r33;
  B15:;
@@ -282019,7 +282217,7 @@ static V kf1258_std_kite_parser_pattern1(V r0) {
   kline = 8002513; die("解构失败: %s", cshow(r56));
  B30:;
   kline = 8002514;
-  r62 = kf1201_std_kite_parser_e_at(r59, KS[2729]);
+  r62 = kf1201_std_kite_parser_e_at(r59, KS[2743]);
   { V a_[1] = {r62}; r63 = call_v(kir_gload(151, "Err"), 1, a_); }
   return r63;
  B32:;
@@ -282287,7 +282485,7 @@ static V kf1258_std_kite_parser_pattern1(V r0) {
   if (r184) goto B91; else goto B90;
  B90:;
   kline = 8002548;
-  r190 = kf1180_std_kite_parser_at_kw(r1, KS[2328]);
+  r190 = kf1180_std_kite_parser_at_kw(r1, KS[2342]);
   r184 = r190;
   goto B91;
  B91:;
@@ -282297,13 +282495,13 @@ static V kf1258_std_kite_parser_pattern1(V r0) {
   { V a_[1] = {KS[64]}; r191 = call_v(kir_gload(368, "NmS"), 1, a_); }
   r192 = r191;
   kline = 8002550;
-  r193 = kf1180_std_kite_parser_at_kw(r1, KS[2328]);
+  r193 = kf1180_std_kite_parser_at_kw(r1, KS[2342]);
   if (r193) goto B95; else goto B96;
  B94:;
   kline = 8002608;
   r315 = k_field(r3, 198);
   r316 = kf1315_std_kite_scanner_repr_v(r315);
-  r317 = kir_vbin(0, KS[2730], r316);
+  r317 = kir_vbin(0, KS[2744], r316);
   r318 = kf1201_std_kite_parser_e_at(r3, r317);
   { V a_[1] = {r318}; r319 = call_v(kir_gload(151, "Err"), 1, a_); }
   return r319;
@@ -282334,7 +282532,7 @@ static V kf1258_std_kite_parser_pattern1(V r0) {
   kline = 8002551; die("match 没有覆盖值 %s", cshow(r194));
  B102:;
   kline = 8002553;
-  r199 = kf1201_std_kite_parser_e_at(r3, KS[2731]);
+  r199 = kf1201_std_kite_parser_e_at(r3, KS[2745]);
   { V a_[1] = {r199}; r200 = call_v(kir_gload(151, "Err"), 1, a_); }
   return r200;
  B103:;
@@ -282429,7 +282627,7 @@ static V kf1258_std_kite_parser_pattern1(V r0) {
   if (r232) goto B123; else goto B125;
  B123:;
   kline = 8002574;
-  r237 = kf1201_std_kite_parser_e_at(r3, KS[2732]);
+  r237 = kf1201_std_kite_parser_e_at(r3, KS[2746]);
   { V a_[1] = {r237}; r238 = call_v(kir_gload(151, "Err"), 1, a_); }
   return r238;
  B125:;
@@ -282991,7 +283189,7 @@ static V kf1260_std_kite_parser_postfix(V r0, V r1) {
   r23 = (r22).u.i;
   r24 = r23;
   kline = 8001681;
-  r25 = kf1180_std_kite_parser_at_kw(r2, KS[2733]);
+  r25 = kf1180_std_kite_parser_at_kw(r2, KS[2747]);
   if (r25) goto B16; else goto B18;
  B15:;
   kline = 8001678; die("解构失败: %s", cshow(r18));
@@ -283043,7 +283241,7 @@ static V kf1260_std_kite_parser_postfix(V r0, V r1) {
   if (r35) goto B29; else goto B31;
  B29:;
   kline = 8001690;
-  r40 = kf1201_std_kite_parser_e_at(r29, KS[2734]);
+  r40 = kf1201_std_kite_parser_e_at(r29, KS[2748]);
   { V a_[1] = {r40}; r41 = call_v(kir_gload(151, "Err"), 1, a_); }
   return r41;
  B31:;
@@ -283057,7 +283255,7 @@ static V kf1260_std_kite_parser_postfix(V r0, V r1) {
  B33:;
   { V a_[1] = {r3}; r44 = mklist(1, a_); }
   kline = 8001692;
-  r45 = kf1192_std_kite_parser_call_name(r24, KS[2438], r44);
+  r45 = kf1192_std_kite_parser_call_name(r24, KS[2452], r44);
   r3 = r45;
   SAFEPOINT(); CANCEL_POINT(); goto B2;
  B35:;
@@ -283069,7 +283267,7 @@ static V kf1260_std_kite_parser_postfix(V r0, V r1) {
   goto B39;
  B37:;
   kline = 8001728;
-  r94 = kf1179_std_kite_parser_at_k(r2, KS[2669]);
+  r94 = kf1179_std_kite_parser_at_k(r2, KS[2683]);
   if (r94) goto B70; else goto B72;
  B39:;
   kline = 8001699;
@@ -283190,7 +283388,7 @@ static V kf1260_std_kite_parser_postfix(V r0, V r1) {
   kline = 8001718; die("解构失败: %s", cshow(r83));
  B67:;
   kline = 8001724;
-  r90 = kf1202_std_kite_parser_e_ln(r24, KS[2735]);
+  r90 = kf1202_std_kite_parser_e_ln(r24, KS[2749]);
   { V a_[1] = {r90}; r91 = call_v(kir_gload(151, "Err"), 1, a_); }
   return r91;
  B69:;
@@ -283206,7 +283404,7 @@ static V kf1260_std_kite_parser_postfix(V r0, V r1) {
   if (r96) goto B73; else goto B74;
  B72:;
   kline = 8001734;
-  r103 = kf1179_std_kite_parser_at_k(r2, KS[2670]);
+  r103 = kf1179_std_kite_parser_at_k(r2, KS[2684]);
   if (r103) goto B75; else goto B77;
  B73:;
   r97 = PB[13];
@@ -283969,14 +284167,14 @@ static V kf1261_std_kite_parser_primary(V r0) {
   r3 = r2;
   kline = 8001997;
   r5 = k_field(r3, 104);
-  r6 = kir_vbin(9, r5, KS[2669]);
+  r6 = kir_vbin(9, r5, KS[2683]);
   r7 = ((r6).u.i != 0);
   r4 = r7;
   if (r4) goto B2; else goto B1;
  B1:;
   kline = 8001997;
   r8 = k_field(r3, 104);
-  r9 = kir_vbin(9, r8, KS[2670]);
+  r9 = kir_vbin(9, r8, KS[2684]);
   r10 = ((r9).u.i != 0);
   r4 = r10;
   goto B2;
@@ -284067,7 +284265,7 @@ static V kf1261_std_kite_parser_primary(V r0) {
   return r37;
  B19:;
   kline = 8002011;
-  r48 = kf1201_std_kite_parser_e_at(r3, KS[2736]);
+  r48 = kf1201_std_kite_parser_e_at(r3, KS[2750]);
   { V a_[1] = {r48}; r49 = call_v(kir_gload(151, "Err"), 1, a_); }
   return r49;
  B21:;
@@ -284099,7 +284297,7 @@ static V kf1261_std_kite_parser_primary(V r0) {
   r60 = kf1195_std_kite_parser_cur(r57);
   r61 = k_field(r60, 198);
   r62 = kf1315_std_kite_scanner_repr_v(r61);
-  r63 = kir_vbin(0, KS[2737], r62);
+  r63 = kir_vbin(0, KS[2751], r62);
   r64 = kf1201_std_kite_parser_e_at(r3, r63);
   kline = 8002016;
   { V a_[1] = {r64}; r65 = call_v(kir_gload(151, "Err"), 1, a_); }
@@ -284128,9 +284326,9 @@ static V kf1261_std_kite_parser_primary(V r0) {
  B32:;
   kline = 8002027;
   r71 = kf1314_std_kite_scanner_repr_str(r68);
-  r72 = kir_vbin(0, KS[2738], r71);
+  r72 = kir_vbin(0, KS[2752], r71);
   kline = 8002029;
-  r73 = kir_vbin(0, r72, KS[2739]);
+  r73 = kir_vbin(0, r72, KS[2753]);
   kline = 8002025;
   r74 = kf1201_std_kite_parser_e_at(r3, r73);
   kline = 8002024;
@@ -284216,7 +284414,7 @@ static V kf1261_std_kite_parser_primary(V r0) {
  B51:;
   kline = 8002053;
   r130 = kf1259_std_kite_parser_peek(r1, INT64_C(1));
-  r131 = kf1272_std_kite_parser_tis(r130, KS[992], KS[2605]);
+  r131 = kf1272_std_kite_parser_tis(r130, KS[992], KS[2619]);
   r129 = r131;
   if (r129) goto B53; else goto B54;
  B52:;
@@ -284275,7 +284473,7 @@ static V kf1261_std_kite_parser_primary(V r0) {
   kline = 8002057;
   r160 = k_field(r3, 198);
   r161 = kf1316_std_kite_scanner_sv(r160);
-  r162 = kir_vbin(9, r161, KS[2740]);
+  r162 = kir_vbin(9, r161, KS[2754]);
   r163 = ((r162).u.i != 0);
   r159 = r163;
   if (r159) goto B64; else goto B65;
@@ -284305,7 +284503,7 @@ static V kf1261_std_kite_parser_primary(V r0) {
   kline = 8002060;
   r172 = k_field(r3, 198);
   r173 = kf1316_std_kite_scanner_sv(r172);
-  r174 = kir_vbin(9, r173, KS[2741]);
+  r174 = kir_vbin(9, r173, KS[2755]);
   r175 = ((r174).u.i != 0);
   r171 = r175;
   if (r171) goto B71; else goto B72;
@@ -284388,7 +284586,7 @@ static V kf1261_std_kite_parser_primary(V r0) {
   kline = 8002071;
   r199 = k_field(r3, 35);
   r200 = (r199).u.i;
-  r201 = kf1202_std_kite_parser_e_ln(r200, KS[2742]);
+  r201 = kf1202_std_kite_parser_e_ln(r200, KS[2756]);
   { V a_[1] = {r201}; r202 = call_v(kir_gload(151, "Err"), 1, a_); }
   return r202;
  B88:;
@@ -284410,7 +284608,7 @@ static V kf1261_std_kite_parser_primary(V r0) {
   if (r209) goto B92; else goto B91;
  B91:;
   kline = 8002074;
-  r215 = kf1180_std_kite_parser_at_kw(r1, KS[2328]);
+  r215 = kf1180_std_kite_parser_at_kw(r1, KS[2342]);
   r209 = r215;
   goto B92;
  B92:;
@@ -284972,7 +285170,7 @@ static V kf1262_std_kite_parser_primary2(V r0, V r1) {
   return r58;
  B36:;
   kline = 8002206;
-  r59 = kf1180_std_kite_parser_at_kw(r2, KS[2606]);
+  r59 = kf1180_std_kite_parser_at_kw(r2, KS[2620]);
   if (r59) goto B37; else goto B39;
  B37:;
   kline = 8002206;
@@ -284980,7 +285178,7 @@ static V kf1262_std_kite_parser_primary2(V r0, V r1) {
   return r60;
  B39:;
   kline = 8002207;
-  r61 = kf1180_std_kite_parser_at_kw(r2, KS[2723]);
+  r61 = kf1180_std_kite_parser_at_kw(r2, KS[2737]);
   if (r61) goto B40; else goto B42;
  B40:;
   kline = 8002207;
@@ -284988,7 +285186,7 @@ static V kf1262_std_kite_parser_primary2(V r0, V r1) {
   return r62;
  B42:;
   kline = 8002208;
-  r63 = kf1180_std_kite_parser_at_kw(r2, KS[2743]);
+  r63 = kf1180_std_kite_parser_at_kw(r2, KS[2757]);
   if (r63) goto B43; else goto B45;
  B43:;
   kline = 8002208;
@@ -285001,7 +285199,7 @@ static V kf1262_std_kite_parser_primary2(V r0, V r1) {
  B45:;
   kline = 8002209;
   r70 = k_field(r1, 104);
-  r71 = kir_vbin(9, r70, KS[2744]);
+  r71 = kir_vbin(9, r70, KS[2758]);
   r72 = ((r71).u.i != 0);
   r69 = r72;
   if (r69) goto B46; else goto B47;
@@ -285019,7 +285217,7 @@ static V kf1262_std_kite_parser_primary2(V r0, V r1) {
   r76 = kf1266_std_kite_parser_skip(r75);
   r2 = r76;
   kline = 8002211;
-  r77 = kf1180_std_kite_parser_at_kw(r2, KS[2743]);
+  r77 = kf1180_std_kite_parser_at_kw(r2, KS[2757]);
   r78 = !r77;
   if (r78) goto B51; else goto B53;
  B50:;
@@ -285031,7 +285229,7 @@ static V kf1262_std_kite_parser_primary2(V r0, V r1) {
   r79 = kf1195_std_kite_parser_cur(r2);
   r80 = k_field(r1, 198);
   r81 = kf1316_std_kite_scanner_sv(r80);
-  { V a_[3] = {KS[2745], r81, KS[2746]}; r82 = k_interp(3, a_); }
+  { V a_[3] = {KS[2759], r81, KS[2760]}; r82 = k_interp(3, a_); }
   r83 = kf1201_std_kite_parser_e_at(r79, r82);
   { V a_[1] = {r83}; r84 = call_v(kir_gload(151, "Err"), 1, a_); }
   return r84;
@@ -285099,7 +285297,7 @@ static V kf1262_std_kite_parser_primary2(V r0, V r1) {
   if (r115) goto B68; else goto B69;
  B67:;
   kline = 8002225;
-  r139 = kf1180_std_kite_parser_at_kw(r2, KS[2700]);
+  r139 = kf1180_std_kite_parser_at_kw(r2, KS[2714]);
   if (r139) goto B72; else goto B74;
  B68:;
   r116 = ENUMV(r114)->a[0];
@@ -285151,7 +285349,7 @@ static V kf1262_std_kite_parser_primary2(V r0, V r1) {
  B77:;
   kline = 8002236;
   r169 = kf1274_std_kite_parser_tval(r1);
-  r170 = kir_vbin(0, KS[2747], r169);
+  r170 = kir_vbin(0, KS[2761], r169);
   r171 = kf1201_std_kite_parser_e_at(r1, r170);
   { V a_[1] = {r171}; r172 = call_v(kir_gload(151, "Err"), 1, a_); }
   return r172;
@@ -285167,7 +285365,7 @@ static V kf1262_std_kite_parser_primary2(V r0, V r1) {
   r148 = PB[12];
   r2 = r147;
   kline = 8002229;
-  r149 = kf1181_std_kite_parser_at_op(r2, KS[2600]);
+  r149 = kf1181_std_kite_parser_at_op(r2, KS[2614]);
   if (r149) goto B82; else goto B84;
  B81:;
   kline = 8002227; die("解构失败: %s", cshow(r145));
@@ -285504,7 +285702,7 @@ static V kf1264_std_kite_parser_select_expr(V r0) {
   r21 = k_field(r20, 198);
   r22 = kf1316_std_kite_scanner_sv(r21);
   r23 = r22;
-  r24 = KS[2748];
+  r24 = KS[2762];
   kline = 8002322;
   r25 = kir_gload(211, "None");
   r26 = r25;
@@ -285559,7 +285757,7 @@ static V kf1264_std_kite_parser_select_expr(V r0) {
   if (r40) goto B15; else goto B16;
  B14:;
   kline = 8002358;
-  r109 = kf1206_std_kite_parser_expect(r14, KS[992], KS[2605]);
+  r109 = kf1206_std_kite_parser_expect(r14, KS[992], KS[2619]);
   r110 = kir_try(r109);
   if (r110) goto B63; else goto B64;
  B15:;
@@ -285607,7 +285805,7 @@ static V kf1264_std_kite_parser_select_expr(V r0) {
   if (r58) goto B26; else goto B27;
  B24:;
   kline = 8002355;
-  r107 = kf1201_std_kite_parser_e_at(r20, KS[2749]);
+  r107 = kf1201_std_kite_parser_e_at(r20, KS[2763]);
   kline = 8002354;
   { V a_[1] = {r107}; r108 = call_v(kir_gload(151, "Err"), 1, a_); }
   return r108;
@@ -285728,7 +285926,7 @@ static V kf1264_std_kite_parser_select_expr(V r0) {
   kline = 8002344; die("解构失败: %s", cshow(r90));
  B54:;
   kline = 8002348;
-  r98 = kf1180_std_kite_parser_at_kw(r14, KS[2606]);
+  r98 = kf1180_std_kite_parser_at_kw(r14, KS[2620]);
   r95 = r98;
   goto B55;
  B55:;
@@ -285803,7 +286001,7 @@ static V kf1264_std_kite_parser_select_expr(V r0) {
   SAFEPOINT(); CANCEL_POINT(); goto B7;
  B74:;
   kline = 8002368;
-  r133 = kf1202_std_kite_parser_e_ln(r7, KS[2750]);
+  r133 = kf1202_std_kite_parser_e_ln(r7, KS[2764]);
   { V a_[1] = {r133}; r134 = call_v(kir_gload(151, "Err"), 1, a_); }
   return r134;
  B76:;
@@ -285815,7 +286013,7 @@ static V kf1264_std_kite_parser_select_expr(V r0) {
   if (r138) goto B77; else goto B79;
  B77:;
   kline = 8002371;
-  r139 = kf1202_std_kite_parser_e_ln(r7, KS[2751]);
+  r139 = kf1202_std_kite_parser_e_ln(r7, KS[2765]);
   { V a_[1] = {r139}; r140 = call_v(kir_gload(151, "Err"), 1, a_); }
   return r140;
  B79:;
@@ -285877,7 +286075,7 @@ static V kl362(KFn *self, int argc, V *argv) {
   if (r1) goto B2; else goto B1;
  B1:;
   kline = 8002370;
-  r4 = kir_vbin(9, r0, KS[2748]);
+  r4 = kir_vbin(9, r0, KS[2762]);
   r5 = ((r4).u.i != 0);
   r1 = r5;
   goto B2;
@@ -286007,7 +286205,7 @@ static V kf1265_std_kite_parser_seq_pats(V r0, V r1, bool r2) {
   kline = 8002465; die("解构失败: %s", cshow(r17));
  B11:;
   kline = 8002467;
-  r21 = kf1201_std_kite_parser_e_at(r20, KS[2752]);
+  r21 = kf1201_std_kite_parser_e_at(r20, KS[2766]);
   { V a_[1] = {r21}; r22 = call_v(kir_gload(151, "Err"), 1, a_); }
   return r22;
  B13:;
@@ -286035,7 +286233,7 @@ static V kf1265_std_kite_parser_seq_pats(V r0, V r1, bool r2) {
   if (r37) goto B24; else { SAFEPOINT(); CANCEL_POINT(); goto B8; }
  B19:;
   kline = 8002471;
-  r29 = kf1201_std_kite_parser_e_at(r20, KS[2753]);
+  r29 = kf1201_std_kite_parser_e_at(r20, KS[2767]);
   { V a_[1] = {r29}; r30 = call_v(kir_gload(151, "Err"), 1, a_); }
   return r30;
  B21:;
@@ -287158,7 +287356,7 @@ static V kf1270_std_kite_parser_stmt(V r0, V r1) {
   r3 = kf1195_std_kite_parser_cur(r2);
   r4 = r3;
   kline = 8001327;
-  r5 = kf1180_std_kite_parser_at_kw(r2, KS[2660]);
+  r5 = kf1180_std_kite_parser_at_kw(r2, KS[2674]);
   if (r5) goto B1; else goto B3;
  B1:;
   kline = 8001328;
@@ -287173,7 +287371,7 @@ static V kf1270_std_kite_parser_stmt(V r0, V r1) {
   if (r10) goto B4; else goto B5;
  B3:;
   kline = 8001340;
-  r53 = kf1180_std_kite_parser_at_kw(r2, KS[2502]);
+  r53 = kf1180_std_kite_parser_at_kw(r2, KS[2516]);
   r52 = r53;
   if (r52) goto B28; else goto B27;
  B4:;
@@ -287194,7 +287392,7 @@ static V kf1270_std_kite_parser_stmt(V r0, V r1) {
   kline = 8001330; die("解构失败: %s", cshow(r11));
  B8:;
   kline = 8001332;
-  { V a_[3] = {KS[2754], r14, KS[1123]}; r17 = k_interp(3, a_); }
+  { V a_[3] = {KS[2768], r14, KS[1123]}; r17 = k_interp(3, a_); }
   r18 = kf1201_std_kite_parser_e_at(r8, r17);
   { V a_[1] = {r18}; r19 = call_v(kir_gload(151, "Err"), 1, a_); }
   return r19;
@@ -287287,7 +287485,7 @@ static V kf1270_std_kite_parser_stmt(V r0, V r1) {
   if (r56) goto B32; else goto B33;
  B31:;
   kline = 8001376;
-  r164 = kf1180_std_kite_parser_at_kw(r2, KS[2755]);
+  r164 = kf1180_std_kite_parser_at_kw(r2, KS[2769]);
   if (r164) goto B72; else goto B74;
  B32:;
   r57 = PB[8];
@@ -287378,7 +287576,7 @@ static V kf1270_std_kite_parser_stmt(V r0, V r1) {
   r91 = PB[16];
   r2 = r90;
   kline = 8001354;
-  r92 = kf1180_std_kite_parser_at_kw(r2, KS[2681]);
+  r92 = kf1180_std_kite_parser_at_kw(r2, KS[2695]);
   if (r92) goto B53; else goto B55;
  B52:;
   kline = 8001352; die("解构失败: %s", cshow(r88));
@@ -287523,7 +287721,7 @@ static V kf1270_std_kite_parser_stmt(V r0, V r1) {
  B74:;
   kline = 8001384;
   r191 = k_field(r4, 104);
-  r192 = kir_vbin(9, r191, KS[2744]);
+  r192 = kir_vbin(9, r191, KS[2758]);
   r193 = ((r192).u.i != 0);
   if (r193) goto B86; else goto B88;
  B75:;
@@ -287603,14 +287801,14 @@ static V kf1270_std_kite_parser_stmt(V r0, V r1) {
   r202 = PB[21];
   r2 = r202;
   kline = 8001388;
-  r205 = kf1180_std_kite_parser_at_kw(r2, KS[2756]);
+  r205 = kf1180_std_kite_parser_at_kw(r2, KS[2770]);
   r204 = r205;
   if (r204) goto B94; else goto B93;
  B92:;
   kline = 8001386; die("解构失败: %s", cshow(r200));
  B93:;
   kline = 8001388;
-  r206 = kf1180_std_kite_parser_at_kw(r2, KS[2705]);
+  r206 = kf1180_std_kite_parser_at_kw(r2, KS[2719]);
   r204 = r206;
   goto B94;
  B94:;
@@ -287618,7 +287816,7 @@ static V kf1270_std_kite_parser_stmt(V r0, V r1) {
   if (r203) goto B96; else goto B95;
  B95:;
   kline = 8001388;
-  r207 = kf1180_std_kite_parser_at_kw(r2, KS[2743]);
+  r207 = kf1180_std_kite_parser_at_kw(r2, KS[2757]);
   r203 = r207;
   goto B96;
  B96:;
@@ -287627,7 +287825,7 @@ static V kf1270_std_kite_parser_stmt(V r0, V r1) {
  B97:;
   kline = 8001389;
   r209 = kf1195_std_kite_parser_cur(r2);
-  { V a_[3] = {KS[2757], r196, KS[2758]}; r210 = k_interp(3, a_); }
+  { V a_[3] = {KS[2771], r196, KS[2772]}; r210 = k_interp(3, a_); }
   r211 = kf1201_std_kite_parser_e_at(r209, r210);
   { V a_[1] = {r211}; r212 = call_v(kir_gload(151, "Err"), 1, a_); }
   return r212;
@@ -287697,12 +287895,12 @@ static V kf1270_std_kite_parser_stmt(V r0, V r1) {
   r247 = kir_gload(211, "None");
   r248 = r247;
   kline = 8001402;
-  r250 = kf1179_std_kite_parser_at_k(r2, KS[2744]);
+  r250 = kf1179_std_kite_parser_at_k(r2, KS[2758]);
   r249 = r250;
   if (r249) goto B113; else goto B114;
  B112:;
   kline = 8001434;
-  r327 = kf1180_std_kite_parser_at_kw(r2, KS[2756]);
+  r327 = kf1180_std_kite_parser_at_kw(r2, KS[2770]);
   r326 = r327;
   if (r326) goto B154; else goto B155;
  B113:;
@@ -287897,7 +288095,7 @@ static V kf1270_std_kite_parser_stmt(V r0, V r1) {
  B154:;
   kline = 8001434;
   r328 = kf1259_std_kite_parser_peek(r2, INT64_C(1));
-  r329 = kf1272_std_kite_parser_tis(r328, KS[1021], KS[2502]);
+  r329 = kf1272_std_kite_parser_tis(r328, KS[1021], KS[2516]);
   r326 = r329;
   goto B155;
  B155:;
@@ -287911,7 +288109,7 @@ static V kf1270_std_kite_parser_stmt(V r0, V r1) {
   if (r333) goto B159; else goto B160;
  B158:;
   kline = 8001444;
-  r377 = kf1180_std_kite_parser_at_kw(r2, KS[2756]);
+  r377 = kf1180_std_kite_parser_at_kw(r2, KS[2770]);
   if (r377) goto B175; else goto B177;
  B159:;
   r334 = ENUMV(r332)->a[0];
@@ -288007,7 +288205,7 @@ static V kf1270_std_kite_parser_stmt(V r0, V r1) {
   if (r380) goto B178; else goto B179;
  B177:;
   kline = 8001449;
-  r398 = kf1180_std_kite_parser_at_kw(r2, KS[2743]);
+  r398 = kf1180_std_kite_parser_at_kw(r2, KS[2757]);
   if (r398) goto B186; else goto B188;
  B178:;
   r381 = ENUMV(r379)->a[0];
@@ -288056,7 +288254,7 @@ static V kf1270_std_kite_parser_stmt(V r0, V r1) {
   if (r403) goto B189; else goto B190;
  B188:;
   kline = 8001456;
-  r417 = kf1180_std_kite_parser_at_kw(r2, KS[2705]);
+  r417 = kf1180_std_kite_parser_at_kw(r2, KS[2719]);
   if (r417) goto B197; else goto B199;
  B189:;
   r404 = ENUMV(r402)->a[0];
@@ -288108,7 +288306,7 @@ static V kf1270_std_kite_parser_stmt(V r0, V r1) {
   r423 = PB[43];
   r424 = PB[44];
   kline = 8001458;
-  r425 = kf1206_std_kite_parser_expect(r423, KS[1021], KS[2759]);
+  r425 = kf1206_std_kite_parser_expect(r423, KS[1021], KS[2773]);
   r426 = kir_try(r425);
   if (r426) goto B204; else goto B205;
  B203:;
@@ -288288,7 +288486,7 @@ static V kf1270_std_kite_parser_stmt(V r0, V r1) {
   SAFEPOINT(); CANCEL_POINT(); goto B240;
  B248:;
   kline = 8001479;
-  r488 = kf1201_std_kite_parser_e_at(r4, KS[2284]);
+  r488 = kf1201_std_kite_parser_e_at(r4, KS[2298]);
   { V a_[1] = {r488}; r489 = call_v(kir_gload(151, "Err"), 1, a_); }
   return r489;
  B250:;
@@ -288478,7 +288676,7 @@ static V kf1271_std_kite_parser_struct_lit(V r0, V r1, V r2) {
   if (r29) goto B16; else { SAFEPOINT(); CANCEL_POINT(); goto B3; }
  B16:;
   kline = 8002126;
-  r30 = kf1201_std_kite_parser_e_at(r16, KS[2760]);
+  r30 = kf1201_std_kite_parser_e_at(r16, KS[2774]);
   { V a_[1] = {r30}; r31 = call_v(kir_gload(151, "Err"), 1, a_); }
   return r31;
  B19:;
@@ -288828,7 +289026,7 @@ static V kf1273_std_kite_parser_trait_decl(V r0) {
   r51 = PB[9];
   r21 = r50;
   kline = 8001182;
-  r52 = kf1180_std_kite_parser_at_kw(r21, KS[2599]);
+  r52 = kf1180_std_kite_parser_at_kw(r21, KS[2613]);
   if (r52) goto B31; else goto B32;
  B30:;
   kline = 8001180; die("解构失败: %s", cshow(r48));
@@ -288839,7 +289037,7 @@ static V kf1273_std_kite_parser_trait_decl(V r0) {
   if (r54) goto B34; else goto B35;
  B32:;
   kline = 8001200;
-  r92 = kf1180_std_kite_parser_at_kw(r21, KS[2660]);
+  r92 = kf1180_std_kite_parser_at_kw(r21, KS[2674]);
   if (r92) goto B57; else goto B58;
  B33:;
   kline = 8001209;
@@ -288932,7 +289130,7 @@ static V kf1273_std_kite_parser_trait_decl(V r0) {
   kline = 8001194; die("解构失败: %s", cshow(r79));
  B54:;
   kline = 8001198;
-  { V a_[3] = {KS[2706], r62, KS[2663]}; r87 = k_interp(3, a_); }
+  { V a_[3] = {KS[2720], r62, KS[2677]}; r87 = k_interp(3, a_); }
   r88 = kf1201_std_kite_parser_e_at(r56, r87);
   { V a_[1] = {r88}; r89 = call_v(kir_gload(151, "Err"), 1, a_); }
   return r89;
@@ -289328,7 +289526,7 @@ static V kf1275_std_kite_parser_ty(V r0) {
   r36 = kf1266_std_kite_parser_skip(r1);
   r1 = r36;
   kline = 8000800;
-  r37 = kf1179_std_kite_parser_at_k(r1, KS[2669]);
+  r37 = kf1179_std_kite_parser_at_k(r1, KS[2683]);
   if (r37) goto B21; else goto B22;
  B20:;
   kline = 8000811;
@@ -289358,7 +289556,7 @@ static V kf1275_std_kite_parser_ty(V r0) {
   kline = 8000801; die("解构失败: %s", cshow(r38));
  B26:;
   kline = 8000803;
-  r45 = kf1202_std_kite_parser_e_ln(r5, KS[2761]);
+  r45 = kf1202_std_kite_parser_e_ln(r5, KS[2775]);
   { V a_[1] = {r45}; r46 = call_v(kir_gload(151, "Err"), 1, a_); }
   return r46;
  B28:;
@@ -289416,7 +289614,7 @@ static V kf1275_std_kite_parser_ty(V r0) {
   r69 = PB[9];
   { V a_[2] = {r32, r69}; r70 = mklist(2, a_); }
   kline = 8000814;
-  r71 = kf1193_std_kite_parser_con(KS[2374], r70, r5);
+  r71 = kf1193_std_kite_parser_con(KS[2388], r70, r5);
   r67 = r71;
   SAFEPOINT(); CANCEL_POINT(); goto B37;
  B40:;
@@ -289562,7 +289760,7 @@ static V kf1275_std_kite_parser_ty(V r0) {
   if (r126) goto B75; else goto B76;
  B73:;
   kline = 8000842;
-  r149 = kf1179_std_kite_parser_at_k(r1, KS[2669]);
+  r149 = kf1179_std_kite_parser_at_k(r1, KS[2683]);
   if (r149) goto B90; else goto B91;
  B75:;
   r127 = ENUMV(r125)->a[0];
@@ -289595,7 +289793,7 @@ static V kf1275_std_kite_parser_ty(V r0) {
   r137 = kf1193_std_kite_parser_con(KS[273], r136, r5);
   r138 = r137;
   kline = 8000836;
-  r139 = kf1181_std_kite_parser_at_op(r1, KS[2600]);
+  r139 = kf1181_std_kite_parser_at_op(r1, KS[2614]);
   if (r139) goto B83; else goto B85;
  B82:;
   kline = 8000833; die("解构失败: %s", cshow(r132));
@@ -289906,7 +290104,7 @@ static V kf1277_std_kite_parser_type_decl(V r0) {
   SAFEPOINT(); CANCEL_POINT();
  B0:;
   kline = 8001066;
-  r1 = kf1206_std_kite_parser_expect(r0, KS[1021], KS[2599]);
+  r1 = kf1206_std_kite_parser_expect(r0, KS[1021], KS[2613]);
   r2 = kir_try(r1);
   if (r2) goto B1; else goto B2;
  B1:;
@@ -290318,7 +290516,7 @@ static V kf1280_std_kite_parser_use_decl(V r0) {
   SAFEPOINT(); CANCEL_POINT(); goto B12;
  B17:;
   kline = 8000655;
-  r31 = kf1201_std_kite_parser_e_at(r18, KS[2762]);
+  r31 = kf1201_std_kite_parser_e_at(r18, KS[2776]);
   { V a_[1] = {r31}; r32 = call_v(kir_gload(151, "Err"), 1, a_); }
   return r32;
  B19:;
@@ -290527,7 +290725,7 @@ static V kf1284_std_kite_parser_where_clause(V r0, V r1, V r2) {
   r3 = r0;
   r4 = r2;
   kline = 8000693;
-  r5 = kf1180_std_kite_parser_at_kw(r3, KS[2763]);
+  r5 = kf1180_std_kite_parser_at_kw(r3, KS[2777]);
   r6 = !r5;
   if (r6) goto B1; else goto B3;
  B1:;
@@ -290573,7 +290771,7 @@ static V kf1284_std_kite_parser_where_clause(V r0, V r1, V r2) {
   kline = 8000697; die("解构失败: %s", cshow(r14));
  B11:;
   kline = 8000700;
-  { V a_[3] = {KS[2764], r17, KS[2765]}; r21 = k_interp(3, a_); }
+  { V a_[3] = {KS[2778], r17, KS[2779]}; r21 = k_interp(3, a_); }
   r22 = kf1201_std_kite_parser_e_at(r11, r21);
   { V a_[1] = {r22}; r23 = call_v(kir_gload(151, "Err"), 1, a_); }
   return r23;
@@ -291238,7 +291436,7 @@ static bool kf1290_std_kite_scanner_alias_line_end(V r0) {
   if (r53) goto B33; else { SAFEPOINT(); CANCEL_POINT(); goto B16; }
  B27:;
   kline = 5000550;
-  r76 = kir_vbin(9, r52, KS[2630]);
+  r76 = kir_vbin(9, r52, KS[2644]);
   r77 = ((r76).u.i != 0);
   r75 = r77;
   if (r75) goto B30; else goto B29;
@@ -291247,7 +291445,7 @@ static bool kf1290_std_kite_scanner_alias_line_end(V r0) {
   SAFEPOINT(); CANCEL_POINT(); goto B26;
  B29:;
   kline = 5000550;
-  r78 = kir_vbin(9, r52, KS[2590]);
+  r78 = kir_vbin(9, r52, KS[2604]);
   r79 = ((r78).u.i != 0);
   r75 = r79;
   goto B30;
@@ -291284,7 +291482,7 @@ static bool kf1290_std_kite_scanner_alias_line_end(V r0) {
   r93 = k_index(r0, r92);
   r94 = k_field(r93, 198);
   r95 = kf1316_std_kite_scanner_sv(r94);
-  r96 = kir_vbin(9, r95, KS[2599]);
+  r96 = kir_vbin(9, r95, KS[2613]);
   r97 = ((r96).u.i != 0);
   r84 = r97;
   goto B39;
@@ -291386,7 +291584,7 @@ static bool kf1290_std_kite_scanner_alias_line_end(V r0) {
   SAFEPOINT(); CANCEL_POINT(); goto B59;
  B65:;
   kline = 5000565;
-  r139 = kir_vbin(9, r132, KS[2307]);
+  r139 = kir_vbin(9, r132, KS[2321]);
   r140 = ((r139).u.i != 0);
   if (r140) goto B67; else { SAFEPOINT(); CANCEL_POINT(); goto B59; }
  B67:;
@@ -291538,7 +291736,7 @@ static bool kf1292_std_kite_scanner_closes_typeapp(V r0) {
   goto B6;
  B5:;
   kline = 5000577;
-  r14 = kir_vbin(9, r10, KS[2307]);
+  r14 = kir_vbin(9, r10, KS[2321]);
   r15 = ((r14).u.i != 0);
   if (r15) goto B7; else goto B8;
  B6:;
@@ -293174,7 +293372,7 @@ static V kf1308_std_kite_scanner_lex(V r0) {
   if (r30) goto B17; else goto B16;
  B16:;
   kline = 5000267;
-  r38 = kf1291_std_kite_scanner_at_str(r2, r8, KS[2607]);
+  r38 = kf1291_std_kite_scanner_at_str(r2, r8, KS[2621]);
   if (r38) goto B22; else goto B24;
  B17:;
   r32 = r8 < r5;
@@ -293197,7 +293395,7 @@ static V kf1308_std_kite_scanner_lex(V r0) {
  B22:;
   if (__builtin_add_overflow(r8, INT64_C(2), &r39)) { kline = 5000268; die("整数溢出"); }
   kline = 5000268;
-  r40 = kf1296_std_kite_scanner_find_from(r2, r39, KS[2608]);
+  r40 = kf1296_std_kite_scanner_find_from(r2, r39, KS[2622]);
   r41 = r40;
   r42 = r41 < INT64_C(0);
   if (r42) goto B25; else goto B27;
@@ -293212,7 +293410,7 @@ static V kf1308_std_kite_scanner_lex(V r0) {
   r43 = mkint(r10);
   kline = 5000269;
   { V a_[1] = {r43}; r44 = call_v(kir_gload(247, "Some"), 1, a_); }
-  r45 = kf1294_std_kite_scanner_err(r9, r44, KS[2609]);
+  r45 = kf1294_std_kite_scanner_err(r9, r44, KS[2623]);
   { V a_[1] = {r45}; r46 = call_v(kir_gload(151, "Err"), 1, a_); }
   return r46;
  B27:;
@@ -293319,7 +293517,7 @@ static V kf1308_std_kite_scanner_lex(V r0) {
  B48:;
   r97 = r88;
   kline = 5000289;
-  r99 = kir_vbin(9, r97, KS[2698]);
+  r99 = kir_vbin(9, r97, KS[2712]);
   r100 = ((r99).u.i != 0);
   if (r100) goto B49; else goto B50;
  B49:;
@@ -293327,7 +293525,7 @@ static V kf1308_std_kite_scanner_lex(V r0) {
   goto B51;
  B50:;
   kline = 5000289;
-  r102 = kir_vbin(9, r97, KS[2699]);
+  r102 = kir_vbin(9, r97, KS[2713]);
   r103 = ((r102).u.i != 0);
   if (r103) goto B52; else goto B53;
  B51:;
@@ -293435,7 +293633,7 @@ static V kf1308_std_kite_scanner_lex(V r0) {
   r157 = mkint(r110);
   kline = 5000305;
   { V a_[1] = {r157}; r158 = call_v(kir_gload(322, "TkInt"), 1, a_); }
-  r159 = kf1309_std_kite_scanner_mk(KS[2669], r158, r58, r59, r11, r60);
+  r159 = kf1309_std_kite_scanner_mk(KS[2683], r158, r58, r59, r11, r60);
   { V a_[2] = {r7, r159}; r160 = call_v(kir_gload(179, "push"), 2, a_); }
   r7 = r160;
   r11 = 0;
@@ -293462,7 +293660,7 @@ static V kf1308_std_kite_scanner_lex(V r0) {
   { V a_[4] = {r2, r148, r149, r150}; r151 = call_v(kir_gload(172, "__slice"), 4, a_); }
   { V a_[2] = {r151, KS[64]}; r152 = call_v(kir_gload(188, "join"), 2, a_); }
   r153 = kf1314_std_kite_scanner_repr_str(r152);
-  r154 = kir_vbin(0, KS[2766], r153);
+  r154 = kir_vbin(0, KS[2780], r153);
   r155 = kf1294_std_kite_scanner_err(r58, r147, r154);
   { V a_[1] = {r155}; r156 = call_v(kir_gload(151, "Err"), 1, a_); }
   return r156;
@@ -293719,10 +293917,10 @@ static V kf1308_std_kite_scanner_lex(V r0) {
   r257 = r265;
   SAFEPOINT(); CANCEL_POINT(); goto B135;
  B140:;
-  r267 = KS[2670];
+  r267 = KS[2684];
   goto B142;
  B141:;
-  r267 = KS[2669];
+  r267 = KS[2683];
   goto B142;
  B142:;
   kline = 5000336;
@@ -293836,7 +294034,7 @@ static V kf1308_std_kite_scanner_lex(V r0) {
   r316 = mkint(r59);
   kline = 5000350;
   { V a_[1] = {r316}; r317 = call_v(kir_gload(247, "Some"), 1, a_); }
-  r318 = kf1294_std_kite_scanner_err(r58, r317, KS[2610]);
+  r318 = kf1294_std_kite_scanner_err(r58, r317, KS[2624]);
   { V a_[1] = {r318}; r319 = call_v(kir_gload(151, "Err"), 1, a_); }
   return r319;
  B168:;
@@ -294054,7 +294252,7 @@ static V kf1308_std_kite_scanner_lex(V r0) {
   r421 = mkint(r59);
   kline = 5000385;
   { V a_[1] = {r421}; r422 = call_v(kir_gload(247, "Some"), 1, a_); }
-  r423 = kir_vbin(0, KS[2767], r393);
+  r423 = kir_vbin(0, KS[2781], r393);
   r424 = kf1294_std_kite_scanner_err(r58, r422, r423);
   { V a_[1] = {r424}; r425 = call_v(kir_gload(151, "Err"), 1, a_); }
   return r425;
@@ -294072,7 +294270,7 @@ static V kf1308_std_kite_scanner_lex(V r0) {
   r437 = mkint(r59);
   kline = 5000393;
   { V a_[1] = {r437}; r438 = call_v(kir_gload(247, "Some"), 1, a_); }
-  r439 = kf1294_std_kite_scanner_err(r58, r438, KS[2768]);
+  r439 = kf1294_std_kite_scanner_err(r58, r438, KS[2782]);
   { V a_[1] = {r439}; r440 = call_v(kir_gload(151, "Err"), 1, a_); }
   return r440;
  B211:;
@@ -294254,7 +294452,7 @@ static V kf1308_std_kite_scanner_lex(V r0) {
   r516 = mkint(r59);
   kline = 5000424;
   { V a_[1] = {r516}; r517 = call_v(kir_gload(247, "Some"), 1, a_); }
-  r518 = kf1294_std_kite_scanner_err(r58, r517, KS[2769]);
+  r518 = kf1294_std_kite_scanner_err(r58, r517, KS[2783]);
   { V a_[1] = {r518}; r519 = call_v(kir_gload(151, "Err"), 1, a_); }
   return r519;
  B247:;
@@ -294266,7 +294464,7 @@ static V kf1308_std_kite_scanner_lex(V r0) {
   { V a_[4] = {r2, r521, r522, r523}; r524 = call_v(kir_gload(172, "__slice"), 4, a_); }
   { V a_[2] = {r524, KS[64]}; r525 = call_v(kir_gload(188, "join"), 2, a_); }
   { V a_[1] = {r525}; r526 = call_v(kir_gload(333, "TkStr"), 1, a_); }
-  r527 = kf1309_std_kite_scanner_mk(KS[2744], r526, r58, r59, r11, r60);
+  r527 = kf1309_std_kite_scanner_mk(KS[2758], r526, r58, r59, r11, r60);
   { V a_[2] = {r7, r527}; r528 = call_v(kir_gload(179, "push"), 2, a_); }
   r7 = r528;
   r11 = 0;
@@ -294508,7 +294706,7 @@ static V kf1308_std_kite_scanner_lex(V r0) {
   r629 = mkint(r59);
   kline = 5000478;
   { V a_[1] = {r629}; r630 = call_v(kir_gload(247, "Some"), 1, a_); }
-  r631 = kf1294_std_kite_scanner_err(r58, r630, KS[2770]);
+  r631 = kf1294_std_kite_scanner_err(r58, r630, KS[2784]);
   { V a_[1] = {r631}; r632 = call_v(kir_gload(151, "Err"), 1, a_); }
   return r632;
  B304:;
@@ -294690,7 +294888,7 @@ static V kf1308_std_kite_scanner_lex(V r0) {
   kline = 5000517;
   { V a_[1] = {r713}; r714 = call_v(kir_gload(247, "Some"), 1, a_); }
   r715 = kf1314_std_kite_scanner_repr_str(r15);
-  r716 = kir_vbin(0, KS[2771], r715);
+  r716 = kir_vbin(0, KS[2785], r715);
   r717 = kf1294_std_kite_scanner_err(r9, r714, r716);
   { V a_[1] = {r717}; r718 = call_v(kir_gload(151, "Err"), 1, a_); }
   return r718;
@@ -294957,7 +295155,7 @@ static V kf1310_std_kite_scanner_newlines(V r0) {
   r31 = r40;
   goto B16;
  B15:;
-  r31 = KS[2772];
+  r31 = KS[2786];
   goto B16;
  B16:;
   r41 = r31;
@@ -294983,7 +295181,7 @@ static V kf1310_std_kite_scanner_newlines(V r0) {
   r42 = r51;
   goto B21;
  B20:;
-  r42 = KS[2772];
+  r42 = KS[2786];
   goto B21;
  B21:;
   r52 = r42;
@@ -294994,7 +295192,7 @@ static V kf1310_std_kite_scanner_newlines(V r0) {
   if (r54) goto B23; else goto B22;
  B22:;
   kline = 5000600;
-  r57 = kir_vbin(9, r41, KS[2307]);
+  r57 = kir_vbin(9, r41, KS[2321]);
   r58 = ((r57).u.i != 0);
   r54 = r58;
   goto B23;
@@ -295009,7 +295207,7 @@ static V kf1310_std_kite_scanner_newlines(V r0) {
  B25:;
   if (r53) goto B26; else goto B28;
  B26:;
-  r41 = KS[2772];
+  r41 = KS[2786];
   goto B28;
  B28:;
   kline = 5000601;
@@ -295019,7 +295217,7 @@ static V kf1310_std_kite_scanner_newlines(V r0) {
   if (r61) goto B30; else goto B29;
  B29:;
   kline = 5000601;
-  r64 = kir_vbin(9, r41, KS[2307]);
+  r64 = kir_vbin(9, r41, KS[2321]);
   r65 = ((r64).u.i != 0);
   r61 = r65;
   goto B30;
@@ -295034,7 +295232,7 @@ static V kf1310_std_kite_scanner_newlines(V r0) {
  B32:;
   if (r60) goto B33; else goto B35;
  B33:;
-  r41 = KS[2772];
+  r41 = KS[2786];
   goto B35;
  B35:;
   kline = 5000602;
@@ -295067,7 +295265,7 @@ static V kf1310_std_kite_scanner_newlines(V r0) {
   r67 = r70;
   SAFEPOINT(); CANCEL_POINT(); goto B37;
  B40:;
-  r41 = KS[2772];
+  r41 = KS[2786];
   goto B42;
  B42:;
   kline = 5000603;
@@ -295267,7 +295465,7 @@ static V kf1313_std_kite_scanner_pyesc(int64_t r0) {
  B1:;
   kline = 5000150;
   r3 = kf1300_std_kite_scanner_hexn(r0, INT64_C(2));
-  r4 = kir_vbin(0, KS[2773], r3);
+  r4 = kir_vbin(0, KS[2787], r3);
   r1 = r4;
   goto B3;
  B2:;
@@ -295284,7 +295482,7 @@ static V kf1313_std_kite_scanner_pyesc(int64_t r0) {
  B5:;
   kline = 5000154;
   r9 = kf1300_std_kite_scanner_hexn(r0, INT64_C(8));
-  r10 = kir_vbin(0, KS[2774], r9);
+  r10 = kir_vbin(0, KS[2788], r9);
   r5 = r10;
   goto B6;
  B6:;
@@ -295887,7 +296085,7 @@ static V kf1325_std_kite_ty_letter(int64_t r0) {
   r2 = mkint(r0);
   r3 = mkint(r1);
   kline = 3000086;
-  { V a_[3] = {KS[2775], r2, r3}; r4 = call_v(kir_gload(181, "__str_slice"), 3, a_); }
+  { V a_[3] = {KS[2789], r2, r3}; r4 = call_v(kir_gload(181, "__str_slice"), 3, a_); }
   return r4;
 }
 static V kf1326_std_kite_ty_list_t(V r0) {
@@ -296304,7 +296502,7 @@ static V kf1331_std_kite_ty_show_n(V r0, V r1, V r2) {
   if (r44) goto B16; else goto B17;
  B14:;
   kline = 3000115;
-  r63 = kir_vbin(9, r33, KS[2274]);
+  r63 = kir_vbin(9, r33, KS[2288]);
   r64 = ((r63).u.i != 0);
   r62 = r64;
   if (r62) goto B20; else goto B21;
@@ -296366,7 +296564,7 @@ static V kf1331_std_kite_ty_show_n(V r0, V r1, V r2) {
   r72 = PB[9];
   r73 = PB[10];
   kline = 3000117;
-  r74 = kir_vbin(0, KS[2776], r73);
+  r74 = kir_vbin(0, KS[2790], r73);
   { V a_[2] = {r72, r74}; r75 = mktuple(2, a_); }
   r61 = r75;
   SAFEPOINT(); CANCEL_POINT(); goto B24;
@@ -296419,7 +296617,7 @@ static V kf1331_std_kite_ty_show_n(V r0, V r1, V r2) {
   if (r100) goto B37; else goto B38;
  B35:;
   kline = 3000124;
-  r113 = kir_vbin(9, r33, KS[2374]);
+  r113 = kir_vbin(9, r33, KS[2388]);
   r114 = ((r113).u.i != 0);
   r112 = r114;
   if (r112) goto B39; else goto B40;
@@ -296825,7 +297023,7 @@ static V kf1337_std_kite_val_dump(V r0) {
   r6 = ((r4).u.i != 0);
   if (r6) goto B6; else goto B7;
  B6:;
-  r5 = KS[2466];
+  r5 = KS[2480];
   goto B8;
  B7:;
   r5 = KS[264];
@@ -296852,7 +297050,7 @@ static V kf1337_std_kite_val_dump(V r0) {
   r12 = PB[3];
   kline = 4000098;
   r13 = kf1343_std_kite_val_quote(r11);
-  r14 = kir_vbin(0, KS[2777], r13);
+  r14 = kir_vbin(0, KS[2791], r13);
   r15 = kir_vbin(0, r14, KS[10]);
   r17 = pat9367(r12, PB);
   if (r17) goto B15; else goto B14;
@@ -296976,7 +297174,7 @@ static V kf1337_std_kite_val_dump(V r0) {
   r66 = PB[12];
   kline = 4000114;
   r67 = kf1344_std_kite_val_seq(r66);
-  r68 = kir_vbin(0, KS[2778], r67);
+  r68 = kir_vbin(0, KS[2792], r67);
   r69 = kir_vbin(0, r68, KS[323]);
   r1 = r69;
   SAFEPOINT(); CANCEL_POINT(); goto B1;
@@ -297000,7 +297198,7 @@ static V kf1337_std_kite_val_dump(V r0) {
   kline = 4000116;
   { V a_[2] = {r76, r77}; r78 = call_v(kir_gload(192, "map"), 2, a_); }
   { V a_[2] = {r78, KS[73]}; r79 = call_v(kir_gload(188, "join"), 2, a_); }
-  r80 = kir_vbin(0, KS[2779], r79);
+  r80 = kir_vbin(0, KS[2793], r79);
   r81 = kir_vbin(0, r80, KS[177]);
   r1 = r81;
   SAFEPOINT(); CANCEL_POINT(); goto B1;
@@ -297308,7 +297506,7 @@ static V kf1343_std_kite_val_quote(V r0) {
  B21:;
   kline = 4000077;
   r29 = kf1336_std_kite_val___hex(r9);
-  { V a_[3] = {KS[2780], r29, KS[177]}; r30 = k_interp(3, a_); }
+  { V a_[3] = {KS[2794], r29, KS[177]}; r30 = k_interp(3, a_); }
   r25 = r30;
   goto B23;
  B22:;
@@ -297917,7 +298115,7 @@ static V kf1353_std_kite_version_parse_constraint(V r0) {
  B23:;
   kline = 31000123;
   r65 = kf1357_std_kite_version_rpr(r18);
-  { V a_[2] = {KS[2781], r65}; r66 = k_interp(2, a_); }
+  { V a_[2] = {KS[2795], r65}; r66 = k_interp(2, a_); }
   { V a_[1] = {r66}; r67 = call_v(kir_gload(151, "Err"), 1, a_); }
   return r67;
  B25:;
@@ -298152,7 +298350,7 @@ static V kf1353_std_kite_version_parse_constraint(V r0) {
  B60:;
   kline = 31000153;
   r197 = kf1357_std_kite_version_rpr(r18);
-  { V a_[2] = {KS[2782], r197}; r198 = k_interp(2, a_); }
+  { V a_[2] = {KS[2796], r197}; r198 = k_interp(2, a_); }
   { V a_[1] = {r198}; r199 = call_v(kir_gload(151, "Err"), 1, a_); }
   return r199;
  B62:;
@@ -298287,7 +298485,7 @@ static V kf1354_std_kite_version_parse_version(V r0) {
   r2 = r1;
   kline = 31000057;
   r3 = kf1357_std_kite_version_rpr(r0);
-  { V a_[3] = {KS[2783], r3, KS[2784]}; r4 = k_interp(3, a_); }
+  { V a_[3] = {KS[2797], r3, KS[2798]}; r4 = k_interp(3, a_); }
   r5 = r4;
   r6 = mkint(INT64_C(0));
   kline = 31000058;
@@ -298471,7 +298669,7 @@ static V kf1355_std_kite_version_partial(V r0) {
  B5:;
   kline = 31000080;
   r16 = kf1357_std_kite_version_rpr(r0);
-  { V a_[2] = {KS[2781], r16}; r17 = k_interp(2, a_); }
+  { V a_[2] = {KS[2795], r16}; r17 = k_interp(2, a_); }
   { V a_[1] = {r17}; r18 = call_v(kir_gload(151, "Err"), 1, a_); }
   return r18;
  B7:;
@@ -299400,7 +299598,7 @@ static V kf1368_std_math_bits_div32(int64_t r0, int64_t r1, int64_t r2) {
   if (r11) goto B4; else goto B6;
  B4:;
   kline = 25000300;
-  { V a_[1] = {KS[2785]}; r12 = call_v(kir_gload(171, "panic"), 1, a_); }
+  { V a_[1] = {KS[2799]}; r12 = call_v(kir_gload(171, "panic"), 1, a_); }
   __builtin_unreachable();
  B6:;
   kline = 25000301;
@@ -299462,7 +299660,7 @@ static V kf1369_std_math_bits_div64(int64_t r0, int64_t r1, int64_t r2) {
   if (r5) goto B4; else goto B6;
  B4:;
   kline = 25000280;
-  { V a_[1] = {KS[2785]}; r6 = call_v(kir_gload(171, "panic"), 1, a_); }
+  { V a_[1] = {KS[2799]}; r6 = call_v(kir_gload(171, "panic"), 1, a_); }
   __builtin_unreachable();
  B6:;
   r7 = r0;
@@ -299517,7 +299715,7 @@ static void kf1370_std_math_bits_divzero(void) {
   SAFEPOINT(); CANCEL_POINT();
  B0:;
   kline = 25000057;
-  { V a_[1] = {KS[2786]}; r0 = call_v(kir_gload(171, "panic"), 1, a_); }
+  { V a_[1] = {KS[2800]}; r0 = call_v(kir_gload(171, "panic"), 1, a_); }
   __builtin_unreachable();
 }
 static int64_t kf1371_std_math_bits_leading_zeros(int64_t r0) {
@@ -302798,7 +302996,7 @@ static V kf1469_std_process_output(V r0) {
   kline = 17000012;
   r9 = (r3).u.i;
   r10 = mkint(r9);
-  { V a_[4] = {KS[2787], r0, KS[2788], r10}; r11 = k_interp(4, a_); }
+  { V a_[4] = {KS[2801], r0, KS[2802], r10}; r11 = k_interp(4, a_); }
   { V a_[1] = {r11}; r12 = call_v(kir_gload(151, "Err"), 1, a_); }
   r5 = r12;
   goto B5;
@@ -306764,7 +306962,7 @@ static V kf1500_std_strconv_float_parts(double r0, int64_t r1) {
   SAFEPOINT(); CANCEL_POINT(); goto B3;
  B5:;
   kline = 24000922;
-  { V a_[1] = {KS[2789]}; r8 = call_v(kir_gload(171, "panic"), 1, a_); }
+  { V a_[1] = {KS[2803]}; r8 = call_v(kir_gload(171, "panic"), 1, a_); }
   __builtin_unreachable();
  B7:;
   kline = 24000924;
@@ -306826,7 +307024,7 @@ static V kf1500_std_strconv_float_parts(double r0, int64_t r1) {
   r49 = r29 == INT64_C(0);
   if (r49) goto B22; else goto B23;
  B16:;
-  r41 = KS[2790];
+  r41 = KS[2804];
   goto B18;
  B17:;
   if (r20) goto B19; else goto B20;
@@ -306838,10 +307036,10 @@ static V kf1500_std_strconv_float_parts(double r0, int64_t r1) {
   { V a_[5] = {r45, r46, r47, r9, r44}; r48 = mktuple(5, a_); }
   return r48;
  B19:;
-  r43 = KS[2791];
+  r43 = KS[2805];
   goto B21;
  B20:;
-  r43 = KS[2792];
+  r43 = KS[2806];
   goto B21;
  B21:;
   r41 = r43;
@@ -308379,7 +308577,7 @@ static V kf1510_std_strconv_format_int(int64_t r0, int64_t r1) {
   if (r2) goto B3; else goto B5;
  B3:;
   kline = 24000101;
-  { V a_[1] = {KS[2793]}; r5 = call_v(kir_gload(171, "panic"), 1, a_); }
+  { V a_[1] = {KS[2807]}; r5 = call_v(kir_gload(171, "panic"), 1, a_); }
   __builtin_unreachable();
  B5:;
   r6 = r0 == INT64_C(0);
@@ -308388,7 +308586,7 @@ static V kf1510_std_strconv_format_int(int64_t r0, int64_t r1) {
   return KS[157];
  B8:;
   kline = 24000103;
-  { V a_[1] = {KS[2794]}; r7 = call_v(kir_gload(198, "chars"), 1, a_); }
+  { V a_[1] = {KS[2808]}; r7 = call_v(kir_gload(198, "chars"), 1, a_); }
   r8 = r7;
   r9 = mklist(0, NULL);
   r10 = r9;
@@ -308460,7 +308658,7 @@ static V kf1511_std_strconv_format_uint(int64_t r0, int64_t r1) {
   if (r2) goto B3; else goto B5;
  B3:;
   kline = 24001391;
-  { V a_[1] = {KS[2795]}; r5 = call_v(kir_gload(171, "panic"), 1, a_); }
+  { V a_[1] = {KS[2809]}; r5 = call_v(kir_gload(171, "panic"), 1, a_); }
   __builtin_unreachable();
  B5:;
   r6 = r0 >= INT64_C(0);
@@ -309202,8 +309400,8 @@ static V kf1522_std_strconv_num_error(V r0, V r1, V r2) {
   SAFEPOINT(); CANCEL_POINT();
  B0:;
   kline = 24001354;
-  r3 = kir_vbin(0, KS[2796], r0);
-  r4 = kir_vbin(0, r3, KS[2797]);
+  r3 = kir_vbin(0, KS[2810], r0);
+  r4 = kir_vbin(0, r3, KS[2811]);
   r5 = kf1532_std_strconv_quote_go(r1);
   r6 = kir_vbin(0, r4, r5);
   r7 = kir_vbin(0, r6, KS[135]);
@@ -309279,7 +309477,7 @@ static V kf1524_std_strconv_parse_bool(V r0) {
   if (r4) goto B4; else goto B3;
  B3:;
   kline = 24000116;
-  r10 = kir_vbin(9, r0, KS[2466]);
+  r10 = kir_vbin(9, r0, KS[2480]);
   r11 = ((r10).u.i != 0);
   r4 = r11;
   goto B4;
@@ -309297,7 +309495,7 @@ static V kf1524_std_strconv_parse_bool(V r0) {
   if (r2) goto B8; else goto B7;
  B7:;
   kline = 24000116;
-  r14 = kir_vbin(9, r0, KS[2798]);
+  r14 = kir_vbin(9, r0, KS[2812]);
   r15 = ((r14).u.i != 0);
   r2 = r15;
   goto B8;
@@ -309352,7 +309550,7 @@ static V kf1524_std_strconv_parse_bool(V r0) {
   if (r21) goto B21; else goto B20;
  B20:;
   kline = 24000119;
-  r33 = kir_vbin(9, r0, KS[2799]);
+  r33 = kir_vbin(9, r0, KS[2813]);
   r34 = ((r33).u.i != 0);
   r21 = r34;
   goto B21;
@@ -309374,7 +309572,7 @@ static V kf1524_std_strconv_parse_bool(V r0) {
   return r38;
  B26:;
   kline = 24000122;
-  { V a_[2] = {KS[2800], r0}; r39 = k_interp(2, a_); }
+  { V a_[2] = {KS[2814], r0}; r39 = k_interp(2, a_); }
   { V a_[1] = {r39}; r40 = call_v(kir_gload(151, "Err"), 1, a_); }
   return r40;
 }
@@ -309567,7 +309765,7 @@ static V kf1526_std_strconv_parse_float_go(V r0, int64_t r1) {
  B9:;
   r19 = mkflt(0x0.0p+0);
   kline = 24001364;
-  r20 = kf1522_std_strconv_num_error(KS[2801], r0, KS[2802]);
+  r20 = kf1522_std_strconv_num_error(KS[2815], r0, KS[2816]);
   { V a_[2] = {r19, r20}; r21 = mktuple(2, a_); }
   return r21;
  B11:;
@@ -309590,7 +309788,7 @@ static V kf1526_std_strconv_parse_float_go(V r0, int64_t r1) {
  B14:;
   r36 = mkflt(0x0.0p+0);
   kline = 24001368;
-  r37 = kf1522_std_strconv_num_error(KS[2801], r0, KS[2802]);
+  r37 = kf1522_std_strconv_num_error(KS[2815], r0, KS[2816]);
   { V a_[2] = {r36, r37}; r38 = mktuple(2, a_); }
   return r38;
  B16:;
@@ -309629,7 +309827,7 @@ static V kf1526_std_strconv_parse_float_go(V r0, int64_t r1) {
   kline = 24001370; die("解构失败: %s", cshow(r49));
  B22:;
   kline = 24001371;
-  r57 = kf1522_std_strconv_num_error(KS[2801], r0, KS[2803]);
+  r57 = kf1522_std_strconv_num_error(KS[2815], r0, KS[2817]);
   r55 = r57;
   goto B24;
  B23:;
@@ -309665,7 +309863,7 @@ static V kf1526_std_strconv_parse_float_go(V r0, int64_t r1) {
  B33:;
   r79 = mkflt(0x0.0p+0);
   kline = 24001376;
-  r80 = kf1522_std_strconv_num_error(KS[2801], r0, KS[2802]);
+  r80 = kf1522_std_strconv_num_error(KS[2815], r0, KS[2816]);
   { V a_[2] = {r79, r80}; r81 = mktuple(2, a_); }
   return r81;
  B34:;
@@ -309689,7 +309887,7 @@ static V kf1526_std_strconv_parse_float_go(V r0, int64_t r1) {
   kline = 24001377; die("解构失败: %s", cshow(r83));
  B38:;
   kline = 24001378;
-  r92 = kf1522_std_strconv_num_error(KS[2801], r0, KS[2803]);
+  r92 = kf1522_std_strconv_num_error(KS[2815], r0, KS[2817]);
   r90 = r92;
   goto B40;
  B39:;
@@ -309811,7 +310009,7 @@ static V kf1527_std_strconv_parse_int_base(V r0, int64_t r1) {
  B0:;
   r2 = mkint(r1);
   kline = 24000054;
-  { V a_[4] = {KS[2804], r2, KS[2805], r0}; r3 = k_interp(4, a_); }
+  { V a_[4] = {KS[2818], r2, KS[2819], r0}; r3 = k_interp(4, a_); }
   r4 = r3;
   r6 = r1 != INT64_C(0);
   r5 = r6;
@@ -309832,7 +310030,7 @@ static V kf1527_std_strconv_parse_int_base(V r0, int64_t r1) {
  B5:;
   r10 = mkint(r1);
   kline = 24000055;
-  { V a_[2] = {KS[2806], r10}; r11 = k_interp(2, a_); }
+  { V a_[2] = {KS[2820], r10}; r11 = k_interp(2, a_); }
   { V a_[1] = {r11}; r12 = call_v(kir_gload(151, "Err"), 1, a_); }
   return r12;
  B7:;
@@ -309906,7 +310104,7 @@ static V kf1527_std_strconv_parse_int_base(V r0, int64_t r1) {
   { V a_[1] = {r47}; r48 = call_v(kir_gload(1254, "lower"), 1, a_); }
   r49 = r48;
   kline = 24000066;
-  r51 = kir_vbin(9, r49, KS[2698]);
+  r51 = kir_vbin(9, r49, KS[2712]);
   r52 = ((r51).u.i != 0);
   if (r52) goto B21; else goto B22;
  B20:;
@@ -309917,7 +310115,7 @@ static V kf1527_std_strconv_parse_int_base(V r0, int64_t r1) {
   goto B23;
  B22:;
   kline = 24000066;
-  r54 = kir_vbin(9, r49, KS[2699]);
+  r54 = kir_vbin(9, r49, KS[2713]);
   r55 = ((r54).u.i != 0);
   if (r55) goto B24; else goto B25;
  B23:;
@@ -310030,7 +310228,7 @@ static V kf1527_std_strconv_parse_int_base(V r0, int64_t r1) {
   if (r93) goto B55; else goto B57;
  B55:;
   kline = 24000085;
-  { V a_[2] = {KS[2807], r0}; r94 = k_interp(2, a_); }
+  { V a_[2] = {KS[2821], r0}; r94 = k_interp(2, a_); }
   { V a_[1] = {r94}; r95 = call_v(kir_gload(151, "Err"), 1, a_); }
   return r95;
  B57:;
@@ -310058,7 +310256,7 @@ static V kf1527_std_strconv_parse_int_base(V r0, int64_t r1) {
   return r101;
  B64:;
   kline = 24000093;
-  { V a_[2] = {KS[2807], r0}; r108 = k_interp(2, a_); }
+  { V a_[2] = {KS[2821], r0}; r108 = k_interp(2, a_); }
   { V a_[1] = {r108}; r109 = call_v(kir_gload(151, "Err"), 1, a_); }
   r104 = r109;
   goto B66;
@@ -310647,7 +310845,7 @@ static V kf1539_std_strconv_quoted_prefix(V r0) {
   kline = 24001681; die("match 没有覆盖值 %s", cshow(r3));
  B5:;
   kline = 24001683;
-  { V a_[1] = {KS[2802]}; r10 = call_v(kir_gload(151, "Err"), 1, a_); }
+  { V a_[1] = {KS[2816]}; r10 = call_v(kir_gload(151, "Err"), 1, a_); }
   r1 = r10;
   SAFEPOINT(); CANCEL_POINT(); goto B1;
 }
@@ -312562,7 +312760,7 @@ static V kf1546_std_strconv_special_float(V r0) {
  B17:;
   r23 = r19;
   kline = 24000997;
-  r24 = kf1477_std_strconv_common_prefix_len_ignore_case(r0, r23, KS[2808]);
+  r24 = kf1477_std_strconv_common_prefix_len_ignore_case(r0, r23, KS[2822]);
   r25 = r24;
   r27 = INT64_C(3) < r25;
   r26 = r27;
@@ -313194,7 +313392,7 @@ static V kf1549_std_strconv_unquote(V r0) {
   if (r23) goto B12; else goto B14;
  B12:;
   kline = 24000164;
-  { V a_[2] = {KS[2809], r0}; r35 = k_interp(2, a_); }
+  { V a_[2] = {KS[2823], r0}; r35 = k_interp(2, a_); }
   { V a_[1] = {r35}; r36 = call_v(kir_gload(151, "Err"), 1, a_); }
   return r36;
  B14:;
@@ -313220,7 +313418,7 @@ static V kf1549_std_strconv_unquote(V r0) {
   return r149;
  B18:;
   kline = 24000169;
-  { V a_[1] = {KS[2810]}; r46 = call_v(kir_gload(151, "Err"), 1, a_); }
+  { V a_[1] = {KS[2824]}; r46 = call_v(kir_gload(151, "Err"), 1, a_); }
   return r46;
  B20:;
   kline = 24000170;
@@ -313241,7 +313439,7 @@ static V kf1549_std_strconv_unquote(V r0) {
   if (r53) goto B24; else goto B26;
  B24:;
   kline = 24000175;
-  { V a_[1] = {KS[2811]}; r54 = call_v(kir_gload(151, "Err"), 1, a_); }
+  { V a_[1] = {KS[2825]}; r54 = call_v(kir_gload(151, "Err"), 1, a_); }
   return r54;
  B26:;
   if (__builtin_add_overflow(r38, INT64_C(1), &r55)) { kline = 24000176; die("整数溢出"); }
@@ -313341,7 +313539,7 @@ static V kf1549_std_strconv_unquote(V r0) {
   if (r89) goto B51; else goto B52;
  B49:;
   kline = 24000218;
-  { V a_[2] = {KS[2812], r58}; r146 = k_interp(2, a_); }
+  { V a_[2] = {KS[2826], r58}; r146 = k_interp(2, a_); }
   { V a_[1] = {r146}; r147 = call_v(kir_gload(151, "Err"), 1, a_); }
   return r147;
  B51:;
@@ -313396,7 +313594,7 @@ static V kf1549_std_strconv_unquote(V r0) {
   if (r97) { SAFEPOINT(); CANCEL_POINT(); goto B57; } else { SAFEPOINT(); CANCEL_POINT(); goto B58; }
  B61:;
   kline = 24000198;
-  { V a_[1] = {KS[2813]}; r109 = call_v(kir_gload(151, "Err"), 1, a_); }
+  { V a_[1] = {KS[2827]}; r109 = call_v(kir_gload(151, "Err"), 1, a_); }
   return r109;
  B63:;
   if (__builtin_mul_overflow(r88, INT64_C(16), &r110)) { kline = 24000199; die("整数溢出"); }
@@ -313407,7 +313605,7 @@ static V kf1549_std_strconv_unquote(V r0) {
   SAFEPOINT(); CANCEL_POINT(); goto B56;
  B64:;
   kline = 24000202;
-  { V a_[1] = {KS[2814]}; r115 = call_v(kir_gload(151, "Err"), 1, a_); }
+  { V a_[1] = {KS[2828]}; r115 = call_v(kir_gload(151, "Err"), 1, a_); }
   return r115;
  B66:;
   if (__builtin_add_overflow(r87, INT64_C(1), &r116)) { kline = 24000203; die("整数溢出"); }
@@ -313463,7 +313661,7 @@ static V kf1549_std_strconv_unquote(V r0) {
  B81:;
   r140 = mkint(r88);
   kline = 24000213;
-  { V a_[2] = {KS[2815], r140}; r141 = k_interp(2, a_); }
+  { V a_[2] = {KS[2829], r140}; r141 = k_interp(2, a_); }
   { V a_[1] = {r141}; r142 = call_v(kir_gload(151, "Err"), 1, a_); }
   return r142;
  B83:;
@@ -313524,7 +313722,7 @@ static V kf1550_std_strconv_unquote_bytes(V r0) {
   goto B6;
  B5:;
   kline = 24001665;
-  { V a_[1] = {KS[2802]}; r14 = call_v(kir_gload(151, "Err"), 1, a_); }
+  { V a_[1] = {KS[2816]}; r14 = call_v(kir_gload(151, "Err"), 1, a_); }
   r8 = r14;
   goto B6;
  B6:;
@@ -313534,7 +313732,7 @@ static V kf1550_std_strconv_unquote_bytes(V r0) {
   kline = 24001664; die("match 没有覆盖值 %s", cshow(r4));
  B8:;
   kline = 24001666;
-  { V a_[1] = {KS[2802]}; r16 = call_v(kir_gload(151, "Err"), 1, a_); }
+  { V a_[1] = {KS[2816]}; r16 = call_v(kir_gload(151, "Err"), 1, a_); }
   r3 = r16;
   SAFEPOINT(); CANCEL_POINT(); goto B1;
 }
@@ -313957,7 +314155,7 @@ static V kf1552_std_strconv_unquote_char(V r0, int64_t r1) {
   if (r6) goto B3; else goto B2;
  B2:;
   kline = 24001614;
-  { V a_[1] = {KS[2802]}; r17 = call_v(kir_gload(151, "Err"), 1, a_); }
+  { V a_[1] = {KS[2816]}; r17 = call_v(kir_gload(151, "Err"), 1, a_); }
   return r17;
  B3:;
   r7 = PB[0];
@@ -314601,7 +314799,7 @@ static V kf1554_std_strconv_unquote_go(V r0) {
   kline = 24001673; die("match 没有覆盖值 %s", cshow(r6));
  B7:;
   kline = 24001675;
-  { V a_[1] = {KS[2802]}; r11 = call_v(kir_gload(151, "Err"), 1, a_); }
+  { V a_[1] = {KS[2816]}; r11 = call_v(kir_gload(151, "Err"), 1, a_); }
   r5 = r11;
   SAFEPOINT(); CANCEL_POINT(); goto B3;
 }
@@ -317558,7 +317756,7 @@ static V kf1609_testing_collect_files(V r0) {
  B14:;
   r26 = PB[1];
   kline = 34000090;
-  { V a_[4] = {KS[2646], r19, KS[135], r26}; r27 = k_interp(4, a_); }
+  { V a_[4] = {KS[2660], r19, KS[135], r26}; r27 = k_interp(4, a_); }
   { V a_[1] = {r27}; r28 = call_v(kir_gload(151, "Err"), 1, a_); }
   return r28;
  B15:;
@@ -317607,7 +317805,7 @@ static V kf1610_testing_fmt_time(int64_t r0) {
   if (INT64_C(10) == 0) { kline = 34000134; die("除以零"); } r8 = INT64_C(10) == -1 ? 0 : r5 % INT64_C(10);
   r9 = mkint(r8);
   kline = 34000134;
-  { V a_[4] = {r7, KS[69], r9, KS[2816]}; r10 = k_interp(4, a_); }
+  { V a_[4] = {r7, KS[69], r9, KS[2830]}; r10 = k_interp(4, a_); }
   r1 = r10;
   goto B3;
  B2:;
@@ -317691,7 +317889,7 @@ static V kl382(KFn *self, int argc, V *argv) {
   SAFEPOINT(); CANCEL_POINT();
  B0:;
   kline = 34000145;
-  r1 = kir_vbin(0, KS[2817], r0);
+  r1 = kir_vbin(0, KS[2831], r0);
   return r1;
 }
 static bool kf1612_testing_is_main(V r0) {
@@ -317765,7 +317963,7 @@ static bool kf1613_testing_is_sp(V r0) {
   if (r2) goto B6; else goto B5;
  B5:;
   kline = 34000039;
-  r11 = kir_vbin(9, r0, KS[2601]);
+  r11 = kir_vbin(9, r0, KS[2615]);
   r12 = ((r11).u.i != 0);
   r2 = r12;
   goto B6;
@@ -318154,7 +318352,7 @@ static int64_t kf1615_testing_main(V r0) {
  B2:;
   r7 = r5;
   kline = 34000209;
-  r8 = kir_vbin(9, r7, KS[2818]);
+  r8 = kir_vbin(9, r7, KS[2832]);
   r9 = ((r8).u.i != 0);
   if (r9) goto B4; else goto B5;
  B3:;
@@ -318195,7 +318393,7 @@ static int64_t kf1615_testing_main(V r0) {
   return INT64_C(0);
  B10:;
   kline = 34000214;
-  r18 = kir_vbin(9, r7, KS[2819]);
+  r18 = kir_vbin(9, r7, KS[2833]);
   r19 = ((r18).u.i != 0);
   r17 = r19;
   if (r17) goto B13; else goto B12;
@@ -318209,12 +318407,12 @@ static int64_t kf1615_testing_main(V r0) {
   if (r17) { SAFEPOINT(); CANCEL_POINT(); goto B1; } else goto B15;
  B15:;
   kline = 34000216;
-  r22 = kir_vbin(9, r7, KS[2820]);
+  r22 = kir_vbin(9, r7, KS[2834]);
   r23 = ((r22).u.i != 0);
   if (r23) goto B17; else goto B18;
  B17:;
   kline = 34000217;
-  { V a_[1] = {KS[2821]}; r24 = call_v(kir_gload(1183, "__eprint"), 1, a_); }
+  { V a_[1] = {KS[2835]}; r24 = call_v(kir_gload(1183, "__eprint"), 1, a_); }
   return INT64_C(2);
  B18:;
   kline = 34000220;
@@ -318243,7 +318441,7 @@ static int64_t kf1615_testing_main(V r0) {
   kline = 34000233;
   { r43 = call_v(kir_gload(1176, "__getcwd"), 0, NULL); }
   r44 = r43;
-  { V a_[2] = {KS[1050], KS[2822]}; r45 = mklist(2, a_); }
+  { V a_[2] = {KS[1050], KS[2836]}; r45 = mklist(2, a_); }
   kline = 34000234;
   r46 = k_iter(r45);
   goto B28;
@@ -318251,7 +318449,7 @@ static int64_t kf1615_testing_main(V r0) {
   kline = 34000226; die("match 没有覆盖值 %s", cshow(r37));
  B27:;
   kline = 34000229;
-  { V a_[1] = {KS[2823]}; r41 = call_v(kir_gload(1183, "__eprint"), 1, a_); }
+  { V a_[1] = {KS[2837]}; r41 = call_v(kir_gload(1183, "__eprint"), 1, a_); }
   return INT64_C(2);
  B28:;
   kline = 34000234;
@@ -318315,7 +318513,7 @@ static int64_t kf1615_testing_main(V r0) {
   { r81 = call_v(kir_gload(1212, "__getpid"), 0, NULL); }
   r82 = (r81).u.i;
   r83 = mkint(r82);
-  { V a_[2] = {KS[2824], r83}; r84 = k_interp(2, a_); }
+  { V a_[2] = {KS[2838], r83}; r84 = k_interp(2, a_); }
   { V a_[2] = {r80, r84}; r85 = mklist(2, a_); }
   r86 = kf1463_std_path_join(r85);
   r87 = r86;
@@ -318361,12 +318559,12 @@ static int64_t kf1615_testing_main(V r0) {
  B49:;
   r96 = PB[4];
   kline = 34000258;
-  { V a_[5] = {r93, KS[2825], r93, KS[135], r96}; r97 = k_interp(5, a_); }
+  { V a_[5] = {r93, KS[2839], r93, KS[135], r96}; r97 = k_interp(5, a_); }
   { V a_[1] = {r97}; r98 = call_v(kir_gload(1196, "print"), 1, a_); }
   if (__builtin_add_overflow(r77, INT64_C(1), &r99)) { kline = 34000259; die("整数溢出"); }
   r77 = r99;
   kline = 34000260;
-  { V a_[2] = {r93, KS[2826]}; r100 = k_interp(2, a_); }
+  { V a_[2] = {r93, KS[2840]}; r100 = k_interp(2, a_); }
   { V a_[2] = {r79, r100}; r101 = call_v(kir_gload(179, "push"), 2, a_); }
   r79 = r101;
   SAFEPOINT(); CANCEL_POINT(); goto B44;
@@ -318385,12 +318583,12 @@ static int64_t kf1615_testing_main(V r0) {
  B55:;
   r107 = PB[6];
   kline = 34000266;
-  { V a_[3] = {r93, KS[2825], r107}; r108 = k_interp(3, a_); }
+  { V a_[3] = {r93, KS[2839], r107}; r108 = k_interp(3, a_); }
   { V a_[1] = {r108}; r109 = call_v(kir_gload(1196, "print"), 1, a_); }
   if (__builtin_add_overflow(r77, INT64_C(1), &r110)) { kline = 34000267; die("整数溢出"); }
   r77 = r110;
   kline = 34000268;
-  { V a_[2] = {r93, KS[2826]}; r111 = k_interp(2, a_); }
+  { V a_[2] = {r93, KS[2840]}; r111 = k_interp(2, a_); }
   { V a_[2] = {r79, r111}; r112 = call_v(kir_gload(179, "push"), 2, a_); }
   r79 = r112;
   SAFEPOINT(); CANCEL_POINT(); goto B44;
@@ -318427,7 +318625,7 @@ static int64_t kf1615_testing_main(V r0) {
   r122 = PB[11];
   r123 = PB[12];
   kline = 34000275;
-  { V a_[2] = {r93, KS[2825]}; r124 = k_interp(2, a_); }
+  { V a_[2] = {r93, KS[2839]}; r124 = k_interp(2, a_); }
   r125 = (r122).u.i;
   r126 = kf150_driver_loc(r93, r125, r123);
   r127 = kir_vbin(0, r124, r126);
@@ -318435,7 +318633,7 @@ static int64_t kf1615_testing_main(V r0) {
   if (__builtin_add_overflow(r77, INT64_C(1), &r129)) { kline = 34000276; die("整数溢出"); }
   r77 = r129;
   kline = 34000277;
-  { V a_[2] = {r93, KS[2826]}; r130 = k_interp(2, a_); }
+  { V a_[2] = {r93, KS[2840]}; r130 = k_interp(2, a_); }
   { V a_[2] = {r79, r130}; r131 = call_v(kir_gload(179, "push"), 2, a_); }
   r79 = r131;
   SAFEPOINT(); CANCEL_POINT(); goto B44;
@@ -318480,7 +318678,7 @@ static int64_t kf1615_testing_main(V r0) {
   if (__builtin_add_overflow(r77, INT64_C(1), &r159)) { kline = 34000292; die("整数溢出"); }
   r77 = r159;
   kline = 34000293;
-  { V a_[2] = {r93, KS[2827]}; r160 = k_interp(2, a_); }
+  { V a_[2] = {r93, KS[2841]}; r160 = k_interp(2, a_); }
   { V a_[2] = {r79, r160}; r161 = call_v(kir_gload(179, "push"), 2, a_); }
   r79 = r161;
   SAFEPOINT(); CANCEL_POINT(); goto B44;
@@ -318491,7 +318689,7 @@ static int64_t kf1615_testing_main(V r0) {
   r154 = (r152).u.i;
   r155 = kf1153_std_kite_modules_strip_lm(r153);
   r156 = kf151_driver_locs(r115, r93, r154, r155);
-  r157 = kir_vbin(0, KS[2828], r156);
+  r157 = kir_vbin(0, KS[2842], r156);
   { V a_[1] = {r157}; r158 = call_v(kir_gload(1196, "print"), 1, a_); }
   SAFEPOINT(); CANCEL_POINT(); goto B71;
  B75:;
@@ -318512,7 +318710,7 @@ static int64_t kf1615_testing_main(V r0) {
  B80:;
   r168 = PB[17];
   kline = 34000300;
-  { V a_[2] = {KS[2829], r168}; r169 = k_interp(2, a_); }
+  { V a_[2] = {KS[2843], r168}; r169 = k_interp(2, a_); }
   { V a_[1] = {r169}; r170 = call_v(kir_gload(1196, "print"), 1, a_); }
   kline = 34000301;
   { V a_[1] = {r135}; r171 = call_v(kir_gload(163, "len"), 1, a_); }
@@ -318543,7 +318741,7 @@ static int64_t kf1615_testing_main(V r0) {
   r186 = k_field(r181, 7);
   r187 = (r186).u.i;
   r188 = kf1610_testing_fmt_time(r187);
-  { V a_[5] = {KS[2830], r185, KS[866], r188, KS[227]}; r189 = k_interp(5, a_); }
+  { V a_[5] = {KS[2844], r185, KS[866], r188, KS[227]}; r189 = k_interp(5, a_); }
   { V a_[1] = {r189}; r190 = call_v(kir_gload(1196, "print"), 1, a_); }
   r191 = r1;
   if (r191) goto B87; else goto B88;
@@ -318552,7 +318750,7 @@ static int64_t kf1615_testing_main(V r0) {
   r77 = r198;
   kline = 34000313;
   r199 = k_field(r181, 9);
-  { V a_[3] = {r93, KS[2831], r199}; r200 = k_interp(3, a_); }
+  { V a_[3] = {r93, KS[2845], r199}; r200 = k_interp(3, a_); }
   { V a_[2] = {r79, r200}; r201 = call_v(kir_gload(179, "push"), 2, a_); }
   r79 = r201;
   kline = 34000314;
@@ -318560,11 +318758,11 @@ static int64_t kf1615_testing_main(V r0) {
   r203 = k_field(r181, 7);
   r204 = (r203).u.i;
   r205 = kf1610_testing_fmt_time(r204);
-  { V a_[5] = {KS[2828], r202, KS[866], r205, KS[227]}; r206 = k_interp(5, a_); }
+  { V a_[5] = {KS[2842], r202, KS[866], r205, KS[227]}; r206 = k_interp(5, a_); }
   { V a_[1] = {r206}; r207 = call_v(kir_gload(1196, "print"), 1, a_); }
   kline = 34000315;
   r208 = k_field(r181, 30);
-  { V a_[2] = {KS[2817], r208}; r209 = k_interp(2, a_); }
+  { V a_[2] = {KS[2831], r208}; r209 = k_interp(2, a_); }
   { V a_[1] = {r209}; r210 = call_v(kir_gload(1196, "print"), 1, a_); }
   kline = 34000316;
   r211 = k_field(r181, 565);
@@ -318588,7 +318786,7 @@ static int64_t kf1615_testing_main(V r0) {
   SAFEPOINT(); CANCEL_POINT(); goto B81;
  B92:;
   kline = 34000317;
-  { V a_[1] = {KS[2832]}; r214 = call_v(kir_gload(1196, "print"), 1, a_); }
+  { V a_[1] = {KS[2846]}; r214 = call_v(kir_gload(1196, "print"), 1, a_); }
   kline = 34000318;
   r215 = k_field(r181, 565);
   r216 = kf1611_testing_indent(r215);
@@ -318596,7 +318794,7 @@ static int64_t kf1615_testing_main(V r0) {
   SAFEPOINT(); CANCEL_POINT(); goto B81;
  B95:;
   kline = 34000327;
-  { V a_[1] = {KS[2833]}; r228 = call_v(kir_gload(1196, "print"), 1, a_); }
+  { V a_[1] = {KS[2847]}; r228 = call_v(kir_gload(1196, "print"), 1, a_); }
   return INT64_C(0);
  B97:;
   kline = 34000330;
@@ -318608,7 +318806,7 @@ static int64_t kf1615_testing_main(V r0) {
   if (r232) goto B98; else goto B100;
  B98:;
   kline = 34000332;
-  { V a_[1] = {KS[2834]}; r233 = call_v(kir_gload(1196, "print"), 1, a_); }
+  { V a_[1] = {KS[2848]}; r233 = call_v(kir_gload(1196, "print"), 1, a_); }
   kline = 34000333;
   r234 = k_iter(r79);
   goto B101;
@@ -318623,7 +318821,7 @@ static int64_t kf1615_testing_main(V r0) {
   if (INT64_C(100) == 0) { kline = 34000338; die("除以零"); } if (r242 == INT64_MIN && INT64_C(100) == -1) { kline = 34000338; die("整数溢出"); } r247 = r242 / INT64_C(100);
   r248 = mkint(r247);
   kline = 34000338;
-  { V a_[7] = {KS[2835], r245, KS[2836], r246, KS[2837], r248, KS[69]}; r249 = k_interp(7, a_); }
+  { V a_[7] = {KS[2849], r245, KS[2850], r246, KS[2851], r248, KS[69]}; r249 = k_interp(7, a_); }
   r251 = r244 < INT64_C(10);
   if (r251) goto B104; else goto B105;
  B101:;
@@ -318652,7 +318850,7 @@ static int64_t kf1615_testing_main(V r0) {
   kline = 34000338;
   r256 = kir_vbin(0, r249, r250);
   kline = 34000342;
-  r257 = kir_vbin(0, r256, KS[2838]);
+  r257 = kir_vbin(0, r256, KS[2852]);
   kline = 34000337;
   { V a_[1] = {r257}; r258 = call_v(kir_gload(1196, "print"), 1, a_); }
   r260 = r77 > INT64_C(0);
@@ -318716,7 +318914,7 @@ static V kl385(KFn *self, int argc, V *argv) {
   if (r3) goto B2; else goto B1;
  B1:;
   kline = 34000283;
-  { V a_[3] = {r1, KS[2831], r0}; r6 = k_interp(3, a_); }
+  { V a_[3] = {r1, KS[2845], r0}; r6 = k_interp(3, a_); }
   { V a_[2] = {r6, r2}; r7 = call_v(kir_gload(292, "contains"), 2, a_); }
   r8 = ((r7).u.i != 0);
   r3 = r8;
@@ -318762,7 +318960,7 @@ static V kl387(KFn *self, int argc, V *argv) {
   SAFEPOINT(); CANCEL_POINT();
  B0:;
   kline = 34000302;
-  { V a_[3] = {r0, KS[2831], r1}; r2 = k_interp(3, a_); }
+  { V a_[3] = {r0, KS[2845], r1}; r2 = k_interp(3, a_); }
   return r2;
 }
 static V kf1616_testing_pad3(int64_t r0) {
@@ -318783,7 +318981,7 @@ static V kf1616_testing_pad3(int64_t r0) {
  B1:;
   r3 = mkint(r0);
   kline = 34000128;
-  { V a_[2] = {KS[2839], r3}; r4 = k_interp(2, a_); }
+  { V a_[2] = {KS[2853], r3}; r4 = k_interp(2, a_); }
   r1 = r4;
   goto B3;
  B2:;
@@ -319099,7 +319297,7 @@ static V kf1619_testing_run_native(V r0, V r1, V r2, V r3, V r4, V r5, V r6) {
   { V a_[2] = {r8, KS[582]}; r9 = call_v(kir_gload(188, "join"), 2, a_); }
   r10 = r9;
   kline = 34000171;
-  { V a_[3] = {KS[2840], r10, KS[2841]}; r12 = k_interp(3, a_); }
+  { V a_[3] = {KS[2854], r10, KS[2855]}; r12 = k_interp(3, a_); }
   r13 = kf1250_std_kite_parser_parse(r12);
   r14 = pat9594(r13, PB);
   if (r14) goto B3; else goto B2;
@@ -319121,7 +319319,7 @@ static V kf1619_testing_run_native(V r0, V r1, V r2, V r3, V r4, V r5, V r6) {
   { V a_[2] = {r6, r24}; r25 = mklist(2, a_); }
   r26 = kf1463_std_path_join(r25);
   r27 = r26;
-  { V a_[2] = {r6, KS[2842]}; r28 = mklist(2, a_); }
+  { V a_[2] = {r6, KS[2856]}; r28 = mklist(2, a_); }
   kline = 34000177;
   r29 = kf1463_std_path_join(r28);
   r30 = r29;
@@ -319138,14 +319336,14 @@ static V kf1619_testing_run_native(V r0, V r1, V r2, V r3, V r4, V r5, V r6) {
   return r18;
  B6:;
   kline = 34000179;
-  { V a_[1] = {KS[2843]}; r33 = call_v(kir_gload(151, "Err"), 1, a_); }
+  { V a_[1] = {KS[2857]}; r33 = call_v(kir_gload(151, "Err"), 1, a_); }
   return r33;
  B8:;
   kline = 34000181;
   r35 = kf146_driver_has_cmd(KS[2086]);
   if (r35) goto B9; else goto B10;
  B9:;
-  r34 = KS[2844];
+  r34 = KS[2858];
   goto B11;
  B10:;
   r34 = KS[64];
@@ -319169,12 +319367,12 @@ static V kf1619_testing_run_native(V r0, V r1, V r2, V r3, V r4, V r5, V r6) {
   r45 = r44;
   kline = 34000186;
   r46 = kf154_driver_sq(r42);
-  r47 = kir_vbin(0, KS[2845], r46);
+  r47 = kir_vbin(0, KS[2859], r46);
   r48 = kir_vbin(0, r47, KS[73]);
   r49 = kir_vbin(0, r48, r36);
   r50 = kf154_driver_sq(r27);
   r51 = kir_vbin(0, r49, r50);
-  r52 = kir_vbin(0, r51, KS[2846]);
+  r52 = kir_vbin(0, r51, KS[2860]);
   r53 = kf154_driver_sq(r30);
   r54 = kir_vbin(0, r52, r53);
   kline = 34000185;
@@ -319234,7 +319432,7 @@ static V kf1619_testing_run_native(V r0, V r1, V r2, V r3, V r4, V r5, V r6) {
  B21:;
   if (r74) goto B22; else goto B23;
  B22:;
-  r73 = KS[2847];
+  r73 = KS[2861];
   goto B24;
  B23:;
   kline = 34000195;
@@ -319258,7 +319456,7 @@ static V kf1619_testing_run_native(V r0, V r1, V r2, V r3, V r4, V r5, V r6) {
   kline = 34000198;
   r88 = (r57).u.i;
   r89 = mkint(r88);
-  { V a_[2] = {KS[2848], r89}; r90 = k_interp(2, a_); }
+  { V a_[2] = {KS[2862], r89}; r90 = k_interp(2, a_); }
   r79 = r90;
   goto B27;
  B27:;
@@ -319272,7 +319470,7 @@ static V kl390(KFn *self, int argc, V *argv) {
   SAFEPOINT(); CANCEL_POINT();
  B0:;
   kline = 34000170;
-  { V a_[5] = {KS[2849], r0, KS[2850], r0, KS[2851]}; r1 = k_interp(5, a_); }
+  { V a_[5] = {KS[2863], r0, KS[2864], r0, KS[2865]}; r1 = k_interp(5, a_); }
   return r1;
 }
 static V kl391(KFn *self, int argc, V *argv) {
@@ -319483,7 +319681,7 @@ static bool kf1621_testing_test_line(V r0) {
   { V a_[2] = {r15, KS[64]}; r16 = call_v(kir_gload(188, "join"), 2, a_); }
   r17 = r16;
   kline = 34000047;
-  { V a_[2] = {r17, KS[2852]}; r18 = call_v(kir_gload(205, "starts_with"), 2, a_); }
+  { V a_[2] = {r17, KS[2866]}; r18 = call_v(kir_gload(205, "starts_with"), 2, a_); }
   r19 = ((r18).u.i != 0);
   if (r19) goto B6; else goto B8;
  B4:;
@@ -319561,7 +319759,7 @@ static bool kf1621_testing_test_line(V r0) {
   kline = 34000052;
   { V a_[4] = {r2, r51, r52, r53}; r54 = call_v(kir_gload(172, "__slice"), 4, a_); }
   { V a_[2] = {r54, KS[64]}; r55 = call_v(kir_gload(188, "join"), 2, a_); }
-  { V a_[2] = {r55, KS[2853]}; r56 = call_v(kir_gload(205, "starts_with"), 2, a_); }
+  { V a_[2] = {r55, KS[2867]}; r56 = call_v(kir_gload(205, "starts_with"), 2, a_); }
   r57 = ((r56).u.i != 0);
   r58 = !r57;
   if (r58) goto B24; else goto B26;
@@ -319840,7 +320038,7 @@ static V kf1622_testing_test_names(V r0) {
   r40 = (r39).u.i;
   r41 = mkint(r40);
   r42 = k_field(r9, 9);
-  { V a_[3] = {KS[2854], r42, KS[2855]}; r43 = k_interp(3, a_); }
+  { V a_[3] = {KS[2868], r42, KS[2869]}; r43 = k_interp(3, a_); }
   { V a_[2] = {r41, r43}; r44 = mktuple(2, a_); }
   { V a_[1] = {r44}; r45 = call_v(kir_gload(151, "Err"), 1, a_); }
   return r45;
@@ -319850,7 +320048,7 @@ static V kf1622_testing_test_names(V r0) {
  B24:;
   kline = 34000111;
   r48 = k_field(r9, 9);
-  { V a_[2] = {r48, KS[2853]}; r49 = call_v(kir_gload(205, "starts_with"), 2, a_); }
+  { V a_[2] = {r48, KS[2867]}; r49 = call_v(kir_gload(205, "starts_with"), 2, a_); }
   r50 = ((r49).u.i != 0);
   r47 = r50;
   if (r47) goto B26; else goto B27;
@@ -320017,7 +320215,7 @@ static V kf1624_usage(void) {
   V r1 = UNIT;
   SAFEPOINT(); CANCEL_POINT();
  B0:;
-  { V a_[13] = {KS[2856], KS[2857], KS[2858], KS[2859], KS[2860], KS[2861], KS[2862], KS[2863], KS[2864], KS[2865], KS[2866], KS[2867], KS[2868]}; r0 = mklist(13, a_); }
+  { V a_[13] = {KS[2870], KS[2871], KS[2872], KS[2873], KS[2874], KS[2875], KS[2876], KS[2877], KS[2878], KS[2879], KS[2880], KS[2881], KS[2882]}; r0 = mklist(13, a_); }
   kline = 78;
   { V a_[2] = {r0, KS[382]}; r1 = call_v(kir_gload(188, "join"), 2, a_); }
   return r1;
@@ -320091,7 +320289,7 @@ static V p0(KFn *self, int argc, V *argv) { /* <main> */
   SAFEPOINT();
   V L[1]; V S[258]; V rv; KUp *open = NULL; V defers[1]; int nd = 0;
   CANCEL_POINT();
-  S[0] = KS[2869];
+  S[0] = KS[2883];
   kline = 7000004;
   G[0] = S[0];
   kline = 6000080;
@@ -320951,71 +321149,71 @@ static V p0(KFn *self, int argc, V *argv) { /* <main> */
   S[141] = mktuple(2, &S[141]);
   S[0] = mklist(142, &S[0]);
   G[21] = S[0];
-  S[0] = KS[2502];
+  S[0] = KS[2516];
   S[1] = KS[898];
   S[2] = KS[844];
-  S[3] = KS[2599];
+  S[3] = KS[2613];
   S[4] = KS[893];
   S[5] = KS[895];
   S[6] = KS[964];
-  S[7] = KS[2723];
-  S[8] = KS[2606];
-  S[9] = KS[2681];
-  S[10] = KS[2705];
-  S[11] = KS[2756];
-  S[12] = KS[2743];
+  S[7] = KS[2737];
+  S[8] = KS[2620];
+  S[9] = KS[2695];
+  S[10] = KS[2719];
+  S[11] = KS[2770];
+  S[12] = KS[2757];
   S[13] = KS[36];
   S[14] = KS[37];
-  S[15] = KS[2755];
+  S[15] = KS[2769];
   S[16] = KS[962];
-  S[17] = KS[2590];
+  S[17] = KS[2604];
   S[18] = KS[961];
   S[19] = KS[520];
-  S[20] = KS[2733];
+  S[20] = KS[2747];
   S[21] = KS[515];
   S[22] = KS[1876];
   S[23] = KS[1853];
   S[24] = KS[1023];
-  S[25] = KS[2759];
-  S[26] = KS[2680];
+  S[25] = KS[2773];
+  S[26] = KS[2694];
   S[27] = KS[981];
-  S[28] = KS[2328];
+  S[28] = KS[2342];
   S[29] = KS[860];
   S[30] = KS[861];
-  S[31] = KS[2660];
-  S[32] = KS[2763];
+  S[31] = KS[2674];
+  S[32] = KS[2777];
   S[33] = KS[1930];
-  S[34] = KS[2700];
+  S[34] = KS[2714];
   kline = 5000055;
   S[0] = mklist(35, &S[0]);
   G[22] = S[0];
-  S[0] = KS[2293];
-  S[1] = KS[2294];
+  S[0] = KS[2307];
+  S[1] = KS[2308];
   S[2] = KS[19];
   kline = 5000058;
   S[0] = mklist(3, &S[0]);
   G[23] = S[0];
-  S[0] = KS[2674];
-  S[1] = KS[2605];
-  S[2] = KS[2600];
+  S[0] = KS[2688];
+  S[1] = KS[2619];
+  S[2] = KS[2614];
   S[3] = KS[16];
   S[4] = KS[17];
-  S[5] = KS[2306];
-  S[6] = KS[2307];
+  S[5] = KS[2320];
+  S[6] = KS[2321];
   S[7] = KS[14];
   S[8] = KS[15];
   S[9] = KS[76];
   S[10] = KS[77];
   S[11] = KS[18];
-  S[12] = KS[2297];
-  S[13] = KS[2295];
-  S[14] = KS[2870];
-  S[15] = KS[2871];
-  S[16] = KS[2872];
-  S[17] = KS[2290];
-  S[18] = KS[2291];
-  S[19] = KS[2292];
-  S[20] = KS[2831];
+  S[12] = KS[2311];
+  S[13] = KS[2309];
+  S[14] = KS[2884];
+  S[15] = KS[2885];
+  S[16] = KS[2886];
+  S[17] = KS[2304];
+  S[18] = KS[2305];
+  S[19] = KS[2306];
+  S[20] = KS[2845];
   kline = 5000061;
   S[0] = mklist(21, &S[0]);
   G[24] = S[0];
@@ -321063,22 +321261,22 @@ static V p0(KFn *self, int argc, V *argv) { /* <main> */
   S[13] = KS[468];
   S[14] = KS[467];
   S[15] = KS[469];
-  S[16] = KS[2306];
-  S[17] = KS[2307];
+  S[16] = KS[2320];
+  S[17] = KS[2321];
   S[18] = KS[4];
-  S[19] = KS[2297];
-  S[20] = KS[2295];
-  S[21] = KS[2870];
-  S[22] = KS[2871];
-  S[23] = KS[2872];
-  S[24] = KS[2290];
-  S[25] = KS[2291];
-  S[26] = KS[2292];
-  S[27] = KS[2293];
-  S[28] = KS[2294];
-  S[29] = KS[2674];
-  S[30] = KS[2605];
-  S[31] = KS[2600];
+  S[19] = KS[2311];
+  S[20] = KS[2309];
+  S[21] = KS[2884];
+  S[22] = KS[2885];
+  S[23] = KS[2886];
+  S[24] = KS[2304];
+  S[25] = KS[2305];
+  S[26] = KS[2306];
+  S[27] = KS[2307];
+  S[28] = KS[2308];
+  S[29] = KS[2688];
+  S[30] = KS[2619];
+  S[31] = KS[2614];
   S[32] = KS[729];
   S[33] = KS[69];
   S[34] = KS[305];
@@ -321092,7 +321290,7 @@ static V p0(KFn *self, int argc, V *argv) { /* <main> */
   kline = 5000071;
   S[0] = mklist(42, &S[0]);
   G[26] = S[0];
-  S[0] = KS[2674];
+  S[0] = KS[2688];
   S[1] = KS[69];
   S[2] = KS[177];
   S[3] = KS[227];
@@ -321100,32 +321298,32 @@ static V p0(KFn *self, int argc, V *argv) { /* <main> */
   S[5] = KS[32];
   S[6] = KS[76];
   S[7] = KS[77];
-  S[8] = KS[2681];
-  S[9] = KS[2763];
+  S[8] = KS[2695];
+  S[9] = KS[2777];
   kline = 5000073;
   S[0] = mklist(10, &S[0]);
   G[27] = S[0];
-  S[0] = KS[2695];
-  S[1] = KS[2712];
-  S[2] = KS[2409];
-  S[3] = KS[2694];
-  S[4] = KS[2711];
-  S[5] = KS[2707];
+  S[0] = KS[2709];
+  S[1] = KS[2726];
+  S[2] = KS[2423];
+  S[3] = KS[2708];
+  S[4] = KS[2725];
+  S[5] = KS[2721];
   S[6] = KS[1030];
   kline = 8000288;
   S[0] = mklist(7, &S[0]);
   G[28] = S[0];
   S[0] = KS[4];
-  S[1] = KS[2297];
-  S[2] = KS[2295];
-  S[3] = KS[2870];
-  S[4] = KS[2871];
-  S[5] = KS[2872];
-  S[6] = KS[2290];
-  S[7] = KS[2291];
-  S[8] = KS[2292];
-  S[9] = KS[2293];
-  S[10] = KS[2294];
+  S[1] = KS[2311];
+  S[2] = KS[2309];
+  S[3] = KS[2884];
+  S[4] = KS[2885];
+  S[5] = KS[2886];
+  S[6] = KS[2304];
+  S[7] = KS[2305];
+  S[8] = KS[2306];
+  S[9] = KS[2307];
+  S[10] = KS[2308];
   kline = 8001314;
   S[0] = mklist(11, &S[0]);
   G[29] = S[0];
@@ -321145,7 +321343,7 @@ static V p0(KFn *self, int argc, V *argv) { /* <main> */
   S[6] = KS[15];
   kline = 8001532;
   S[3] = mklist(4, &S[3]);
-  S[4] = KS[2674];
+  S[4] = KS[2688];
   kline = 8001533;
   S[4] = mklist(1, &S[4]);
   S[5] = KS[18];
@@ -321161,8 +321359,8 @@ static V p0(KFn *self, int argc, V *argv) { /* <main> */
   S[8] = KS[467];
   kline = 8001537;
   S[8] = mklist(1, &S[8]);
-  S[9] = KS[2306];
-  S[10] = KS[2307];
+  S[9] = KS[2320];
+  S[10] = KS[2321];
   kline = 8001538;
   S[9] = mklist(2, &S[9]);
   S[10] = KS[7];
@@ -321181,8 +321379,8 @@ static V p0(KFn *self, int argc, V *argv) { /* <main> */
   S[2] = KS[468];
   S[3] = KS[469];
   S[4] = KS[467];
-  S[5] = KS[2306];
-  S[6] = KS[2307];
+  S[5] = KS[2320];
+  S[6] = KS[2321];
   S[7] = KS[7];
   S[8] = KS[8];
   S[9] = KS[9];
@@ -321205,7 +321403,7 @@ static V p0(KFn *self, int argc, V *argv) { /* <main> */
   kline = 13000070;
   S[0] = mklist(8, &S[0]);
   G[33] = S[0];
-  S[0] = KS[2873];
+  S[0] = KS[2887];
   kline = 13000074;
   G[34] = S[0];
   S[0] = KS[429];
@@ -321271,13 +321469,13 @@ static V p0(KFn *self, int argc, V *argv) { /* <main> */
   S[1] = mkint(1LL);
   S[0] = f_sub(S[0], S[1]);
   G[38] = S[0];
-  S[0] = KS[2874];
+  S[0] = KS[2888];
   kline = 14000015;
   G[39] = S[0];
-  S[0] = KS[2875];
+  S[0] = KS[2889];
   kline = 14000018;
   G[40] = S[0];
-  S[0] = KS[2876];
+  S[0] = KS[2890];
   kline = 14000021;
   G[41] = S[0];
   S[0] = KS[273];
@@ -321297,24 +321495,24 @@ static V p0(KFn *self, int argc, V *argv) { /* <main> */
   S[0] = mklist(13, &S[0]);
   G[42] = S[0];
   S[0] = KS[393];
-  S[1] = KS[2877];
+  S[1] = KS[2891];
   kline = 14000029;
   S[0] = mktuple(2, &S[0]);
   S[1] = KS[394];
-  S[2] = KS[2878];
+  S[2] = KS[2892];
   kline = 14000030;
   S[1] = mktuple(2, &S[1]);
   S[2] = KS[396];
-  S[3] = KS[2879];
+  S[3] = KS[2893];
   kline = 14000033;
   S[2] = mktuple(2, &S[2]);
   S[3] = KS[395];
-  S[4] = KS[2880];
+  S[4] = KS[2894];
   kline = 14000037;
   S[3] = mktuple(2, &S[3]);
   S[0] = mklist(4, &S[0]);
   G[43] = S[0];
-  S[0] = KS[2881];
+  S[0] = KS[2895];
   kline = 14001452;
   G[44] = S[0];
   S[0] = KS[513];
@@ -321442,65 +321640,65 @@ static V p0(KFn *self, int argc, V *argv) { /* <main> */
   S[0] = mklist(60, &S[0]);
   G[57] = S[0];
   S[0] = KS[64];
-  S[1] = KS[2882];
-  S[2] = KS[2883];
-  S[3] = KS[2884];
-  S[4] = KS[2885];
-  S[5] = KS[2886];
-  S[6] = KS[2887];
-  S[7] = KS[2888];
-  S[8] = KS[2889];
-  S[9] = KS[2890];
-  S[10] = KS[2891];
-  S[11] = KS[2892];
-  S[12] = KS[2893];
-  S[13] = KS[2894];
-  S[14] = KS[2895];
-  S[15] = KS[2896];
-  S[16] = KS[2897];
-  S[17] = KS[2898];
-  S[18] = KS[2899];
-  S[19] = KS[2900];
-  S[20] = KS[2901];
-  S[21] = KS[2902];
-  S[22] = KS[2903];
-  S[23] = KS[2904];
-  S[24] = KS[2905];
-  S[25] = KS[2906];
-  S[26] = KS[2907];
-  S[27] = KS[2908];
-  S[28] = KS[2909];
-  S[29] = KS[2910];
-  S[30] = KS[2911];
-  S[31] = KS[2912];
-  S[32] = KS[2913];
-  S[33] = KS[2914];
-  S[34] = KS[2915];
-  S[35] = KS[2916];
-  S[36] = KS[2917];
-  S[37] = KS[2918];
-  S[38] = KS[2919];
-  S[39] = KS[2920];
-  S[40] = KS[2921];
-  S[41] = KS[2922];
-  S[42] = KS[2923];
-  S[43] = KS[2924];
-  S[44] = KS[2925];
-  S[45] = KS[2926];
-  S[46] = KS[2927];
-  S[47] = KS[2928];
-  S[48] = KS[2929];
-  S[49] = KS[2930];
-  S[50] = KS[2931];
-  S[51] = KS[2932];
-  S[52] = KS[2933];
-  S[53] = KS[2934];
-  S[54] = KS[2935];
-  S[55] = KS[2936];
-  S[56] = KS[2937];
-  S[57] = KS[2938];
-  S[58] = KS[2939];
-  S[59] = KS[2940];
+  S[1] = KS[2896];
+  S[2] = KS[2897];
+  S[3] = KS[2898];
+  S[4] = KS[2899];
+  S[5] = KS[2900];
+  S[6] = KS[2901];
+  S[7] = KS[2902];
+  S[8] = KS[2903];
+  S[9] = KS[2904];
+  S[10] = KS[2905];
+  S[11] = KS[2906];
+  S[12] = KS[2907];
+  S[13] = KS[2908];
+  S[14] = KS[2909];
+  S[15] = KS[2910];
+  S[16] = KS[2911];
+  S[17] = KS[2912];
+  S[18] = KS[2913];
+  S[19] = KS[2914];
+  S[20] = KS[2915];
+  S[21] = KS[2916];
+  S[22] = KS[2917];
+  S[23] = KS[2918];
+  S[24] = KS[2919];
+  S[25] = KS[2920];
+  S[26] = KS[2921];
+  S[27] = KS[2922];
+  S[28] = KS[2923];
+  S[29] = KS[2924];
+  S[30] = KS[2925];
+  S[31] = KS[2926];
+  S[32] = KS[2927];
+  S[33] = KS[2928];
+  S[34] = KS[2929];
+  S[35] = KS[2930];
+  S[36] = KS[2931];
+  S[37] = KS[2932];
+  S[38] = KS[2933];
+  S[39] = KS[2934];
+  S[40] = KS[2935];
+  S[41] = KS[2936];
+  S[42] = KS[2937];
+  S[43] = KS[2938];
+  S[44] = KS[2939];
+  S[45] = KS[2940];
+  S[46] = KS[2941];
+  S[47] = KS[2942];
+  S[48] = KS[2943];
+  S[49] = KS[2944];
+  S[50] = KS[2945];
+  S[51] = KS[2946];
+  S[52] = KS[2947];
+  S[53] = KS[2948];
+  S[54] = KS[2949];
+  S[55] = KS[2950];
+  S[56] = KS[2951];
+  S[57] = KS[2952];
+  S[58] = KS[2953];
+  S[59] = KS[2954];
   kline = 24000430;
   S[0] = mklist(60, &S[0]);
   G[58] = S[0];
@@ -322072,25 +322270,25 @@ static V p0(KFn *self, int argc, V *argv) { /* <main> */
   S[0] = mkint(32LL);
   kline = 30000068;
   G[105] = S[0];
-  S[0] = KS[2941];
+  S[0] = KS[2955];
   kline = 30000070;
   G[106] = S[0];
-  S[0] = KS[2942];
+  S[0] = KS[2956];
   kline = 30000072;
   G[107] = S[0];
-  S[0] = KS[2943];
+  S[0] = KS[2957];
   kline = 30000074;
   G[108] = S[0];
-  S[0] = KS[2944];
+  S[0] = KS[2958];
   kline = 30000076;
   G[109] = S[0];
-  S[0] = KS[2945];
+  S[0] = KS[2959];
   kline = 30000078;
   G[110] = S[0];
-  S[0] = KS[2946];
+  S[0] = KS[2960];
   kline = 30000080;
   G[111] = S[0];
-  S[0] = KS[2947];
+  S[0] = KS[2961];
   kline = 30000082;
   G[112] = S[0];
   S[0] = KS[1022];
@@ -322118,7 +322316,7 @@ static V p0(KFn *self, int argc, V *argv) { /* <main> */
   kline = 30000098;
   S[0] = f_neg(S[0]);
   G[120] = S[0];
-  S[0] = KS[2620];
+  S[0] = KS[2634];
   kline = 19000049;
   G[121] = S[0];
   S[0] = KS[1006];
@@ -322139,31 +322337,31 @@ static V p0(KFn *self, int argc, V *argv) { /* <main> */
   S[9] = KS[11];
   S[10] = KS[76];
   S[11] = KS[77];
-  S[12] = KS[2674];
-  S[13] = KS[2605];
-  S[14] = KS[2600];
-  S[15] = KS[2297];
-  S[16] = KS[2295];
-  S[17] = KS[2870];
-  S[18] = KS[2871];
-  S[19] = KS[2872];
-  S[20] = KS[2290];
-  S[21] = KS[2291];
+  S[12] = KS[2688];
+  S[13] = KS[2619];
+  S[14] = KS[2614];
+  S[15] = KS[2311];
+  S[16] = KS[2309];
+  S[17] = KS[2884];
+  S[18] = KS[2885];
+  S[19] = KS[2886];
+  S[20] = KS[2304];
+  S[21] = KS[2305];
   S[22] = KS[468];
   S[23] = KS[467];
   S[24] = KS[12];
   S[25] = KS[13];
   S[26] = KS[469];
-  S[27] = KS[2306];
-  S[28] = KS[2292];
-  S[29] = KS[2293];
-  S[30] = KS[2294];
+  S[27] = KS[2320];
+  S[28] = KS[2306];
+  S[29] = KS[2307];
+  S[30] = KS[2308];
   kline = 33000015;
   S[0] = mklist(31, &S[0]);
   G[124] = S[0];
   S[0] = KS[18];
   S[1] = KS[19];
-  S[2] = KS[2831];
+  S[2] = KS[2845];
   S[3] = KS[69];
   kline = 33000017;
   S[0] = mklist(4, &S[0]);
@@ -322180,29 +322378,29 @@ static V p0(KFn *self, int argc, V *argv) { /* <main> */
   kline = 33000019;
   S[0] = mklist(3, &S[0]);
   G[127] = S[0];
-  S[0] = KS[2674];
+  S[0] = KS[2688];
   S[1] = KS[69];
   S[2] = KS[76];
   S[3] = KS[77];
   kline = 33000020;
   S[0] = mklist(4, &S[0]);
   G[128] = S[0];
-  S[0] = KS[2700];
-  S[1] = KS[2606];
-  S[2] = KS[2723];
-  S[3] = KS[2705];
-  S[4] = KS[2756];
-  S[5] = KS[2759];
-  S[6] = KS[2755];
-  S[7] = KS[2502];
+  S[0] = KS[2714];
+  S[1] = KS[2620];
+  S[2] = KS[2737];
+  S[3] = KS[2719];
+  S[4] = KS[2770];
+  S[5] = KS[2773];
+  S[6] = KS[2769];
+  S[7] = KS[2516];
   S[8] = KS[898];
-  S[9] = KS[2680];
-  S[10] = KS[2681];
+  S[9] = KS[2694];
+  S[10] = KS[2695];
   S[11] = KS[520];
-  S[12] = KS[2733];
+  S[12] = KS[2747];
   S[13] = KS[515];
   S[14] = KS[1023];
-  S[15] = KS[2743];
+  S[15] = KS[2757];
   S[16] = KS[36];
   S[17] = KS[37];
   kline = 33000024;
@@ -322215,21 +322413,21 @@ static V p0(KFn *self, int argc, V *argv) { /* <main> */
   kline = 33000441;
   G[131] = S[0];
   S[0] = KS[4];
-  S[1] = KS[2297];
-  S[2] = KS[2295];
-  S[3] = KS[2870];
-  S[4] = KS[2871];
-  S[5] = KS[2872];
-  S[6] = KS[2290];
-  S[7] = KS[2291];
-  S[8] = KS[2292];
-  S[9] = KS[2293];
-  S[10] = KS[2294];
-  S[11] = KS[2605];
+  S[1] = KS[2311];
+  S[2] = KS[2309];
+  S[3] = KS[2884];
+  S[4] = KS[2885];
+  S[5] = KS[2886];
+  S[6] = KS[2304];
+  S[7] = KS[2305];
+  S[8] = KS[2306];
+  S[9] = KS[2307];
+  S[10] = KS[2308];
+  S[11] = KS[2619];
   kline = 33000442;
   S[0] = mklist(12, &S[0]);
   G[132] = S[0];
-  S[0] = KS[2674];
+  S[0] = KS[2688];
   S[1] = KS[77];
   S[2] = KS[76];
   kline = 33000443;
@@ -322238,8 +322436,8 @@ static V p0(KFn *self, int argc, V *argv) { /* <main> */
   S[0] = KS[69];
   S[1] = KS[76];
   S[2] = KS[77];
-  S[3] = KS[2674];
-  S[4] = KS[2681];
+  S[3] = KS[2688];
+  S[4] = KS[2695];
   S[5] = KS[32];
   kline = 33000445;
   S[0] = mklist(6, &S[0]);
@@ -322247,19 +322445,19 @@ static V p0(KFn *self, int argc, V *argv) { /* <main> */
   S[0] = KS[69];
   S[1] = KS[76];
   S[2] = KS[77];
-  S[3] = KS[2674];
+  S[3] = KS[2688];
   S[4] = KS[4];
-  S[5] = KS[2297];
-  S[6] = KS[2295];
-  S[7] = KS[2870];
-  S[8] = KS[2871];
-  S[9] = KS[2872];
-  S[10] = KS[2290];
-  S[11] = KS[2291];
-  S[12] = KS[2292];
-  S[13] = KS[2293];
-  S[14] = KS[2294];
-  S[15] = KS[2605];
+  S[5] = KS[2311];
+  S[6] = KS[2309];
+  S[7] = KS[2884];
+  S[8] = KS[2885];
+  S[9] = KS[2886];
+  S[10] = KS[2304];
+  S[11] = KS[2305];
+  S[12] = KS[2306];
+  S[13] = KS[2307];
+  S[14] = KS[2308];
+  S[15] = KS[2619];
   kline = 33000448;
   S[0] = mklist(16, &S[0]);
   G[135] = S[0];
@@ -322275,7 +322473,7 @@ static V p0(KFn *self, int argc, V *argv) { /* <main> */
   S[0] = mkint(8LL);
   kline = 33000486;
   G[139] = S[0];
-  S[0] = KS[2948];
+  S[0] = KS[2962];
   kline = 34000029;
   G[140] = S[0];
   S[0] = UNIT;
@@ -322434,7 +322632,7 @@ static V p3(KFn *self, int argc, V *argv) { /* repanic */
   S[0] = L[1];
   S[0] = mkbool(pat9625(S[0], L));
   if (!truthy(S[0])) goto I11;
-  S[0] = KS[2949];
+  S[0] = KS[2963];
   S[1] = L[0];
   kline = 38;
   S[1] = k_field(S[1], 566);
@@ -323103,7 +323301,7 @@ static V p21(KFn *self, int argc, V *argv) { /* __min_cmp */
   S[0] = f_eq(S[0], S[1]);
   if (!truthy(S[0])) goto I10;
   S[0] = G[171]; if (S[0].t == T_UNDEF) die("未定义的名字 %s", "panic");
-  S[1] = KS[2950];
+  S[1] = KS[2964];
   S[0] = call_v(S[0], 1, &S[1]);
   goto I11;
  I10:;
@@ -323165,7 +323363,7 @@ static V p23(KFn *self, int argc, V *argv) { /* __max_cmp */
   S[0] = f_eq(S[0], S[1]);
   if (!truthy(S[0])) goto I10;
   S[0] = G[171]; if (S[0].t == T_UNDEF) die("未定义的名字 %s", "panic");
-  S[1] = KS[2951];
+  S[1] = KS[2965];
   S[0] = call_v(S[0], 1, &S[1]);
   goto I11;
  I10:;
@@ -325622,7 +325820,7 @@ static V p321(KFn *self, int argc, V *argv) { /* <lambda> */
   S[0] = f_eq(S[0], S[1]);
   if (truthy(S[0])) goto I7;
   S[0] = L[0];
-  S[1] = KS[2748];
+  S[1] = KS[2762];
   S[0] = f_eq(S[0], S[1]);
  I7:;
   kline = 8002370;
@@ -328008,11 +328206,11 @@ static V p614(KFn *self, int argc, V *argv) { /* <lambda> */
   if (!truthy(S[0])) goto I11;
   S[0] = G[188]; if (S[0].t == T_UNDEF) die("未定义的名字 %s", "join");
   S[1] = L[0];
-  S[2] = KS[2519];
+  S[2] = KS[2533];
   S[0] = call_v(S[0], 2, &S[1]);
   goto I12;
  I11:;
-  S[0] = KS[2520];
+  S[0] = KS[2534];
  I12:;
   kline = 9004573;
   rv = S[0]; goto ret;
@@ -336926,7 +337124,7 @@ static V p1814(KFn *self, int argc, V *argv) { /* <lambda> */
   kline = 33001518;
   S[0] = mkbool(pat9763(S[0], L));
   if (!truthy(S[0])) goto I22;
-  S[0] = KS[2602];
+  S[0] = KS[2616];
   kline = 33001519;
   S[1] = G[313];
   S[2] = L[2];
@@ -337070,7 +337268,7 @@ static V p1833(KFn *self, int argc, V *argv) { /* <lambda> */
   V L[1]; V S[4]; V rv; KUp *open = NULL; V defers[1]; int nd = 0;
   memcpy(L, argv, sizeof(V) * 1);
   CANCEL_POINT();
-  S[0] = KS[2817];
+  S[0] = KS[2831];
   S[1] = L[0];
   kline = 34000145;
   S[0] = f_add(S[0], S[1]);
@@ -337098,11 +337296,11 @@ static V p1837(KFn *self, int argc, V *argv) { /* <lambda> */
   V L[1]; V S[7]; V rv; KUp *open = NULL; V defers[1]; int nd = 0;
   memcpy(L, argv, sizeof(V) * 1);
   CANCEL_POINT();
-  S[0] = KS[2849];
+  S[0] = KS[2863];
   S[1] = L[0];
-  S[2] = KS[2850];
+  S[2] = KS[2864];
   S[3] = L[0];
-  S[4] = KS[2851];
+  S[4] = KS[2865];
   kline = 34000170;
   S[0] = k_interp(5, &S[0]);
   rv = S[0]; goto ret;
@@ -337227,7 +337425,7 @@ static V p1844(KFn *self, int argc, V *argv) { /* <lambda> */
   if (truthy(S[0])) goto I12;
   S[0] = G[292]; if (S[0].t == T_UNDEF) die("未定义的名字 %s", "contains");
   S[1] = *self->ups[1]->ref;
-  S[2] = KS[2831];
+  S[2] = KS[2845];
   S[3] = *self->ups[0]->ref;
   S[1] = k_interp(3, &S[1]);
   S[2] = L[0];
@@ -337248,7 +337446,7 @@ static V p1845(KFn *self, int argc, V *argv) { /* <lambda> */
   CANCEL_POINT();
   kline = 34000302;
   S[0] = *self->ups[0]->ref;
-  S[1] = KS[2831];
+  S[1] = KS[2845];
   S[2] = L[0];
   S[0] = k_interp(3, &S[0]);
   rv = S[0]; goto ret;
@@ -338682,7 +338880,7 @@ static void kite_main(void) {
   KITE_FILE = "main.kite";
   static const char *files[] = { "main.kite", "std/env.kite", "std/kite/ast.kite", "std/kite/ty.kite", "std/kite/val.kite", "std/kite/scanner.kite", "std/unicode.kite", "std/internal/unicode_tables.kite", "std/kite/parser.kite", "std/kite/check.kite", "std/kite/builtins.kite", "std/kite/modules.kite", "std/path.kite", "kitec/src/bc.kite", "kitec/src/cgen.kite", "kitec/src/kir.kite", "kitec/src/kirdump.kite", "std/process.kite", "kitec/src/driver.kite", "kitec/src/pkg.kite", "std/os.kite", "std/encoding/json.kite", "std/encoding/json/jsontext.kite", "std/unicode/utf8.kite", "std/strconv.kite", "std/math/bits.kite", "std/crypto/sha256.kite", "std/compress/gzip.kite", "std/compress/flate.kite", "std/hash/crc32.kite", "std/archive/tar.kite", "std/kite/version.kite", "kitec/src/fmtcli.kite", "std/kite/format.kite", "kitec/src/testing.kite", "kitec/src/lsp.kite" };
   KITE_FILES = files; KITE_NFILES = 36;
-  gc_add_root(G, 2137); gc_add_root(KS, 2952);
+  gc_add_root(G, 2137); gc_add_root(KS, 2966);
   SYM_Ok = 0; SYM_Err = 1; SYM_Some = 2; SYM_None = 3;
   KS[0] = mkstr("CLOSURE", 7);
   KS[1] = mkstr("\347\274\226\350\257\221\351\224\231\350\257\257: \350\265\213\345\200\274\347\233\256\346\240\207\346\227\240\346\225\210", 32);
@@ -340831,811 +341029,825 @@ static void kite_main(void) {
   KS[2144] = mkstr("fn(Int) -> Result<Bool, Str>", 28);
   KS[2145] = mkstr("__tls_handshake", 15);
   KS[2146] = mkstr("__tcp_flush", 11);
-  KS[2147] = mkstr("__tcp_close", 11);
-  KS[2148] = mkstr("__byte_len", 10);
-  KS[2149] = mkstr("fn(Str) -> List<Int>", 20);
-  KS[2150] = mkstr("__bytes", 7);
-  KS[2151] = mkstr("fn(List<Int>) -> Option<Str>", 28);
-  KS[2152] = mkstr("__from_bytes", 12);
-  KS[2153] = mkstr("fn(Str) -> Unit", 15);
-  KS[2154] = mkstr("__eprint", 8);
-  KS[2155] = mkstr("fn(Str, Bool) -> Result<(Int, Int, Int, Int), Str>", 50);
-  KS[2156] = mkstr("__fs_stat", 9);
-  KS[2157] = mkstr("__getcwd", 8);
-  KS[2158] = mkstr("fn(Str) -> Result<Unit, Str>", 28);
-  KS[2159] = mkstr("__chdir", 7);
-  KS[2160] = mkstr("fn(Str, Int) -> Result<Unit, Str>", 33);
-  KS[2161] = mkstr("__chmod", 7);
-  KS[2162] = mkstr("fn(Str, Str) -> Unit", 20);
-  KS[2163] = mkstr("__env_set", 9);
-  KS[2164] = mkstr("__env_unset", 11);
-  KS[2165] = mkstr("__environ", 9);
-  KS[2166] = mkstr("__hostname", 10);
-  KS[2167] = mkstr("__getpid", 8);
-  KS[2168] = mkstr("fn(Str) -> Result<List<Int>, Str>", 33);
-  KS[2169] = mkstr("__read_bytes", 12);
-  KS[2170] = mkstr("fn(Str, List<Int>, Bool) -> Result<Unit, Str>", 45);
-  KS[2171] = mkstr("__write_bytes", 13);
-  KS[2172] = mkstr("__tz_offset", 11);
-  KS[2173] = mkstr("fn(Int) -> List<Int>", 20);
-  KS[2174] = mkstr("__random_bytes", 14);
-  KS[2175] = mkstr("__unix_ns", 9);
-  KS[2176] = mkstr("println", 7);
-  KS[2177] = mkstr("fn() -> Option<Str>", 19);
-  KS[2178] = mkstr("read_line", 9);
-  KS[2179] = mkstr("fn(Str) -> Result<Str, Str>", 27);
-  KS[2180] = mkstr("read", 4);
-  KS[2181] = mkstr("fn(Str, Str) -> Result<Unit, Str>", 33);
-  KS[2182] = mkstr("write", 5);
-  KS[2183] = mkstr("append", 6);
-  KS[2184] = mkstr("fn(Str) -> Bool", 15);
-  KS[2185] = mkstr("exists", 6);
-  KS[2186] = mkstr("is_file", 7);
-  KS[2187] = mkstr("is_dir", 6);
-  KS[2188] = mkstr("fn(Str) -> Result<List<Str>, Str>", 33);
-  KS[2189] = mkstr("mkdir", 5);
-  KS[2190] = mkstr("rename", 6);
-  KS[2191] = mkstr("fn() -> Ptr", 11);
-  KS[2192] = mkstr("fn(Ptr) -> Bool", 15);
-  KS[2193] = mkstr("is_null", 7);
-  KS[2194] = mkstr("fn(Ptr) -> Int", 14);
-  KS[2195] = mkstr("addr", 4);
-  KS[2196] = mkstr("fn(Ptr, Int) -> Ptr", 19);
-  KS[2197] = mkstr("offset", 6);
-  KS[2198] = mkstr("fn(Int) -> Ptr", 14);
-  KS[2199] = mkstr("from_addr", 9);
-  KS[2200] = mkstr("alloc", 5);
-  KS[2201] = mkstr("fn(Ptr) -> Unit", 15);
-  KS[2202] = mkstr("free", 4);
-  KS[2203] = mkstr("fn(Ptr, Int) -> Int", 19);
-  KS[2204] = mkstr("read_int", 8);
-  KS[2205] = mkstr("fn(Ptr, Int, Int) -> Unit", 25);
-  KS[2206] = mkstr("write_int", 9);
-  KS[2207] = mkstr("fn(Ptr, Int) -> Float", 21);
-  KS[2208] = mkstr("read_float", 10);
-  KS[2209] = mkstr("fn(Ptr, Int, Float) -> Unit", 27);
-  KS[2210] = mkstr("write_float", 11);
-  KS[2211] = mkstr("read_byte", 9);
-  KS[2212] = mkstr("write_byte", 10);
-  KS[2213] = mkstr("fn(Ptr) -> Str", 14);
-  KS[2214] = mkstr("to_str", 6);
-  KS[2215] = mkstr("fn(Str) -> Ptr", 14);
-  KS[2216] = mkstr("from_str", 8);
-  KS[2217] = mkstr("fn(Float) -> Float", 18);
-  KS[2218] = mkstr("sqrt", 4);
-  KS[2219] = mkstr("sin", 3);
-  KS[2220] = mkstr("cos", 3);
-  KS[2221] = mkstr("tan", 3);
-  KS[2222] = mkstr("asin", 4);
-  KS[2223] = mkstr("acos", 4);
-  KS[2224] = mkstr("atan", 4);
-  KS[2225] = mkstr("sinh", 4);
-  KS[2226] = mkstr("cosh", 4);
-  KS[2227] = mkstr("tanh", 4);
-  KS[2228] = mkstr("asinh", 5);
-  KS[2229] = mkstr("acosh", 5);
-  KS[2230] = mkstr("atanh", 5);
-  KS[2231] = mkstr("exp", 3);
-  KS[2232] = mkstr("exp2", 4);
-  KS[2233] = mkstr("expm1", 5);
-  KS[2234] = mkstr("log2", 4);
-  KS[2235] = mkstr("log10", 5);
-  KS[2236] = mkstr("log1p", 5);
-  KS[2237] = mkstr("cbrt", 4);
-  KS[2238] = mkstr("log", 3);
-  KS[2239] = mkstr("fn(Float, Float) -> Float", 25);
-  KS[2240] = mkstr("pow", 3);
-  KS[2241] = mkstr("atan2", 5);
-  KS[2242] = mkstr("hypot", 5);
-  KS[2243] = mkstr("fmod", 4);
-  KS[2244] = mkstr("copysign", 8);
-  KS[2245] = mkstr("remainder", 9);
-  KS[2246] = mkstr("fn(Float) -> Int", 16);
-  KS[2247] = mkstr("floor", 5);
-  KS[2248] = mkstr("ceil", 4);
-  KS[2249] = mkstr("round", 5);
-  KS[2250] = mkstr("trunc", 5);
-  KS[2251] = mkstr("fn(Float) -> Bool", 17);
-  KS[2252] = mkstr("is_nan", 6);
-  KS[2253] = mkstr("is_inf", 6);
-  KS[2254] = mkstr("signbit", 7);
-  KS[2255] = mkstr("pi", 2);
-  KS[2256] = mkstr("tau", 3);
-  KS[2257] = mkstr("phi", 3);
-  KS[2258] = mkstr("sqrt2", 5);
-  KS[2259] = mkstr("ln2", 3);
-  KS[2260] = mkstr("ln10", 4);
-  KS[2261] = mkstr("max_float", 9);
-  KS[2262] = mkstr("smallest_float", 14);
-  KS[2263] = mkstr("gcd", 3);
-  KS[2264] = mkstr("lcm", 3);
-  KS[2265] = mkstr("max_int", 7);
-  KS[2266] = mkstr("min_int", 7);
-  KS[2267] = mkstr("Any", 3);
-  KS[2268] = mkstr(" \345\217\202\346\225\260\344\270\252\346\225\260\344\270\215\345\257\271", 19);
-  KS[2269] = mkstr("\346\227\240\346\263\225\346\216\250\346\226\255 ", 13);
-  KS[2270] = mkstr(" \347\254\254\344\270\200\344\270\252\345\217\202\346\225\260\347\232\204\347\261\273\345\236\213\357\274\214\350\257\267\345\212\240\347\261\273\345\236\213\346\240\207\346\263\250", 46);
-  KS[2271] = mkstr(" \344\270\215\346\224\257\346\214\201\345\210\207\347\211\207\357\274\210\345\217\252\346\234\211 List \345\222\214 Str \345\217\257\344\273\245\345\210\207\347\211\207\357\274\211", 54);
-  KS[2272] = mkstr(" \344\270\215\346\224\257\346\214\201 ", 11);
-  KS[2273] = mkstr("\357\274\214\345\217\257\347\224\250\344\272\216 ", 13);
-  KS[2274] = mkstr("UnsafeFn", 8);
-  KS[2275] = mkstr("\350\260\203\347\224\250 unsafe \345\207\275\346\225\260\345\200\274 ", 24);
-  KS[2276] = mkstr("\357\274\211\351\234\200\350\246\201\346\224\276\345\234\250 unsafe { \342\200\246 } \351\207\214", 34);
-  KS[2277] = mkstr(" \344\270\215\350\203\275\350\242\253\350\260\203\347\224\250", 16);
-  KS[2278] = mkstr(" \351\234\200\350\246\201 ", 8);
-  KS[2279] = mkstr(" \344\270\252\345\217\202\346\225\260\357\274\214\347\273\231\344\272\206 ", 20);
-  KS[2280] = mkstr(" \344\270\252", 4);
-  KS[2281] = mkstr("\345\210\207\347\211\207\347\232\204\344\270\213\346\240\207", 15);
-  KS[2282] = mkstr(" \347\232\204\347\254\254 ", 8);
-  KS[2283] = mkstr(" \344\270\252\345\217\202\346\225\260", 10);
-  KS[2284] = mkstr("\350\265\213\345\200\274\347\233\256\346\240\207\346\227\240\346\225\210", 18);
-  KS[2285] = mkstr("\346\234\252\345\256\232\344\271\211\347\232\204\345\217\230\351\207\217 ", 19);
-  KS[2286] = mkstr("\344\270\215\350\203\275\344\277\256\346\224\271\344\270\215\345\217\257\345\217\230\347\273\221\345\256\232 `", 29);
-  KS[2287] = mkstr("`\357\274\210\346\224\271\347\224\250 var \345\243\260\346\230\216\357\274\211", 24);
-  KS[2288] = mkstr("spawn \344\273\273\345\212\241\344\270\215\350\203\275\344\277\256\346\224\271\345\244\226\345\261\202\345\217\230\351\207\217 `", 38);
-  KS[2289] = mkstr("`\357\274\210\346\225\260\346\215\256\347\253\236\344\272\211\357\274\211", 19);
-  KS[2290] = mkstr("|=", 2);
-  KS[2291] = mkstr("&=", 2);
-  KS[2292] = mkstr("^=", 2);
-  KS[2293] = mkstr("<<=", 3);
-  KS[2294] = mkstr(">>=", 3);
-  KS[2295] = mkstr("-=", 2);
-  KS[2296] = mkstr("\350\265\213\345\200\274", 6);
-  KS[2297] = mkstr("+=", 2);
-  KS[2298] = mkstr("async fn ", 9);
-  KS[2299] = mkstr(" \347\232\204\350\277\224\345\233\236\345\200\274", 13);
-  KS[2300] = mkstr("\346\227\240\351\231\220\347\261\273\345\236\213 ", 13);
-  KS[2301] = mkstr("\346\234\252\347\237\245\350\241\250\350\276\276\345\274\217 ", 16);
-  KS[2302] = mkstr(" \345\267\246\350\276\271", 7);
-  KS[2303] = mkstr(" \345\217\263\350\276\271", 7);
-  KS[2304] = mkstr("\345\214\272\351\227\264\350\265\267\347\202\271", 12);
-  KS[2305] = mkstr("\345\214\272\351\227\264\347\273\210\347\202\271", 12);
-  KS[2306] = mkstr("<<", 2);
-  KS[2307] = mkstr(">>", 2);
-  KS[2308] = mkstr("\350\277\220\347\256\227 ", 7);
-  KS[2309] = mkstr(" \344\270\244\350\276\271\347\261\273\345\236\213\345\277\205\351\241\273\347\233\270\345\220\214", 25);
-  KS[2310] = mkstr("Future", 6);
-  KS[2311] = mkstr("\350\255\246\345\221\212: Future \346\262\241\346\234\211\350\242\253 .await\357\274\214\344\270\215\344\274\232\346\211\247\350\241\214", 46);
-  KS[2312] = mkstr("\346\211\276\344\270\215\345\210\260\345\276\252\347\216\257\346\240\207\347\255\276 '", 23);
-  KS[2313] = mkstr("\345\217\252\346\234\211 loop \347\232\204 break \350\203\275\345\270\246\345\200\274\357\274\210while / for \347\232\204\345\200\274\346\200\273\346\230\257 ()\357\274\211", 64);
-  KS[2314] = mkstr("loop \347\232\204 break \345\200\274", 18);
-  KS[2315] = mkstr("Actor", 5);
-  KS[2316] = mkstr("Num", 3);
-  KS[2317] = mkstr("Ord", 3);
-  KS[2318] = mkstr("Eq", 2);
-  KS[2319] = mkstr("Hash", 4);
-  KS[2320] = mkstr("Show", 4);
-  KS[2321] = mkstr("\347\261\273\345\236\213 ", 7);
-  KS[2322] = mkstr(" \346\262\241\346\234\211\351\235\231\346\200\201\346\226\271\346\263\225 ", 20);
-  KS[2323] = mkstr(" \346\230\257\345\256\236\344\276\213\346\226\271\346\263\225\357\274\210\345\270\246 self\357\274\211\357\274\214\350\257\267\347\224\250 \345\200\274.", 44);
-  KS[2324] = mkstr("(...) \350\260\203\347\224\250", 12);
-  KS[2325] = mkstr("Module:", 7);
-  KS[2326] = mkstr("\344\275\277\347\224\250 unsafe \346\226\271\346\263\225 ", 21);
-  KS[2327] = mkstr(" \351\234\200\350\246\201\346\224\276\345\234\250 unsafe { \342\200\246 } \351\207\214", 32);
-  KS[2328] = mkstr("Self", 4);
-  KS[2329] = mkstr("\346\227\240", 3);
-  KS[2330] = mkstr("dyn ", 4);
-  KS[2331] = mkstr("\346\263\233\345\236\213 ", 7);
-  KS[2332] = mkstr(" \346\262\241\346\234\211\346\226\271\346\263\225 ", 14);
-  KS[2333] = mkstr("\357\274\210\347\272\246\346\235\237: ", 11);
-  KS[2334] = mkstr("|#", 2);
-  KS[2335] = mkstr("\346\227\240\346\263\225\346\216\250\346\226\255 .", 14);
-  KS[2336] = mkstr("() \347\232\204\346\216\245\346\224\266\350\200\205\347\261\273\345\236\213\357\274\214\350\257\267\345\212\240\347\261\273\345\236\213\346\240\207\346\263\250", 42);
-  KS[2337] = mkstr("\345\207\275\346\225\260", 6);
-  KS[2338] = mkstr("\346\234\252\347\237\245\350\241\250\350\276\276\345\274\217", 15);
-  KS[2339] = mkstr("\346\227\240\346\263\225\346\216\250\346\226\255 as \345\267\246\350\276\271\347\232\204\347\261\273\345\236\213\357\274\214\350\257\267\345\212\240\347\261\273\345\236\213\346\240\207\346\263\250", 52);
-  KS[2340] = mkstr("\344\270\215\350\203\275\346\212\212 ", 10);
-  KS[2341] = mkstr(" \350\275\254\346\215\242\344\270\272 ", 11);
-  KS[2342] = mkstr("\357\274\210as \345\217\252\346\224\257\346\214\201 Int\343\200\201Float\343\200\201Bool \344\271\213\351\227\264\347\232\204\346\225\260\345\200\274\350\275\254\346\215\242\357\274\211", 59);
-  KS[2343] = mkstr("\350\277\224\345\233\236\345\200\274", 9);
-  KS[2344] = mkstr("\345\217\202\346\225\260 ", 7);
-  KS[2345] = mkstr("\357\274\214\346\210\226\345\255\227\346\256\265\351\203\275\346\230\257 Int/Float/Bool/Ptr \347\232\204\347\273\223\346\236\204\344\275\223", 50);
-  KS[2346] = mkstr("\357\274\214\346\210\226\345\255\227\346\256\265\351\203\275\346\230\257 Int/Float/Bool/Ptr \347\232\204\347\273\223\346\236\204\344\275\223\357\274\214\346\210\226\345\217\202\346\225\260\345\222\214\350\277\224\345\233\236\345\200\274\351\203\275\346\230\257 Int/Float/Bool/Ptr \347\232\204 fn \345\233\236\350\260\203", 113);
-  KS[2347] = mkstr("\343\200\201Unit", 7);
-  KS[2348] = mkstr("extern fn ", 10);
-  KS[2349] = mkstr(" \347\232\204", 4);
-  KS[2350] = mkstr("\344\270\215\350\203\275\346\230\257 ", 10);
-  KS[2351] = mkstr("\357\274\210\345\217\252\346\224\257\346\214\201 Int\343\200\201Float\343\200\201Bool\343\200\201Str\343\200\201Ptr", 43);
-  KS[2352] = mkstr(" \347\232\204\346\226\271\346\263\225 ", 11);
-  KS[2353] = mkstr(" \347\232\204\345\205\263\350\201\224\345\270\270\351\207\217 ", 17);
-  KS[2354] = mkstr(" \345\222\214 trait \345\243\260\346\230\216\344\270\215\344\270\200\350\207\264\357\274\232self \345\217\202\346\225\260", 40);
-  KS[2355] = mkstr("\345\244\232\344\272\206", 6);
-  KS[2356] = mkstr("\345\260\221\344\272\206", 6);
-  KS[2357] = mkstr(" \345\222\214 trait \345\243\260\346\230\216\344\270\215\344\270\200\350\207\264\357\274\232", 29);
-  KS[2358] = mkstr("trait \351\207\214\346\230\257 unsafe fn", 22);
-  KS[2359] = mkstr("trait \351\207\214\344\270\215\346\230\257 unsafe fn", 25);
-  KS[2360] = mkstr(" \346\234\211 ", 5);
-  KS[2361] = mkstr(" \344\270\252\345\217\202\346\225\260\357\274\214trait \345\243\260\346\230\216\347\232\204\346\230\257 ", 32);
-  KS[2362] = mkstr(" \347\232\204\347\261\273\345\236\213\345\222\214 trait \345\243\260\346\230\216\344\270\215\344\270\200\350\207\264\357\274\232\346\234\237\346\234\233 ", 45);
-  KS[2363] = mkstr("\357\274\214\345\256\236\351\231\205\346\230\257 ", 13);
-  KS[2364] = mkstr(" \347\232\204\347\255\276\345\220\215\345\222\214 trait \345\243\260\346\230\216\344\270\215\344\270\200\350\207\264\357\274\232\346\234\237\346\234\233 ", 45);
-  KS[2365] = mkstr("\347\261\273\345\236\213\351\224\231\350\257\257: trait ", 20);
-  KS[2366] = mkstr(" \347\232\204\350\266\205 trait ", 14);
-  KS[2367] = mkstr(" \344\270\215\345\255\230\345\234\250", 10);
-  KS[2368] = mkstr(" \347\232\204\350\266\205 trait \346\236\204\346\210\220\344\272\206\345\276\252\347\216\257", 29);
-  KS[2369] = mkstr("\347\261\273\345\236\213\351\224\231\350\257\257: impl ", 19);
-  KS[2370] = mkstr(" \344\271\237\345\256\236\347\216\260\350\266\205 trait ", 20);
-  KS[2371] = mkstr(" + ", 3);
-  KS[2372] = mkstr(" \345\217\252\350\203\275\345\206\231\345\234\250\345\207\275\346\225\260\345\217\202\346\225\260\346\210\226\350\277\224\345\233\236\347\261\273\345\236\213\351\207\214", 43);
-  KS[2373] = mkstr("\346\234\252\347\237\245 trait ", 13);
-  KS[2374] = mkstr("Array", 5);
-  KS[2375] = mkstr("\350\277\231\351\207\214\351\234\200\350\246\201\347\261\273\345\236\213\357\274\214", 21);
-  KS[2376] = mkstr(" \346\230\257\345\270\270\351\207\217\357\274\210\345\217\252\350\203\275\347\224\250\344\275\234\345\270\270\351\207\217\346\263\233\345\236\213\345\256\236\345\217\202\346\210\226\346\225\260\347\273\204\351\225\277\345\272\246\357\274\211", 61);
-  KS[2377] = mkstr("#c:", 3);
-  KS[2378] = mkstr(" \346\230\257\345\270\270\351\207\217\346\263\233\345\236\213\345\217\202\346\225\260\357\274\214\344\270\215\350\203\275\345\275\223\347\261\273\345\236\213\347\224\250", 43);
-  KS[2379] = mkstr("\346\225\260\347\273\204\351\225\277\345\272\246 ", 13);
-  KS[2380] = mkstr(" \345\277\205\351\241\273\346\230\257\346\225\264\346\225\260\346\210\226\345\270\270\351\207\217\346\263\233\345\236\213\345\217\202\346\225\260", 37);
-  KS[2381] = mkstr(" \345\277\205\351\241\273\346\230\257\346\225\264\346\225\260\346\210\226\345\270\270\351\207\217\346\263\233\345\236\213\345\217\202\346\225\260\357\274\210const ", 46);
-  KS[2382] = mkstr(": Int\357\274\211", 8);
-  KS[2383] = mkstr(" \347\232\204\347\272\246\346\235\237\351\207\214\346\262\241\346\234\211\345\205\263\350\201\224\347\261\273\345\236\213 ", 32);
-  KS[2384] = mkstr("\347\261\273\345\236\213\345\210\253\345\220\215 ", 13);
-  KS[2385] = mkstr(" \344\270\252\347\261\273\345\236\213\345\217\202\346\225\260\357\274\214\347\273\231\344\272\206 ", 26);
-  KS[2386] = mkstr("> \350\246\201\346\261\202 ", 9);
-  KS[2387] = mkstr("\357\274\210\347\273\231 ", 7);
-  KS[2388] = mkstr(" \345\212\240\344\270\212\347\272\246\346\235\237 ", 14);
-  KS[2389] = mkstr(" \347\232\204\345\270\270\351\207\217\346\263\233\345\236\213\345\217\202\346\225\260 ", 23);
-  KS[2390] = mkstr(" \351\234\200\350\246\201\346\225\264\346\225\260\357\274\214\345\256\236\351\231\205\346\230\257 ", 26);
-  KS[2391] = mkstr(" \347\232\204\346\263\233\345\236\213\345\217\202\346\225\260 ", 17);
-  KS[2392] = mkstr(" \351\234\200\350\246\201\347\261\273\345\236\213\357\274\214\345\256\236\351\231\205\346\230\257\345\270\270\351\207\217 ", 32);
-  KS[2393] = mkstr("\346\234\252\347\237\245\347\261\273\345\236\213 ", 13);
-  KS[2394] = mkstr("extern \345\207\275\346\225\260|", 14);
-  KS[2395] = mkstr("unsafe \345\207\275\346\225\260|", 14);
-  KS[2396] = mkstr("#nocg", 5);
-  KS[2397] = mkstr("impl \347\232\204\347\233\256\346\240\207\347\261\273\345\236\213 ", 21);
-  KS[2398] = mkstr(" \346\234\252\345\256\232\344\271\211", 10);
-  KS[2399] = mkstr("\345\205\263\350\201\224\347\261\273\345\236\213\345\217\252\350\203\275\345\206\231\345\234\250 impl Trait for \347\261\273\345\236\213 \351\207\214\357\274\210", 53);
-  KS[2400] = mkstr("trait ", 6);
-  KS[2401] = mkstr(" \346\262\241\346\234\211\345\205\263\350\201\224\347\261\273\345\236\213 ", 20);
-  KS[2402] = mkstr(" \347\274\272\345\260\221\345\205\263\350\201\224\347\261\273\345\236\213 ", 20);
-  KS[2403] = mkstr("\357\274\210\345\206\231 type ", 12);
-  KS[2404] = mkstr(" = \342\200\246\357\274\211", 9);
-  KS[2405] = mkstr(" \347\274\272\345\260\221\346\226\271\346\263\225 ", 14);
-  KS[2406] = mkstr(" \347\274\272\345\260\221\345\205\263\350\201\224\345\270\270\351\207\217 ", 20);
-  KS[2407] = mkstr("\357\274\210\345\206\231 const ", 13);
-  KS[2408] = mkstr(": \342\200\246 = \342\200\246\357\274\211", 14);
-  KS[2409] = mkstr("deprecated", 10);
-  KS[2410] = mkstr("\350\255\246\345\221\212: ", 8);
-  KS[2411] = mkstr(" \345\267\262\345\274\203\347\224\250", 10);
-  KS[2412] = mkstr(" \345\267\262\345\274\203\347\224\250\357\274\232", 13);
-  KS[2413] = mkstr("match \346\262\241\346\234\211\350\246\206\347\233\226 ", 19);
-  KS[2414] = mkstr(" \347\232\204 ", 5);
-  KS[2415] = mkstr("match \346\262\241\346\234\211\350\246\206\347\233\226 Bool \347\232\204\346\211\200\346\234\211\345\200\274", 36);
-  KS[2416] = mkstr("match \344\270\215\347\251\267\345\260\275\357\274\214", 18);
-  KS[2417] = mkstr(" \351\234\200\350\246\201\344\270\200\344\270\252\345\205\234\345\272\225\345\210\206\346\224\257 _", 27);
-  KS[2418] = mkstr("match \344\270\215\347\251\267\345\260\275\357\274\214\346\262\241\346\234\211\350\246\206\347\233\226 ", 31);
-  KS[2419] = mkstr("\345\217\252\346\234\211 ", 7);
-  KS[2420] = mkstr(" \351\241\271\357\274\214\346\250\241\345\274\217\351\207\214\345\206\231\344\272\206 ", 23);
-  KS[2421] = mkstr(" \351\241\271", 4);
-  KS[2422] = mkstr(" \345\270\246\345\270\270\351\207\217\346\263\233\345\236\213\345\217\202\346\225\260\357\274\214\344\270\215\350\203\275\345\275\223\345\200\274\344\274\240\351\200\222\357\274\214\350\257\267\347\224\250 lambda \345\214\205\344\270\200\345\261\202", 69);
-  KS[2423] = mkstr("\345\206\205\345\273\272\345\207\275\346\225\260 ", 13);
-  KS[2424] = mkstr(" \346\234\211\345\244\232\344\270\252\351\207\215\350\275\275\357\274\214\344\270\215\350\203\275\345\275\223\345\200\274\344\274\240\351\200\222\357\274\214\350\257\267\347\224\250 lambda \345\214\205\344\270\200\345\261\202", 63);
-  KS[2425] = mkstr("9223372036854775808", 19);
-  KS[2426] = mkstr("~ \347\232\204\346\223\215\344\275\234\346\225\260", 14);
-  KS[2427] = mkstr("~ \346\230\257 Int \347\232\204\346\214\211\344\275\215\345\217\226\345\217\215\357\274\214\344\270\215\350\203\275\347\224\250\344\272\216 ", 41);
-  KS[2428] = mkstr("\357\274\210\351\200\273\350\276\221\351\235\236\350\257\267\345\206\231 !\357\274\211", 23);
-  KS[2429] = mkstr("! \345\217\252\347\224\250\344\272\216 Bool\357\274\233Int \347\232\204\346\214\211\344\275\215\345\217\226\345\217\215\350\257\267\345\206\231 ~x\357\274\210kite fmt --migrate \345\217\257\350\207\252\345\212\250\346\224\271\345\206\231\357\274\211", 87);
-  KS[2430] = mkstr("! \347\232\204\346\223\215\344\275\234\346\225\260", 14);
-  KS[2431] = mkstr("neg", 3);
-  KS[2432] = mkstr("\346\225\260\347\273\204\345\205\203\347\264\240", 12);
-  KS[2433] = mkstr("\345\210\227\350\241\250\345\205\203\347\264\240", 12);
-  KS[2434] = mkstr("if \346\235\241\344\273\266", 9);
-  KS[2435] = mkstr("if \344\270\244\344\270\252\345\210\206\346\224\257", 15);
-  KS[2436] = mkstr("if \345\210\206\346\224\257", 9);
-  KS[2437] = mkstr("else \345\210\206\346\224\257", 11);
-  KS[2438] = mkstr("__await", 7);
-  KS[2439] = mkstr("\345\217\252\350\203\275 .await \344\270\200\344\270\252 Future\357\274\210async fn \347\232\204\350\260\203\347\224\250\347\273\223\346\236\234\357\274\211\357\274\214\350\277\231\351\207\214\346\230\257 ", 70);
-  KS[2440] = mkstr("__tc_", 5);
-  KS[2441] = mkstr("\347\261\273\345\236\213\345\217\202\346\225\260 ", 13);
-  KS[2442] = mkstr(" \346\262\241\346\234\211\345\205\263\350\201\224\345\270\270\351\207\217 ", 20);
-  KS[2443] = mkstr("\357\274\210\351\234\200\350\246\201\347\272\246\346\235\237 ", 16);
-  KS[2444] = mkstr(": \346\237\220\344\270\252\345\243\260\346\230\216\344\272\206 const ", 24);
-  KS[2445] = mkstr(" \347\232\204 trait\357\274\211", 13);
-  KS[2446] = mkstr(" \344\270\215\350\203\275\347\224\250 .", 12);
-  KS[2447] = mkstr(" \345\217\226\345\205\203\347\264\240\357\274\210\351\234\200\350\246\201\346\230\216\347\241\256\347\232\204\345\205\203\347\273\204\347\261\273\345\236\213\357\274\211", 43);
-  KS[2448] = mkstr("\345\205\203\347\273\204\345\217\252\346\234\211 ", 13);
-  KS[2449] = mkstr(" \344\270\252\345\205\203\347\264\240", 10);
-  KS[2450] = mkstr("\344\270\213\346\240\207", 6);
-  KS[2451] = mkstr("Map \347\232\204\351\224\256", 10);
-  KS[2452] = mkstr(" \344\270\215\346\224\257\346\214\201\344\270\213\346\240\207", 16);
-  KS[2453] = mkstr("\077 \345\217\252\350\203\275\347\224\250\345\234\250\345\207\275\346\225\260\351\207\214", 23);
-  KS[2454] = mkstr("spawn \344\273\273\345\212\241\351\207\214\344\270\215\350\203\275\347\224\250 \077\357\274\210\344\273\273\345\212\241\344\270\215\350\203\275\346\233\277\345\244\226\345\261\202\345\207\275\346\225\260\350\277\224\345\233\236\357\274\211", 65);
-  KS[2455] = mkstr("\077 \350\246\201\346\261\202\345\207\275\346\225\260\350\277\224\345\233\236\345\220\214\351\224\231\350\257\257\347\261\273\345\236\213\347\232\204 Result", 45);
-  KS[2456] = mkstr("\077 \345\217\252\350\203\275\347\224\250\344\272\216 Result \346\210\226 Option\357\274\214\345\256\236\351\231\205\346\230\257 ", 45);
-  KS[2457] = mkstr("\077 \350\246\201\346\261\202\345\207\275\346\225\260\350\277\224\345\233\236 Option", 27);
-  KS[2458] = mkstr(" \346\262\241\346\234\211\345\217\230\344\275\223 ", 14);
-  KS[2459] = mkstr("\344\275\277\347\224\250 unsafe \345\207\275\346\225\260 ", 21);
-  KS[2460] = mkstr(" \346\262\241\346\234\211 ", 8);
-  KS[2461] = mkstr(" \346\262\241\346\234\211\345\255\227\346\256\265 ", 14);
-  KS[2462] = mkstr(" \347\232\204\346\216\245\346\224\266\350\200\205\347\261\273\345\236\213\357\274\214\350\257\267\345\212\240\347\261\273\345\236\213\346\240\207\346\263\250", 40);
-  KS[2463] = mkstr("\345\207\275\346\225\260 ", 7);
-  KS[2464] = mkstr("self \345\217\252\350\203\275\345\207\272\347\216\260\345\234\250 impl \346\226\271\346\263\225\351\207\214", 35);
-  KS[2465] = mkstr("race \345\220\204\351\241\271", 11);
-  KS[2466] = mkstr("T", 1);
-  KS[2467] = mkstr("_0", 2);
-  KS[2468] = mkstr("@spawn", 6);
-  KS[2469] = mkstr("lambda \345\217\202\346\225\260 ", 14);
-  KS[2470] = mkstr("lambda \350\277\224\345\233\236\345\200\274", 16);
-  KS[2471] = mkstr("\346\234\252\345\256\232\344\271\211\347\232\204\345\220\215\345\255\227 ", 19);
-  KS[2472] = mkstr("\357\274\210\351\234\200\350\246\201 use std.", 18);
-  KS[2473] = mkstr(" \346\230\257\347\261\273\345\236\213\357\274\214\344\270\215\346\230\257\345\200\274", 22);
-  KS[2474] = mkstr("\345\217\257\345\217\230\345\217\202\346\225\260\347\232\204 extern fn ", 26);
-  KS[2475] = mkstr(" \345\217\252\350\203\275\347\233\264\346\216\245\350\260\203\347\224\250\357\274\214\344\270\215\350\203\275\345\275\223\344\275\234\345\200\274\344\275\277\347\224\250", 43);
-  KS[2476] = mkstr("\344\275\277\347\224\250 ", 7);
-  KS[2477] = mkstr("__c_", 4);
-  KS[2478] = mkstr("repanic", 7);
-  KS[2479] = mkstr("let ... else \347\232\204 else \345\235\227\345\277\205\351\241\273\350\267\263\345\207\272\357\274\210\344\273\245 return / break / continue / panic \347\273\223\345\260\276\357\274\211", 87);
-  KS[2480] = mkstr("match \345\256\210\345\215\253", 12);
-  KS[2481] = mkstr("match \345\210\206\346\224\257", 12);
-  KS[2482] = mkstr("match \345\220\204\345\210\206\346\224\257", 15);
-  KS[2483] = mkstr("\346\234\237\346\234\233 ", 7);
-  KS[2484] = mkstr("R", 1);
-  KS[2485] = mkstr("X", 1);
-  KS[2486] = mkstr("cmp", 3);
-  KS[2487] = mkstr("Add", 3);
-  KS[2488] = mkstr("Sub", 3);
-  KS[2489] = mkstr("Mul", 3);
-  KS[2490] = mkstr("Div", 3);
-  KS[2491] = mkstr("Rem", 3);
-  KS[2492] = mkstr("Neg", 3);
-  KS[2493] = mkstr("Cmp", 3);
-  KS[2494] = mkstr("-\357\274\210\345\217\226\350\264\237\357\274\211", 13);
-  KS[2495] = mkstr("\357\274\214\344\270\215\350\203\275\347\224\250\350\277\220\347\256\227\347\254\246 ", 22);
-  KS[2496] = mkstr("\357\274\210\345\234\250 impl ", 12);
-  KS[2497] = mkstr(" \351\207\214\345\256\232\344\271\211 fn ", 14);
-  KS[2498] = mkstr(".cmp \347\232\204\350\277\224\345\233\236\345\200\274", 17);
-  KS[2499] = mkstr("\346\210\226\346\250\241\345\274\217\347\232\204\346\257\217\344\270\252\345\210\206\346\224\257\345\277\205\351\241\273\347\273\221\345\256\232\347\233\270\345\220\214\347\232\204\345\217\230\351\207\217\357\274\232", 54);
-  KS[2500] = mkstr(" \344\270\216 ", 5);
-  KS[2501] = mkstr("\346\210\226\346\250\241\345\274\217\351\207\214\347\232\204 ", 16);
-  KS[2502] = mkstr("let", 3);
-  KS[2503] = mkstr("\346\250\241\345\274\217", 6);
-  KS[2504] = mkstr("\345\214\272\351\227\264\346\250\241\345\274\217\344\270\244\347\253\257\347\232\204\347\261\273\345\236\213\344\270\215\344\270\200\350\207\264", 36);
-  KS[2505] = mkstr("\345\214\272\351\227\264\346\250\241\345\274\217 ", 13);
-  KS[2506] = mkstr(" \346\230\257\347\251\272\347\232\204", 10);
-  KS[2507] = mkstr("\345\214\272\351\227\264\346\250\241\345\274\217", 12);
-  KS[2508] = mkstr(".. \345\217\252\350\203\275\345\207\272\347\216\260\345\234\250\345\205\203\347\273\204\343\200\201\345\217\230\344\275\223\346\210\226\345\210\227\350\241\250\346\250\241\345\274\217\351\207\214", 51);
-  KS[2509] = mkstr("\345\270\246 .. \347\232\204\345\205\203\347\273\204\346\250\241\345\274\217\351\234\200\350\246\201\345\267\262\347\237\245\351\225\277\345\272\246\347\232\204\345\205\203\347\273\204", 49);
-  KS[2510] = mkstr("\345\205\203\347\273\204", 6);
-  KS[2511] = mkstr("\345\205\203\347\273\204\346\250\241\345\274\217", 12);
-  KS[2512] = mkstr("\345\210\227\350\241\250\346\250\241\345\274\217", 12);
-  KS[2513] = mkstr("\346\250\241\345\274\217 ", 7);
-  KS[2514] = mkstr("\345\217\230\344\275\223 ", 7);
-  KS[2515] = mkstr(" \344\270\252\345\255\227\346\256\265\357\274\214\347\273\231\344\272\206 ", 20);
-  KS[2516] = mkstr("\345\270\270\351\207\217 ", 7);
-  KS[2517] = mkstr(" \347\232\204\345\200\274\344\270\215\346\230\257\345\255\227\351\235\242\351\207\217\357\274\214\344\270\215\350\203\275\347\224\250\344\275\234\346\250\241\345\274\217\357\274\210\350\257\267\346\224\271\347\224\250\345\256\210\345\215\253 if x == ", 70);
-  KS[2518] = mkstr("\346\234\252\347\237\245\347\232\204\345\217\230\344\275\223 ", 16);
-  KS[2519] = mkstr("\343\200\201", 3);
-  KS[2520] = mkstr("\357\274\210\346\227\240\357\274\211", 9);
-  KS[2521] = mkstr("\346\250\241\345\274\217\351\207\214\351\207\215\345\244\215\347\273\221\345\256\232\344\272\206 ", 25);
-  KS[2522] = mkstr("\357\274\232", 3);
-  KS[2523] = mkstr("Char", 4);
-  KS[2524] = mkstr("Bytes", 5);
-  KS[2525] = mkstr("select \345\256\210\345\215\253", 13);
-  KS[2526] = mkstr(" \347\232\204\351\200\232\351\201\223", 10);
-  KS[2527] = mkstr("send \347\232\204\345\200\274", 11);
-  KS[2528] = mkstr("select \347\232\204 recv \347\273\221\345\256\232\345\277\205\351\241\273\346\230\257\345\217\230\351\207\217\345\220\215\346\210\226 _\357\274\210\345\200\274\346\230\257 Option\357\274\214\345\234\250\345\210\206\346\224\257\351\207\214\345\206\215 match\357\274\211", 88);
-  KS[2529] = mkstr("after \347\232\204\346\257\253\347\247\222\346\225\260", 18);
-  KS[2530] = mkstr("select \345\220\204\345\210\206\346\224\257", 16);
-  KS[2531] = mkstr(" { .. }", 7);
-  KS[2532] = mkstr(", ..]", 5);
-  KS[2533] = mkstr("\347\261\273\345\236\213\351\224\231\350\257\257: \346\227\240\346\263\225\347\241\256\345\256\232 ", 27);
-  KS[2534] = mkstr(" \347\232\204\347\261\273\345\236\213\345\217\202\346\225\260\357\274\214\345\217\226\344\270\215\345\210\260\345\256\203\347\232\204\345\205\263\350\201\224\345\270\270\351\207\217 ", 47);
-  KS[2535] = mkstr(" \347\232\204\345\270\270\351\207\217\346\263\233\345\236\213\345\217\202\346\225\260\345\277\205\351\241\273\346\230\257\346\225\264\346\225\260\357\274\214\345\256\236\351\231\205\346\230\257 ", 50);
-  KS[2536] = mkstr(" \347\232\204\345\270\270\351\207\217\346\263\233\345\236\213\345\217\202\346\225\260\357\274\210\346\240\207\346\263\250\346\225\260\347\273\204\351\225\277\345\272\246\357\274\214\346\210\226\347\224\250 ", 53);
-  KS[2537] = mkstr(".<\342\200\246>(\342\200\246) \346\230\276\345\274\217\346\214\207\345\256\232\357\274\211", 27);
-  KS[2538] = mkstr("\347\261\273\345\236\213\351\224\231\350\257\257: ", 14);
-  KS[2539] = mkstr("\346\227\240\346\263\225\347\241\256\345\256\232 ", 13);
-  KS[2540] = mkstr(" \345\222\214 ", 5);
-  KS[2541] = mkstr(" \346\230\257\345\220\246\344\270\200\350\207\264\357\274\214\350\257\267\345\212\240\347\261\273\345\236\213\346\240\207\346\263\250", 34);
-  KS[2542] = mkstr("\357\274\210\347\273\231\346\263\233\345\236\213\345\217\202\346\225\260\345\212\240\347\272\246\346\235\237 ", 28);
-  KS[2543] = mkstr("\357\274\210\351\234\200\350\246\201 impl ", 15);
-  KS[2544] = mkstr(" \346\262\241\346\234\211\345\256\236\347\216\260 ", 14);
-  KS[2545] = mkstr("num", 3);
-  KS[2546] = mkstr("ord", 3);
-  KS[2547] = mkstr("\346\225\260\345\200\274\350\277\220\347\256\227", 12);
-  KS[2548] = mkstr("+ \350\277\220\347\256\227", 8);
-  KS[2549] = mkstr("\345\244\247\345\260\217\346\257\224\350\276\203", 12);
-  KS[2550] = mkstr("\347\261\273\345\236\213\351\224\231\350\257\257: \346\263\233\345\236\213 ", 21);
-  KS[2551] = mkstr(" \344\270\215\350\203\275\345\201\232 ", 11);
-  KS[2552] = mkstr("\357\274\214\350\257\267\345\212\240\347\272\246\346\235\237 ", 16);
-  KS[2553] = mkstr("\357\274\210\346\210\226\350\277\220\347\256\227\347\254\246 trait ", 22);
-  KS[2554] = mkstr("Sub/Mul/Div/Rem/Neg", 19);
-  KS[2555] = mkstr("\344\270\215\346\224\257\346\214\201\347\261\273\345\236\213 ", 16);
-  KS[2556] = mkstr("__sort_cmp", 10);
-  KS[2557] = mkstr("2", 1);
-  KS[2558] = mkstr("_cmp", 4);
-  KS[2559] = mkstr(" \351\234\200\350\246\201\345\217\257\346\257\224\350\276\203\347\232\204\345\205\203\347\264\240\357\274\214\350\257\267\347\273\231\346\263\233\345\236\213\345\212\240\347\272\246\346\235\237 ", 50);
-  KS[2560] = mkstr(": Ord \346\210\226 ", 10);
-  KS[2561] = mkstr(": Cmp", 5);
-  KS[2562] = mkstr("|Cmp", 4);
-  KS[2563] = mkstr(" \351\234\200\350\246\201\345\217\257\346\257\224\350\276\203\347\232\204\345\205\203\347\264\240\357\274\232", 28);
-  KS[2564] = mkstr(" \346\262\241\346\234\211\345\256\236\347\216\260 Cmp\357\274\210impl Cmp for ", 33);
-  KS[2565] = mkstr("let \347\232\204\347\261\273\345\236\213\346\240\207\346\263\250", 19);
-  KS[2566] = mkstr("return \345\217\252\350\203\275\345\207\272\347\216\260\345\234\250\345\207\275\346\225\260\351\207\214", 31);
-  KS[2567] = mkstr("spawn \344\273\273\345\212\241\351\207\214\344\270\215\350\203\275\347\224\250 return\357\274\210\344\273\273\345\212\241\347\232\204\345\200\274\345\260\261\346\230\257\345\256\203\347\232\204\350\241\250\350\276\276\345\274\217\357\274\211", 70);
-  KS[2568] = mkstr("return \347\232\204\345\200\274", 13);
-  KS[2569] = mkstr("while \346\235\241\344\273\266", 12);
-  KS[2570] = mkstr(" \344\270\215\345\217\257\350\277\255\344\273\243", 13);
-  KS[2571] = mkstr("\346\234\252\347\237\245\350\257\255\345\217\245 ", 13);
-  KS[2572] = mkstr(" \344\270\215\346\230\257\350\256\260\345\275\225\345\217\230\344\275\223\357\274\214\350\257\267\345\206\231 ", 29);
-  KS[2573] = mkstr("(\342\200\246)", 5);
-  KS[2574] = mkstr("\350\256\260\345\275\225\345\217\230\344\275\223 ", 13);
-  KS[2575] = mkstr(" \344\270\215\346\224\257\346\214\201 ..base \346\233\264\346\226\260", 24);
-  KS[2576] = mkstr(" \347\274\272\345\260\221\345\255\227\346\256\265 ", 14);
-  KS[2577] = mkstr("\346\234\252\347\237\245\347\273\223\346\236\204\344\275\223 ", 16);
-  KS[2578] = mkstr("..base\357\274\210\345\272\224\344\270\272 ", 16);
-  KS[2579] = mkstr("\345\255\227\346\256\265 ", 7);
-  KS[2580] = mkstr("__upd", 5);
-  KS[2581] = mkstr(" \345\270\246\345\270\270\351\207\217\346\263\233\345\236\213\345\217\202\346\225\260\357\274\214\350\277\231\351\207\214\350\257\267\345\206\231\346\210\220\350\260\203\347\224\250\345\275\242\345\274\217 ", 53);
-  KS[2582] = mkstr("\346\230\276\345\274\217\346\263\233\345\236\213\345\256\236\345\217\202 .<\342\200\246> \345\217\252\350\203\275\350\267\237\345\234\250\346\263\233\345\236\213\345\207\275\346\225\260\345\220\215\345\220\216\351\235\242", 59);
-  KS[2583] = mkstr(" \344\270\215\346\230\257\346\263\233\345\236\213\345\207\275\346\225\260\357\274\214\344\270\215\350\203\275\345\206\231 .<\342\200\246>", 38);
-  KS[2584] = mkstr(" \344\270\252\346\263\233\345\236\213\345\217\202\346\225\260\357\274\210", 19);
-  KS[2585] = mkstr("\357\274\211\357\274\214\347\273\231\344\272\206 ", 13);
-  KS[2586] = mkstr("\357\274\214\344\270\215\350\203\275\345\275\223\344\275\234 ", 16);
-  KS[2587] = mkstr("\357\274\210unsafe fn \344\270\215\350\203\275\345\275\223\346\231\256\351\200\232\345\207\275\346\225\260\347\224\250\357\274\211", 40);
-  KS[2588] = mkstr("\357\274\210\345\210\227\350\241\250\347\232\204\351\225\277\345\272\246\347\274\226\350\257\221\346\234\237\346\234\252\347\237\245\357\274\232\347\233\264\346\216\245\344\274\240\346\225\260\347\273\204\345\255\227\351\235\242\351\207\217\357\274\214\346\210\226\347\273\231\345\217\230\351\207\217\346\240\207\346\263\250 [T; n]\357\274\211", 91);
-  KS[2589] = mkstr("kitec \346\234\252\346\224\257\346\214\201: ", 17);
-  KS[2590] = mkstr("mod", 3);
-  KS[2591] = mkstr("\346\234\252\347\237\245\346\240\207\345\207\206\345\272\223\346\250\241\345\235\227 std.", 26);
-  KS[2592] = mkstr(" \350\207\263\345\260\221\351\234\200\350\246\201 ", 14);
-  KS[2593] = mkstr(" \347\232\204\345\217\202\346\225\260", 10);
-  KS[2594] = mkstr("__va_", 5);
-  KS[2595] = mkstr(" \347\232\204\345\217\257\345\217\230\345\217\202\346\225\260\344\270\215\350\203\275\346\230\257 ", 26);
-  KS[2596] = mkstr("\357\274\210\345\217\252\346\224\257\346\214\201 Int\343\200\201Float\343\200\201Bool\343\200\201Str\343\200\201Ptr\357\274\211", 46);
-  KS[2597] = mkstr("\347\261\273\345\236\213\351\224\231\350\257\257: trait \351\207\214\346\262\241\346\234\211 self \347\232\204\346\226\271\346\263\225\344\270\215\350\203\275\344\275\277\347\224\250 Self.", 62);
-  KS[2598] = mkstr("\346\240\274\345\274\217\345\214\226\345\231\250\345\206\205\351\203\250\351\224\231\350\257\257\357\274\232\350\276\223\345\207\272\346\224\271\345\217\230\344\272\206\347\250\213\345\272\217\345\220\253\344\271\211\357\274\214\345\267\262\346\224\276\345\274\203\357\274\210\350\257\267\346\212\245\345\221\212\346\255\244\346\226\207\344\273\266\357\274\211", 90);
-  KS[2599] = mkstr("type", 4);
-  KS[2600] = mkstr("->", 2);
-  KS[2601] = mkstr("x0b", 3);
-  KS[2602] = mkstr("(expr, ", 7);
-  KS[2603] = mkstr("OPx01'>'", 8);
-  KS[2604] = mkstr("x01", 3);
-  KS[2605] = mkstr("=>", 2);
-  KS[2606] = mkstr("if", 2);
-  KS[2607] = mkstr("/*", 2);
-  KS[2608] = mkstr("*/", 2);
-  KS[2609] = mkstr("\345\235\227\346\263\250\351\207\212\346\234\252\351\227\255\345\220\210", 18);
-  KS[2610] = mkstr("\345\216\237\345\247\213\345\255\227\347\254\246\344\270\262\346\234\252\351\227\255\345\220\210", 24);
-  KS[2611] = mkstr("other", 5);
-  KS[2612] = mkstr("__main.", 7);
-  KS[2613] = mkstr("super", 5);
-  KS[2614] = mkstr("super \346\230\257\344\277\235\347\225\231\345\220\215\345\255\227\357\274\214\344\270\215\350\203\275\347\224\250\344\275\234\346\250\241\345\235\227\345\220\215", 45);
-  KS[2615] = mkstr("\346\250\241\345\235\227 ", 7);
-  KS[2616] = mkstr(" \351\207\215\345\244\215\345\256\232\344\271\211", 13);
-  KS[2617] = mkstr("\345\206\205\350\201\224\346\250\241\345\235\227 ", 13);
-  KS[2618] = mkstr(" \345\222\214\345\267\262\346\234\211\346\250\241\345\235\227 ", 17);
-  KS[2619] = mkstr(" \351\207\215\345\220\215", 7);
-  KS[2620] = mkstr("kite.lock", 9);
-  KS[2621] = mkstr("\012[[end]]", 8);
-  KS[2622] = mkstr("\344\276\235\350\265\226\345\214\205\357\274\210\350\277\230\346\262\241\346\234\211 kite.lock\357\274\214\345\205\210\350\277\220\350\241\214 kite get\357\274\211", 55);
-  KS[2623] = mkstr("name =", 6);
-  KS[2624] = mkstr("version =", 9);
-  KS[2625] = mkstr("source =", 8);
-  KS[2626] = mkstr("\344\276\235\350\265\226\345\214\205 ", 10);
-  KS[2627] = mkstr(" \350\277\230\346\262\241\345\256\211\350\243\205\357\274\210\345\205\210\350\277\220\350\241\214 kite get\357\274\211", 37);
-  KS[2628] = mkstr(" \351\207\214\346\262\241\346\234\211 ", 11);
-  KS[2629] = mkstr(" \346\230\257\347\247\201\346\234\211\347\232\204\357\274\210\345\234\250\345\256\232\344\271\211\345\211\215\345\212\240 pub \346\211\215\350\203\275\350\242\253\345\205\266\344\273\226\346\250\241\345\235\227\344\275\277\347\224\250\357\274\211", 66);
-  KS[2630] = mkstr("pkg", 3);
-  KS[2631] = mkstr("\346\234\254\345\214\205", 6);
-  KS[2632] = mkstr("\346\211\200\345\234\250\347\233\256\345\275\225\347\232\204\346\250\241\345\235\227", 21);
-  KS[2633] = mkstr(" \346\230\257 pub(", 9);
-  KS[2634] = mkstr(")\357\274\214\345\217\252\345\257\271", 10);
-  KS[2635] = mkstr("\345\217\257\350\247\201", 6);
-  KS[2636] = mkstr("mod.kite", 8);
-  KS[2637] = mkstr(" \344\270\213\346\262\241\346\234\211\346\250\241\345\235\227 ", 17);
-  KS[2638] = mkstr("\346\211\276\344\270\215\345\210\260\346\250\241\345\235\227 ", 16);
-  KS[2639] = mkstr("__lm", 4);
-  KS[2640] = mkstr("\346\250\241\345\235\227\345\276\252\347\216\257\345\274\225\347\224\250: ", 20);
-  KS[2641] = mkstr("\344\270\273\346\226\207\344\273\266", 9);
-  KS[2642] = mkstr("\346\236\232\344\270\276\345\217\230\344\275\223 ", 13);
-  KS[2643] = mkstr(" \345\234\250 ", 5);
-  KS[2644] = mkstr(" \344\270\255\351\207\215\345\244\215\345\256\232\344\271\211\357\274\210\345\217\230\344\275\223\347\233\256\345\211\215\346\230\257\345\205\250\345\261\200\345\220\215\345\255\227\357\274\211", 49);
-  KS[2645] = mkstr("../..", 5);
-  KS[2646] = mkstr("\346\227\240\346\263\225\350\257\273\345\217\226 ", 13);
-  KS[2647] = mkstr("internal", 8);
-  KS[2648] = mkstr("\344\270\215\350\203\275\344\275\277\347\224\250\345\206\205\351\203\250\346\250\241\345\235\227 std.", 29);
-  KS[2649] = mkstr("\357\274\210\345\217\252\344\276\233 ", 10);
-  KS[2650] = mkstr(" \345\217\212\345\205\266\345\255\220\346\250\241\345\235\227\344\275\277\347\224\250\357\274\211", 25);
-  KS[2651] = mkstr("\357\274\210\346\262\241\346\234\211 ", 10);
-  KS[2652] = mkstr("\357\274\214\344\271\237\344\270\215\346\230\257 kite.toml \351\207\214\347\232\204\344\276\235\350\265\226\357\274\211", 38);
-  KS[2653] = mkstr(" \346\262\241\346\234\211 src/lib.kite", 20);
-  KS[2654] = mkstr(".super \345\217\252\350\203\275\345\234\250\346\250\241\345\235\227 ", 23);
-  KS[2655] = mkstr(" \345\206\205\351\203\250\344\275\277\347\224\250", 13);
-  KS[2656] = mkstr(" \346\230\257\347\247\201\346\234\211\346\250\241\345\235\227\357\274\210\345\206\231 pub mod ", 31);
-  KS[2657] = mkstr(" \346\211\215\350\203\275\345\234\250\345\244\226\351\235\242\344\275\277\347\224\250\357\274\211", 25);
-  KS[2658] = mkstr("\345\207\275\346\225\260\344\275\223\351\207\214\344\270\215\346\224\257\346\214\201 use m.*\357\274\214\350\257\267\351\200\220\344\270\252\345\210\227\345\207\272\345\220\215\345\255\227", 53);
-  KS[2659] = mkstr("__lmu", 5);
-  KS[2660] = mkstr("const", 5);
-  KS[2661] = mkstr("\350\257\255\346\263\225\351\224\231\350\257\257: \345\270\270\351\207\217\345\220\215\345\277\205\351\241\273\344\273\245\345\244\247\345\206\231\345\255\227\346\257\215\345\274\200\345\244\264\357\274\232", 53);
-  KS[2662] = mkstr("\350\257\255\346\263\225\351\224\231\350\257\257: \345\205\263\350\201\224\345\270\270\351\207\217 ", 27);
-  KS[2663] = mkstr(" \351\207\215\345\244\215", 7);
-  KS[2664] = mkstr("\350\257\255\346\263\225\351\224\231\350\257\257: impl \351\207\214\347\232\204\345\205\263\350\201\224\345\270\270\351\207\217 ", 38);
-  KS[2665] = mkstr(" \345\277\205\351\241\273\346\234\211\345\210\235\345\200\274", 16);
-  KS[2666] = mkstr("async \345\235\227\347\232\204\345\200\274", 15);
-  KS[2667] = mkstr("async \351\227\255\345\214\205\347\232\204\350\277\224\345\233\236\345\200\274", 24);
-  KS[2668] = mkstr("\350\257\255\346\263\225\351\224\231\350\257\257: async \345\220\216\351\235\242\345\272\224\350\257\245\346\230\257 { \345\235\227 }\343\200\201\351\227\255\345\214\205\346\210\226 fn", 58);
-  KS[2669] = mkstr("INT", 3);
-  KS[2670] = mkstr("FLOAT", 5);
-  KS[2671] = mkstr("\350\257\255\346\263\225\351\224\231\350\257\257: \345\261\236\346\200\247\345\217\202\346\225\260\345\217\252\350\203\275\346\230\257\345\255\227\351\235\242\351\207\217\357\274\210\346\225\264\346\225\260\343\200\201\346\265\256\347\202\271\343\200\201\345\255\227\347\254\246\344\270\262\343\200\201true/false\357\274\211\346\210\226\345\220\215\345\255\227", 99);
-  KS[2672] = mkstr("\350\257\255\346\263\225\351\224\231\350\257\257: \346\234\252\347\237\245\345\261\236\346\200\247 @", 28);
-  KS[2673] = mkstr("\357\274\210\346\224\257\346\214\201: ", 11);
-  KS[2674] = mkstr("|>", 2);
-  KS[2675] = mkstr("\350\257\255\346\263\225\351\224\231\350\257\257: \347\256\241\351\201\223 |> \347\232\204\345\217\263\344\276\247\345\217\252\350\203\275\346\230\257\345\207\275\346\225\260\346\210\226\350\260\203\347\224\250\357\274\214\344\270\215\344\274\232\345\220\270\346\224\266\345\220\216\351\235\242\347\232\204 ", 82);
-  KS[2676] = mkstr("\357\274\233\350\257\267\345\206\231\346\210\220 (a |> f) ", 22);
-  KS[2677] = mkstr(" \342\200\246", 4);
-  KS[2678] = mkstr("\350\257\255\346\263\225\351\224\231\350\257\257: ", 14);
-  KS[2679] = mkstr(" \344\270\215\345\217\257\350\277\236\347\224\250\357\274\210\346\257\224\350\276\203\344\270\215\345\217\257\347\273\223\345\220\210\357\274\211\357\274\232a < b < c \350\257\267\345\206\231\346\210\220 a < b && b < c", 74);
-  KS[2680] = mkstr("is", 2);
-  KS[2681] = mkstr("else", 4);
-  KS[2682] = mkstr("\350\257\255\346\263\225\351\224\231\350\257\257: \350\257\255\345\217\245\345\220\216\345\207\272\347\216\260\346\204\217\345\244\226\347\232\204 ", 39);
-  KS[2683] = mkstr("\350\257\255\346\263\225\351\224\231\350\257\257: \345\217\230\344\275\223 ", 21);
-  KS[2684] = mkstr(" \347\232\204\345\255\227\346\256\265 ", 11);
-  KS[2685] = mkstr("\350\257\255\346\263\225\351\224\231\350\257\257: \350\256\260\345\275\225\345\217\230\344\275\223 ", 27);
-  KS[2686] = mkstr(" \350\207\263\345\260\221\350\246\201\346\234\211\344\270\200\344\270\252\345\255\227\346\256\265\357\274\210\346\227\240\345\255\227\346\256\265\350\257\267\347\233\264\346\216\245\345\206\231 ", 50);
-  KS[2687] = mkstr("\350\257\255\346\263\225\351\224\231\350\257\257: \346\234\237\346\234\233 ", 21);
-  KS[2688] = mkstr("\350\257\255\346\263\225\351\224\231\350\257\257: \346\234\237\346\234\233\346\240\207\350\257\206\347\254\246\357\274\214\345\256\236\351\231\205\346\230\257 ", 42);
-  KS[2689] = mkstr("\350\257\255\346\263\225\351\224\231\350\257\257: \345\217\252\346\224\257\346\214\201 extern \"C\"\357\274\214\344\270\215\346\224\257\346\214\201 ", 47);
-  KS[2690] = mkstr("\350\257\255\346\263\225\351\224\231\350\257\257: extern \345\235\227\351\207\214\345\217\252\350\203\275\345\206\231 fn \347\255\276\345\220\215", 46);
-  KS[2691] = mkstr("\350\257\255\346\263\225\351\224\231\350\257\257: extern fn ", 24);
-  KS[2692] = mkstr(" \344\270\215\350\203\275\346\234\211\345\207\275\346\225\260\344\275\223", 19);
-  KS[2693] = mkstr(" \344\270\215\350\203\275\346\234\211\346\263\233\345\236\213\345\217\202\346\225\260", 22);
-  KS[2694] = mkstr("doc", 3);
-  KS[2695] = mkstr("allow", 5);
-  KS[2696] = mkstr("\350\257\255\346\263\225\351\224\231\350\257\257: @", 15);
-  KS[2697] = mkstr(" \344\270\215\350\203\275\347\224\250\345\234\250 extern fn \344\270\212", 27);
-  KS[2698] = mkstr("x", 1);
-  KS[2699] = mkstr("o", 1);
-  KS[2700] = mkstr("async", 5);
-  KS[2701] = mkstr("\350\257\255\346\263\225\351\224\231\350\257\257: \345\217\252\346\234\211 extern fn \345\217\257\344\273\245\346\234\211\345\217\257\345\217\230\345\217\202\346\225\260 ...", 56);
-  KS[2702] = mkstr("\350\257\255\346\263\225\351\224\231\350\257\257: \345\270\270\351\207\217\346\263\233\345\236\213\345\217\202\346\225\260\345\220\215\345\277\205\351\241\273\344\273\245\345\244\247\345\206\231\345\255\227\346\257\215\345\274\200\345\244\264\357\274\232", 65);
-  KS[2703] = mkstr("\350\257\255\346\263\225\351\224\231\350\257\257: \345\270\270\351\207\217\346\263\233\345\236\213\345\217\202\346\225\260 ", 33);
-  KS[2704] = mkstr(" \347\233\256\345\211\215\345\217\252\346\224\257\346\214\201 Int \347\261\273\345\236\213", 27);
-  KS[2705] = mkstr("for", 3);
-  KS[2706] = mkstr("\350\257\255\346\263\225\351\224\231\350\257\257: \345\205\263\350\201\224\347\261\273\345\236\213 ", 27);
-  KS[2707] = mkstr("link", 4);
-  KS[2708] = mkstr("\350\257\255\346\263\225\351\224\231\350\257\257: extern \345\235\227\345\211\215\345\217\252\350\203\275\347\224\250 @link / @doc / @allow\357\274\214\344\270\215\350\203\275\347\224\250 @", 72);
-  KS[2709] = mkstr("\350\257\255\346\263\225\351\224\231\350\257\257: @link \345\217\252\350\203\275\347\224\250\345\234\250 extern \345\235\227\344\270\212", 46);
-  KS[2710] = mkstr("\350\257\255\346\263\225\351\224\231\350\257\257: \345\261\236\346\200\247\345\217\252\350\203\275\346\224\276\345\234\250\345\243\260\346\230\216\357\274\210fn type enum trait impl const\357\274\211\345\211\215\351\235\242", 79);
-  KS[2711] = mkstr("inline", 6);
-  KS[2712] = mkstr("cold", 4);
-  KS[2713] = mkstr(" \345\217\252\350\203\275\347\224\250\345\234\250 fn \344\270\212", 20);
-  KS[2714] = mkstr("\350\257\255\346\263\225\351\224\231\350\257\257: \345\217\257\350\247\201\346\200\247\345\217\252\350\203\275\346\230\257 pub\343\200\201pub(pkg) \346\210\226 pub(mod)\357\274\214\344\270\215\350\203\275\345\206\231 pub(", 77);
-  KS[2715] = mkstr("\350\257\255\346\263\225\351\224\231\350\257\257: \345\207\275\346\225\260\344\275\223\351\207\214\345\217\252\350\203\275\345\206\231\345\206\205\350\201\224 mod \345\235\227 mod m { \342\200\246 }", 63);
-  KS[2716] = mkstr("\350\257\255\346\263\225\351\224\231\350\257\257: \345\206\205\350\201\224 mod \345\235\227\347\232\204\345\220\215\345\255\227\345\217\252\350\203\275\346\230\257\344\270\200\344\270\252\346\240\207\350\257\206\347\254\246", 61);
-  KS[2717] = mkstr("\350\257\255\346\263\225\351\224\231\350\257\257: mod ", 18);
-  KS[2718] = mkstr(" \347\274\272\345\260\221 }", 9);
-  KS[2719] = mkstr("\350\257\255\346\263\225\351\224\231\350\257\257: extern \345\235\227\345\217\252\350\203\275\345\206\231\345\234\250\351\241\266\345\261\202", 42);
-  KS[2720] = mkstr("\350\257\255\346\263\225\351\224\231\350\257\257: \351\241\266\345\261\202\344\270\215\350\203\275\347\224\250 ", 30);
-  KS[2721] = mkstr("\357\274\233\345\205\250\345\261\200\345\270\270\351\207\217\350\257\267\345\206\231 const NAME: T = \342\200\246\357\274\214\345\217\257\345\217\230\347\212\266\346\200\201\350\257\267\346\224\276\350\277\233\345\207\275\346\225\260\351\207\214", 74);
-  KS[2722] = mkstr("\350\257\255\346\263\225\351\224\231\350\257\257: \351\241\266\345\261\202\345\217\252\345\205\201\350\256\270\345\243\260\346\230\216\357\274\210fn type enum trait impl use mod const\357\274\211\357\274\214\350\257\255\345\217\245\350\257\267\346\224\276\350\277\233 fn main", 104);
-  KS[2723] = mkstr("match", 5);
-  KS[2724] = mkstr("\350\257\255\346\263\225\351\224\231\350\257\257: ... \345\217\252\350\203\275\346\230\257\346\234\200\345\220\216\344\270\200\344\270\252\345\217\202\346\225\260", 45);
-  KS[2725] = mkstr("\350\257\255\346\263\225\351\224\231\350\257\257: - \345\220\216\351\235\242\345\277\205\351\241\273\346\230\257\346\225\260\345\255\227", 37);
-  KS[2726] = mkstr("\350\257\255\346\263\225\351\224\231\350\257\257: \346\250\241\345\274\217\351\207\214\347\232\204\345\255\227\347\254\246\344\270\262\344\270\215\350\203\275\346\234\211\346\217\222\345\200\274", 50);
-  KS[2727] = mkstr("\350\257\255\346\263\225\351\224\231\350\257\257: \346\234\237\346\234\233\345\255\227\351\235\242\351\207\217\357\274\214\345\256\236\351\231\205\346\230\257 ", 42);
-  KS[2728] = mkstr("\350\257\255\346\263\225\351\224\231\350\257\257: var \345\220\216\351\235\242\345\277\205\351\241\273\346\230\257\345\260\217\345\206\231\347\232\204\347\273\221\345\256\232\345\220\215", 51);
-  KS[2729] = mkstr("\350\257\255\346\263\225\351\224\231\350\257\257: \345\214\272\351\227\264\346\250\241\345\274\217 .. \345\220\216\351\235\242\351\234\200\350\246\201\345\255\227\351\235\242\351\207\217", 51);
-  KS[2730] = mkstr("\350\257\255\346\263\225\351\224\231\350\257\257: \346\227\240\346\225\210\347\232\204\346\250\241\345\274\217 ", 30);
-  KS[2731] = mkstr("\350\257\255\346\263\225\351\224\231\350\257\257: \346\250\241\345\274\217\351\207\214\347\232\204 Self \345\217\252\350\203\275\347\224\250\345\234\250 impl \351\207\214", 53);
-  KS[2732] = mkstr("\350\257\255\346\263\225\351\224\231\350\257\257: @ \345\267\246\350\276\271\345\277\205\351\241\273\346\230\257\345\260\217\345\206\231\347\232\204\347\273\221\345\256\232\345\220\215", 49);
-  KS[2733] = mkstr("await", 5);
-  KS[2734] = mkstr("\350\257\255\346\263\225\351\224\231\350\257\257: .await \345\217\252\350\203\275\347\224\250\345\234\250 async fn\343\200\201async \345\235\227\346\210\226 async \351\227\255\345\214\205\351\207\214", 73);
-  KS[2735] = mkstr("\350\257\255\346\263\225\351\224\231\350\257\257: .<> \351\207\214\350\207\263\345\260\221\350\246\201\346\234\211\344\270\200\344\270\252\347\261\273\345\236\213", 45);
-  KS[2736] = mkstr("\350\257\255\346\263\225\351\224\231\350\257\257: \347\251\272\347\232\204\345\255\227\347\254\246\344\270\262\346\217\222\345\200\274 {}\357\274\210\345\255\227\351\235\242\347\232\204 { \345\206\231\346\210\220 \\{\357\274\211", 65);
-  KS[2737] = mkstr("\350\257\255\346\263\225\351\224\231\350\257\257: \345\255\227\347\254\246\344\270\262\346\217\222\345\200\274\351\207\214\350\241\250\350\276\276\345\274\217\345\220\216\351\235\242\346\234\211\345\244\232\344\275\231\345\206\205\345\256\271 ", 63);
-  KS[2738] = mkstr("\350\257\255\346\263\225\351\224\231\350\257\257: \346\227\240\346\225\210\347\232\204\346\240\274\345\274\217\350\257\264\346\230\216 ", 36);
-  KS[2739] = mkstr("\357\274\210[[\345\241\253\345\205\205]\345\257\271\351\275\220][0][\345\256\275\345\272\246][.\347\262\276\345\272\246][x|X|o|b|e|\077]\357\274\211", 55);
-  KS[2740] = mkstr("select", 6);
-  KS[2741] = mkstr("race", 4);
-  KS[2742] = mkstr("\350\257\255\346\263\225\351\224\231\350\257\257: race \350\207\263\345\260\221\350\246\201\346\234\211\344\270\200\351\241\271", 37);
-  KS[2743] = mkstr("loop", 4);
-  KS[2744] = mkstr("LABEL", 5);
-  KS[2745] = mkstr("\350\257\255\346\263\225\351\224\231\350\257\257: \350\241\250\350\276\276\345\274\217\351\207\214\347\232\204\346\240\207\347\255\276 '", 37);
-  KS[2746] = mkstr(" \345\220\216\351\235\242\345\277\205\351\241\273\346\230\257 loop", 21);
-  KS[2747] = mkstr("\350\257\255\346\263\225\351\224\231\350\257\257: \346\204\217\345\244\226\347\232\204 ", 24);
-  KS[2748] = mkstr("default", 7);
-  KS[2749] = mkstr("\350\257\255\346\263\225\351\224\231\350\257\257: select \347\232\204\345\210\206\346\224\257\345\277\205\351\241\273\346\230\257 recv(\351\200\232\351\201\223)\343\200\201send(\351\200\232\351\201\223, \345\200\274)\343\200\201after(\346\257\253\347\247\222) \346\210\226 _", 94);
-  KS[2750] = mkstr("\350\257\255\346\263\225\351\224\231\350\257\257: select \350\207\263\345\260\221\350\246\201\346\234\211\344\270\200\344\270\252 recv \346\210\226 send \345\210\206\346\224\257", 60);
-  KS[2751] = mkstr("\350\257\255\346\263\225\351\224\231\350\257\257: select \346\234\200\345\244\232\345\217\252\350\203\275\346\234\211\344\270\200\344\270\252 after \346\210\226 _ \345\210\206\346\224\257\357\274\210\344\272\214\350\200\205\344\270\215\350\203\275\345\220\214\346\227\266\345\207\272\347\216\260\357\274\211", 91);
-  KS[2752] = mkstr("\350\257\255\346\263\225\351\224\231\350\257\257: \344\270\200\344\270\252\345\272\217\345\210\227\346\250\241\345\274\217\351\207\214\345\217\252\350\203\275\346\234\211\344\270\200\344\270\252 ..", 53);
-  KS[2753] = mkstr("\350\257\255\346\263\225\351\224\231\350\257\257: \345\205\203\347\273\204 / \345\217\230\344\275\223\346\250\241\345\274\217\351\207\214\347\232\204 .. \344\270\215\350\203\275\347\273\221\345\256\232\345\220\215\345\255\227", 63);
-  KS[2754] = mkstr("\350\257\255\346\263\225\351\224\231\350\257\257: const \347\232\204\345\220\215\345\255\227\345\277\205\351\241\273\344\273\245\345\244\247\345\206\231\345\255\227\346\257\215\345\274\200\345\244\264\357\274\210", 59);
-  KS[2755] = mkstr("return", 6);
-  KS[2756] = mkstr("while", 5);
-  KS[2757] = mkstr("\350\257\255\346\263\225\351\224\231\350\257\257: \346\240\207\347\255\276 '", 22);
-  KS[2758] = mkstr(" \345\220\216\351\235\242\345\277\205\351\241\273\346\230\257 while / for / loop", 35);
-  KS[2759] = mkstr("in", 2);
-  KS[2760] = mkstr("\350\257\255\346\263\225\351\224\231\350\257\257: ..base \345\277\205\351\241\273\346\230\257\347\273\223\346\236\204\344\275\223\345\255\227\351\235\242\351\207\217\347\232\204\346\234\200\345\220\216\344\270\200\351\241\271", 63);
-  KS[2761] = mkstr("\350\257\255\346\263\225\351\224\231\350\257\257: \346\225\260\347\273\204\351\225\277\345\272\246\344\270\215\350\203\275\346\230\257\350\264\237\346\225\260", 41);
-  KS[2762] = mkstr("\350\257\255\346\263\225\351\224\231\350\257\257: \345\210\206\347\273\204\346\210\226\351\200\232\351\205\215\345\257\274\345\205\245\344\270\215\350\203\275\346\225\264\344\275\223\346\224\271\345\220\215\357\274\210\345\234\250 { } \351\207\214\351\200\220\351\241\271\345\206\231 as\357\274\211", 82);
-  KS[2763] = mkstr("where", 5);
-  KS[2764] = mkstr("\350\257\255\346\263\225\351\224\231\350\257\257: where \345\255\220\345\217\245\351\207\214\347\232\204 ", 33);
-  KS[2765] = mkstr(" \344\270\215\346\230\257\346\263\233\345\236\213\345\217\202\346\225\260\357\274\210\347\233\256\345\211\215\345\217\252\346\224\257\346\214\201\347\272\246\346\235\237\346\263\233\345\236\213\345\217\202\346\225\260\357\274\211", 58);
-  KS[2766] = mkstr("\351\235\236\346\263\225\347\232\204\346\225\260\345\255\227\345\255\227\351\235\242\351\207\217 ", 25);
-  KS[2767] = mkstr("\346\234\252\347\237\245\347\232\204\350\275\254\344\271\211 \\", 17);
-  KS[2768] = mkstr("\345\255\227\347\254\246\345\255\227\351\235\242\351\207\217\345\217\252\350\203\275\345\214\205\345\220\253\344\270\200\344\270\252\345\255\227\347\254\246", 39);
-  KS[2769] = mkstr("\345\255\227\347\254\246\345\255\227\351\235\242\351\207\217\345\217\252\350\203\275\345\214\205\345\220\253\344\270\200\344\270\252\345\255\227\347\254\246\357\274\210\345\255\227\347\254\246\344\270\262\350\257\267\347\224\250\345\217\214\345\274\225\345\217\267\357\274\211", 69);
-  KS[2770] = mkstr("\345\255\227\347\254\246\344\270\262\346\217\222\345\200\274\346\234\252\351\227\255\345\220\210", 24);
-  KS[2771] = mkstr("\346\227\240\346\263\225\350\257\206\345\210\253\347\232\204\345\255\227\347\254\246 ", 22);
-  KS[2772] = mkstr("\000none", 5);
-  KS[2773] = mkstr("\\x", 2);
-  KS[2774] = mkstr("\\U", 2);
-  KS[2775] = mkstr("abcdefghijklmnopqrstuvwxyz", 26);
-  KS[2776] = mkstr("unsafe ", 7);
-  KS[2777] = mkstr("Q", 1);
-  KS[2778] = mkstr("R[", 2);
-  KS[2779] = mkstr("D{", 2);
-  KS[2780] = mkstr("\\u{", 3);
-  KS[2781] = mkstr("\346\227\240\346\225\210\347\232\204\347\211\210\346\234\254\347\272\246\346\235\237 ", 22);
-  KS[2782] = mkstr("= \347\272\246\346\235\237\351\234\200\350\246\201\345\256\214\346\225\264\347\211\210\346\234\254\345\217\267: ", 31);
-  KS[2783] = mkstr("\346\227\240\346\225\210\347\232\204\347\211\210\346\234\254\345\217\267 ", 19);
-  KS[2784] = mkstr("\357\274\210\345\272\224\344\270\272 \344\270\273.\346\254\241.\344\277\256\350\256\242\357\274\214\344\276\213\345\246\202 1.2.0\357\274\211", 42);
-  KS[2785] = mkstr("runtime error: integer overflow", 31);
-  KS[2786] = mkstr("runtime error: integer divide by zero", 37);
-  KS[2787] = mkstr("\345\221\275\344\273\244 ", 7);
-  KS[2788] = mkstr(" \345\244\261\350\264\245\357\274\214\351\200\200\345\207\272\347\240\201 ", 20);
-  KS[2789] = mkstr("strconv: illegal AppendFloat/FormatFloat bitSize", 48);
-  KS[2790] = mkstr("NaN", 3);
-  KS[2791] = mkstr("-Inf", 4);
-  KS[2792] = mkstr("+Inf", 4);
-  KS[2793] = mkstr("format_int: \350\277\233\345\210\266\345\277\205\351\241\273\345\234\250 2 \345\210\260 36 \344\271\213\351\227\264", 43);
-  KS[2794] = mkstr("0123456789abcdefghijklmnopqrstuvwxyz", 36);
-  KS[2795] = mkstr("strconv: illegal AppendInt/FormatInt base", 41);
-  KS[2796] = mkstr("strconv.", 8);
-  KS[2797] = mkstr(": parsing ", 10);
-  KS[2798] = mkstr("TRUE", 4);
-  KS[2799] = mkstr("FALSE", 5);
-  KS[2800] = mkstr("\346\227\240\346\263\225\350\247\243\346\236\220\344\270\272\345\270\203\345\260\224\345\200\274: ", 26);
-  KS[2801] = mkstr("ParseFloat", 10);
-  KS[2802] = mkstr("invalid syntax", 14);
-  KS[2803] = mkstr("value out of range", 18);
-  KS[2804] = mkstr("\346\227\240\346\263\225\346\214\211 ", 10);
-  KS[2805] = mkstr(" \350\277\233\345\210\266\350\247\243\346\236\220: ", 15);
-  KS[2806] = mkstr("\350\277\233\345\210\266\345\277\205\351\241\273\345\234\250 2 \345\210\260 36 \344\271\213\351\227\264: ", 33);
-  KS[2807] = mkstr("\350\266\205\345\207\272 Int \350\214\203\345\233\264: ", 19);
-  KS[2808] = mkstr("infinity", 8);
-  KS[2809] = mkstr("\344\270\215\346\230\257\345\270\246\345\274\225\345\217\267\347\232\204\345\255\227\347\254\246\344\270\262: ", 29);
-  KS[2810] = mkstr("\345\255\227\347\254\246\344\270\262\344\270\255\351\227\264\346\234\211\346\234\252\350\275\254\344\271\211\347\232\204\345\274\225\345\217\267", 36);
-  KS[2811] = mkstr("\350\275\254\344\271\211\345\272\217\345\210\227\344\270\215\345\256\214\346\225\264", 21);
-  KS[2812] = mkstr("\346\234\252\347\237\245\347\232\204\350\275\254\344\271\211: \\", 18);
-  KS[2813] = mkstr("\\u{\342\200\246} \351\207\214\346\234\211\351\235\236\345\215\201\345\205\255\350\277\233\345\210\266\345\255\227\347\254\246", 35);
-  KS[2814] = mkstr("\\u{ \346\262\241\346\234\211\351\227\255\345\220\210", 16);
-  KS[2815] = mkstr("\346\227\240\346\225\210\347\232\204\347\240\201\347\202\271: ", 17);
-  KS[2816] = mkstr("ms", 2);
-  KS[2817] = mkstr("      ", 6);
-  KS[2818] = mkstr("-v", 2);
-  KS[2819] = mkstr("--native", 8);
-  KS[2820] = mkstr("--tree", 6);
-  KS[2821] = mkstr("--tree\357\274\210\346\240\221\351\201\215\345\216\206\350\247\243\351\207\212\345\231\250\357\274\211\345\267\262\345\272\237\345\274\203", 39);
-  KS[2822] = mkstr("tests", 5);
-  KS[2823] = mkstr("\347\224\250\346\263\225: kite test [\350\277\207\346\273\244\350\257\215] [\346\226\207\344\273\266/\347\233\256\345\275\225...]\357\274\210\344\270\215\345\234\250 Kite \345\214\205\351\207\214\346\227\266\351\234\200\350\246\201\347\273\231\345\207\272\346\226\207\344\273\266\357\274\211", 93);
-  KS[2824] = mkstr("kite_test_", 10);
-  KS[2825] = mkstr("\012  \342\234\227 ", 7);
-  KS[2826] = mkstr("\357\274\210\345\212\240\350\275\275\345\244\261\350\264\245\357\274\211", 18);
-  KS[2827] = mkstr("\357\274\210\347\261\273\345\236\213\346\243\200\346\237\245\345\244\261\350\264\245\357\274\211", 24);
-  KS[2828] = mkstr("  \342\234\227 ", 6);
-  KS[2829] = mkstr("  \342\234\227 \347\274\226\350\257\221\345\244\261\350\264\245: ", 20);
-  KS[2830] = mkstr("  \342\234\223 ", 6);
-  KS[2831] = mkstr("::", 2);
-  KS[2832] = mkstr("      \342\224\200\342\224\200 \350\276\223\345\207\272 \342\224\200\342\224\200", 26);
-  KS[2833] = mkstr("\346\262\241\346\234\211\346\211\276\345\210\260\346\265\213\350\257\225\357\274\210\346\265\213\350\257\225\346\230\257\345\220\215\345\255\227\344\273\245 test_ \345\274\200\345\244\264\343\200\201\346\262\241\346\234\211\345\217\202\346\225\260\347\232\204\351\241\266\345\261\202\345\207\275\346\225\260\357\274\211", 85);
-  KS[2834] = mkstr("\345\244\261\350\264\245\347\232\204\346\265\213\350\257\225:", 16);
-  KS[2835] = mkstr("\347\273\223\346\236\234: ", 8);
-  KS[2836] = mkstr(" \351\200\232\350\277\207\357\274\214", 10);
-  KS[2837] = mkstr(" \345\244\261\350\264\245\357\274\210\347\224\250\346\227\266 ", 17);
-  KS[2838] = mkstr("s\357\274\211", 4);
-  KS[2839] = mkstr("00", 2);
-  KS[2840] = mkstr("fn main() {\012  let t = __kite_test()\012  ", 38);
-  KS[2841] = mkstr("\012}\012", 3);
-  KS[2842] = mkstr("stderr.txt", 10);
-  KS[2843] = mkstr("\350\247\201\344\270\212\351\235\242\347\232\204\346\212\245\351\224\231", 18);
-  KS[2844] = mkstr("timeout 120 ", 12);
-  KS[2845] = mkstr("KITE_TEST=", 10);
-  KS[2846] = mkstr(" 2>", 3);
-  KS[2847] = mkstr("\350\266\205\346\227\266\357\274\210120 \347\247\222\357\274\211", 19);
-  KS[2848] = mkstr("\351\200\200\345\207\272\347\240\201 ", 10);
-  KS[2849] = mkstr("if t == \"", 9);
-  KS[2850] = mkstr("\" { ", 4);
-  KS[2851] = mkstr("() }", 4);
-  KS[2852] = mkstr("@test", 5);
-  KS[2853] = mkstr("test_", 5);
-  KS[2854] = mkstr("@test \345\207\275\346\225\260 ", 13);
-  KS[2855] = mkstr(" \344\270\215\350\203\275\346\234\211\345\217\202\346\225\260\346\210\226\346\263\233\345\236\213\345\217\202\346\225\260", 31);
-  KS[2856] = mkstr("\347\224\250\346\263\225:", 7);
-  KS[2857] = mkstr("  kitec run FILE [\345\217\202\346\225\260\342\200\246]          \347\274\226\350\257\221\346\210\220\344\270\264\346\227\266\345\217\257\346\211\247\350\241\214\346\226\207\344\273\266\345\271\266\350\277\220\350\241\214\357\274\210\344\271\237\345\217\257\344\273\245\345\206\231 kitec FILE.kite [\345\217\202\346\225\260\342\200\246]\357\274\211", 123);
-  KS[2858] = mkstr("  kitec build [FILE] [-o \350\276\223\345\207\272] [--emit-c C \346\226\207\344\273\266] [--no-kir]", 63);
-  KS[2859] = mkstr("  kitec check FILE                \345\217\252\345\201\232\347\261\273\345\236\213\346\243\200\346\237\245", 52);
-  KS[2860] = mkstr("  kitec dis FILE                  \346\237\245\347\234\213\345\255\227\350\212\202\347\240\201", 49);
-  KS[2861] = mkstr("  kitec kir FILE                  \346\237\245\347\234\213 KIR\357\274\210\344\270\215\350\243\205\347\256\261\347\232\204\344\270\255\351\227\264\350\241\250\347\244\272\357\274\211", 74);
-  KS[2862] = mkstr("  kitec fmt [-w] [--check] [\346\226\207\344\273\266\342\200\246]  \346\240\274\345\274\217\345\214\226\357\274\210\344\270\215\347\273\231\346\226\207\344\273\266\346\227\266\350\257\273\346\240\207\345\207\206\350\276\223\345\205\245\357\274\211", 85);
-  KS[2863] = mkstr("  kitec test [\350\277\207\346\273\244\350\257\215] [\346\226\207\344\273\266/\347\233\256\345\275\225\342\200\246] [-v]  \350\277\220\350\241\214 test_ \345\274\200\345\244\264 / \346\240\207\344\272\206 @test \347\232\204\346\265\213\350\257\225\345\207\275\346\225\260", 100);
-  KS[2864] = mkstr("  kitec lsp                       \350\257\255\350\250\200\346\234\215\345\212\241\345\231\250\357\274\210LSP\357\274\214\346\240\207\345\207\206\350\276\223\345\205\245\350\276\223\345\207\272\357\274\211", 79);
-  KS[2865] = mkstr("  kitec new <\345\220\215\345\255\227> [--lib] | add <\345\214\205>[@\347\272\246\346\235\237] | add <\345\214\205> --path <\347\233\256\345\275\225> | get | update | publish | tree  \345\214\205\347\256\241\347\220\206", 120);
-  KS[2866] = mkstr("  \357\274\210\345\234\250\345\214\205\347\233\256\345\275\225\351\207\214\357\274\214run / build / check \344\270\215\345\206\231\346\226\207\344\273\266\345\220\215\346\227\266\344\275\277\347\224\250 src/main.kite\357\274\211", 84);
-  KS[2867] = mkstr("  kitec dump MODE FILE [PRELUDE]  \345\257\271\346\213\215\350\276\223\345\207\272\357\274\210MODE = lex / parse / check / lower / bc / c / kir / ck\357\274\211", 106);
-  KS[2868] = mkstr("\347\216\257\345\242\203\345\217\230\351\207\217: KITE_HOME\357\274\210prelude.kite \345\222\214 runtime/ \346\211\200\345\234\250\347\233\256\345\275\225\357\274\211\343\200\201CC\357\274\210C \347\274\226\350\257\221\345\231\250\357\274\211\343\200\201KITE_NO_KIR=1", 105);
-  KS[2869] = mkstr("17.0.0", 6);
-  KS[2870] = mkstr("*=", 2);
-  KS[2871] = mkstr("/=", 2);
-  KS[2872] = mkstr("%=", 2);
-  KS[2873] = mkstr("print len str __fmt __repeat int float type_of map par_map __race timeout actor tell ask __recover_raw __repanic __restart_log __restart_log_w supervise actor_supervised chan send recv try_recv close __select sleep now_ms filter each reduce fold sum count any all find first last get take skip reverse sort sort_by sort_with zip enumerate push concat contains join split trim upper lower starts_with ends_with replace chars parse_int parse_float remove keys values set Set __set_lit __set_union __set_intersect __set_difference insert union intersect difference is_subset to_list Map min max abs Ok Err Some unwrap unwrap_or is_ok is_err is_some is_none panic assert assert_eq assert_ne __kite_test __env_get __args __exit __run __ord __chr __unix_ms __slice __band __bor __bxor __bnot __shl __shr __str_slice __str_find __tls_server_ctx __tls_accept __tls_client __tls_handshake __tcp_listen __tcp_port __tcp_accept __tcp_connect __tcp_read_line __tcp_read_bytes __tcp_read_all __tcp_write __tcp_flush __tcp_close __byte_len __bytes __from_bytes __eprint __fs_stat __getcwd __chdir __chmod __env_set __env_unset __environ __hostname __getpid __read_bytes __write_bytes __tz_offset __random_bytes __unix_ns None Result Option", 1225);
-  KS[2874] = mkstr("print=b_print len=b_len str=b_str int=b_int float=b_float type_of=b_type_of map=b_map filter=b_filter each=b_each reduce=b_reduce fold=b_reduce sum=b_sum count=b_count any=b_any all=b_all find=b_find first=b_first last=b_last get=b_get take=b_take skip=b_skip reverse=b_reverse sort=b_sort sort_by=b_sort sort_with=b_sort_with __fmt=b_fmt __repeat=b_repeat zip=b_zip enumerate=b_enumerate push=b_push concat=b_concat contains=b_contains join=b_join split=b_split trim=b_trim upper=b_upper lower=b_lower starts_with=b_starts_with ends_with=b_ends_with replace=b_replace chars=b_chars parse_int=b_parse_int parse_float=b_parse_float keys=b_keys remove=b_remove values=b_values set=b_set Map=b_Map Set=b_Set insert=b_insert union=b_union intersect=b_intersect difference=b_difference is_subset=b_is_subset to_list=b_to_list __set_lit=b_Set __set_union=b_union __set_intersect=b_intersect __set_difference=b_difference min=b_min max=b_max abs=b_abs Ok=b_Ok Err=b_Err Some=b_Some unwrap=b_unwrap unwrap_or=b_unwrap_or is_ok=b_is_ok is_err=b_is_err is_some=b_is_some is_none=b_is_none panic=b_panic assert=b_assert assert_eq=b_assert_eq assert_ne=b_assert_ne __kite_test=b_kite_test __race=b_race timeout=b_timeout actor=b_actor tell=b_tell ask=b_ask __recover_raw=b_recover_raw __repanic=b_repanic __restart_log=b_restart_log_k __restart_log_w=b_restart_log_w supervise=b_supervise actor_supervised=b_actor_supervised __env_get=b_env_get __args=b_args __exit=b_exit __run=b_run __ord=b_ord __chr=b_chr __unix_ms=b_unix_ms __str_slice=b_str_slice __slice=b_slice __band=b_band __bor=b_bor __bxor=b_bxor __bnot=b_bnot __shl=b_shl __shr=b_shr __str_find=b_str_find __tcp_listen=b_tcp_listen __tcp_port=b_tcp_port __tcp_accept=b_tcp_accept __tcp_connect=b_tcp_connect __tcp_read_line=b_tcp_read_line __tcp_read_bytes=b_tcp_read_bytes __tcp_read_all=b_tcp_read_all __tcp_write=b_tcp_write __tcp_flush=b_tcp_flush __tcp_close=b_tcp_close __byte_len=b_byte_len __bytes=b_bytes __from_bytes=b_from_bytes __eprint=b_eprint __fs_stat=b_fs_stat __getcwd=b_getcwd __chdir=b_chdir __chmod=b_chmod __env_set=b_env_set __env_unset=b_env_unset __environ=b_environ __hostname=b_hostname __getpid=b_getpid __read_bytes=b_read_bytes __write_bytes=b_write_bytes __tz_offset=b_tz_offset __random_bytes=b_random_bytes __unix_ns=b_unix_ns __tls_server_ctx=b_tls_server_ctx __tls_accept=b_tls_accept __tls_client=b_tls_client __tls_handshake=b_tls_handshake __select=b_select sleep=b_sleep now_ms=b_now_ms chan=b_chan send=b_send recv=b_recv try_recv=b_try_recv close=b_close par_map=b_par_map", 2564);
-  KS[2875] = mkstr("\012static inline V f_add(V a, V b) { int64_t r; if (a.t == T_INT && b.t == T_INT && !__builtin_add_overflow(a.u.i, b.u.i, &r)) return mkint(r); return k_add(a, b); }\012static inline V f_sub(V a, V b) { int64_t r; if (a.t == T_INT && b.t == T_INT && !__builtin_sub_overflow(a.u.i, b.u.i, &r)) return mkint(r); return k_sub(a, b); }\012static inline V f_mul(V a, V b) { int64_t r; if (a.t == T_INT && b.t == T_INT && !__builtin_mul_overflow(a.u.i, b.u.i, &r)) return mkint(r); return k_mul(a, b); }\012static inline V f_lt(V a, V b) { if (a.t == T_INT && b.t == T_INT) return mkbool(a.u.i < b.u.i); k_ordchk(\"<\", a, b); return mkbool(k_cmp(a, b) < 0); }\012static inline V f_gt(V a, V b) { if (a.t == T_INT && b.t == T_INT) return mkbool(a.u.i > b.u.i); k_ordchk(\">\", a, b); return mkbool(k_cmp(a, b) > 0); }\012static inline V f_le(V a, V b) { if (a.t == T_INT && b.t == T_INT) return mkbool(a.u.i <= b.u.i); k_ordchk(\"<=\", a, b); return mkbool(k_cmp(a, b) <= 0); }\012static inline V f_ge(V a, V b) { if (a.t == T_INT && b.t == T_INT) return mkbool(a.u.i >= b.u.i); k_ordchk(\">=\", a, b); return mkbool(k_cmp(a, b) >= 0); }\012static inline V f_eq(V a, V b) { if (a.t == T_INT && b.t == T_INT) return mkbool(a.u.i == b.u.i); return mkbool(k_eq(a, b)); }\012static inline V f_ne(V a, V b) { if (a.t == T_INT && b.t == T_INT) return mkbool(a.u.i != b.u.i); return mkbool(!k_eq(a, b)); }\012static inline V f_neg(V a) {\012  if (a.t == T_INT) { if (a.u.i == INT64_MIN) die(\"\346\225\264\346\225\260\346\272\242\345\207\272\"); return mkint(-a.u.i); }\012  if (a.t == T_FLOAT) return mkflt(-a.u.f);\012  die(\"\344\270\215\350\203\275\345\257\271 %s \345\217\226\350\264\237\", tname(a)); return UNIT;\012}", 1577);
-  KS[2876] = mkstr("static V call_m(int sym, int n, V *base) {\012  V recv = base[0];\012  if (recv.t == T_MODULE || recv.t == T_ETYPE) return call_v(k_field(recv, sym), n, base + 1);\012  KFn *m = find_method(tid_of(recv), sym);\012  if (m) return m->code(m, n + 1, base);\012  if (recv.t == T_STRUCT) { int i = sfield(STRUCTV(recv), sym); if (i >= 0) return call_v(STRUCTV(recv)->f[i], n, base + 1); }\012  int g = global_of_sym(sym);\012  if (g >= 0 && G[g].t == T_FN) return call_v(G[g], n + 1, base);\012  die(\"%s \346\262\241\346\234\211\346\226\271\346\263\225 %s\", tname(recv), SYMS[sym]); return UNIT;\012}", 532);
-  KS[2877] = mkstr("print println read_line", 23);
-  KS[2878] = mkstr("read write append exists is_file is_dir size list mkdir remove rename", 69);
-  KS[2879] = mkstr("null is_null addr offset from_addr alloc free read_int write_int read_float write_float read_byte write_byte to_str from_str", 124);
-  KS[2880] = mkstr("sqrt sin cos tan asin acos atan sinh cosh tanh asinh acosh atanh exp exp2 expm1 log2 log10 log1p cbrt pow atan2 hypot fmod copysign remainder log floor ceil round trunc is_nan is_inf signbit gcd lcm pi=3.141592653589793 e=2.718281828459045 tau=6.283185307179586 phi=1.618033988749895 sqrt2=1.4142135623730951 ln2=0.6931471805599453 ln10=2.302585092994046 inf=inf nan=nan max_float=1.7976931348623157e+308 smallest_float=5e-324 max_int=9223372036854775807 min_int=-9223372036854775808", 483);
-  KS[2881] = mkstr("\012static inline int kir_try(V v) {\012  int vr = v.t == T_ENUM \077 ENUMV(v)->var : -1;\012  if (vr == SYM_Ok || vr == SYM_Some) return 1;\012  if (vr == SYM_Err || vr == SYM_None) return 0;\012  die(\"\077 \345\217\252\350\203\275\347\224\250\344\272\216 Result \346\210\226 Option\"); return 0;\012}\012static KUp *kir_up(V v) {\012  KUp *u = kalloc(sizeof(KUp)); u->closed = v; u->ref = &u->closed; u->next = NULL; u->owner = cur_task; return u;\012}\012static inline V kir_gload(int g, const char *name) {\012  if (__builtin_expect(G[g].t == T_UNDEF, 0)) die(\"\346\234\252\345\256\232\344\271\211\347\232\204\345\220\215\345\255\227 %s\", name);\012  return G[g];\012}\012static V kir_vbin(int op, V a, V b) {\012  switch (op) {\012  case 0: return f_add(a, b); case 1: return f_sub(a, b); case 2: return f_mul(a, b);\012  case 3: return k_div(a, b); case 4: return k_mod(a, b);\012  case 5: return f_lt(a, b); case 6: return f_gt(a, b); case 7: return f_le(a, b); case 8: return f_ge(a, b);\012  case 9: return f_eq(a, b); case 10: return f_ne(a, b);\012  case 11: return k_range(a, b, 0); case 12: return k_range(a, b, 1);\012  }\012  return UNIT;\012}\012", 984);
-  KS[2882] = mkstr("5", 1);
-  KS[2883] = mkstr("25", 2);
-  KS[2884] = mkstr("125", 3);
-  KS[2885] = mkstr("625", 3);
-  KS[2886] = mkstr("3125", 4);
-  KS[2887] = mkstr("15625", 5);
-  KS[2888] = mkstr("78125", 5);
-  KS[2889] = mkstr("390625", 6);
-  KS[2890] = mkstr("1953125", 7);
-  KS[2891] = mkstr("9765625", 7);
-  KS[2892] = mkstr("48828125", 8);
-  KS[2893] = mkstr("244140625", 9);
-  KS[2894] = mkstr("1220703125", 10);
-  KS[2895] = mkstr("6103515625", 10);
-  KS[2896] = mkstr("30517578125", 11);
-  KS[2897] = mkstr("152587890625", 12);
-  KS[2898] = mkstr("762939453125", 12);
-  KS[2899] = mkstr("3814697265625", 13);
-  KS[2900] = mkstr("19073486328125", 14);
-  KS[2901] = mkstr("95367431640625", 14);
-  KS[2902] = mkstr("476837158203125", 15);
-  KS[2903] = mkstr("2384185791015625", 16);
-  KS[2904] = mkstr("11920928955078125", 17);
-  KS[2905] = mkstr("59604644775390625", 17);
-  KS[2906] = mkstr("298023223876953125", 18);
-  KS[2907] = mkstr("1490116119384765625", 19);
-  KS[2908] = mkstr("7450580596923828125", 19);
-  KS[2909] = mkstr("37252902984619140625", 20);
-  KS[2910] = mkstr("186264514923095703125", 21);
-  KS[2911] = mkstr("931322574615478515625", 21);
-  KS[2912] = mkstr("4656612873077392578125", 22);
-  KS[2913] = mkstr("23283064365386962890625", 23);
-  KS[2914] = mkstr("116415321826934814453125", 24);
-  KS[2915] = mkstr("582076609134674072265625", 24);
-  KS[2916] = mkstr("2910383045673370361328125", 25);
-  KS[2917] = mkstr("14551915228366851806640625", 26);
-  KS[2918] = mkstr("72759576141834259033203125", 26);
-  KS[2919] = mkstr("363797880709171295166015625", 27);
-  KS[2920] = mkstr("1818989403545856475830078125", 28);
-  KS[2921] = mkstr("9094947017729282379150390625", 28);
-  KS[2922] = mkstr("45474735088646411895751953125", 29);
-  KS[2923] = mkstr("227373675443232059478759765625", 30);
-  KS[2924] = mkstr("1136868377216160297393798828125", 31);
-  KS[2925] = mkstr("5684341886080801486968994140625", 31);
-  KS[2926] = mkstr("28421709430404007434844970703125", 32);
-  KS[2927] = mkstr("142108547152020037174224853515625", 33);
-  KS[2928] = mkstr("710542735760100185871124267578125", 33);
-  KS[2929] = mkstr("3552713678800500929355621337890625", 34);
-  KS[2930] = mkstr("17763568394002504646778106689453125", 35);
-  KS[2931] = mkstr("88817841970012523233890533447265625", 35);
-  KS[2932] = mkstr("444089209850062616169452667236328125", 36);
-  KS[2933] = mkstr("2220446049250313080847263336181640625", 37);
-  KS[2934] = mkstr("11102230246251565404236316680908203125", 38);
-  KS[2935] = mkstr("55511151231257827021181583404541015625", 38);
-  KS[2936] = mkstr("277555756156289135105907917022705078125", 39);
-  KS[2937] = mkstr("1387778780781445675529539585113525390625", 40);
-  KS[2938] = mkstr("6938893903907228377647697925567626953125", 40);
-  KS[2939] = mkstr("34694469519536141888238489627838134765625", 41);
-  KS[2940] = mkstr("173472347597680709441192448139190673828125", 42);
-  KS[2941] = mkstr("archive/tar: invalid tar header", 31);
-  KS[2942] = mkstr("archive/tar: write too long", 27);
-  KS[2943] = mkstr("archive/tar: header field too long", 34);
-  KS[2944] = mkstr("archive/tar: write after close", 30);
-  KS[2945] = mkstr("archive/tar: insecure file path", 31);
-  KS[2946] = mkstr("archive/tar: sparse file references non-existent data", 53);
-  KS[2947] = mkstr("archive/tar: sparse file contains unreferenced data", 51);
-  KS[2948] = mkstr("kitec test [\350\277\207\346\273\244\350\257\215] [\346\226\207\344\273\266/\347\233\256\345\275\225...] [-v]\012    \350\277\207\346\273\244\350\257\215     \345\217\252\350\277\220\350\241\214\345\220\215\345\255\227\357\274\210\346\210\226 \342\200\234\346\226\207\344\273\266::\345\220\215\345\255\227\342\200\235\357\274\211\345\214\205\345\220\253\345\256\203\347\232\204\346\265\213\350\257\225\012    -v         \351\200\232\350\277\207\347\232\204\346\265\213\350\257\225\344\271\237\346\230\276\347\244\272\350\276\223\345\207\272", 174);
-  KS[2949] = mkstr("panic: ", 7);
-  KS[2950] = mkstr("min: \347\251\272\345\272\217\345\210\227", 14);
-  KS[2951] = mkstr("max: \347\251\272\345\272\217\345\210\227", 14);
+  KS[2147] = mkstr("fn(Int, Bool) -> (Str, Int)", 27);
+  KS[2148] = mkstr("__sock_name", 11);
+  KS[2149] = mkstr("fn(Str, Int, Bool) -> Result<Int, Str>", 38);
+  KS[2150] = mkstr("__udp_open", 10);
+  KS[2151] = mkstr("fn(Int, Int, Str, Int, List<Int>) -> Result<Option<Int>, Str>", 61);
+  KS[2152] = mkstr("__sock_sendto", 13);
+  KS[2153] = mkstr("fn(Int, Int) -> Result<Option<(List<Int>, Str, Int)>, Str>", 58);
+  KS[2154] = mkstr("__sock_recvfrom", 15);
+  KS[2155] = mkstr("fn(Str, Bool, Int) -> Result<Int, Str>", 38);
+  KS[2156] = mkstr("__unix_open", 11);
+  KS[2157] = mkstr("fn(Str, Bool) -> Result<List<Str>, Str>", 39);
+  KS[2158] = mkstr("__dns_lookup", 12);
+  KS[2159] = mkstr("fn(Str) -> Result<Str, Str>", 27);
+  KS[2160] = mkstr("__dns_reverse", 13);
+  KS[2161] = mkstr("__dns_port", 10);
+  KS[2162] = mkstr("__tcp_close", 11);
+  KS[2163] = mkstr("__byte_len", 10);
+  KS[2164] = mkstr("fn(Str) -> List<Int>", 20);
+  KS[2165] = mkstr("__bytes", 7);
+  KS[2166] = mkstr("fn(List<Int>) -> Option<Str>", 28);
+  KS[2167] = mkstr("__from_bytes", 12);
+  KS[2168] = mkstr("fn(Str) -> Unit", 15);
+  KS[2169] = mkstr("__eprint", 8);
+  KS[2170] = mkstr("fn(Str, Bool) -> Result<(Int, Int, Int, Int), Str>", 50);
+  KS[2171] = mkstr("__fs_stat", 9);
+  KS[2172] = mkstr("__getcwd", 8);
+  KS[2173] = mkstr("fn(Str) -> Result<Unit, Str>", 28);
+  KS[2174] = mkstr("__chdir", 7);
+  KS[2175] = mkstr("fn(Str, Int) -> Result<Unit, Str>", 33);
+  KS[2176] = mkstr("__chmod", 7);
+  KS[2177] = mkstr("fn(Str, Str) -> Unit", 20);
+  KS[2178] = mkstr("__env_set", 9);
+  KS[2179] = mkstr("__env_unset", 11);
+  KS[2180] = mkstr("__environ", 9);
+  KS[2181] = mkstr("__hostname", 10);
+  KS[2182] = mkstr("__getpid", 8);
+  KS[2183] = mkstr("fn(Str) -> Result<List<Int>, Str>", 33);
+  KS[2184] = mkstr("__read_bytes", 12);
+  KS[2185] = mkstr("fn(Str, List<Int>, Bool) -> Result<Unit, Str>", 45);
+  KS[2186] = mkstr("__write_bytes", 13);
+  KS[2187] = mkstr("__tz_offset", 11);
+  KS[2188] = mkstr("fn(Int) -> List<Int>", 20);
+  KS[2189] = mkstr("__random_bytes", 14);
+  KS[2190] = mkstr("__unix_ns", 9);
+  KS[2191] = mkstr("println", 7);
+  KS[2192] = mkstr("fn() -> Option<Str>", 19);
+  KS[2193] = mkstr("read_line", 9);
+  KS[2194] = mkstr("read", 4);
+  KS[2195] = mkstr("fn(Str, Str) -> Result<Unit, Str>", 33);
+  KS[2196] = mkstr("write", 5);
+  KS[2197] = mkstr("append", 6);
+  KS[2198] = mkstr("fn(Str) -> Bool", 15);
+  KS[2199] = mkstr("exists", 6);
+  KS[2200] = mkstr("is_file", 7);
+  KS[2201] = mkstr("is_dir", 6);
+  KS[2202] = mkstr("fn(Str) -> Result<List<Str>, Str>", 33);
+  KS[2203] = mkstr("mkdir", 5);
+  KS[2204] = mkstr("rename", 6);
+  KS[2205] = mkstr("fn() -> Ptr", 11);
+  KS[2206] = mkstr("fn(Ptr) -> Bool", 15);
+  KS[2207] = mkstr("is_null", 7);
+  KS[2208] = mkstr("fn(Ptr) -> Int", 14);
+  KS[2209] = mkstr("addr", 4);
+  KS[2210] = mkstr("fn(Ptr, Int) -> Ptr", 19);
+  KS[2211] = mkstr("offset", 6);
+  KS[2212] = mkstr("fn(Int) -> Ptr", 14);
+  KS[2213] = mkstr("from_addr", 9);
+  KS[2214] = mkstr("alloc", 5);
+  KS[2215] = mkstr("fn(Ptr) -> Unit", 15);
+  KS[2216] = mkstr("free", 4);
+  KS[2217] = mkstr("fn(Ptr, Int) -> Int", 19);
+  KS[2218] = mkstr("read_int", 8);
+  KS[2219] = mkstr("fn(Ptr, Int, Int) -> Unit", 25);
+  KS[2220] = mkstr("write_int", 9);
+  KS[2221] = mkstr("fn(Ptr, Int) -> Float", 21);
+  KS[2222] = mkstr("read_float", 10);
+  KS[2223] = mkstr("fn(Ptr, Int, Float) -> Unit", 27);
+  KS[2224] = mkstr("write_float", 11);
+  KS[2225] = mkstr("read_byte", 9);
+  KS[2226] = mkstr("write_byte", 10);
+  KS[2227] = mkstr("fn(Ptr) -> Str", 14);
+  KS[2228] = mkstr("to_str", 6);
+  KS[2229] = mkstr("fn(Str) -> Ptr", 14);
+  KS[2230] = mkstr("from_str", 8);
+  KS[2231] = mkstr("fn(Float) -> Float", 18);
+  KS[2232] = mkstr("sqrt", 4);
+  KS[2233] = mkstr("sin", 3);
+  KS[2234] = mkstr("cos", 3);
+  KS[2235] = mkstr("tan", 3);
+  KS[2236] = mkstr("asin", 4);
+  KS[2237] = mkstr("acos", 4);
+  KS[2238] = mkstr("atan", 4);
+  KS[2239] = mkstr("sinh", 4);
+  KS[2240] = mkstr("cosh", 4);
+  KS[2241] = mkstr("tanh", 4);
+  KS[2242] = mkstr("asinh", 5);
+  KS[2243] = mkstr("acosh", 5);
+  KS[2244] = mkstr("atanh", 5);
+  KS[2245] = mkstr("exp", 3);
+  KS[2246] = mkstr("exp2", 4);
+  KS[2247] = mkstr("expm1", 5);
+  KS[2248] = mkstr("log2", 4);
+  KS[2249] = mkstr("log10", 5);
+  KS[2250] = mkstr("log1p", 5);
+  KS[2251] = mkstr("cbrt", 4);
+  KS[2252] = mkstr("log", 3);
+  KS[2253] = mkstr("fn(Float, Float) -> Float", 25);
+  KS[2254] = mkstr("pow", 3);
+  KS[2255] = mkstr("atan2", 5);
+  KS[2256] = mkstr("hypot", 5);
+  KS[2257] = mkstr("fmod", 4);
+  KS[2258] = mkstr("copysign", 8);
+  KS[2259] = mkstr("remainder", 9);
+  KS[2260] = mkstr("fn(Float) -> Int", 16);
+  KS[2261] = mkstr("floor", 5);
+  KS[2262] = mkstr("ceil", 4);
+  KS[2263] = mkstr("round", 5);
+  KS[2264] = mkstr("trunc", 5);
+  KS[2265] = mkstr("fn(Float) -> Bool", 17);
+  KS[2266] = mkstr("is_nan", 6);
+  KS[2267] = mkstr("is_inf", 6);
+  KS[2268] = mkstr("signbit", 7);
+  KS[2269] = mkstr("pi", 2);
+  KS[2270] = mkstr("tau", 3);
+  KS[2271] = mkstr("phi", 3);
+  KS[2272] = mkstr("sqrt2", 5);
+  KS[2273] = mkstr("ln2", 3);
+  KS[2274] = mkstr("ln10", 4);
+  KS[2275] = mkstr("max_float", 9);
+  KS[2276] = mkstr("smallest_float", 14);
+  KS[2277] = mkstr("gcd", 3);
+  KS[2278] = mkstr("lcm", 3);
+  KS[2279] = mkstr("max_int", 7);
+  KS[2280] = mkstr("min_int", 7);
+  KS[2281] = mkstr("Any", 3);
+  KS[2282] = mkstr(" \345\217\202\346\225\260\344\270\252\346\225\260\344\270\215\345\257\271", 19);
+  KS[2283] = mkstr("\346\227\240\346\263\225\346\216\250\346\226\255 ", 13);
+  KS[2284] = mkstr(" \347\254\254\344\270\200\344\270\252\345\217\202\346\225\260\347\232\204\347\261\273\345\236\213\357\274\214\350\257\267\345\212\240\347\261\273\345\236\213\346\240\207\346\263\250", 46);
+  KS[2285] = mkstr(" \344\270\215\346\224\257\346\214\201\345\210\207\347\211\207\357\274\210\345\217\252\346\234\211 List \345\222\214 Str \345\217\257\344\273\245\345\210\207\347\211\207\357\274\211", 54);
+  KS[2286] = mkstr(" \344\270\215\346\224\257\346\214\201 ", 11);
+  KS[2287] = mkstr("\357\274\214\345\217\257\347\224\250\344\272\216 ", 13);
+  KS[2288] = mkstr("UnsafeFn", 8);
+  KS[2289] = mkstr("\350\260\203\347\224\250 unsafe \345\207\275\346\225\260\345\200\274 ", 24);
+  KS[2290] = mkstr("\357\274\211\351\234\200\350\246\201\346\224\276\345\234\250 unsafe { \342\200\246 } \351\207\214", 34);
+  KS[2291] = mkstr(" \344\270\215\350\203\275\350\242\253\350\260\203\347\224\250", 16);
+  KS[2292] = mkstr(" \351\234\200\350\246\201 ", 8);
+  KS[2293] = mkstr(" \344\270\252\345\217\202\346\225\260\357\274\214\347\273\231\344\272\206 ", 20);
+  KS[2294] = mkstr(" \344\270\252", 4);
+  KS[2295] = mkstr("\345\210\207\347\211\207\347\232\204\344\270\213\346\240\207", 15);
+  KS[2296] = mkstr(" \347\232\204\347\254\254 ", 8);
+  KS[2297] = mkstr(" \344\270\252\345\217\202\346\225\260", 10);
+  KS[2298] = mkstr("\350\265\213\345\200\274\347\233\256\346\240\207\346\227\240\346\225\210", 18);
+  KS[2299] = mkstr("\346\234\252\345\256\232\344\271\211\347\232\204\345\217\230\351\207\217 ", 19);
+  KS[2300] = mkstr("\344\270\215\350\203\275\344\277\256\346\224\271\344\270\215\345\217\257\345\217\230\347\273\221\345\256\232 `", 29);
+  KS[2301] = mkstr("`\357\274\210\346\224\271\347\224\250 var \345\243\260\346\230\216\357\274\211", 24);
+  KS[2302] = mkstr("spawn \344\273\273\345\212\241\344\270\215\350\203\275\344\277\256\346\224\271\345\244\226\345\261\202\345\217\230\351\207\217 `", 38);
+  KS[2303] = mkstr("`\357\274\210\346\225\260\346\215\256\347\253\236\344\272\211\357\274\211", 19);
+  KS[2304] = mkstr("|=", 2);
+  KS[2305] = mkstr("&=", 2);
+  KS[2306] = mkstr("^=", 2);
+  KS[2307] = mkstr("<<=", 3);
+  KS[2308] = mkstr(">>=", 3);
+  KS[2309] = mkstr("-=", 2);
+  KS[2310] = mkstr("\350\265\213\345\200\274", 6);
+  KS[2311] = mkstr("+=", 2);
+  KS[2312] = mkstr("async fn ", 9);
+  KS[2313] = mkstr(" \347\232\204\350\277\224\345\233\236\345\200\274", 13);
+  KS[2314] = mkstr("\346\227\240\351\231\220\347\261\273\345\236\213 ", 13);
+  KS[2315] = mkstr("\346\234\252\347\237\245\350\241\250\350\276\276\345\274\217 ", 16);
+  KS[2316] = mkstr(" \345\267\246\350\276\271", 7);
+  KS[2317] = mkstr(" \345\217\263\350\276\271", 7);
+  KS[2318] = mkstr("\345\214\272\351\227\264\350\265\267\347\202\271", 12);
+  KS[2319] = mkstr("\345\214\272\351\227\264\347\273\210\347\202\271", 12);
+  KS[2320] = mkstr("<<", 2);
+  KS[2321] = mkstr(">>", 2);
+  KS[2322] = mkstr("\350\277\220\347\256\227 ", 7);
+  KS[2323] = mkstr(" \344\270\244\350\276\271\347\261\273\345\236\213\345\277\205\351\241\273\347\233\270\345\220\214", 25);
+  KS[2324] = mkstr("Future", 6);
+  KS[2325] = mkstr("\350\255\246\345\221\212: Future \346\262\241\346\234\211\350\242\253 .await\357\274\214\344\270\215\344\274\232\346\211\247\350\241\214", 46);
+  KS[2326] = mkstr("\346\211\276\344\270\215\345\210\260\345\276\252\347\216\257\346\240\207\347\255\276 '", 23);
+  KS[2327] = mkstr("\345\217\252\346\234\211 loop \347\232\204 break \350\203\275\345\270\246\345\200\274\357\274\210while / for \347\232\204\345\200\274\346\200\273\346\230\257 ()\357\274\211", 64);
+  KS[2328] = mkstr("loop \347\232\204 break \345\200\274", 18);
+  KS[2329] = mkstr("Actor", 5);
+  KS[2330] = mkstr("Num", 3);
+  KS[2331] = mkstr("Ord", 3);
+  KS[2332] = mkstr("Eq", 2);
+  KS[2333] = mkstr("Hash", 4);
+  KS[2334] = mkstr("Show", 4);
+  KS[2335] = mkstr("\347\261\273\345\236\213 ", 7);
+  KS[2336] = mkstr(" \346\262\241\346\234\211\351\235\231\346\200\201\346\226\271\346\263\225 ", 20);
+  KS[2337] = mkstr(" \346\230\257\345\256\236\344\276\213\346\226\271\346\263\225\357\274\210\345\270\246 self\357\274\211\357\274\214\350\257\267\347\224\250 \345\200\274.", 44);
+  KS[2338] = mkstr("(...) \350\260\203\347\224\250", 12);
+  KS[2339] = mkstr("Module:", 7);
+  KS[2340] = mkstr("\344\275\277\347\224\250 unsafe \346\226\271\346\263\225 ", 21);
+  KS[2341] = mkstr(" \351\234\200\350\246\201\346\224\276\345\234\250 unsafe { \342\200\246 } \351\207\214", 32);
+  KS[2342] = mkstr("Self", 4);
+  KS[2343] = mkstr("\346\227\240", 3);
+  KS[2344] = mkstr("dyn ", 4);
+  KS[2345] = mkstr("\346\263\233\345\236\213 ", 7);
+  KS[2346] = mkstr(" \346\262\241\346\234\211\346\226\271\346\263\225 ", 14);
+  KS[2347] = mkstr("\357\274\210\347\272\246\346\235\237: ", 11);
+  KS[2348] = mkstr("|#", 2);
+  KS[2349] = mkstr("\346\227\240\346\263\225\346\216\250\346\226\255 .", 14);
+  KS[2350] = mkstr("() \347\232\204\346\216\245\346\224\266\350\200\205\347\261\273\345\236\213\357\274\214\350\257\267\345\212\240\347\261\273\345\236\213\346\240\207\346\263\250", 42);
+  KS[2351] = mkstr("\345\207\275\346\225\260", 6);
+  KS[2352] = mkstr("\346\234\252\347\237\245\350\241\250\350\276\276\345\274\217", 15);
+  KS[2353] = mkstr("\346\227\240\346\263\225\346\216\250\346\226\255 as \345\267\246\350\276\271\347\232\204\347\261\273\345\236\213\357\274\214\350\257\267\345\212\240\347\261\273\345\236\213\346\240\207\346\263\250", 52);
+  KS[2354] = mkstr("\344\270\215\350\203\275\346\212\212 ", 10);
+  KS[2355] = mkstr(" \350\275\254\346\215\242\344\270\272 ", 11);
+  KS[2356] = mkstr("\357\274\210as \345\217\252\346\224\257\346\214\201 Int\343\200\201Float\343\200\201Bool \344\271\213\351\227\264\347\232\204\346\225\260\345\200\274\350\275\254\346\215\242\357\274\211", 59);
+  KS[2357] = mkstr("\350\277\224\345\233\236\345\200\274", 9);
+  KS[2358] = mkstr("\345\217\202\346\225\260 ", 7);
+  KS[2359] = mkstr("\357\274\214\346\210\226\345\255\227\346\256\265\351\203\275\346\230\257 Int/Float/Bool/Ptr \347\232\204\347\273\223\346\236\204\344\275\223", 50);
+  KS[2360] = mkstr("\357\274\214\346\210\226\345\255\227\346\256\265\351\203\275\346\230\257 Int/Float/Bool/Ptr \347\232\204\347\273\223\346\236\204\344\275\223\357\274\214\346\210\226\345\217\202\346\225\260\345\222\214\350\277\224\345\233\236\345\200\274\351\203\275\346\230\257 Int/Float/Bool/Ptr \347\232\204 fn \345\233\236\350\260\203", 113);
+  KS[2361] = mkstr("\343\200\201Unit", 7);
+  KS[2362] = mkstr("extern fn ", 10);
+  KS[2363] = mkstr(" \347\232\204", 4);
+  KS[2364] = mkstr("\344\270\215\350\203\275\346\230\257 ", 10);
+  KS[2365] = mkstr("\357\274\210\345\217\252\346\224\257\346\214\201 Int\343\200\201Float\343\200\201Bool\343\200\201Str\343\200\201Ptr", 43);
+  KS[2366] = mkstr(" \347\232\204\346\226\271\346\263\225 ", 11);
+  KS[2367] = mkstr(" \347\232\204\345\205\263\350\201\224\345\270\270\351\207\217 ", 17);
+  KS[2368] = mkstr(" \345\222\214 trait \345\243\260\346\230\216\344\270\215\344\270\200\350\207\264\357\274\232self \345\217\202\346\225\260", 40);
+  KS[2369] = mkstr("\345\244\232\344\272\206", 6);
+  KS[2370] = mkstr("\345\260\221\344\272\206", 6);
+  KS[2371] = mkstr(" \345\222\214 trait \345\243\260\346\230\216\344\270\215\344\270\200\350\207\264\357\274\232", 29);
+  KS[2372] = mkstr("trait \351\207\214\346\230\257 unsafe fn", 22);
+  KS[2373] = mkstr("trait \351\207\214\344\270\215\346\230\257 unsafe fn", 25);
+  KS[2374] = mkstr(" \346\234\211 ", 5);
+  KS[2375] = mkstr(" \344\270\252\345\217\202\346\225\260\357\274\214trait \345\243\260\346\230\216\347\232\204\346\230\257 ", 32);
+  KS[2376] = mkstr(" \347\232\204\347\261\273\345\236\213\345\222\214 trait \345\243\260\346\230\216\344\270\215\344\270\200\350\207\264\357\274\232\346\234\237\346\234\233 ", 45);
+  KS[2377] = mkstr("\357\274\214\345\256\236\351\231\205\346\230\257 ", 13);
+  KS[2378] = mkstr(" \347\232\204\347\255\276\345\220\215\345\222\214 trait \345\243\260\346\230\216\344\270\215\344\270\200\350\207\264\357\274\232\346\234\237\346\234\233 ", 45);
+  KS[2379] = mkstr("\347\261\273\345\236\213\351\224\231\350\257\257: trait ", 20);
+  KS[2380] = mkstr(" \347\232\204\350\266\205 trait ", 14);
+  KS[2381] = mkstr(" \344\270\215\345\255\230\345\234\250", 10);
+  KS[2382] = mkstr(" \347\232\204\350\266\205 trait \346\236\204\346\210\220\344\272\206\345\276\252\347\216\257", 29);
+  KS[2383] = mkstr("\347\261\273\345\236\213\351\224\231\350\257\257: impl ", 19);
+  KS[2384] = mkstr(" \344\271\237\345\256\236\347\216\260\350\266\205 trait ", 20);
+  KS[2385] = mkstr(" + ", 3);
+  KS[2386] = mkstr(" \345\217\252\350\203\275\345\206\231\345\234\250\345\207\275\346\225\260\345\217\202\346\225\260\346\210\226\350\277\224\345\233\236\347\261\273\345\236\213\351\207\214", 43);
+  KS[2387] = mkstr("\346\234\252\347\237\245 trait ", 13);
+  KS[2388] = mkstr("Array", 5);
+  KS[2389] = mkstr("\350\277\231\351\207\214\351\234\200\350\246\201\347\261\273\345\236\213\357\274\214", 21);
+  KS[2390] = mkstr(" \346\230\257\345\270\270\351\207\217\357\274\210\345\217\252\350\203\275\347\224\250\344\275\234\345\270\270\351\207\217\346\263\233\345\236\213\345\256\236\345\217\202\346\210\226\346\225\260\347\273\204\351\225\277\345\272\246\357\274\211", 61);
+  KS[2391] = mkstr("#c:", 3);
+  KS[2392] = mkstr(" \346\230\257\345\270\270\351\207\217\346\263\233\345\236\213\345\217\202\346\225\260\357\274\214\344\270\215\350\203\275\345\275\223\347\261\273\345\236\213\347\224\250", 43);
+  KS[2393] = mkstr("\346\225\260\347\273\204\351\225\277\345\272\246 ", 13);
+  KS[2394] = mkstr(" \345\277\205\351\241\273\346\230\257\346\225\264\346\225\260\346\210\226\345\270\270\351\207\217\346\263\233\345\236\213\345\217\202\346\225\260", 37);
+  KS[2395] = mkstr(" \345\277\205\351\241\273\346\230\257\346\225\264\346\225\260\346\210\226\345\270\270\351\207\217\346\263\233\345\236\213\345\217\202\346\225\260\357\274\210const ", 46);
+  KS[2396] = mkstr(": Int\357\274\211", 8);
+  KS[2397] = mkstr(" \347\232\204\347\272\246\346\235\237\351\207\214\346\262\241\346\234\211\345\205\263\350\201\224\347\261\273\345\236\213 ", 32);
+  KS[2398] = mkstr("\347\261\273\345\236\213\345\210\253\345\220\215 ", 13);
+  KS[2399] = mkstr(" \344\270\252\347\261\273\345\236\213\345\217\202\346\225\260\357\274\214\347\273\231\344\272\206 ", 26);
+  KS[2400] = mkstr("> \350\246\201\346\261\202 ", 9);
+  KS[2401] = mkstr("\357\274\210\347\273\231 ", 7);
+  KS[2402] = mkstr(" \345\212\240\344\270\212\347\272\246\346\235\237 ", 14);
+  KS[2403] = mkstr(" \347\232\204\345\270\270\351\207\217\346\263\233\345\236\213\345\217\202\346\225\260 ", 23);
+  KS[2404] = mkstr(" \351\234\200\350\246\201\346\225\264\346\225\260\357\274\214\345\256\236\351\231\205\346\230\257 ", 26);
+  KS[2405] = mkstr(" \347\232\204\346\263\233\345\236\213\345\217\202\346\225\260 ", 17);
+  KS[2406] = mkstr(" \351\234\200\350\246\201\347\261\273\345\236\213\357\274\214\345\256\236\351\231\205\346\230\257\345\270\270\351\207\217 ", 32);
+  KS[2407] = mkstr("\346\234\252\347\237\245\347\261\273\345\236\213 ", 13);
+  KS[2408] = mkstr("extern \345\207\275\346\225\260|", 14);
+  KS[2409] = mkstr("unsafe \345\207\275\346\225\260|", 14);
+  KS[2410] = mkstr("#nocg", 5);
+  KS[2411] = mkstr("impl \347\232\204\347\233\256\346\240\207\347\261\273\345\236\213 ", 21);
+  KS[2412] = mkstr(" \346\234\252\345\256\232\344\271\211", 10);
+  KS[2413] = mkstr("\345\205\263\350\201\224\347\261\273\345\236\213\345\217\252\350\203\275\345\206\231\345\234\250 impl Trait for \347\261\273\345\236\213 \351\207\214\357\274\210", 53);
+  KS[2414] = mkstr("trait ", 6);
+  KS[2415] = mkstr(" \346\262\241\346\234\211\345\205\263\350\201\224\347\261\273\345\236\213 ", 20);
+  KS[2416] = mkstr(" \347\274\272\345\260\221\345\205\263\350\201\224\347\261\273\345\236\213 ", 20);
+  KS[2417] = mkstr("\357\274\210\345\206\231 type ", 12);
+  KS[2418] = mkstr(" = \342\200\246\357\274\211", 9);
+  KS[2419] = mkstr(" \347\274\272\345\260\221\346\226\271\346\263\225 ", 14);
+  KS[2420] = mkstr(" \347\274\272\345\260\221\345\205\263\350\201\224\345\270\270\351\207\217 ", 20);
+  KS[2421] = mkstr("\357\274\210\345\206\231 const ", 13);
+  KS[2422] = mkstr(": \342\200\246 = \342\200\246\357\274\211", 14);
+  KS[2423] = mkstr("deprecated", 10);
+  KS[2424] = mkstr("\350\255\246\345\221\212: ", 8);
+  KS[2425] = mkstr(" \345\267\262\345\274\203\347\224\250", 10);
+  KS[2426] = mkstr(" \345\267\262\345\274\203\347\224\250\357\274\232", 13);
+  KS[2427] = mkstr("match \346\262\241\346\234\211\350\246\206\347\233\226 ", 19);
+  KS[2428] = mkstr(" \347\232\204 ", 5);
+  KS[2429] = mkstr("match \346\262\241\346\234\211\350\246\206\347\233\226 Bool \347\232\204\346\211\200\346\234\211\345\200\274", 36);
+  KS[2430] = mkstr("match \344\270\215\347\251\267\345\260\275\357\274\214", 18);
+  KS[2431] = mkstr(" \351\234\200\350\246\201\344\270\200\344\270\252\345\205\234\345\272\225\345\210\206\346\224\257 _", 27);
+  KS[2432] = mkstr("match \344\270\215\347\251\267\345\260\275\357\274\214\346\262\241\346\234\211\350\246\206\347\233\226 ", 31);
+  KS[2433] = mkstr("\345\217\252\346\234\211 ", 7);
+  KS[2434] = mkstr(" \351\241\271\357\274\214\346\250\241\345\274\217\351\207\214\345\206\231\344\272\206 ", 23);
+  KS[2435] = mkstr(" \351\241\271", 4);
+  KS[2436] = mkstr(" \345\270\246\345\270\270\351\207\217\346\263\233\345\236\213\345\217\202\346\225\260\357\274\214\344\270\215\350\203\275\345\275\223\345\200\274\344\274\240\351\200\222\357\274\214\350\257\267\347\224\250 lambda \345\214\205\344\270\200\345\261\202", 69);
+  KS[2437] = mkstr("\345\206\205\345\273\272\345\207\275\346\225\260 ", 13);
+  KS[2438] = mkstr(" \346\234\211\345\244\232\344\270\252\351\207\215\350\275\275\357\274\214\344\270\215\350\203\275\345\275\223\345\200\274\344\274\240\351\200\222\357\274\214\350\257\267\347\224\250 lambda \345\214\205\344\270\200\345\261\202", 63);
+  KS[2439] = mkstr("9223372036854775808", 19);
+  KS[2440] = mkstr("~ \347\232\204\346\223\215\344\275\234\346\225\260", 14);
+  KS[2441] = mkstr("~ \346\230\257 Int \347\232\204\346\214\211\344\275\215\345\217\226\345\217\215\357\274\214\344\270\215\350\203\275\347\224\250\344\272\216 ", 41);
+  KS[2442] = mkstr("\357\274\210\351\200\273\350\276\221\351\235\236\350\257\267\345\206\231 !\357\274\211", 23);
+  KS[2443] = mkstr("! \345\217\252\347\224\250\344\272\216 Bool\357\274\233Int \347\232\204\346\214\211\344\275\215\345\217\226\345\217\215\350\257\267\345\206\231 ~x\357\274\210kite fmt --migrate \345\217\257\350\207\252\345\212\250\346\224\271\345\206\231\357\274\211", 87);
+  KS[2444] = mkstr("! \347\232\204\346\223\215\344\275\234\346\225\260", 14);
+  KS[2445] = mkstr("neg", 3);
+  KS[2446] = mkstr("\346\225\260\347\273\204\345\205\203\347\264\240", 12);
+  KS[2447] = mkstr("\345\210\227\350\241\250\345\205\203\347\264\240", 12);
+  KS[2448] = mkstr("if \346\235\241\344\273\266", 9);
+  KS[2449] = mkstr("if \344\270\244\344\270\252\345\210\206\346\224\257", 15);
+  KS[2450] = mkstr("if \345\210\206\346\224\257", 9);
+  KS[2451] = mkstr("else \345\210\206\346\224\257", 11);
+  KS[2452] = mkstr("__await", 7);
+  KS[2453] = mkstr("\345\217\252\350\203\275 .await \344\270\200\344\270\252 Future\357\274\210async fn \347\232\204\350\260\203\347\224\250\347\273\223\346\236\234\357\274\211\357\274\214\350\277\231\351\207\214\346\230\257 ", 70);
+  KS[2454] = mkstr("__tc_", 5);
+  KS[2455] = mkstr("\347\261\273\345\236\213\345\217\202\346\225\260 ", 13);
+  KS[2456] = mkstr(" \346\262\241\346\234\211\345\205\263\350\201\224\345\270\270\351\207\217 ", 20);
+  KS[2457] = mkstr("\357\274\210\351\234\200\350\246\201\347\272\246\346\235\237 ", 16);
+  KS[2458] = mkstr(": \346\237\220\344\270\252\345\243\260\346\230\216\344\272\206 const ", 24);
+  KS[2459] = mkstr(" \347\232\204 trait\357\274\211", 13);
+  KS[2460] = mkstr(" \344\270\215\350\203\275\347\224\250 .", 12);
+  KS[2461] = mkstr(" \345\217\226\345\205\203\347\264\240\357\274\210\351\234\200\350\246\201\346\230\216\347\241\256\347\232\204\345\205\203\347\273\204\347\261\273\345\236\213\357\274\211", 43);
+  KS[2462] = mkstr("\345\205\203\347\273\204\345\217\252\346\234\211 ", 13);
+  KS[2463] = mkstr(" \344\270\252\345\205\203\347\264\240", 10);
+  KS[2464] = mkstr("\344\270\213\346\240\207", 6);
+  KS[2465] = mkstr("Map \347\232\204\351\224\256", 10);
+  KS[2466] = mkstr(" \344\270\215\346\224\257\346\214\201\344\270\213\346\240\207", 16);
+  KS[2467] = mkstr("\077 \345\217\252\350\203\275\347\224\250\345\234\250\345\207\275\346\225\260\351\207\214", 23);
+  KS[2468] = mkstr("spawn \344\273\273\345\212\241\351\207\214\344\270\215\350\203\275\347\224\250 \077\357\274\210\344\273\273\345\212\241\344\270\215\350\203\275\346\233\277\345\244\226\345\261\202\345\207\275\346\225\260\350\277\224\345\233\236\357\274\211", 65);
+  KS[2469] = mkstr("\077 \350\246\201\346\261\202\345\207\275\346\225\260\350\277\224\345\233\236\345\220\214\351\224\231\350\257\257\347\261\273\345\236\213\347\232\204 Result", 45);
+  KS[2470] = mkstr("\077 \345\217\252\350\203\275\347\224\250\344\272\216 Result \346\210\226 Option\357\274\214\345\256\236\351\231\205\346\230\257 ", 45);
+  KS[2471] = mkstr("\077 \350\246\201\346\261\202\345\207\275\346\225\260\350\277\224\345\233\236 Option", 27);
+  KS[2472] = mkstr(" \346\262\241\346\234\211\345\217\230\344\275\223 ", 14);
+  KS[2473] = mkstr("\344\275\277\347\224\250 unsafe \345\207\275\346\225\260 ", 21);
+  KS[2474] = mkstr(" \346\262\241\346\234\211 ", 8);
+  KS[2475] = mkstr(" \346\262\241\346\234\211\345\255\227\346\256\265 ", 14);
+  KS[2476] = mkstr(" \347\232\204\346\216\245\346\224\266\350\200\205\347\261\273\345\236\213\357\274\214\350\257\267\345\212\240\347\261\273\345\236\213\346\240\207\346\263\250", 40);
+  KS[2477] = mkstr("\345\207\275\346\225\260 ", 7);
+  KS[2478] = mkstr("self \345\217\252\350\203\275\345\207\272\347\216\260\345\234\250 impl \346\226\271\346\263\225\351\207\214", 35);
+  KS[2479] = mkstr("race \345\220\204\351\241\271", 11);
+  KS[2480] = mkstr("T", 1);
+  KS[2481] = mkstr("_0", 2);
+  KS[2482] = mkstr("@spawn", 6);
+  KS[2483] = mkstr("lambda \345\217\202\346\225\260 ", 14);
+  KS[2484] = mkstr("lambda \350\277\224\345\233\236\345\200\274", 16);
+  KS[2485] = mkstr("\346\234\252\345\256\232\344\271\211\347\232\204\345\220\215\345\255\227 ", 19);
+  KS[2486] = mkstr("\357\274\210\351\234\200\350\246\201 use std.", 18);
+  KS[2487] = mkstr(" \346\230\257\347\261\273\345\236\213\357\274\214\344\270\215\346\230\257\345\200\274", 22);
+  KS[2488] = mkstr("\345\217\257\345\217\230\345\217\202\346\225\260\347\232\204 extern fn ", 26);
+  KS[2489] = mkstr(" \345\217\252\350\203\275\347\233\264\346\216\245\350\260\203\347\224\250\357\274\214\344\270\215\350\203\275\345\275\223\344\275\234\345\200\274\344\275\277\347\224\250", 43);
+  KS[2490] = mkstr("\344\275\277\347\224\250 ", 7);
+  KS[2491] = mkstr("__c_", 4);
+  KS[2492] = mkstr("repanic", 7);
+  KS[2493] = mkstr("let ... else \347\232\204 else \345\235\227\345\277\205\351\241\273\350\267\263\345\207\272\357\274\210\344\273\245 return / break / continue / panic \347\273\223\345\260\276\357\274\211", 87);
+  KS[2494] = mkstr("match \345\256\210\345\215\253", 12);
+  KS[2495] = mkstr("match \345\210\206\346\224\257", 12);
+  KS[2496] = mkstr("match \345\220\204\345\210\206\346\224\257", 15);
+  KS[2497] = mkstr("\346\234\237\346\234\233 ", 7);
+  KS[2498] = mkstr("R", 1);
+  KS[2499] = mkstr("X", 1);
+  KS[2500] = mkstr("cmp", 3);
+  KS[2501] = mkstr("Add", 3);
+  KS[2502] = mkstr("Sub", 3);
+  KS[2503] = mkstr("Mul", 3);
+  KS[2504] = mkstr("Div", 3);
+  KS[2505] = mkstr("Rem", 3);
+  KS[2506] = mkstr("Neg", 3);
+  KS[2507] = mkstr("Cmp", 3);
+  KS[2508] = mkstr("-\357\274\210\345\217\226\350\264\237\357\274\211", 13);
+  KS[2509] = mkstr("\357\274\214\344\270\215\350\203\275\347\224\250\350\277\220\347\256\227\347\254\246 ", 22);
+  KS[2510] = mkstr("\357\274\210\345\234\250 impl ", 12);
+  KS[2511] = mkstr(" \351\207\214\345\256\232\344\271\211 fn ", 14);
+  KS[2512] = mkstr(".cmp \347\232\204\350\277\224\345\233\236\345\200\274", 17);
+  KS[2513] = mkstr("\346\210\226\346\250\241\345\274\217\347\232\204\346\257\217\344\270\252\345\210\206\346\224\257\345\277\205\351\241\273\347\273\221\345\256\232\347\233\270\345\220\214\347\232\204\345\217\230\351\207\217\357\274\232", 54);
+  KS[2514] = mkstr(" \344\270\216 ", 5);
+  KS[2515] = mkstr("\346\210\226\346\250\241\345\274\217\351\207\214\347\232\204 ", 16);
+  KS[2516] = mkstr("let", 3);
+  KS[2517] = mkstr("\346\250\241\345\274\217", 6);
+  KS[2518] = mkstr("\345\214\272\351\227\264\346\250\241\345\274\217\344\270\244\347\253\257\347\232\204\347\261\273\345\236\213\344\270\215\344\270\200\350\207\264", 36);
+  KS[2519] = mkstr("\345\214\272\351\227\264\346\250\241\345\274\217 ", 13);
+  KS[2520] = mkstr(" \346\230\257\347\251\272\347\232\204", 10);
+  KS[2521] = mkstr("\345\214\272\351\227\264\346\250\241\345\274\217", 12);
+  KS[2522] = mkstr(".. \345\217\252\350\203\275\345\207\272\347\216\260\345\234\250\345\205\203\347\273\204\343\200\201\345\217\230\344\275\223\346\210\226\345\210\227\350\241\250\346\250\241\345\274\217\351\207\214", 51);
+  KS[2523] = mkstr("\345\270\246 .. \347\232\204\345\205\203\347\273\204\346\250\241\345\274\217\351\234\200\350\246\201\345\267\262\347\237\245\351\225\277\345\272\246\347\232\204\345\205\203\347\273\204", 49);
+  KS[2524] = mkstr("\345\205\203\347\273\204", 6);
+  KS[2525] = mkstr("\345\205\203\347\273\204\346\250\241\345\274\217", 12);
+  KS[2526] = mkstr("\345\210\227\350\241\250\346\250\241\345\274\217", 12);
+  KS[2527] = mkstr("\346\250\241\345\274\217 ", 7);
+  KS[2528] = mkstr("\345\217\230\344\275\223 ", 7);
+  KS[2529] = mkstr(" \344\270\252\345\255\227\346\256\265\357\274\214\347\273\231\344\272\206 ", 20);
+  KS[2530] = mkstr("\345\270\270\351\207\217 ", 7);
+  KS[2531] = mkstr(" \347\232\204\345\200\274\344\270\215\346\230\257\345\255\227\351\235\242\351\207\217\357\274\214\344\270\215\350\203\275\347\224\250\344\275\234\346\250\241\345\274\217\357\274\210\350\257\267\346\224\271\347\224\250\345\256\210\345\215\253 if x == ", 70);
+  KS[2532] = mkstr("\346\234\252\347\237\245\347\232\204\345\217\230\344\275\223 ", 16);
+  KS[2533] = mkstr("\343\200\201", 3);
+  KS[2534] = mkstr("\357\274\210\346\227\240\357\274\211", 9);
+  KS[2535] = mkstr("\346\250\241\345\274\217\351\207\214\351\207\215\345\244\215\347\273\221\345\256\232\344\272\206 ", 25);
+  KS[2536] = mkstr("\357\274\232", 3);
+  KS[2537] = mkstr("Char", 4);
+  KS[2538] = mkstr("Bytes", 5);
+  KS[2539] = mkstr("select \345\256\210\345\215\253", 13);
+  KS[2540] = mkstr(" \347\232\204\351\200\232\351\201\223", 10);
+  KS[2541] = mkstr("send \347\232\204\345\200\274", 11);
+  KS[2542] = mkstr("select \347\232\204 recv \347\273\221\345\256\232\345\277\205\351\241\273\346\230\257\345\217\230\351\207\217\345\220\215\346\210\226 _\357\274\210\345\200\274\346\230\257 Option\357\274\214\345\234\250\345\210\206\346\224\257\351\207\214\345\206\215 match\357\274\211", 88);
+  KS[2543] = mkstr("after \347\232\204\346\257\253\347\247\222\346\225\260", 18);
+  KS[2544] = mkstr("select \345\220\204\345\210\206\346\224\257", 16);
+  KS[2545] = mkstr(" { .. }", 7);
+  KS[2546] = mkstr(", ..]", 5);
+  KS[2547] = mkstr("\347\261\273\345\236\213\351\224\231\350\257\257: \346\227\240\346\263\225\347\241\256\345\256\232 ", 27);
+  KS[2548] = mkstr(" \347\232\204\347\261\273\345\236\213\345\217\202\346\225\260\357\274\214\345\217\226\344\270\215\345\210\260\345\256\203\347\232\204\345\205\263\350\201\224\345\270\270\351\207\217 ", 47);
+  KS[2549] = mkstr(" \347\232\204\345\270\270\351\207\217\346\263\233\345\236\213\345\217\202\346\225\260\345\277\205\351\241\273\346\230\257\346\225\264\346\225\260\357\274\214\345\256\236\351\231\205\346\230\257 ", 50);
+  KS[2550] = mkstr(" \347\232\204\345\270\270\351\207\217\346\263\233\345\236\213\345\217\202\346\225\260\357\274\210\346\240\207\346\263\250\346\225\260\347\273\204\351\225\277\345\272\246\357\274\214\346\210\226\347\224\250 ", 53);
+  KS[2551] = mkstr(".<\342\200\246>(\342\200\246) \346\230\276\345\274\217\346\214\207\345\256\232\357\274\211", 27);
+  KS[2552] = mkstr("\347\261\273\345\236\213\351\224\231\350\257\257: ", 14);
+  KS[2553] = mkstr("\346\227\240\346\263\225\347\241\256\345\256\232 ", 13);
+  KS[2554] = mkstr(" \345\222\214 ", 5);
+  KS[2555] = mkstr(" \346\230\257\345\220\246\344\270\200\350\207\264\357\274\214\350\257\267\345\212\240\347\261\273\345\236\213\346\240\207\346\263\250", 34);
+  KS[2556] = mkstr("\357\274\210\347\273\231\346\263\233\345\236\213\345\217\202\346\225\260\345\212\240\347\272\246\346\235\237 ", 28);
+  KS[2557] = mkstr("\357\274\210\351\234\200\350\246\201 impl ", 15);
+  KS[2558] = mkstr(" \346\262\241\346\234\211\345\256\236\347\216\260 ", 14);
+  KS[2559] = mkstr("num", 3);
+  KS[2560] = mkstr("ord", 3);
+  KS[2561] = mkstr("\346\225\260\345\200\274\350\277\220\347\256\227", 12);
+  KS[2562] = mkstr("+ \350\277\220\347\256\227", 8);
+  KS[2563] = mkstr("\345\244\247\345\260\217\346\257\224\350\276\203", 12);
+  KS[2564] = mkstr("\347\261\273\345\236\213\351\224\231\350\257\257: \346\263\233\345\236\213 ", 21);
+  KS[2565] = mkstr(" \344\270\215\350\203\275\345\201\232 ", 11);
+  KS[2566] = mkstr("\357\274\214\350\257\267\345\212\240\347\272\246\346\235\237 ", 16);
+  KS[2567] = mkstr("\357\274\210\346\210\226\350\277\220\347\256\227\347\254\246 trait ", 22);
+  KS[2568] = mkstr("Sub/Mul/Div/Rem/Neg", 19);
+  KS[2569] = mkstr("\344\270\215\346\224\257\346\214\201\347\261\273\345\236\213 ", 16);
+  KS[2570] = mkstr("__sort_cmp", 10);
+  KS[2571] = mkstr("2", 1);
+  KS[2572] = mkstr("_cmp", 4);
+  KS[2573] = mkstr(" \351\234\200\350\246\201\345\217\257\346\257\224\350\276\203\347\232\204\345\205\203\347\264\240\357\274\214\350\257\267\347\273\231\346\263\233\345\236\213\345\212\240\347\272\246\346\235\237 ", 50);
+  KS[2574] = mkstr(": Ord \346\210\226 ", 10);
+  KS[2575] = mkstr(": Cmp", 5);
+  KS[2576] = mkstr("|Cmp", 4);
+  KS[2577] = mkstr(" \351\234\200\350\246\201\345\217\257\346\257\224\350\276\203\347\232\204\345\205\203\347\264\240\357\274\232", 28);
+  KS[2578] = mkstr(" \346\262\241\346\234\211\345\256\236\347\216\260 Cmp\357\274\210impl Cmp for ", 33);
+  KS[2579] = mkstr("let \347\232\204\347\261\273\345\236\213\346\240\207\346\263\250", 19);
+  KS[2580] = mkstr("return \345\217\252\350\203\275\345\207\272\347\216\260\345\234\250\345\207\275\346\225\260\351\207\214", 31);
+  KS[2581] = mkstr("spawn \344\273\273\345\212\241\351\207\214\344\270\215\350\203\275\347\224\250 return\357\274\210\344\273\273\345\212\241\347\232\204\345\200\274\345\260\261\346\230\257\345\256\203\347\232\204\350\241\250\350\276\276\345\274\217\357\274\211", 70);
+  KS[2582] = mkstr("return \347\232\204\345\200\274", 13);
+  KS[2583] = mkstr("while \346\235\241\344\273\266", 12);
+  KS[2584] = mkstr(" \344\270\215\345\217\257\350\277\255\344\273\243", 13);
+  KS[2585] = mkstr("\346\234\252\347\237\245\350\257\255\345\217\245 ", 13);
+  KS[2586] = mkstr(" \344\270\215\346\230\257\350\256\260\345\275\225\345\217\230\344\275\223\357\274\214\350\257\267\345\206\231 ", 29);
+  KS[2587] = mkstr("(\342\200\246)", 5);
+  KS[2588] = mkstr("\350\256\260\345\275\225\345\217\230\344\275\223 ", 13);
+  KS[2589] = mkstr(" \344\270\215\346\224\257\346\214\201 ..base \346\233\264\346\226\260", 24);
+  KS[2590] = mkstr(" \347\274\272\345\260\221\345\255\227\346\256\265 ", 14);
+  KS[2591] = mkstr("\346\234\252\347\237\245\347\273\223\346\236\204\344\275\223 ", 16);
+  KS[2592] = mkstr("..base\357\274\210\345\272\224\344\270\272 ", 16);
+  KS[2593] = mkstr("\345\255\227\346\256\265 ", 7);
+  KS[2594] = mkstr("__upd", 5);
+  KS[2595] = mkstr(" \345\270\246\345\270\270\351\207\217\346\263\233\345\236\213\345\217\202\346\225\260\357\274\214\350\277\231\351\207\214\350\257\267\345\206\231\346\210\220\350\260\203\347\224\250\345\275\242\345\274\217 ", 53);
+  KS[2596] = mkstr("\346\230\276\345\274\217\346\263\233\345\236\213\345\256\236\345\217\202 .<\342\200\246> \345\217\252\350\203\275\350\267\237\345\234\250\346\263\233\345\236\213\345\207\275\346\225\260\345\220\215\345\220\216\351\235\242", 59);
+  KS[2597] = mkstr(" \344\270\215\346\230\257\346\263\233\345\236\213\345\207\275\346\225\260\357\274\214\344\270\215\350\203\275\345\206\231 .<\342\200\246>", 38);
+  KS[2598] = mkstr(" \344\270\252\346\263\233\345\236\213\345\217\202\346\225\260\357\274\210", 19);
+  KS[2599] = mkstr("\357\274\211\357\274\214\347\273\231\344\272\206 ", 13);
+  KS[2600] = mkstr("\357\274\214\344\270\215\350\203\275\345\275\223\344\275\234 ", 16);
+  KS[2601] = mkstr("\357\274\210unsafe fn \344\270\215\350\203\275\345\275\223\346\231\256\351\200\232\345\207\275\346\225\260\347\224\250\357\274\211", 40);
+  KS[2602] = mkstr("\357\274\210\345\210\227\350\241\250\347\232\204\351\225\277\345\272\246\347\274\226\350\257\221\346\234\237\346\234\252\347\237\245\357\274\232\347\233\264\346\216\245\344\274\240\346\225\260\347\273\204\345\255\227\351\235\242\351\207\217\357\274\214\346\210\226\347\273\231\345\217\230\351\207\217\346\240\207\346\263\250 [T; n]\357\274\211", 91);
+  KS[2603] = mkstr("kitec \346\234\252\346\224\257\346\214\201: ", 17);
+  KS[2604] = mkstr("mod", 3);
+  KS[2605] = mkstr("\346\234\252\347\237\245\346\240\207\345\207\206\345\272\223\346\250\241\345\235\227 std.", 26);
+  KS[2606] = mkstr(" \350\207\263\345\260\221\351\234\200\350\246\201 ", 14);
+  KS[2607] = mkstr(" \347\232\204\345\217\202\346\225\260", 10);
+  KS[2608] = mkstr("__va_", 5);
+  KS[2609] = mkstr(" \347\232\204\345\217\257\345\217\230\345\217\202\346\225\260\344\270\215\350\203\275\346\230\257 ", 26);
+  KS[2610] = mkstr("\357\274\210\345\217\252\346\224\257\346\214\201 Int\343\200\201Float\343\200\201Bool\343\200\201Str\343\200\201Ptr\357\274\211", 46);
+  KS[2611] = mkstr("\347\261\273\345\236\213\351\224\231\350\257\257: trait \351\207\214\346\262\241\346\234\211 self \347\232\204\346\226\271\346\263\225\344\270\215\350\203\275\344\275\277\347\224\250 Self.", 62);
+  KS[2612] = mkstr("\346\240\274\345\274\217\345\214\226\345\231\250\345\206\205\351\203\250\351\224\231\350\257\257\357\274\232\350\276\223\345\207\272\346\224\271\345\217\230\344\272\206\347\250\213\345\272\217\345\220\253\344\271\211\357\274\214\345\267\262\346\224\276\345\274\203\357\274\210\350\257\267\346\212\245\345\221\212\346\255\244\346\226\207\344\273\266\357\274\211", 90);
+  KS[2613] = mkstr("type", 4);
+  KS[2614] = mkstr("->", 2);
+  KS[2615] = mkstr("x0b", 3);
+  KS[2616] = mkstr("(expr, ", 7);
+  KS[2617] = mkstr("OPx01'>'", 8);
+  KS[2618] = mkstr("x01", 3);
+  KS[2619] = mkstr("=>", 2);
+  KS[2620] = mkstr("if", 2);
+  KS[2621] = mkstr("/*", 2);
+  KS[2622] = mkstr("*/", 2);
+  KS[2623] = mkstr("\345\235\227\346\263\250\351\207\212\346\234\252\351\227\255\345\220\210", 18);
+  KS[2624] = mkstr("\345\216\237\345\247\213\345\255\227\347\254\246\344\270\262\346\234\252\351\227\255\345\220\210", 24);
+  KS[2625] = mkstr("other", 5);
+  KS[2626] = mkstr("__main.", 7);
+  KS[2627] = mkstr("super", 5);
+  KS[2628] = mkstr("super \346\230\257\344\277\235\347\225\231\345\220\215\345\255\227\357\274\214\344\270\215\350\203\275\347\224\250\344\275\234\346\250\241\345\235\227\345\220\215", 45);
+  KS[2629] = mkstr("\346\250\241\345\235\227 ", 7);
+  KS[2630] = mkstr(" \351\207\215\345\244\215\345\256\232\344\271\211", 13);
+  KS[2631] = mkstr("\345\206\205\350\201\224\346\250\241\345\235\227 ", 13);
+  KS[2632] = mkstr(" \345\222\214\345\267\262\346\234\211\346\250\241\345\235\227 ", 17);
+  KS[2633] = mkstr(" \351\207\215\345\220\215", 7);
+  KS[2634] = mkstr("kite.lock", 9);
+  KS[2635] = mkstr("\012[[end]]", 8);
+  KS[2636] = mkstr("\344\276\235\350\265\226\345\214\205\357\274\210\350\277\230\346\262\241\346\234\211 kite.lock\357\274\214\345\205\210\350\277\220\350\241\214 kite get\357\274\211", 55);
+  KS[2637] = mkstr("name =", 6);
+  KS[2638] = mkstr("version =", 9);
+  KS[2639] = mkstr("source =", 8);
+  KS[2640] = mkstr("\344\276\235\350\265\226\345\214\205 ", 10);
+  KS[2641] = mkstr(" \350\277\230\346\262\241\345\256\211\350\243\205\357\274\210\345\205\210\350\277\220\350\241\214 kite get\357\274\211", 37);
+  KS[2642] = mkstr(" \351\207\214\346\262\241\346\234\211 ", 11);
+  KS[2643] = mkstr(" \346\230\257\347\247\201\346\234\211\347\232\204\357\274\210\345\234\250\345\256\232\344\271\211\345\211\215\345\212\240 pub \346\211\215\350\203\275\350\242\253\345\205\266\344\273\226\346\250\241\345\235\227\344\275\277\347\224\250\357\274\211", 66);
+  KS[2644] = mkstr("pkg", 3);
+  KS[2645] = mkstr("\346\234\254\345\214\205", 6);
+  KS[2646] = mkstr("\346\211\200\345\234\250\347\233\256\345\275\225\347\232\204\346\250\241\345\235\227", 21);
+  KS[2647] = mkstr(" \346\230\257 pub(", 9);
+  KS[2648] = mkstr(")\357\274\214\345\217\252\345\257\271", 10);
+  KS[2649] = mkstr("\345\217\257\350\247\201", 6);
+  KS[2650] = mkstr("mod.kite", 8);
+  KS[2651] = mkstr(" \344\270\213\346\262\241\346\234\211\346\250\241\345\235\227 ", 17);
+  KS[2652] = mkstr("\346\211\276\344\270\215\345\210\260\346\250\241\345\235\227 ", 16);
+  KS[2653] = mkstr("__lm", 4);
+  KS[2654] = mkstr("\346\250\241\345\235\227\345\276\252\347\216\257\345\274\225\347\224\250: ", 20);
+  KS[2655] = mkstr("\344\270\273\346\226\207\344\273\266", 9);
+  KS[2656] = mkstr("\346\236\232\344\270\276\345\217\230\344\275\223 ", 13);
+  KS[2657] = mkstr(" \345\234\250 ", 5);
+  KS[2658] = mkstr(" \344\270\255\351\207\215\345\244\215\345\256\232\344\271\211\357\274\210\345\217\230\344\275\223\347\233\256\345\211\215\346\230\257\345\205\250\345\261\200\345\220\215\345\255\227\357\274\211", 49);
+  KS[2659] = mkstr("../..", 5);
+  KS[2660] = mkstr("\346\227\240\346\263\225\350\257\273\345\217\226 ", 13);
+  KS[2661] = mkstr("internal", 8);
+  KS[2662] = mkstr("\344\270\215\350\203\275\344\275\277\347\224\250\345\206\205\351\203\250\346\250\241\345\235\227 std.", 29);
+  KS[2663] = mkstr("\357\274\210\345\217\252\344\276\233 ", 10);
+  KS[2664] = mkstr(" \345\217\212\345\205\266\345\255\220\346\250\241\345\235\227\344\275\277\347\224\250\357\274\211", 25);
+  KS[2665] = mkstr("\357\274\210\346\262\241\346\234\211 ", 10);
+  KS[2666] = mkstr("\357\274\214\344\271\237\344\270\215\346\230\257 kite.toml \351\207\214\347\232\204\344\276\235\350\265\226\357\274\211", 38);
+  KS[2667] = mkstr(" \346\262\241\346\234\211 src/lib.kite", 20);
+  KS[2668] = mkstr(".super \345\217\252\350\203\275\345\234\250\346\250\241\345\235\227 ", 23);
+  KS[2669] = mkstr(" \345\206\205\351\203\250\344\275\277\347\224\250", 13);
+  KS[2670] = mkstr(" \346\230\257\347\247\201\346\234\211\346\250\241\345\235\227\357\274\210\345\206\231 pub mod ", 31);
+  KS[2671] = mkstr(" \346\211\215\350\203\275\345\234\250\345\244\226\351\235\242\344\275\277\347\224\250\357\274\211", 25);
+  KS[2672] = mkstr("\345\207\275\346\225\260\344\275\223\351\207\214\344\270\215\346\224\257\346\214\201 use m.*\357\274\214\350\257\267\351\200\220\344\270\252\345\210\227\345\207\272\345\220\215\345\255\227", 53);
+  KS[2673] = mkstr("__lmu", 5);
+  KS[2674] = mkstr("const", 5);
+  KS[2675] = mkstr("\350\257\255\346\263\225\351\224\231\350\257\257: \345\270\270\351\207\217\345\220\215\345\277\205\351\241\273\344\273\245\345\244\247\345\206\231\345\255\227\346\257\215\345\274\200\345\244\264\357\274\232", 53);
+  KS[2676] = mkstr("\350\257\255\346\263\225\351\224\231\350\257\257: \345\205\263\350\201\224\345\270\270\351\207\217 ", 27);
+  KS[2677] = mkstr(" \351\207\215\345\244\215", 7);
+  KS[2678] = mkstr("\350\257\255\346\263\225\351\224\231\350\257\257: impl \351\207\214\347\232\204\345\205\263\350\201\224\345\270\270\351\207\217 ", 38);
+  KS[2679] = mkstr(" \345\277\205\351\241\273\346\234\211\345\210\235\345\200\274", 16);
+  KS[2680] = mkstr("async \345\235\227\347\232\204\345\200\274", 15);
+  KS[2681] = mkstr("async \351\227\255\345\214\205\347\232\204\350\277\224\345\233\236\345\200\274", 24);
+  KS[2682] = mkstr("\350\257\255\346\263\225\351\224\231\350\257\257: async \345\220\216\351\235\242\345\272\224\350\257\245\346\230\257 { \345\235\227 }\343\200\201\351\227\255\345\214\205\346\210\226 fn", 58);
+  KS[2683] = mkstr("INT", 3);
+  KS[2684] = mkstr("FLOAT", 5);
+  KS[2685] = mkstr("\350\257\255\346\263\225\351\224\231\350\257\257: \345\261\236\346\200\247\345\217\202\346\225\260\345\217\252\350\203\275\346\230\257\345\255\227\351\235\242\351\207\217\357\274\210\346\225\264\346\225\260\343\200\201\346\265\256\347\202\271\343\200\201\345\255\227\347\254\246\344\270\262\343\200\201true/false\357\274\211\346\210\226\345\220\215\345\255\227", 99);
+  KS[2686] = mkstr("\350\257\255\346\263\225\351\224\231\350\257\257: \346\234\252\347\237\245\345\261\236\346\200\247 @", 28);
+  KS[2687] = mkstr("\357\274\210\346\224\257\346\214\201: ", 11);
+  KS[2688] = mkstr("|>", 2);
+  KS[2689] = mkstr("\350\257\255\346\263\225\351\224\231\350\257\257: \347\256\241\351\201\223 |> \347\232\204\345\217\263\344\276\247\345\217\252\350\203\275\346\230\257\345\207\275\346\225\260\346\210\226\350\260\203\347\224\250\357\274\214\344\270\215\344\274\232\345\220\270\346\224\266\345\220\216\351\235\242\347\232\204 ", 82);
+  KS[2690] = mkstr("\357\274\233\350\257\267\345\206\231\346\210\220 (a |> f) ", 22);
+  KS[2691] = mkstr(" \342\200\246", 4);
+  KS[2692] = mkstr("\350\257\255\346\263\225\351\224\231\350\257\257: ", 14);
+  KS[2693] = mkstr(" \344\270\215\345\217\257\350\277\236\347\224\250\357\274\210\346\257\224\350\276\203\344\270\215\345\217\257\347\273\223\345\220\210\357\274\211\357\274\232a < b < c \350\257\267\345\206\231\346\210\220 a < b && b < c", 74);
+  KS[2694] = mkstr("is", 2);
+  KS[2695] = mkstr("else", 4);
+  KS[2696] = mkstr("\350\257\255\346\263\225\351\224\231\350\257\257: \350\257\255\345\217\245\345\220\216\345\207\272\347\216\260\346\204\217\345\244\226\347\232\204 ", 39);
+  KS[2697] = mkstr("\350\257\255\346\263\225\351\224\231\350\257\257: \345\217\230\344\275\223 ", 21);
+  KS[2698] = mkstr(" \347\232\204\345\255\227\346\256\265 ", 11);
+  KS[2699] = mkstr("\350\257\255\346\263\225\351\224\231\350\257\257: \350\256\260\345\275\225\345\217\230\344\275\223 ", 27);
+  KS[2700] = mkstr(" \350\207\263\345\260\221\350\246\201\346\234\211\344\270\200\344\270\252\345\255\227\346\256\265\357\274\210\346\227\240\345\255\227\346\256\265\350\257\267\347\233\264\346\216\245\345\206\231 ", 50);
+  KS[2701] = mkstr("\350\257\255\346\263\225\351\224\231\350\257\257: \346\234\237\346\234\233 ", 21);
+  KS[2702] = mkstr("\350\257\255\346\263\225\351\224\231\350\257\257: \346\234\237\346\234\233\346\240\207\350\257\206\347\254\246\357\274\214\345\256\236\351\231\205\346\230\257 ", 42);
+  KS[2703] = mkstr("\350\257\255\346\263\225\351\224\231\350\257\257: \345\217\252\346\224\257\346\214\201 extern \"C\"\357\274\214\344\270\215\346\224\257\346\214\201 ", 47);
+  KS[2704] = mkstr("\350\257\255\346\263\225\351\224\231\350\257\257: extern \345\235\227\351\207\214\345\217\252\350\203\275\345\206\231 fn \347\255\276\345\220\215", 46);
+  KS[2705] = mkstr("\350\257\255\346\263\225\351\224\231\350\257\257: extern fn ", 24);
+  KS[2706] = mkstr(" \344\270\215\350\203\275\346\234\211\345\207\275\346\225\260\344\275\223", 19);
+  KS[2707] = mkstr(" \344\270\215\350\203\275\346\234\211\346\263\233\345\236\213\345\217\202\346\225\260", 22);
+  KS[2708] = mkstr("doc", 3);
+  KS[2709] = mkstr("allow", 5);
+  KS[2710] = mkstr("\350\257\255\346\263\225\351\224\231\350\257\257: @", 15);
+  KS[2711] = mkstr(" \344\270\215\350\203\275\347\224\250\345\234\250 extern fn \344\270\212", 27);
+  KS[2712] = mkstr("x", 1);
+  KS[2713] = mkstr("o", 1);
+  KS[2714] = mkstr("async", 5);
+  KS[2715] = mkstr("\350\257\255\346\263\225\351\224\231\350\257\257: \345\217\252\346\234\211 extern fn \345\217\257\344\273\245\346\234\211\345\217\257\345\217\230\345\217\202\346\225\260 ...", 56);
+  KS[2716] = mkstr("\350\257\255\346\263\225\351\224\231\350\257\257: \345\270\270\351\207\217\346\263\233\345\236\213\345\217\202\346\225\260\345\220\215\345\277\205\351\241\273\344\273\245\345\244\247\345\206\231\345\255\227\346\257\215\345\274\200\345\244\264\357\274\232", 65);
+  KS[2717] = mkstr("\350\257\255\346\263\225\351\224\231\350\257\257: \345\270\270\351\207\217\346\263\233\345\236\213\345\217\202\346\225\260 ", 33);
+  KS[2718] = mkstr(" \347\233\256\345\211\215\345\217\252\346\224\257\346\214\201 Int \347\261\273\345\236\213", 27);
+  KS[2719] = mkstr("for", 3);
+  KS[2720] = mkstr("\350\257\255\346\263\225\351\224\231\350\257\257: \345\205\263\350\201\224\347\261\273\345\236\213 ", 27);
+  KS[2721] = mkstr("link", 4);
+  KS[2722] = mkstr("\350\257\255\346\263\225\351\224\231\350\257\257: extern \345\235\227\345\211\215\345\217\252\350\203\275\347\224\250 @link / @doc / @allow\357\274\214\344\270\215\350\203\275\347\224\250 @", 72);
+  KS[2723] = mkstr("\350\257\255\346\263\225\351\224\231\350\257\257: @link \345\217\252\350\203\275\347\224\250\345\234\250 extern \345\235\227\344\270\212", 46);
+  KS[2724] = mkstr("\350\257\255\346\263\225\351\224\231\350\257\257: \345\261\236\346\200\247\345\217\252\350\203\275\346\224\276\345\234\250\345\243\260\346\230\216\357\274\210fn type enum trait impl const\357\274\211\345\211\215\351\235\242", 79);
+  KS[2725] = mkstr("inline", 6);
+  KS[2726] = mkstr("cold", 4);
+  KS[2727] = mkstr(" \345\217\252\350\203\275\347\224\250\345\234\250 fn \344\270\212", 20);
+  KS[2728] = mkstr("\350\257\255\346\263\225\351\224\231\350\257\257: \345\217\257\350\247\201\346\200\247\345\217\252\350\203\275\346\230\257 pub\343\200\201pub(pkg) \346\210\226 pub(mod)\357\274\214\344\270\215\350\203\275\345\206\231 pub(", 77);
+  KS[2729] = mkstr("\350\257\255\346\263\225\351\224\231\350\257\257: \345\207\275\346\225\260\344\275\223\351\207\214\345\217\252\350\203\275\345\206\231\345\206\205\350\201\224 mod \345\235\227 mod m { \342\200\246 }", 63);
+  KS[2730] = mkstr("\350\257\255\346\263\225\351\224\231\350\257\257: \345\206\205\350\201\224 mod \345\235\227\347\232\204\345\220\215\345\255\227\345\217\252\350\203\275\346\230\257\344\270\200\344\270\252\346\240\207\350\257\206\347\254\246", 61);
+  KS[2731] = mkstr("\350\257\255\346\263\225\351\224\231\350\257\257: mod ", 18);
+  KS[2732] = mkstr(" \347\274\272\345\260\221 }", 9);
+  KS[2733] = mkstr("\350\257\255\346\263\225\351\224\231\350\257\257: extern \345\235\227\345\217\252\350\203\275\345\206\231\345\234\250\351\241\266\345\261\202", 42);
+  KS[2734] = mkstr("\350\257\255\346\263\225\351\224\231\350\257\257: \351\241\266\345\261\202\344\270\215\350\203\275\347\224\250 ", 30);
+  KS[2735] = mkstr("\357\274\233\345\205\250\345\261\200\345\270\270\351\207\217\350\257\267\345\206\231 const NAME: T = \342\200\246\357\274\214\345\217\257\345\217\230\347\212\266\346\200\201\350\257\267\346\224\276\350\277\233\345\207\275\346\225\260\351\207\214", 74);
+  KS[2736] = mkstr("\350\257\255\346\263\225\351\224\231\350\257\257: \351\241\266\345\261\202\345\217\252\345\205\201\350\256\270\345\243\260\346\230\216\357\274\210fn type enum trait impl use mod const\357\274\211\357\274\214\350\257\255\345\217\245\350\257\267\346\224\276\350\277\233 fn main", 104);
+  KS[2737] = mkstr("match", 5);
+  KS[2738] = mkstr("\350\257\255\346\263\225\351\224\231\350\257\257: ... \345\217\252\350\203\275\346\230\257\346\234\200\345\220\216\344\270\200\344\270\252\345\217\202\346\225\260", 45);
+  KS[2739] = mkstr("\350\257\255\346\263\225\351\224\231\350\257\257: - \345\220\216\351\235\242\345\277\205\351\241\273\346\230\257\346\225\260\345\255\227", 37);
+  KS[2740] = mkstr("\350\257\255\346\263\225\351\224\231\350\257\257: \346\250\241\345\274\217\351\207\214\347\232\204\345\255\227\347\254\246\344\270\262\344\270\215\350\203\275\346\234\211\346\217\222\345\200\274", 50);
+  KS[2741] = mkstr("\350\257\255\346\263\225\351\224\231\350\257\257: \346\234\237\346\234\233\345\255\227\351\235\242\351\207\217\357\274\214\345\256\236\351\231\205\346\230\257 ", 42);
+  KS[2742] = mkstr("\350\257\255\346\263\225\351\224\231\350\257\257: var \345\220\216\351\235\242\345\277\205\351\241\273\346\230\257\345\260\217\345\206\231\347\232\204\347\273\221\345\256\232\345\220\215", 51);
+  KS[2743] = mkstr("\350\257\255\346\263\225\351\224\231\350\257\257: \345\214\272\351\227\264\346\250\241\345\274\217 .. \345\220\216\351\235\242\351\234\200\350\246\201\345\255\227\351\235\242\351\207\217", 51);
+  KS[2744] = mkstr("\350\257\255\346\263\225\351\224\231\350\257\257: \346\227\240\346\225\210\347\232\204\346\250\241\345\274\217 ", 30);
+  KS[2745] = mkstr("\350\257\255\346\263\225\351\224\231\350\257\257: \346\250\241\345\274\217\351\207\214\347\232\204 Self \345\217\252\350\203\275\347\224\250\345\234\250 impl \351\207\214", 53);
+  KS[2746] = mkstr("\350\257\255\346\263\225\351\224\231\350\257\257: @ \345\267\246\350\276\271\345\277\205\351\241\273\346\230\257\345\260\217\345\206\231\347\232\204\347\273\221\345\256\232\345\220\215", 49);
+  KS[2747] = mkstr("await", 5);
+  KS[2748] = mkstr("\350\257\255\346\263\225\351\224\231\350\257\257: .await \345\217\252\350\203\275\347\224\250\345\234\250 async fn\343\200\201async \345\235\227\346\210\226 async \351\227\255\345\214\205\351\207\214", 73);
+  KS[2749] = mkstr("\350\257\255\346\263\225\351\224\231\350\257\257: .<> \351\207\214\350\207\263\345\260\221\350\246\201\346\234\211\344\270\200\344\270\252\347\261\273\345\236\213", 45);
+  KS[2750] = mkstr("\350\257\255\346\263\225\351\224\231\350\257\257: \347\251\272\347\232\204\345\255\227\347\254\246\344\270\262\346\217\222\345\200\274 {}\357\274\210\345\255\227\351\235\242\347\232\204 { \345\206\231\346\210\220 \\{\357\274\211", 65);
+  KS[2751] = mkstr("\350\257\255\346\263\225\351\224\231\350\257\257: \345\255\227\347\254\246\344\270\262\346\217\222\345\200\274\351\207\214\350\241\250\350\276\276\345\274\217\345\220\216\351\235\242\346\234\211\345\244\232\344\275\231\345\206\205\345\256\271 ", 63);
+  KS[2752] = mkstr("\350\257\255\346\263\225\351\224\231\350\257\257: \346\227\240\346\225\210\347\232\204\346\240\274\345\274\217\350\257\264\346\230\216 ", 36);
+  KS[2753] = mkstr("\357\274\210[[\345\241\253\345\205\205]\345\257\271\351\275\220][0][\345\256\275\345\272\246][.\347\262\276\345\272\246][x|X|o|b|e|\077]\357\274\211", 55);
+  KS[2754] = mkstr("select", 6);
+  KS[2755] = mkstr("race", 4);
+  KS[2756] = mkstr("\350\257\255\346\263\225\351\224\231\350\257\257: race \350\207\263\345\260\221\350\246\201\346\234\211\344\270\200\351\241\271", 37);
+  KS[2757] = mkstr("loop", 4);
+  KS[2758] = mkstr("LABEL", 5);
+  KS[2759] = mkstr("\350\257\255\346\263\225\351\224\231\350\257\257: \350\241\250\350\276\276\345\274\217\351\207\214\347\232\204\346\240\207\347\255\276 '", 37);
+  KS[2760] = mkstr(" \345\220\216\351\235\242\345\277\205\351\241\273\346\230\257 loop", 21);
+  KS[2761] = mkstr("\350\257\255\346\263\225\351\224\231\350\257\257: \346\204\217\345\244\226\347\232\204 ", 24);
+  KS[2762] = mkstr("default", 7);
+  KS[2763] = mkstr("\350\257\255\346\263\225\351\224\231\350\257\257: select \347\232\204\345\210\206\346\224\257\345\277\205\351\241\273\346\230\257 recv(\351\200\232\351\201\223)\343\200\201send(\351\200\232\351\201\223, \345\200\274)\343\200\201after(\346\257\253\347\247\222) \346\210\226 _", 94);
+  KS[2764] = mkstr("\350\257\255\346\263\225\351\224\231\350\257\257: select \350\207\263\345\260\221\350\246\201\346\234\211\344\270\200\344\270\252 recv \346\210\226 send \345\210\206\346\224\257", 60);
+  KS[2765] = mkstr("\350\257\255\346\263\225\351\224\231\350\257\257: select \346\234\200\345\244\232\345\217\252\350\203\275\346\234\211\344\270\200\344\270\252 after \346\210\226 _ \345\210\206\346\224\257\357\274\210\344\272\214\350\200\205\344\270\215\350\203\275\345\220\214\346\227\266\345\207\272\347\216\260\357\274\211", 91);
+  KS[2766] = mkstr("\350\257\255\346\263\225\351\224\231\350\257\257: \344\270\200\344\270\252\345\272\217\345\210\227\346\250\241\345\274\217\351\207\214\345\217\252\350\203\275\346\234\211\344\270\200\344\270\252 ..", 53);
+  KS[2767] = mkstr("\350\257\255\346\263\225\351\224\231\350\257\257: \345\205\203\347\273\204 / \345\217\230\344\275\223\346\250\241\345\274\217\351\207\214\347\232\204 .. \344\270\215\350\203\275\347\273\221\345\256\232\345\220\215\345\255\227", 63);
+  KS[2768] = mkstr("\350\257\255\346\263\225\351\224\231\350\257\257: const \347\232\204\345\220\215\345\255\227\345\277\205\351\241\273\344\273\245\345\244\247\345\206\231\345\255\227\346\257\215\345\274\200\345\244\264\357\274\210", 59);
+  KS[2769] = mkstr("return", 6);
+  KS[2770] = mkstr("while", 5);
+  KS[2771] = mkstr("\350\257\255\346\263\225\351\224\231\350\257\257: \346\240\207\347\255\276 '", 22);
+  KS[2772] = mkstr(" \345\220\216\351\235\242\345\277\205\351\241\273\346\230\257 while / for / loop", 35);
+  KS[2773] = mkstr("in", 2);
+  KS[2774] = mkstr("\350\257\255\346\263\225\351\224\231\350\257\257: ..base \345\277\205\351\241\273\346\230\257\347\273\223\346\236\204\344\275\223\345\255\227\351\235\242\351\207\217\347\232\204\346\234\200\345\220\216\344\270\200\351\241\271", 63);
+  KS[2775] = mkstr("\350\257\255\346\263\225\351\224\231\350\257\257: \346\225\260\347\273\204\351\225\277\345\272\246\344\270\215\350\203\275\346\230\257\350\264\237\346\225\260", 41);
+  KS[2776] = mkstr("\350\257\255\346\263\225\351\224\231\350\257\257: \345\210\206\347\273\204\346\210\226\351\200\232\351\205\215\345\257\274\345\205\245\344\270\215\350\203\275\346\225\264\344\275\223\346\224\271\345\220\215\357\274\210\345\234\250 { } \351\207\214\351\200\220\351\241\271\345\206\231 as\357\274\211", 82);
+  KS[2777] = mkstr("where", 5);
+  KS[2778] = mkstr("\350\257\255\346\263\225\351\224\231\350\257\257: where \345\255\220\345\217\245\351\207\214\347\232\204 ", 33);
+  KS[2779] = mkstr(" \344\270\215\346\230\257\346\263\233\345\236\213\345\217\202\346\225\260\357\274\210\347\233\256\345\211\215\345\217\252\346\224\257\346\214\201\347\272\246\346\235\237\346\263\233\345\236\213\345\217\202\346\225\260\357\274\211", 58);
+  KS[2780] = mkstr("\351\235\236\346\263\225\347\232\204\346\225\260\345\255\227\345\255\227\351\235\242\351\207\217 ", 25);
+  KS[2781] = mkstr("\346\234\252\347\237\245\347\232\204\350\275\254\344\271\211 \\", 17);
+  KS[2782] = mkstr("\345\255\227\347\254\246\345\255\227\351\235\242\351\207\217\345\217\252\350\203\275\345\214\205\345\220\253\344\270\200\344\270\252\345\255\227\347\254\246", 39);
+  KS[2783] = mkstr("\345\255\227\347\254\246\345\255\227\351\235\242\351\207\217\345\217\252\350\203\275\345\214\205\345\220\253\344\270\200\344\270\252\345\255\227\347\254\246\357\274\210\345\255\227\347\254\246\344\270\262\350\257\267\347\224\250\345\217\214\345\274\225\345\217\267\357\274\211", 69);
+  KS[2784] = mkstr("\345\255\227\347\254\246\344\270\262\346\217\222\345\200\274\346\234\252\351\227\255\345\220\210", 24);
+  KS[2785] = mkstr("\346\227\240\346\263\225\350\257\206\345\210\253\347\232\204\345\255\227\347\254\246 ", 22);
+  KS[2786] = mkstr("\000none", 5);
+  KS[2787] = mkstr("\\x", 2);
+  KS[2788] = mkstr("\\U", 2);
+  KS[2789] = mkstr("abcdefghijklmnopqrstuvwxyz", 26);
+  KS[2790] = mkstr("unsafe ", 7);
+  KS[2791] = mkstr("Q", 1);
+  KS[2792] = mkstr("R[", 2);
+  KS[2793] = mkstr("D{", 2);
+  KS[2794] = mkstr("\\u{", 3);
+  KS[2795] = mkstr("\346\227\240\346\225\210\347\232\204\347\211\210\346\234\254\347\272\246\346\235\237 ", 22);
+  KS[2796] = mkstr("= \347\272\246\346\235\237\351\234\200\350\246\201\345\256\214\346\225\264\347\211\210\346\234\254\345\217\267: ", 31);
+  KS[2797] = mkstr("\346\227\240\346\225\210\347\232\204\347\211\210\346\234\254\345\217\267 ", 19);
+  KS[2798] = mkstr("\357\274\210\345\272\224\344\270\272 \344\270\273.\346\254\241.\344\277\256\350\256\242\357\274\214\344\276\213\345\246\202 1.2.0\357\274\211", 42);
+  KS[2799] = mkstr("runtime error: integer overflow", 31);
+  KS[2800] = mkstr("runtime error: integer divide by zero", 37);
+  KS[2801] = mkstr("\345\221\275\344\273\244 ", 7);
+  KS[2802] = mkstr(" \345\244\261\350\264\245\357\274\214\351\200\200\345\207\272\347\240\201 ", 20);
+  KS[2803] = mkstr("strconv: illegal AppendFloat/FormatFloat bitSize", 48);
+  KS[2804] = mkstr("NaN", 3);
+  KS[2805] = mkstr("-Inf", 4);
+  KS[2806] = mkstr("+Inf", 4);
+  KS[2807] = mkstr("format_int: \350\277\233\345\210\266\345\277\205\351\241\273\345\234\250 2 \345\210\260 36 \344\271\213\351\227\264", 43);
+  KS[2808] = mkstr("0123456789abcdefghijklmnopqrstuvwxyz", 36);
+  KS[2809] = mkstr("strconv: illegal AppendInt/FormatInt base", 41);
+  KS[2810] = mkstr("strconv.", 8);
+  KS[2811] = mkstr(": parsing ", 10);
+  KS[2812] = mkstr("TRUE", 4);
+  KS[2813] = mkstr("FALSE", 5);
+  KS[2814] = mkstr("\346\227\240\346\263\225\350\247\243\346\236\220\344\270\272\345\270\203\345\260\224\345\200\274: ", 26);
+  KS[2815] = mkstr("ParseFloat", 10);
+  KS[2816] = mkstr("invalid syntax", 14);
+  KS[2817] = mkstr("value out of range", 18);
+  KS[2818] = mkstr("\346\227\240\346\263\225\346\214\211 ", 10);
+  KS[2819] = mkstr(" \350\277\233\345\210\266\350\247\243\346\236\220: ", 15);
+  KS[2820] = mkstr("\350\277\233\345\210\266\345\277\205\351\241\273\345\234\250 2 \345\210\260 36 \344\271\213\351\227\264: ", 33);
+  KS[2821] = mkstr("\350\266\205\345\207\272 Int \350\214\203\345\233\264: ", 19);
+  KS[2822] = mkstr("infinity", 8);
+  KS[2823] = mkstr("\344\270\215\346\230\257\345\270\246\345\274\225\345\217\267\347\232\204\345\255\227\347\254\246\344\270\262: ", 29);
+  KS[2824] = mkstr("\345\255\227\347\254\246\344\270\262\344\270\255\351\227\264\346\234\211\346\234\252\350\275\254\344\271\211\347\232\204\345\274\225\345\217\267", 36);
+  KS[2825] = mkstr("\350\275\254\344\271\211\345\272\217\345\210\227\344\270\215\345\256\214\346\225\264", 21);
+  KS[2826] = mkstr("\346\234\252\347\237\245\347\232\204\350\275\254\344\271\211: \\", 18);
+  KS[2827] = mkstr("\\u{\342\200\246} \351\207\214\346\234\211\351\235\236\345\215\201\345\205\255\350\277\233\345\210\266\345\255\227\347\254\246", 35);
+  KS[2828] = mkstr("\\u{ \346\262\241\346\234\211\351\227\255\345\220\210", 16);
+  KS[2829] = mkstr("\346\227\240\346\225\210\347\232\204\347\240\201\347\202\271: ", 17);
+  KS[2830] = mkstr("ms", 2);
+  KS[2831] = mkstr("      ", 6);
+  KS[2832] = mkstr("-v", 2);
+  KS[2833] = mkstr("--native", 8);
+  KS[2834] = mkstr("--tree", 6);
+  KS[2835] = mkstr("--tree\357\274\210\346\240\221\351\201\215\345\216\206\350\247\243\351\207\212\345\231\250\357\274\211\345\267\262\345\272\237\345\274\203", 39);
+  KS[2836] = mkstr("tests", 5);
+  KS[2837] = mkstr("\347\224\250\346\263\225: kite test [\350\277\207\346\273\244\350\257\215] [\346\226\207\344\273\266/\347\233\256\345\275\225...]\357\274\210\344\270\215\345\234\250 Kite \345\214\205\351\207\214\346\227\266\351\234\200\350\246\201\347\273\231\345\207\272\346\226\207\344\273\266\357\274\211", 93);
+  KS[2838] = mkstr("kite_test_", 10);
+  KS[2839] = mkstr("\012  \342\234\227 ", 7);
+  KS[2840] = mkstr("\357\274\210\345\212\240\350\275\275\345\244\261\350\264\245\357\274\211", 18);
+  KS[2841] = mkstr("\357\274\210\347\261\273\345\236\213\346\243\200\346\237\245\345\244\261\350\264\245\357\274\211", 24);
+  KS[2842] = mkstr("  \342\234\227 ", 6);
+  KS[2843] = mkstr("  \342\234\227 \347\274\226\350\257\221\345\244\261\350\264\245: ", 20);
+  KS[2844] = mkstr("  \342\234\223 ", 6);
+  KS[2845] = mkstr("::", 2);
+  KS[2846] = mkstr("      \342\224\200\342\224\200 \350\276\223\345\207\272 \342\224\200\342\224\200", 26);
+  KS[2847] = mkstr("\346\262\241\346\234\211\346\211\276\345\210\260\346\265\213\350\257\225\357\274\210\346\265\213\350\257\225\346\230\257\345\220\215\345\255\227\344\273\245 test_ \345\274\200\345\244\264\343\200\201\346\262\241\346\234\211\345\217\202\346\225\260\347\232\204\351\241\266\345\261\202\345\207\275\346\225\260\357\274\211", 85);
+  KS[2848] = mkstr("\345\244\261\350\264\245\347\232\204\346\265\213\350\257\225:", 16);
+  KS[2849] = mkstr("\347\273\223\346\236\234: ", 8);
+  KS[2850] = mkstr(" \351\200\232\350\277\207\357\274\214", 10);
+  KS[2851] = mkstr(" \345\244\261\350\264\245\357\274\210\347\224\250\346\227\266 ", 17);
+  KS[2852] = mkstr("s\357\274\211", 4);
+  KS[2853] = mkstr("00", 2);
+  KS[2854] = mkstr("fn main() {\012  let t = __kite_test()\012  ", 38);
+  KS[2855] = mkstr("\012}\012", 3);
+  KS[2856] = mkstr("stderr.txt", 10);
+  KS[2857] = mkstr("\350\247\201\344\270\212\351\235\242\347\232\204\346\212\245\351\224\231", 18);
+  KS[2858] = mkstr("timeout 120 ", 12);
+  KS[2859] = mkstr("KITE_TEST=", 10);
+  KS[2860] = mkstr(" 2>", 3);
+  KS[2861] = mkstr("\350\266\205\346\227\266\357\274\210120 \347\247\222\357\274\211", 19);
+  KS[2862] = mkstr("\351\200\200\345\207\272\347\240\201 ", 10);
+  KS[2863] = mkstr("if t == \"", 9);
+  KS[2864] = mkstr("\" { ", 4);
+  KS[2865] = mkstr("() }", 4);
+  KS[2866] = mkstr("@test", 5);
+  KS[2867] = mkstr("test_", 5);
+  KS[2868] = mkstr("@test \345\207\275\346\225\260 ", 13);
+  KS[2869] = mkstr(" \344\270\215\350\203\275\346\234\211\345\217\202\346\225\260\346\210\226\346\263\233\345\236\213\345\217\202\346\225\260", 31);
+  KS[2870] = mkstr("\347\224\250\346\263\225:", 7);
+  KS[2871] = mkstr("  kitec run FILE [\345\217\202\346\225\260\342\200\246]          \347\274\226\350\257\221\346\210\220\344\270\264\346\227\266\345\217\257\346\211\247\350\241\214\346\226\207\344\273\266\345\271\266\350\277\220\350\241\214\357\274\210\344\271\237\345\217\257\344\273\245\345\206\231 kitec FILE.kite [\345\217\202\346\225\260\342\200\246]\357\274\211", 123);
+  KS[2872] = mkstr("  kitec build [FILE] [-o \350\276\223\345\207\272] [--emit-c C \346\226\207\344\273\266] [--no-kir]", 63);
+  KS[2873] = mkstr("  kitec check FILE                \345\217\252\345\201\232\347\261\273\345\236\213\346\243\200\346\237\245", 52);
+  KS[2874] = mkstr("  kitec dis FILE                  \346\237\245\347\234\213\345\255\227\350\212\202\347\240\201", 49);
+  KS[2875] = mkstr("  kitec kir FILE                  \346\237\245\347\234\213 KIR\357\274\210\344\270\215\350\243\205\347\256\261\347\232\204\344\270\255\351\227\264\350\241\250\347\244\272\357\274\211", 74);
+  KS[2876] = mkstr("  kitec fmt [-w] [--check] [\346\226\207\344\273\266\342\200\246]  \346\240\274\345\274\217\345\214\226\357\274\210\344\270\215\347\273\231\346\226\207\344\273\266\346\227\266\350\257\273\346\240\207\345\207\206\350\276\223\345\205\245\357\274\211", 85);
+  KS[2877] = mkstr("  kitec test [\350\277\207\346\273\244\350\257\215] [\346\226\207\344\273\266/\347\233\256\345\275\225\342\200\246] [-v]  \350\277\220\350\241\214 test_ \345\274\200\345\244\264 / \346\240\207\344\272\206 @test \347\232\204\346\265\213\350\257\225\345\207\275\346\225\260", 100);
+  KS[2878] = mkstr("  kitec lsp                       \350\257\255\350\250\200\346\234\215\345\212\241\345\231\250\357\274\210LSP\357\274\214\346\240\207\345\207\206\350\276\223\345\205\245\350\276\223\345\207\272\357\274\211", 79);
+  KS[2879] = mkstr("  kitec new <\345\220\215\345\255\227> [--lib] | add <\345\214\205>[@\347\272\246\346\235\237] | add <\345\214\205> --path <\347\233\256\345\275\225> | get | update | publish | tree  \345\214\205\347\256\241\347\220\206", 120);
+  KS[2880] = mkstr("  \357\274\210\345\234\250\345\214\205\347\233\256\345\275\225\351\207\214\357\274\214run / build / check \344\270\215\345\206\231\346\226\207\344\273\266\345\220\215\346\227\266\344\275\277\347\224\250 src/main.kite\357\274\211", 84);
+  KS[2881] = mkstr("  kitec dump MODE FILE [PRELUDE]  \345\257\271\346\213\215\350\276\223\345\207\272\357\274\210MODE = lex / parse / check / lower / bc / c / kir / ck\357\274\211", 106);
+  KS[2882] = mkstr("\347\216\257\345\242\203\345\217\230\351\207\217: KITE_HOME\357\274\210prelude.kite \345\222\214 runtime/ \346\211\200\345\234\250\347\233\256\345\275\225\357\274\211\343\200\201CC\357\274\210C \347\274\226\350\257\221\345\231\250\357\274\211\343\200\201KITE_NO_KIR=1", 105);
+  KS[2883] = mkstr("17.0.0", 6);
+  KS[2884] = mkstr("*=", 2);
+  KS[2885] = mkstr("/=", 2);
+  KS[2886] = mkstr("%=", 2);
+  KS[2887] = mkstr("print len str __fmt __repeat int float type_of map par_map __race timeout actor tell ask __recover_raw __repanic __restart_log __restart_log_w supervise actor_supervised chan send recv try_recv close __select sleep now_ms filter each reduce fold sum count any all find first last get take skip reverse sort sort_by sort_with zip enumerate push concat contains join split trim upper lower starts_with ends_with replace chars parse_int parse_float remove keys values set Set __set_lit __set_union __set_intersect __set_difference insert union intersect difference is_subset to_list Map min max abs Ok Err Some unwrap unwrap_or is_ok is_err is_some is_none panic assert assert_eq assert_ne __kite_test __env_get __args __exit __run __ord __chr __unix_ms __slice __band __bor __bxor __bnot __shl __shr __str_slice __str_find __tls_server_ctx __tls_accept __tls_client __tls_handshake __tcp_listen __tcp_port __tcp_accept __tcp_connect __tcp_read_line __tcp_read_bytes __tcp_read_all __tcp_write __tcp_flush __tcp_close __sock_name __udp_open __sock_sendto __sock_recvfrom __unix_open __dns_lookup __dns_reverse __dns_port __byte_len __bytes __from_bytes __eprint __fs_stat __getcwd __chdir __chmod __env_set __env_unset __environ __hostname __getpid __read_bytes __write_bytes __tz_offset __random_bytes __unix_ns None Result Option", 1328);
+  KS[2888] = mkstr("print=b_print len=b_len str=b_str int=b_int float=b_float type_of=b_type_of map=b_map filter=b_filter each=b_each reduce=b_reduce fold=b_reduce sum=b_sum count=b_count any=b_any all=b_all find=b_find first=b_first last=b_last get=b_get take=b_take skip=b_skip reverse=b_reverse sort=b_sort sort_by=b_sort sort_with=b_sort_with __fmt=b_fmt __repeat=b_repeat zip=b_zip enumerate=b_enumerate push=b_push concat=b_concat contains=b_contains join=b_join split=b_split trim=b_trim upper=b_upper lower=b_lower starts_with=b_starts_with ends_with=b_ends_with replace=b_replace chars=b_chars parse_int=b_parse_int parse_float=b_parse_float keys=b_keys remove=b_remove values=b_values set=b_set Map=b_Map Set=b_Set insert=b_insert union=b_union intersect=b_intersect difference=b_difference is_subset=b_is_subset to_list=b_to_list __set_lit=b_Set __set_union=b_union __set_intersect=b_intersect __set_difference=b_difference min=b_min max=b_max abs=b_abs Ok=b_Ok Err=b_Err Some=b_Some unwrap=b_unwrap unwrap_or=b_unwrap_or is_ok=b_is_ok is_err=b_is_err is_some=b_is_some is_none=b_is_none panic=b_panic assert=b_assert assert_eq=b_assert_eq assert_ne=b_assert_ne __kite_test=b_kite_test __race=b_race timeout=b_timeout actor=b_actor tell=b_tell ask=b_ask __recover_raw=b_recover_raw __repanic=b_repanic __restart_log=b_restart_log_k __restart_log_w=b_restart_log_w supervise=b_supervise actor_supervised=b_actor_supervised __env_get=b_env_get __args=b_args __exit=b_exit __run=b_run __ord=b_ord __chr=b_chr __unix_ms=b_unix_ms __str_slice=b_str_slice __slice=b_slice __band=b_band __bor=b_bor __bxor=b_bxor __bnot=b_bnot __shl=b_shl __shr=b_shr __str_find=b_str_find __tcp_listen=b_tcp_listen __tcp_port=b_tcp_port __tcp_accept=b_tcp_accept __tcp_connect=b_tcp_connect __tcp_read_line=b_tcp_read_line __tcp_read_bytes=b_tcp_read_bytes __tcp_read_all=b_tcp_read_all __tcp_write=b_tcp_write __tcp_flush=b_tcp_flush __tcp_close=b_tcp_close __sock_name=b_sock_name __udp_open=b_udp_open __sock_sendto=b_sock_sendto __sock_recvfrom=b_sock_recvfrom __unix_open=b_unix_open __dns_lookup=b_dns_lookup __dns_reverse=b_dns_reverse __dns_port=b_dns_port __byte_len=b_byte_len __bytes=b_bytes __from_bytes=b_from_bytes __eprint=b_eprint __fs_stat=b_fs_stat __getcwd=b_getcwd __chdir=b_chdir __chmod=b_chmod __env_set=b_env_set __env_unset=b_env_unset __environ=b_environ __hostname=b_hostname __getpid=b_getpid __read_bytes=b_read_bytes __write_bytes=b_write_bytes __tz_offset=b_tz_offset __random_bytes=b_random_bytes __unix_ns=b_unix_ns __tls_server_ctx=b_tls_server_ctx __tls_accept=b_tls_accept __tls_client=b_tls_client __tls_handshake=b_tls_handshake __select=b_select sleep=b_sleep now_ms=b_now_ms chan=b_chan send=b_send recv=b_recv try_recv=b_try_recv close=b_close par_map=b_par_map", 2770);
+  KS[2889] = mkstr("\012static inline V f_add(V a, V b) { int64_t r; if (a.t == T_INT && b.t == T_INT && !__builtin_add_overflow(a.u.i, b.u.i, &r)) return mkint(r); return k_add(a, b); }\012static inline V f_sub(V a, V b) { int64_t r; if (a.t == T_INT && b.t == T_INT && !__builtin_sub_overflow(a.u.i, b.u.i, &r)) return mkint(r); return k_sub(a, b); }\012static inline V f_mul(V a, V b) { int64_t r; if (a.t == T_INT && b.t == T_INT && !__builtin_mul_overflow(a.u.i, b.u.i, &r)) return mkint(r); return k_mul(a, b); }\012static inline V f_lt(V a, V b) { if (a.t == T_INT && b.t == T_INT) return mkbool(a.u.i < b.u.i); k_ordchk(\"<\", a, b); return mkbool(k_cmp(a, b) < 0); }\012static inline V f_gt(V a, V b) { if (a.t == T_INT && b.t == T_INT) return mkbool(a.u.i > b.u.i); k_ordchk(\">\", a, b); return mkbool(k_cmp(a, b) > 0); }\012static inline V f_le(V a, V b) { if (a.t == T_INT && b.t == T_INT) return mkbool(a.u.i <= b.u.i); k_ordchk(\"<=\", a, b); return mkbool(k_cmp(a, b) <= 0); }\012static inline V f_ge(V a, V b) { if (a.t == T_INT && b.t == T_INT) return mkbool(a.u.i >= b.u.i); k_ordchk(\">=\", a, b); return mkbool(k_cmp(a, b) >= 0); }\012static inline V f_eq(V a, V b) { if (a.t == T_INT && b.t == T_INT) return mkbool(a.u.i == b.u.i); return mkbool(k_eq(a, b)); }\012static inline V f_ne(V a, V b) { if (a.t == T_INT && b.t == T_INT) return mkbool(a.u.i != b.u.i); return mkbool(!k_eq(a, b)); }\012static inline V f_neg(V a) {\012  if (a.t == T_INT) { if (a.u.i == INT64_MIN) die(\"\346\225\264\346\225\260\346\272\242\345\207\272\"); return mkint(-a.u.i); }\012  if (a.t == T_FLOAT) return mkflt(-a.u.f);\012  die(\"\344\270\215\350\203\275\345\257\271 %s \345\217\226\350\264\237\", tname(a)); return UNIT;\012}", 1577);
+  KS[2890] = mkstr("static V call_m(int sym, int n, V *base) {\012  V recv = base[0];\012  if (recv.t == T_MODULE || recv.t == T_ETYPE) return call_v(k_field(recv, sym), n, base + 1);\012  KFn *m = find_method(tid_of(recv), sym);\012  if (m) return m->code(m, n + 1, base);\012  if (recv.t == T_STRUCT) { int i = sfield(STRUCTV(recv), sym); if (i >= 0) return call_v(STRUCTV(recv)->f[i], n, base + 1); }\012  int g = global_of_sym(sym);\012  if (g >= 0 && G[g].t == T_FN) return call_v(G[g], n + 1, base);\012  die(\"%s \346\262\241\346\234\211\346\226\271\346\263\225 %s\", tname(recv), SYMS[sym]); return UNIT;\012}", 532);
+  KS[2891] = mkstr("print println read_line", 23);
+  KS[2892] = mkstr("read write append exists is_file is_dir size list mkdir remove rename", 69);
+  KS[2893] = mkstr("null is_null addr offset from_addr alloc free read_int write_int read_float write_float read_byte write_byte to_str from_str", 124);
+  KS[2894] = mkstr("sqrt sin cos tan asin acos atan sinh cosh tanh asinh acosh atanh exp exp2 expm1 log2 log10 log1p cbrt pow atan2 hypot fmod copysign remainder log floor ceil round trunc is_nan is_inf signbit gcd lcm pi=3.141592653589793 e=2.718281828459045 tau=6.283185307179586 phi=1.618033988749895 sqrt2=1.4142135623730951 ln2=0.6931471805599453 ln10=2.302585092994046 inf=inf nan=nan max_float=1.7976931348623157e+308 smallest_float=5e-324 max_int=9223372036854775807 min_int=-9223372036854775808", 483);
+  KS[2895] = mkstr("\012static inline int kir_try(V v) {\012  int vr = v.t == T_ENUM \077 ENUMV(v)->var : -1;\012  if (vr == SYM_Ok || vr == SYM_Some) return 1;\012  if (vr == SYM_Err || vr == SYM_None) return 0;\012  die(\"\077 \345\217\252\350\203\275\347\224\250\344\272\216 Result \346\210\226 Option\"); return 0;\012}\012static KUp *kir_up(V v) {\012  KUp *u = kalloc(sizeof(KUp)); u->closed = v; u->ref = &u->closed; u->next = NULL; u->owner = cur_task; return u;\012}\012static inline V kir_gload(int g, const char *name) {\012  if (__builtin_expect(G[g].t == T_UNDEF, 0)) die(\"\346\234\252\345\256\232\344\271\211\347\232\204\345\220\215\345\255\227 %s\", name);\012  return G[g];\012}\012static V kir_vbin(int op, V a, V b) {\012  switch (op) {\012  case 0: return f_add(a, b); case 1: return f_sub(a, b); case 2: return f_mul(a, b);\012  case 3: return k_div(a, b); case 4: return k_mod(a, b);\012  case 5: return f_lt(a, b); case 6: return f_gt(a, b); case 7: return f_le(a, b); case 8: return f_ge(a, b);\012  case 9: return f_eq(a, b); case 10: return f_ne(a, b);\012  case 11: return k_range(a, b, 0); case 12: return k_range(a, b, 1);\012  }\012  return UNIT;\012}\012", 984);
+  KS[2896] = mkstr("5", 1);
+  KS[2897] = mkstr("25", 2);
+  KS[2898] = mkstr("125", 3);
+  KS[2899] = mkstr("625", 3);
+  KS[2900] = mkstr("3125", 4);
+  KS[2901] = mkstr("15625", 5);
+  KS[2902] = mkstr("78125", 5);
+  KS[2903] = mkstr("390625", 6);
+  KS[2904] = mkstr("1953125", 7);
+  KS[2905] = mkstr("9765625", 7);
+  KS[2906] = mkstr("48828125", 8);
+  KS[2907] = mkstr("244140625", 9);
+  KS[2908] = mkstr("1220703125", 10);
+  KS[2909] = mkstr("6103515625", 10);
+  KS[2910] = mkstr("30517578125", 11);
+  KS[2911] = mkstr("152587890625", 12);
+  KS[2912] = mkstr("762939453125", 12);
+  KS[2913] = mkstr("3814697265625", 13);
+  KS[2914] = mkstr("19073486328125", 14);
+  KS[2915] = mkstr("95367431640625", 14);
+  KS[2916] = mkstr("476837158203125", 15);
+  KS[2917] = mkstr("2384185791015625", 16);
+  KS[2918] = mkstr("11920928955078125", 17);
+  KS[2919] = mkstr("59604644775390625", 17);
+  KS[2920] = mkstr("298023223876953125", 18);
+  KS[2921] = mkstr("1490116119384765625", 19);
+  KS[2922] = mkstr("7450580596923828125", 19);
+  KS[2923] = mkstr("37252902984619140625", 20);
+  KS[2924] = mkstr("186264514923095703125", 21);
+  KS[2925] = mkstr("931322574615478515625", 21);
+  KS[2926] = mkstr("4656612873077392578125", 22);
+  KS[2927] = mkstr("23283064365386962890625", 23);
+  KS[2928] = mkstr("116415321826934814453125", 24);
+  KS[2929] = mkstr("582076609134674072265625", 24);
+  KS[2930] = mkstr("2910383045673370361328125", 25);
+  KS[2931] = mkstr("14551915228366851806640625", 26);
+  KS[2932] = mkstr("72759576141834259033203125", 26);
+  KS[2933] = mkstr("363797880709171295166015625", 27);
+  KS[2934] = mkstr("1818989403545856475830078125", 28);
+  KS[2935] = mkstr("9094947017729282379150390625", 28);
+  KS[2936] = mkstr("45474735088646411895751953125", 29);
+  KS[2937] = mkstr("227373675443232059478759765625", 30);
+  KS[2938] = mkstr("1136868377216160297393798828125", 31);
+  KS[2939] = mkstr("5684341886080801486968994140625", 31);
+  KS[2940] = mkstr("28421709430404007434844970703125", 32);
+  KS[2941] = mkstr("142108547152020037174224853515625", 33);
+  KS[2942] = mkstr("710542735760100185871124267578125", 33);
+  KS[2943] = mkstr("3552713678800500929355621337890625", 34);
+  KS[2944] = mkstr("17763568394002504646778106689453125", 35);
+  KS[2945] = mkstr("88817841970012523233890533447265625", 35);
+  KS[2946] = mkstr("444089209850062616169452667236328125", 36);
+  KS[2947] = mkstr("2220446049250313080847263336181640625", 37);
+  KS[2948] = mkstr("11102230246251565404236316680908203125", 38);
+  KS[2949] = mkstr("55511151231257827021181583404541015625", 38);
+  KS[2950] = mkstr("277555756156289135105907917022705078125", 39);
+  KS[2951] = mkstr("1387778780781445675529539585113525390625", 40);
+  KS[2952] = mkstr("6938893903907228377647697925567626953125", 40);
+  KS[2953] = mkstr("34694469519536141888238489627838134765625", 41);
+  KS[2954] = mkstr("173472347597680709441192448139190673828125", 42);
+  KS[2955] = mkstr("archive/tar: invalid tar header", 31);
+  KS[2956] = mkstr("archive/tar: write too long", 27);
+  KS[2957] = mkstr("archive/tar: header field too long", 34);
+  KS[2958] = mkstr("archive/tar: write after close", 30);
+  KS[2959] = mkstr("archive/tar: insecure file path", 31);
+  KS[2960] = mkstr("archive/tar: sparse file references non-existent data", 53);
+  KS[2961] = mkstr("archive/tar: sparse file contains unreferenced data", 51);
+  KS[2962] = mkstr("kitec test [\350\277\207\346\273\244\350\257\215] [\346\226\207\344\273\266/\347\233\256\345\275\225...] [-v]\012    \350\277\207\346\273\244\350\257\215     \345\217\252\350\277\220\350\241\214\345\220\215\345\255\227\357\274\210\346\210\226 \342\200\234\346\226\207\344\273\266::\345\220\215\345\255\227\342\200\235\357\274\211\345\214\205\345\220\253\345\256\203\347\232\204\346\265\213\350\257\225\012    -v         \351\200\232\350\277\207\347\232\204\346\265\213\350\257\225\344\271\237\346\230\276\347\244\272\350\276\223\345\207\272", 174);
+  KS[2963] = mkstr("panic: ", 7);
+  KS[2964] = mkstr("min: \347\251\272\345\272\217\345\210\227", 14);
+  KS[2965] = mkstr("max: \347\251\272\345\272\217\345\210\227", 14);
   G[1] = mkp(T_FN, &CL131);
   G[2] = mkp(T_FN, &CL122);
   G[13] = mkp(T_FN, &CL132);

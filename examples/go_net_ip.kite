@@ -1,0 +1,94 @@
+// 对拍 tests/go/net_ip.go：net.parse_ip / ip_* / parse_cidr / IPNet / 掩码 / parse_mac / split_host_port
+use std.fs
+use std.encoding.hex
+use std.strconv
+use std.net
+
+fn q(s: Str) -> Str { strconv.quote_go(s) }
+
+fn b2i(b: Bool) -> Str { if b { "1" } else { "0" } }
+
+fn ip_line(ip: List<Int>) -> Str {
+  let flags = b2i(net.ip_is_unspecified(ip)) + b2i(net.ip_is_loopback(ip)) + b2i(
+    net.ip_is_private(ip),
+  ) + b2i(
+    net.ip_is_multicast(ip),
+  ) + b2i(net.ip_is_interface_local_multicast(ip)) + b2i(net.ip_is_link_local_multicast(ip)) + b2i(
+    net.ip_is_link_local_unicast(ip),
+  ) + b2i(net.ip_is_global_unicast(ip))
+  let m24 = net.ip_string(net.ip_mask(ip, net.cidr_mask(24, 32)))
+  let m64 = net.ip_string(net.ip_mask(ip, net.cidr_mask(64, 128)))
+  "{net.ip_string(ip)} to4={net.ip_string(net.ip_to4(ip))} to16={net.ip_string(net.ip_to16(ip))} flags={flags} dm={net.mask_string(
+    net.ip_default_mask(ip),
+  )} m24={m24} m64={m64}"
+}
+
+fn main() {
+  let data = unwrap(fs.read("tests/go/testdata/net/strings.txt"))
+  let probes = [
+    net.parse_ip("10.1.2.3"),
+    net.parse_ip("192.168.0.1"),
+    net.parse_ip("2001:db8::1"),
+    net.ip_to4(net.ipv4(10, 1, 2, 3)),
+    net.parse_ip("::ffff:10.0.0.1"),
+  ]
+  let lines = split(data, "\n")
+  for line in lines[..len(lines) - 1] {
+    let s = match __from_bytes(unwrap(hex.decode(line))) {
+      Some(x) => x,
+      None => { continue },
+    }
+    print(q(s))
+    let ip = net.parse_ip(s)
+    if len(ip) > 0 { print("  ip " + ip_line(ip)) }
+    match net.parse_cidr(s) {
+      Err(e) => print("  cidr err " + q(e)),
+      Ok((a, n)) => {
+        let (ones, bits) = net.mask_size(n.mask)
+        var c = ""
+        for p in probes { c = c + b2i(net.ipnet_contains(n, p)) }
+        print(
+          "  cidr {net.ip_string(a)} net={net.ipnet_string(n)} mask={net.mask_string(n.mask)} size={ones}/{bits} contains={c}",
+        )
+      },
+    }
+    match net.parse_mac(s) {
+      Ok(hw) => print("  mac " + net.hardware_addr_string(hw)),
+      Err(e) => if len(__bytes(s)) >= 12 { print("  mac err " + q(e)) },
+    }
+    match net.split_host_port(s) {
+      Ok((h, p)) => print("  split {q(h)} {q(p)} join={q(net.join_host_port(h, p))}"),
+      Err(_) => {},
+    }
+  }
+  for m in [
+    net.ipv4_mask(255, 255, 0, 0),
+    net.ipv4_mask(255, 0, 255, 0),
+    net.cidr_mask(0, 32),
+    net.cidr_mask(33, 32),
+    net.cidr_mask(65, 128),
+    net.cidr_mask(5, 64),
+    [255, 255, 255],
+    [],
+  ] {
+    let (o, b) = net.mask_size(m)
+    print("mask {net.mask_string(m)} {o}/{b}")
+  }
+  for n in [
+    net.IPNet { ip: net.ipv4(1, 2, 3, 4), mask: net.ipv4_mask(255, 0, 255, 0) },
+    net.IPNet { ip: net.ip_to4(net.ipv4(1, 2, 3, 4)), mask: net.cidr_mask(120, 128) },
+    net.IPNet { ip: net.parse_ip("2001::1"), mask: net.cidr_mask(8, 32) },
+    net.IPNet { ip: [1, 2, 3], mask: net.cidr_mask(8, 32) },
+    net.IPNet { ip: [], mask: [] },
+  ] {
+    print("net {net.ipnet_string(n)} {b2i(net.ipnet_contains(n, net.parse_ip("1.2.3.4")))}")
+  }
+  let eq = if net.ip_equal(net.parse_ip("1.2.3.4"), net.ip_to4(net.ipv4(1, 2, 3, 4))) {
+    "true"
+  } else {
+    "false"
+  }
+  print(
+    "{net.ip_string([1, 2, 3])} {net.ip_string([])} {eq} {net.hardware_addr_string([1, 171, 255])}",
+  )
+}

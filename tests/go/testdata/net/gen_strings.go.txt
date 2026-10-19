@@ -1,0 +1,47 @@
+// 生成 kite tests/go/testdata/net/strings.txt：Go net 包 ip_test.go、mac_test.go、ipsock_test.go、netip 测试里出现的
+// 全部字符串字面量（去重，每行一个，十六进制），再加几条补充。用法：go run . $GOROOT/src/net > strings.txt
+package main
+
+import (
+	"encoding/hex"
+	"fmt"
+	"go/ast"
+	"go/parser"
+	"go/token"
+	"os"
+	"strconv"
+)
+
+func main() {
+	root := os.Args[1]
+	seen := map[string]bool{}
+	var out []string
+	add := func(s string) {
+		if !seen[s] && len(s) < 80 {
+			seen[s] = true
+			out = append(out, s)
+		}
+	}
+	for _, f := range []string{"ip_test.go", "mac_test.go", "ipsock_test.go", "netip/netip_test.go"} {
+		fs := token.NewFileSet()
+		af, err := parser.ParseFile(fs, root+"/"+f, nil, 0)
+		if err != nil {
+			panic(err)
+		}
+		ast.Inspect(af, func(n ast.Node) bool {
+			if b, ok := n.(*ast.BasicLit); ok && b.Kind == token.STRING {
+				if s, err := strconv.Unquote(b.Value); err == nil {
+					add(s)
+				}
+			}
+			return true
+		})
+	}
+	for _, s := range []string{"10.0.0.0/8", "172.16.0.0/12", "fc00::/7", "::ffff:1.2.3.4/120", "1.2.3.4/33", "1.2.3.4/032",
+		"1.2.3.4/16777216", "1.2.3.4/+8", "[::1]:80", "a:b:c", "0123.4567.89ab", "01-23-45-67-89-AB", "0123456789ab"} {
+		add(s)
+	}
+	for _, s := range out {
+		fmt.Println(hex.EncodeToString([]byte(s)))
+	}
+}

@@ -2,6 +2,9 @@
 // 所有等待（accept、读、写）都会让出调度：可以放进 spawn / par_map，也能被 timeout 取消
 // 数据按 UTF-8 文本处理；read_bytes 的长度按字节计
 
+use std.net.netip
+use std.fs
+
 // tls 为 0 时是普通 TCP；否则是服务端 TLS 上下文的编号（listen_tls 创建）
 pub type Listener = { fd: Int, port: Int, tls: Int }
 
@@ -184,4 +187,493 @@ pub fn split_host_port(hp: Str) -> Result<(Str, Str), Str> {
 
 pub fn join_host_port(host: Str, port: Str) -> Str {
   if contains(host, ":") { "[" + host + "]:" + port } else { host + ":" + port }
+}
+
+// ───────────── IP / IPMask / IPNet / HardwareAddr（对齐 Go 1.27 net/ip.go、mac.go） ─────────────
+// IP、掩码、MAC 都用字节列表表示；空列表 = Go 的 nil。
+
+pub type IPNet = { ip: List<Int>, mask: List<Int> }
+
+pub const IPV4_LEN: Int = 4
+
+pub const IPV6_LEN: Int = 16
+
+fn v4_prefix() -> List<Int> { [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 255, 255] }
+
+pub fn ipv4(a: Int, b: Int, c: Int, d: Int) -> List<Int> {
+  v4_prefix() + [a & 255, b & 255, c & 255, d & 255]
+}
+
+pub fn ipv4_mask(a: Int, b: Int, c: Int, d: Int) -> List<Int> {
+  [a & 255, b & 255, c & 255, d & 255]
+}
+
+pub fn cidr_mask(ones: Int, bits: Int) -> List<Int> {
+  if bits != 32 && bits != 128 { return [] }
+  if ones < 0 || ones > bits { return [] }
+  var m: List<Int> = []
+  var n = ones
+  for _ in 0..bits / 8 {
+    if n >= 8 {
+      m = push(m, 255)
+      n -= 8
+    } else {
+      m = push(m, (255 ^ (255 >> n)) & 255)
+      n = 0
+    }
+  }
+  m
+}
+
+pub fn ipv4_bcast() -> List<Int> { ipv4(255, 255, 255, 255) }
+
+pub fn ipv4_zero() -> List<Int> { ipv4(0, 0, 0, 0) }
+
+pub fn ipv6_zero() -> List<Int> { [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0] }
+
+pub fn ipv6_loopback() -> List<Int> { [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1] }
+
+fn is_zeros(p: List<Int>) -> Bool {
+  for b in p { if b != 0 { return false } }
+  true
+}
+
+pub fn ip_to4(ip: List<Int>) -> List<Int> {
+  if len(ip) == 4 { return ip }
+  if len(ip) == 16 && is_zeros(ip[0..10]) && ip[10] == 255 && ip[11] == 255 { return ip[12..16] }
+  []
+}
+
+pub fn ip_to16(ip: List<Int>) -> List<Int> {
+  if len(ip) == 4 { return ipv4(ip[0], ip[1], ip[2], ip[3]) }
+  if len(ip) == 16 { return ip }
+  []
+}
+
+pub fn ip_equal(a: List<Int>, x: List<Int>) -> Bool {
+  if len(a) == len(x) { return a == x }
+  if len(a) == 4 && len(x) == 16 { return x[0..12] == v4_prefix() && a == x[12..] }
+  if len(a) == 16 && len(x) == 4 { return a[0..12] == v4_prefix() && a[12..] == x }
+  false
+}
+
+pub fn ip_is_unspecified(ip: List<Int>) -> Bool {
+  ip_equal(ip, ipv4_zero()) || ip_equal(ip, ipv6_zero())
+}
+
+pub fn ip_is_loopback(ip: List<Int>) -> Bool {
+  let p = ip_to4(ip)
+  if len(p) > 0 { return p[0] == 127 }
+  ip_equal(ip, ipv6_loopback())
+}
+
+pub fn ip_is_private(ip: List<Int>) -> Bool {
+  let p = ip_to4(ip)
+  if len(p) > 0 {
+    return p[0] == 10 || (p[0] == 172 && (p[1] & 240) == 16) || (p[0] == 192 && p[1] == 168)
+  }
+  len(ip) == 16 && (ip[0] & 254) == 252
+}
+
+pub fn ip_is_multicast(ip: List<Int>) -> Bool {
+  let p = ip_to4(ip)
+  if len(p) > 0 { return (p[0] & 240) == 224 }
+  len(ip) == 16 && ip[0] == 255
+}
+
+pub fn ip_is_interface_local_multicast(ip: List<Int>) -> Bool {
+  len(ip) == 16 && ip[0] == 255 && (ip[1] & 15) == 1
+}
+
+pub fn ip_is_link_local_multicast(ip: List<Int>) -> Bool {
+  let p = ip_to4(ip)
+  if len(p) > 0 { return p[0] == 224 && p[1] == 0 && p[2] == 0 }
+  len(ip) == 16 && ip[0] == 255 && (ip[1] & 15) == 2
+}
+
+pub fn ip_is_link_local_unicast(ip: List<Int>) -> Bool {
+  let p = ip_to4(ip)
+  if len(p) > 0 { return p[0] == 169 && p[1] == 254 }
+  len(ip) == 16 && ip[0] == 254 && (ip[1] & 192) == 128
+}
+
+pub fn ip_is_global_unicast(ip: List<Int>) -> Bool {
+  (len(ip) == 4 || len(ip) == 16)
+    && !ip_equal(ip, ipv4_bcast())
+    && !ip_is_unspecified(ip)
+    && !ip_is_loopback(
+      ip,
+    )
+    && !ip_is_multicast(ip)
+    && !ip_is_link_local_unicast(ip)
+}
+
+pub fn ip_default_mask(ip: List<Int>) -> List<Int> {
+  let p = ip_to4(ip)
+  if len(p) == 0 { return [] }
+  if p[0] < 128 {
+    ipv4_mask(255, 0, 0, 0)
+  } else if p[0] < 192 {
+    ipv4_mask(255, 255, 0, 0)
+  } else {
+    ipv4_mask(255, 255, 255, 0)
+  }
+}
+
+fn all_ff(b: List<Int>) -> Bool {
+  for c in b { if c != 255 { return false } }
+  true
+}
+
+pub fn ip_mask(ip0: List<Int>, mask0: List<Int>) -> List<Int> {
+  var ip = ip0
+  var mask = mask0
+  if len(mask) == 16 && len(ip) == 4 && all_ff(mask[..12]) { mask = mask[12..] }
+  if len(mask) == 4 && len(ip) == 16 && ip[..12] == v4_prefix() { ip = ip[12..] }
+  if len(ip) != len(mask) { return [] }
+  var out: List<Int> = []
+  for i in 0..len(ip) { out = push(out, ip[i] & mask[i]) }
+  out
+}
+
+fn hex_string(b: List<Int>) -> Str {
+  let d = "0123456789abcdef"
+  var s = ""
+  for x in b { s = s + __str_slice(d, x >> 4, (x >> 4) + 1) + __str_slice(d, x & 15, (x & 15) + 1) }
+  s
+}
+
+pub fn ip_string(ip: List<Int>) -> Str {
+  if len(ip) == 0 { return "<nil>" }
+  if len(ip) != 4 && len(ip) != 16 { return "?" + hex_string(ip) }
+  let p4 = ip_to4(ip)
+  let p = if len(p4) == 4 { p4 } else { ip }
+  match netip.addr_from_slice(p) {
+    Some(a) => a.string(),
+    None => "",
+  }
+}
+
+fn simple_mask_length(mask: List<Int>) -> Int {
+  var n = 0
+  var i = 0
+  while i < len(mask) {
+    var v = mask[i]
+    if v == 255 {
+      n += 8
+      i += 1
+      continue
+    }
+    while (v & 128) != 0 {
+      n += 1
+      v = (v << 1) & 255
+    }
+    if v != 0 { return -1 }
+    i += 1
+    while i < len(mask) {
+      if mask[i] != 0 { return -1 }
+      i += 1
+    }
+    break
+  }
+  n
+}
+
+// IPMask.Size：(ones, bits)；不是规范掩码时 (0, 0)
+pub fn mask_size(m: List<Int>) -> (Int, Int) {
+  let ones = simple_mask_length(m)
+  if ones == -1 { (0, 0) } else { (ones, len(m) * 8) }
+}
+
+pub fn mask_string(m: List<Int>) -> Str { if len(m) == 0 { "<nil>" } else { hex_string(m) } }
+
+fn network_number_and_mask(n: IPNet) -> (List<Int>, List<Int>) {
+  var ip = ip_to4(n.ip)
+  if len(ip) == 0 {
+    ip = n.ip
+    if len(ip) != 16 { return ([], []) }
+  }
+  var m = n.mask
+  if len(m) == 4 {
+    if len(ip) != 4 { return ([], []) }
+  } else if len(m) == 16 {
+    if len(ip) == 4 { m = m[12..] }
+  } else {
+    return ([], [])
+  }
+  (ip, m)
+}
+
+pub fn ipnet_contains(n: IPNet, ip0: List<Int>) -> Bool {
+  let (nn, m) = network_number_and_mask(n)
+  let x = ip_to4(ip0)
+  let ip = if len(x) > 0 { x } else { ip0 }
+  if len(ip) != len(nn) { return false }
+  for i in 0..len(ip) { if (nn[i] & m[i]) != (ip[i] & m[i]) { return false } }
+  true
+}
+
+pub fn ipnet_string(n: IPNet) -> Str {
+  let (nn, m) = network_number_and_mask(n)
+  if len(nn) == 0 || len(m) == 0 { return "<nil>" }
+  let l = simple_mask_length(m)
+  if l == -1 { ip_string(nn) + "/" + mask_string(m) } else { ip_string(nn) + "/" + str(l) }
+}
+
+// ParseIP：失败返回空列表（Go 的 nil）；IPv4 也返回 16 字节
+pub fn parse_ip(s: Str) -> List<Int> {
+  match netip.parse_addr(s) {
+    Ok(a) => if a.zone() != "" { [] } else { a.as16() },
+    Err(_) => [],
+  }
+}
+
+fn dtoi(s: Str) -> (Int, Int, Bool) {
+  let b = __bytes(s)
+  var n = 0
+  var i = 0
+  while i < len(b) && b[i] >= 48 && b[i] <= 57 {
+    n = n * 10 + b[i] - 48
+    if n >= 0xFFFFFF { return (0xFFFFFF, i, false) }
+    i += 1
+  }
+  if i == 0 { return (0, 0, false) }
+  (n, i, true)
+}
+
+// ParseCIDR："192.0.2.1/24" → (IP, IPNet)；错误文字同 Go 的 *ParseError
+pub fn parse_cidr(s: Str) -> Result<(List<Int>, IPNet), Str> {
+  let bad = Err("invalid CIDR address: " + s)
+  let i = __str_find(s, "/", 0)
+  if i < 0 { return bad }
+  let a = match netip.parse_addr(__str_slice(s, 0, i)) {
+    Ok(x) => x,
+    Err(_) => { return bad },
+  }
+  if a.zone() != "" { return bad }
+  let ms = __str_slice(s, i + 1, len(s))
+  let (n, j, ok) = dtoi(ms)
+  if !ok || j != len(__bytes(ms)) || n < 0 || n > a.bit_len() { return bad }
+  let m = cidr_mask(n, a.bit_len())
+  let ip = a.as16()
+  Ok((ip, IPNet { ip: ip_mask(ip, m), mask: m }))
+}
+
+pub fn hardware_addr_string(a: List<Int>) -> Str {
+  var parts: List<Str> = []
+  for b in a { parts = push(parts, hex_string([b])) }
+  join(parts, ":")
+}
+
+fn xtoi(b: List<Int>) -> (Int, Int, Bool) {
+  var n = 0
+  var i = 0
+  while i < len(b) {
+    let c = b[i]
+    if c >= 48 && c <= 57 {
+      n = n * 16 + c - 48
+    } else if c >= 97 && c <= 102 {
+      n = n * 16 + c - 87
+    } else if c >= 65 && c <= 70 {
+      n = n * 16 + c - 55
+    } else {
+      break
+    }
+    if n >= 0xFFFFFF { return (0, i, false) }
+    i += 1
+  }
+  if i == 0 { return (0, i, false) }
+  (n, i, true)
+}
+
+fn xtoi2(b: List<Int>, e: Int) -> Option<Int> {
+  if len(b) > 2 && b[2] != e { return None }
+  let (n, ei, ok) = xtoi(if len(b) > 2 { b[..2] } else { b })
+  if ok && ei == 2 { Some(n & 255) } else { None }
+}
+
+// ParseMAC：EUI-48 / EUI-64 / 20 字节 IPoIB，三种写法（: - 分隔或 . 分组或连写）
+pub fn parse_mac(s: Str) -> Result<List<Int>, Str> {
+  let bad = Err(addr_err(s, "invalid MAC address"))
+  let b = __bytes(s)
+  let l = len(b)
+  if l < 12 { return bad }
+  var hw: List<Int> = []
+  if b[2] == 58 || b[2] == 45 {
+    if (l + 1) % 3 != 0 { return bad }
+    let n = (l + 1) / 3
+    if n != 6 && n != 8 && n != 20 { return bad }
+    var x = 0
+    for _ in 0..n {
+      match xtoi2(b[x..], b[2]) {
+        Some(v) => { hw = push(hw, v) },
+        None => { return bad },
+      }
+      x += 3
+    }
+  } else if b[4] == 46 {
+    if (l + 1) % 5 != 0 { return bad }
+    let n = 2 * (l + 1) / 5
+    if n != 6 && n != 8 && n != 20 { return bad }
+    var x = 0
+    var i = 0
+    while i < n {
+      match xtoi2(b[x..x + 2], 0) {
+        Some(v) => { hw = push(hw, v) },
+        None => { return bad },
+      }
+      match xtoi2(b[x + 2..], b[4]) {
+        Some(v) => { hw = push(hw, v) },
+        None => { return bad },
+      }
+      x += 5
+      i += 2
+    }
+  } else {
+    if l % 2 != 0 { return bad }
+    let n = l / 2
+    if n != 6 && n != 8 && n != 20 { return bad }
+    var x = 0
+    for _ in 0..n {
+      match xtoi2(b[x..x + 2], 0) {
+        Some(v) => { hw = push(hw, v) },
+        None => { return bad },
+      }
+      x += 2
+    }
+  }
+  Ok(hw)
+}
+
+// ───────────── UDP、Unix 套接字、DNS ─────────────
+// 数据报按字节列表收发。所有等待都会让出调度（和 TCP 一样 sleep 退避），可以放进 spawn、被 timeout 取消。
+// __sock_name 对 Unix 套接字返回端口 -1。地址字符串格式同 Go 的 Addr.String()："1.2.3.4:53"、"[::1]:53"；Unix 套接字是路径（"@名字" 表示 Linux 抽象命名空间）。
+
+// 数据报连接：udp（listen_udp / dial_udp）或 unixgram（listen_unixgram / dial_unixgram）
+pub type PacketConn = { fd: Int, unix: Bool, path: Str }
+
+pub type Packet = { data: List<Int>, addr: Str, host: Str, port: Int }
+
+fn addr_str(hp: (Str, Int), unix: Bool) -> Str {
+  let (h, p) = hp
+  if unix || p < 0 { h } else if h == "" { "" } else { join_host_port(h, str(p)) }
+}
+
+// 绑定本地 host:port（port 为 0 时由系统分配；host 可以是 IPv4、IPv6 或主机名，"" 表示 0.0.0.0）
+pub fn listen_udp(host: Str, port: Int) -> Result<PacketConn, Str> {
+  Ok(PacketConn { fd: __udp_open(host, port, false)?, unix: false, path: "" })
+}
+
+// "连接" 到 host:port：之后 write 不用写地址，read 只收这个地址发来的包
+pub fn dial_udp(host: Str, port: Int) -> Result<PacketConn, Str> {
+  Ok(PacketConn { fd: __udp_open(host, port, true)?, unix: false, path: "" })
+}
+
+pub fn listen_unixgram(path: Str) -> Result<PacketConn, Str> {
+  Ok(PacketConn { fd: __unix_open(path, true, 0)?, unix: true, path: path })
+}
+
+pub fn dial_unixgram(path: Str) -> Result<PacketConn, Str> {
+  Ok(PacketConn { fd: __unix_open(path, true, 1)?, unix: true, path: "" })
+}
+
+impl PacketConn {
+  fn local_addr(self) -> Str { addr_str(__sock_name(self.fd, false), self.unix) }
+
+  fn remote_addr(self) -> Str { addr_str(__sock_name(self.fd, true), self.unix) }
+
+  fn local_port(self) -> Int { __sock_name(self.fd, false).1 }
+
+  // 发给已连接的对端
+  fn write(self, data: List<Int>) -> Result<Int, Str> { send_loop(self.fd, 0, "", 0, data) }
+
+  // udp：发给 host:port
+  fn write_to(self, data: List<Int>, host: Str, port: Int) -> Result<Int, Str> {
+    send_loop(self.fd, 1, host, port, data)
+  }
+
+  // unixgram：发给路径
+  fn write_to_unix(self, data: List<Int>, path: Str) -> Result<Int, Str> {
+    send_loop(self.fd, 2, path, 0, data)
+  }
+
+  // 收一个包（最多 max 字节，超出部分丢弃，同 Go）
+  fn read_from(self, max: Int) -> Result<Packet, Str> {
+    var d = 1
+    loop {
+      match __sock_recvfrom(self.fd, max)? {
+        Some((data, h, p)) => {
+          return Ok(Packet { data: data, addr: addr_str((h, p), self.unix), host: h, port: p })
+        },
+        None => { d = backoff(d) },
+      }
+    }
+  }
+
+  fn read(self, max: Int) -> Result<List<Int>, Str> { Ok(self.read_from(max)?.data) }
+
+  // 关闭；listen_unixgram 创建的套接字文件一并删除（同 Go）
+  fn close(self) {
+    __tcp_close(self.fd)
+    if self.path != "" && !starts_with(self.path, "@") { let _ = fs.remove(self.path) }
+  }
+}
+
+fn send_loop(fd: Int, kind: Int, host: Str, port: Int, data: List<Int>) -> Result<Int, Str> {
+  var d = 1
+  loop {
+    match __sock_sendto(fd, kind, host, port, data)? {
+      Some(n) => { return Ok(n) },
+      None => { d = backoff(d) },
+    }
+  }
+}
+
+// Unix 流套接字：监听返回普通 Listener（accept 得到 Conn）；close_unix 关闭并删除套接字文件
+pub fn listen_unix(path: Str) -> Result<Listener, Str> {
+  Ok(Listener { fd: __unix_open(path, false, 0)?, port: 0, tls: 0 })
+}
+
+pub fn close_unix(l: Listener, path: Str) {
+  l.close()
+  if !starts_with(path, "@") { let _ = fs.remove(path) }
+}
+
+pub fn dial_unix(path: Str) -> Result<Conn, Str> { Ok(Conn { fd: __unix_open(path, false, 1)? }) }
+
+// 连接两端的地址（TCP 是 "ip:port"，Unix 是路径）
+pub fn conn_local_addr(c: Conn) -> Str { addr_str(__sock_name(c.fd, false), false) }
+
+pub fn conn_remote_addr(c: Conn) -> Str { addr_str(__sock_name(c.fd, true), false) }
+
+// LookupHost：系统解析器（getaddrinfo，含 /etc/hosts）给出的全部地址，IPv4 和 IPv6 都有
+pub fn lookup_host(host: Str) -> Result<List<Str>, Str> {
+  if len(parse_ip(host)) > 0 { return Ok([host]) }
+  __dns_lookup(host, false)
+}
+
+// LookupIP：同上，结果是 16 字节 IP
+pub fn lookup_ip(host: Str) -> Result<List<List<Int>>, Str> {
+  Ok(map(lookup_host(host)?, parse_ip))
+}
+
+// LookupAddr：反向解析
+pub fn lookup_addr(ip: Str) -> Result<List<Str>, Str> { Ok([__dns_reverse(ip)?]) }
+
+// LookupCNAME：规范名（以 "." 结尾，同 Go）
+pub fn lookup_cname(host: Str) -> Result<Str, Str> {
+  let n = __dns_lookup(host, true)?[0]
+  Ok(if ends_with(n, ".") { n } else { n + "." })
+}
+
+// LookupPort：network 是 "tcp" / "udp"；数字直接返回
+pub fn lookup_port(network: Str, service: Str) -> Result<Int, Str> {
+  match parse_int(service) {
+    Ok(n) => if n >= 0 && n <= 65535 {
+      Ok(n)
+    } else {
+      Err("address " + service + ": invalid port")
+    },
+    Err(_) => __dns_port(network, service),
+  }
 }
