@@ -45,7 +45,11 @@ image/color/palette、path/filepath、go/constant、net/http/cookiejar、crypto/
   第二步完成（2026-10-19）：parse_certificate_request（CSR，含属性、扩展请求、SAN）；PKCS#1 / SEC1（含 P-224，std.crypto.ecdsa 新增 P224 = 0）/ PKCS#8
   私钥（RSA / ECDSA / Ed25519 / X25519 / ML-DSA 种子）的解析和编码、PKCS#1 公钥、marshal_pkix_public_key；签名校验 check_signature /
   check_signature_from / CRL、CSR 校验；rsa.new_private_key_with_precomputation（按 Go fips 的检查顺序）。tests/go/x509_keys 569 行一致。
-  与 Go 的差异：多素数 RSA 私钥报错（Kite rsa 只有双素数）。剩余：Verify / 名称约束 / CertPool、Create*（证书、CRL、CSR）。
+  与 Go 的差异：多素数 RSA 私钥报错（Kite rsa 只有双素数）。
+  第三步完成（2026-10-19）：verify（链构建、路径长度、有效期、EKU、RFC 5280 证书策略图）、名称约束（DNS / IP / 邮箱 / URI，含排除通配父域）、
+  verify_hostname（含 HostnameError 文字）、CertPool（不可变，add_cert / add_cert_with_constraint / append_certs_from_pem / equal、
+  system_cert_pool 读 SSL_CERT_FILE、SSL_CERT_DIR 和 Linux 常见路径）。tests/go/x509_verify 37 张证书 × 14 组选项 + 主机名表，584 行一致。
+  与 Go 的差异：错误是字符串（无 CertificateInvalidError 等类型）；Windows / macOS 平台验证器不移植。剩余：Create*（证书、CRL、CSR）。
 - crypto/hpke
 - encoding/gob（值用类似 fmt.Arg 的枚举表示）
 - debug/dwarf、debug/macho、debug/pe、debug/plan9obj

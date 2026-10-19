@@ -33,6 +33,12 @@ use std.net.url
 use std.net.netip
 use std.strconv
 use std.math.bits
+use std.encoding.pem
+use std.fs
+use std.os
+use std.time
+use std.strings
+use std.net.netip.{ parse_addr, addr_from4, addr_from16 }
 
 // ───────── 算法 ─────────
 
@@ -2596,4 +2602,1342 @@ pub fn certificate_request_check_signature(c: CertificateRequest) -> Result<(), 
     c.public_key,
     true,
   )
+}
+
+// ───────── CertPool（cert_pool.go）─────────
+
+pub type Constraint = fn(List<Certificate>) -> Result<(), Str>
+
+pub type PoolEntry = { cert: Certificate, constraint: Option<Constraint> }
+
+// 不可变：add_cert 等返回新池。按加入顺序保存；by_name 用线性筛选代替（结果顺序相同）。
+pub type CertPool = { entries: List<PoolEntry>, sums: Set<Str>, system_pool: Bool }
+
+pub fn new_cert_pool() -> CertPool { CertPool { entries: [], sums: Set(), system_pool: false } }
+
+fn sum224(raw: List<Int>) -> Str { hex_str(sha256.digest224(raw)) }
+
+fn hex_str(b: List<Int>) -> Str {
+  let digits = "0123456789abcdef"
+  var out = ""
+  for x in b {
+    out = out + __str_slice(digits, x >> 4, (x >> 4) + 1) + __str_slice(
+      digits,
+      x & 15,
+      (x & 15) + 1,
+    )
+  }
+  out
+}
+
+fn add_cert_func(s: CertPool, c: Certificate, constraint: Option<Constraint>) -> CertPool {
+  let h = sum224(c.raw)
+  if contains(s.sums, h) { return s }
+  CertPool {
+    entries: push(s.entries, PoolEntry { cert: c, constraint: constraint }),
+    sums: union(s.sums, Set([h])),
+    system_pool: s.system_pool,
+  }
+}
+
+pub fn cert_pool_add_cert(s: CertPool, c: Certificate) -> CertPool { add_cert_func(s, c, None) }
+
+pub fn cert_pool_add_cert_with_constraint(
+  s: CertPool,
+  c: Certificate,
+  constraint: Constraint,
+) -> CertPool {
+  add_cert_func(s, c, Some(constraint))
+}
+
+// AppendCertsFromPEM：返回 (新池, ok)；Kite 的 pem 以 Str 为输入
+pub fn cert_pool_append_certs_from_pem(s0: CertPool, pem_certs: Str) -> (CertPool, Bool) {
+  var s = s0
+  var ok = false
+  var data = pem_certs
+  while len(data) > 0 {
+    let (b, rest) = pem.decode(data)
+    data = rest
+    let Some(blk) = b else { break }
+    if blk.typ != "CERTIFICATE" || len(blk.headers) != 0 { continue }
+    let Ok(c) = parse_certificate(blk.bytes) else { continue }
+    s = add_cert_func(s, c, None)
+    ok = true
+  }
+  (s, ok)
+}
+
+pub fn cert_pool_len(s: CertPool) -> Int { len(s.entries) }
+
+pub fn cert_pool_subjects(s: CertPool) -> List<List<Int>> {
+  map(s.entries, (e) => e.cert.raw_subject)
+}
+
+pub fn cert_pool_contains(s: CertPool, c: Certificate) -> Bool { contains(s.sums, sum224(c.raw)) }
+
+pub fn cert_pool_equal(a: CertPool, b: CertPool) -> Bool {
+  if a.system_pool != b.system_pool || len(a.sums) != len(b.sums) { return false }
+  for h in a.sums { if !contains(b.sums, h) { return false } }
+  true
+}
+
+fn find_potential_parents(s: CertPool, c: Certificate) -> List<PoolEntry> {
+  var matching: List<PoolEntry> = []
+  var one: List<PoolEntry> = []
+  var mismatch: List<PoolEntry> = []
+  for e in s.entries {
+    if e.cert.raw_subject != c.raw_issuer { continue }
+    let skid = e.cert.subject_key_id
+    let akid = c.authority_key_id
+    if skid == akid {
+      matching = push(matching, e)
+    } else if (len(skid) == 0 && len(akid) > 0) || (len(skid) > 0 && len(akid) == 0) {
+      one = push(one, e)
+    } else {
+      mismatch = push(mismatch, e)
+    }
+  }
+  matching + one + mismatch
+}
+
+// root_linux.go / root_unix.go：SSL_CERT_FILE、SSL_CERT_DIR，否则常见发行版路径
+const CERT_FILES: List<Str> = [
+  "/etc/ssl/certs/ca-certificates.crt",
+  "/etc/pki/tls/certs/ca-bundle.crt",
+  "/etc/ssl/ca-bundle.pem",
+  "/etc/pki/tls/cacert.pem",
+  "/etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem",
+  "/etc/ssl/cert.pem",
+]
+
+const CERT_DIRS: List<Str> = ["/etc/ssl/certs", "/etc/pki/tls/certs"]
+
+// SystemCertPool
+pub fn system_cert_pool() -> Result<CertPool, Str> {
+  var roots = CertPool { system_pool: true, ..new_cert_pool() }
+  var first_err = ""
+  var files = CERT_FILES
+  let f = unwrap_or(os.getenv("SSL_CERT_FILE"), "")
+  if f != "" { files = [f] }
+  for file in files {
+    match fs.read(file) {
+      Ok(data) => {
+        let (r, _) = cert_pool_append_certs_from_pem(roots, data)
+        roots = r
+        break
+      },
+      Err(e) => { if first_err == "" { first_err = e } },
+    }
+  }
+  var dirs = CERT_DIRS
+  let d = unwrap_or(os.getenv("SSL_CERT_DIR"), "")
+  if d != "" { dirs = split(d, ":") }
+  for dir in dirs {
+    let Ok(names) = fs.list(dir) else { continue }
+    for name in sort(names) {
+      if let Ok(data) = fs.read(dir + "/" + name) {
+        let (r, _) = cert_pool_append_certs_from_pem(roots, data)
+        roots = r
+      }
+    }
+  }
+  if len(roots.entries) > 0 || first_err == "" { return Ok(roots) }
+  Err(first_err)
+}
+
+// ───────── 名称约束（constraints.go）─────────
+
+pub type Mailbox = { local: Str, domain: Str }
+
+fn mailbox_string(m: Mailbox) -> Str { m.local + "@" + m.domain }
+
+fn ipnet_contains(n: IPNet, ip0: List<Int>) -> Bool {
+  // net.IPNet.Contains
+  var nn = n.ip
+  if len(nn) == 16 && is_v4_mapped(nn) { nn = nn[12..] }
+  var ip = ip0
+  if len(ip) == 16 && is_v4_mapped(ip) { ip = ip[12..] }
+  let m = if len(n.mask) == 16 && len(nn) == 4 { n.mask[12..] } else { n.mask }
+  if len(ip) != len(nn) || len(m) != len(nn) { return false }
+  var i = 0
+  while i < len(ip) {
+    if nn[i] & m[i] != ip[i] & m[i] { return false }
+    i += 1
+  }
+  true
+}
+
+fn bytes_compare(a: List<Int>, b: List<Int>) -> Int {
+  var i = 0
+  while i < len(a) && i < len(b) {
+    if a[i] != b[i] { return if a[i] < b[i] { -1 } else { 1 } }
+    i += 1
+  }
+  if len(a) < len(b) { -1 } else if len(a) > len(b) { 1 } else { 0 }
+}
+
+fn ip_network_subset(a: IPNet, b: IPNet) -> Bool {
+  if !ipnet_contains(a, b.ip) { return false }
+  var bc: List<Int> = []
+  var i = 0
+  while i < len(b.ip) {
+    let m = if i < len(b.mask) { b.mask[i] } else { 0 }
+    bc = push(bc, b.ip[i] | (255 ^ m))
+    i += 1
+  }
+  ipnet_contains(a, bc)
+}
+
+fn ip_network_compare(a: IPNet, b: IPNet) -> Int {
+  let i = bytes_compare(a.ip, b.ip)
+  if i != 0 { i } else { bytes_compare(a.mask, b.mask) }
+}
+
+fn sort_and_prune<T>(set0: List<T>, cmp: fn(T, T) -> Int, subset: fn(T, T) -> Bool) -> List<T> {
+  if len(set0) < 2 { return set0 }
+  let set = sort_with(set0, cmp)
+  var out = [set[0]]
+  var r = 1
+  while r < len(set) {
+    if !subset(out[len(out) - 1], set[r]) { out = push(out, set[r]) }
+    r += 1
+  }
+  out
+}
+
+fn search<T, V>(set: List<T>, s: V, cmp: fn(T, V) -> Int, matches: fn(T, V) -> Bool) -> Option<T> {
+  if len(set) == 0 { return None }
+  // slices.BinarySearchFunc
+  var lo = 0
+  var hi = len(set)
+  while lo < hi {
+    let h = (lo + hi) / 2
+    if cmp(set[h], s) < 0 { lo = h + 1 } else { hi = h }
+  }
+  if lo < len(set) && cmp(set[lo], s) == 0 { return Some(set[lo]) }
+  let c = if lo == 0 { set[0] } else { set[lo - 1] }
+  if matches(c, s) { Some(c) } else { None }
+}
+
+fn ip_mask(ip: List<Int>, mask: List<Int>) -> List<Int>? {
+  // net.IP.Mask
+  var m = mask
+  var p = ip
+  if len(m) == 16 && len(p) == 4 && m[..12] == map(0..12, (_) => 255) { m = m[12..] }
+  if len(m) == 4 && len(p) == 16 && is_v4_mapped(p) { p = p[12..] }
+  if len(m) != len(p) { return None }
+  var out: List<Int> = []
+  var i = 0
+  while i < len(p) {
+    out = push(out, p[i] & m[i])
+    i += 1
+  }
+  Some(out)
+}
+
+fn ip_equal(a: List<Int>, b: List<Int>) -> Bool {
+  // net.IP.Equal
+  if len(a) == len(b) { return a == b }
+  if len(a) == 4 && len(b) == 16 { return is_v4_mapped(b) && b[12..] == a }
+  if len(a) == 16 && len(b) == 4 { return is_v4_mapped(a) && a[12..] == b }
+  false
+}
+
+type IPConstraints = { v4: List<IPNet>, v6: List<IPNet> }
+
+fn new_ip_constraints(l: List<IPNet>) -> Option<IPConstraints> {
+  if len(l) == 0 { return None }
+  var v4: List<IPNet> = []
+  var v6: List<IPNet> = []
+  for n0 in l {
+    var n = n0
+    if let Some(masked) = ip_mask(n.ip, n.mask) {
+      if !ip_equal(masked, n.ip) { n = IPNet { ip: masked, mask: n.mask } }
+    }
+    if len(n.ip) == 4 { v4 = push(v4, n) } else { v6 = push(v6, n) }
+  }
+  Some(IPConstraints {
+    v4: sort_and_prune(v4, ip_network_compare, ip_network_subset),
+    v6: sort_and_prune(v6, ip_network_compare, ip_network_subset),
+  })
+}
+
+fn ip_query(c: IPConstraints, ip: List<Int>) -> Option<IPNet> {
+  let set = if len(ip) == 4 { c.v4 } else { c.v6 }
+  search(
+    set,
+    ip,
+    (n: IPNet, t: List<Int>) => bytes_compare(n.ip, t),
+    (n: IPNet, t: List<Int>) => ipnet_contains(n, t),
+  )
+}
+
+fn ascii_lower_b(c: Int) -> Int { if c >= 65 && c <= 90 { c + 32 } else { c } }
+
+fn dns_has_suffix(a0: Str, b0: Str) -> Bool {
+  let a = __bytes(a0)
+  let b = __bytes(b0)
+  let la = len(a)
+  let lb = len(b)
+  if la > lb { return false }
+  var i = la - 1
+  let offset = la - lb
+  while i >= 0 {
+    var ar = a[i]
+    var br = b[i - offset]
+    i -= 1
+    if ar == br { continue }
+    if br < ar {
+      let t = ar
+      ar = br
+      br = t
+    }
+    if ar >= 65 && ar <= 90 && br == ar + 32 { continue }
+    return false
+  }
+  // Go 在 la == 0 时会越界 panic；约束串在这里不会为空
+  if la > 0 && a[0] != 46 && lb > la && b[lb - la - 1] != 46 { return false }
+  true
+}
+
+fn dns_table(c: Int) -> Int { if c == 46 { 0 } else { ascii_lower_b(c) } }
+
+fn dns_compare(a0: Str, b0: Str) -> Int {
+  let a = __bytes(a0)
+  let b = __bytes(b0)
+  var ia = len(a) - 1
+  var ib = len(b) - 1
+  while ia >= 0 && ib >= 0 {
+    let x = dns_table(a[ia])
+    let y = dns_table(b[ib])
+    if x == y {
+      ia -= 1
+      ib -= 1
+      continue
+    }
+    return if x < y { -1 } else { 1 }
+  }
+  if ia < ib { -1 } else if ib < ia { 1 } else { 0 }
+}
+
+fn trim_first_label(s: Str) -> Str {
+  let i = __str_find(s, ".", 0)
+  if i < 0 { "" } else { __str_slice(s, i, len(s)) }
+}
+
+type DNSConstraints = { all: Bool, permitted: Bool, set: List<Str>, parents: List<(Str, Str)> }
+
+fn new_dns_constraints(l: List<Str>, permitted: Bool) -> Option<DNSConstraints> {
+  if len(l) == 0 { return None }
+  for n in l {
+    if len(n) == 0 {
+      return Some(DNSConstraints { all: true, permitted: false, set: [], parents: [] })
+    }
+  }
+  let set = sort_and_prune(l, dns_compare, dns_has_suffix)
+  var parents: List<(Str, Str)> = []
+  if !permitted {
+    for name0 in set {
+      let name = lower(name0)
+      let t = trim_first_label(name)
+      if t == "" { continue }
+      parents = push(filter(parents, (p) => p.0 != t), (t, name))
+    }
+  }
+  Some(DNSConstraints { all: false, permitted: permitted, set: set, parents: parents })
+}
+
+fn dns_query(c: DNSConstraints, s0: Str) -> Option<Str> {
+  if c.all { return Some("") }
+  if let Some(x) = search(c.set, s0, dns_compare, dns_has_suffix) { return Some(x) }
+  if !c.permitted && len(s0) > 0 && starts_with(s0, "*") {
+    let t = trim_first_label(lower(s0))
+    for p in c.parents { if p.0 == t { return Some(p.1) } }
+  }
+  None
+}
+
+type EmailConstraints = { dns: Option<DNSConstraints>, full: List<Mailbox> }
+
+fn new_email_constraints(l: List<Str>, permitted: Bool) -> Option<EmailConstraints> {
+  if len(l) == 0 { return None }
+  var full: List<Mailbox> = []
+  var domains: List<Str> = []
+  for c in l {
+    if !contains(c, "@") {
+      domains = push(domains, c)
+      continue
+    }
+    let Some((lo, d)) = parse_rfc2821_mailbox(c) else { continue }
+    full = push(full, Mailbox { local: lo, domain: lower(d) })
+  }
+  Some(EmailConstraints {
+    dns: if len(domains) > 0 { new_dns_constraints(domains, permitted) } else { None },
+    full: full,
+  })
+}
+
+fn email_query(c: EmailConstraints, s: Mailbox) -> Option<Str> {
+  for m in c.full { if m == s { return Some(mailbox_string(s)) } }
+  match c.dns {
+    Some(d) => dns_query(d, s.domain),
+    None => None,
+  }
+}
+
+type ChainConstraints = {
+  ip_p: Option<IPConstraints>,
+  ip_e: Option<IPConstraints>,
+  dns_p: Option<DNSConstraints>,
+  dns_e: Option<DNSConstraints>,
+  uri_p: Option<DNSConstraints>,
+  uri_e: Option<DNSConstraints>,
+  email_p: Option<EmailConstraints>,
+  email_e: Option<EmailConstraints>,
+  index: Int,
+}
+
+fn go_ip_string(ip: List<Int>) -> Str {
+  // net.IP.String
+  if len(ip) == 0 { return "<nil>" }
+  if len(ip) == 4 { return addr_from4(ip).string() }
+  if len(ip) == 16 {
+    if is_v4_mapped(ip) { return addr_from4(ip[12..]).string() }
+    return addr_from16(ip).string()
+  }
+  "?" + hex_str(ip)
+}
+
+fn check_one(
+  typ: Str,
+  shown: Str,
+  permitted: Option<Option<Str>>,
+  excluded: Option<Option<Str>>,
+) -> Result<(), Str> {
+  // permitted / excluded：None = 没有这类约束；Some(查询结果)
+  if let Some(found) = permitted {
+    if found == None {
+      return Err(typ + " " + strconv.quote_go(shown) + " is not permitted by any constraint")
+    }
+  }
+  if let Some(found) = excluded {
+    if let Some(c) = found {
+      return Err(
+        typ + " " + strconv.quote_go(shown) + " is excluded by constraint " + strconv.quote_go(c),
+      )
+    }
+  }
+  Ok(())
+}
+
+fn q_ip(c: Option<IPConstraints>, ip: List<Int>) -> Option<Option<Str>> {
+  match c {
+    Some(x) => Some(match ip_query(x, ip) {
+      Some(n) => Some(ipnet_string(n)),
+      None => None,
+    }),
+    None => None,
+  }
+}
+
+fn q_dns(c: Option<DNSConstraints>, s: Str) -> Option<Option<Str>> {
+  match c {
+    Some(x) => Some(dns_query(x, s)),
+    None => None,
+  }
+}
+
+fn q_email(c: Option<EmailConstraints>, s: Mailbox) -> Option<Option<Str>> {
+  match c {
+    Some(x) => Some(email_query(x, s)),
+    None => None,
+  }
+}
+
+// net.IPNet.String（只在 excluded 的错误信息里用到）
+fn ipnet_string(n: IPNet) -> Str {
+  var ones = 0
+  var ok = true
+  var seen_zero = false
+  for b in n.mask {
+    var k = 7
+    while k >= 0 {
+      if (b >> k) & 1 == 1 {
+        if seen_zero { ok = false }
+        ones += 1
+      } else {
+        seen_zero = true
+      }
+      k -= 1
+    }
+  }
+  let ip = go_ip_string(n.ip)
+  if ok && (len(n.mask) == len(n.ip) || (len(n.mask) == 16 && len(n.ip) == 4)) {
+    let o = if len(n.mask) == 16 && len(n.ip) == 4 { ones - 96 } else { ones }
+    return ip + "/{o}"
+  }
+  ip + "/" + hex_str(n.mask)
+}
+
+type ParsedURI = { uri: Str, domain: Str }
+
+fn cc_check(
+  cc: ChainConstraints,
+  dns: List<Str>,
+  uris: List<ParsedURI>,
+  emails: List<Mailbox>,
+  ips: List<List<Int>>,
+) -> Result<(), Str> {
+  for ip in ips { check_one("IP address", go_ip_string(ip), q_ip(cc.ip_p, ip), q_ip(cc.ip_e, ip))? }
+  for d in dns {
+    if !domain_name_valid(d, false) {
+      return Err("x509: cannot parse dnsName " + strconv.quote_go(d))
+    }
+    check_one("DNS name", d, q_dns(cc.dns_p, d), q_dns(cc.dns_e, d))?
+  }
+  for u in uris {
+    if !domain_name_valid(u.domain, false) {
+      return Err("x509: internal error: URI SAN " + strconv.quote_go(u.uri) + " failed to parse")
+    }
+    check_one("URI", u.uri, q_dns(cc.uri_p, u.domain), q_dns(cc.uri_e, u.domain))?
+  }
+  for e in emails {
+    if !domain_name_valid(e.domain, false) {
+      return Err("x509: cannot parse rfc822Name " + strconv.quote_go(mailbox_string(e)))
+    }
+    check_one("email address", mailbox_string(e), q_email(cc.email_p, e), q_email(cc.email_e, e))?
+  }
+  Ok(())
+}
+
+fn has_ext(c: Certificate, oid: List<Int>) -> Bool {
+  for e in c.extensions { if e.id == oid { return true } }
+  false
+}
+
+fn parse_uris(uris: List<url.URL>) -> Result<List<ParsedURI>, Str> {
+  var out: List<ParsedURI> = []
+  for u in uris {
+    let us = url.to_str(u)
+    var host = lower(u.host)
+    if len(host) == 0 {
+      return Err(
+        "URI with empty host (" + strconv.quote_go(us) + ") cannot be matched against constraints",
+      )
+    }
+    if contains(host, ":") && !ends_with(host, "]") {
+      match split_host_port(u.host) {
+        Ok((h, _)) => { host = h },
+        Err(e) => { return Err("cannot parse URI host " + strconv.quote_go(u.host) + ": " + e) },
+      }
+    }
+    if is_ok(parse_addr(host)) || (starts_with(host, "[") && ends_with(host, "]")) {
+      return Err("URI with IP (" + strconv.quote_go(us) + ") cannot be matched against constraints")
+    }
+    out = push(out, ParsedURI { uri: us, domain: host })
+  }
+  Ok(out)
+}
+
+fn parse_mailboxes(emails: List<Str>) -> Result<List<Mailbox>, Str> {
+  var out: List<Mailbox> = []
+  for e in emails {
+    let Some((lo, d)) = parse_rfc2821_mailbox(e) else {
+      return Err("cannot parse rfc822Name " + strconv.quote_go(e))
+    }
+    out = push(out, Mailbox { local: lo, domain: lower(d) })
+  }
+  Ok(out)
+}
+
+fn check_chain_constraints(chain: List<Certificate>) -> Result<(), Str> {
+  var ccs: List<ChainConstraints> = []
+  var i = 0
+  for c in chain {
+    if has_ext(c, [2, 5, 29, 30]) {
+      ccs = push(ccs, ChainConstraints {
+        ip_p: new_ip_constraints(c.permitted_ip_ranges),
+        ip_e: new_ip_constraints(c.excluded_ip_ranges),
+        dns_p: new_dns_constraints(c.permitted_dns_domains, true),
+        dns_e: new_dns_constraints(c.excluded_dns_domains, false),
+        uri_p: new_dns_constraints(c.permitted_uri_domains, true),
+        uri_e: new_dns_constraints(c.excluded_uri_domains, false),
+        email_p: new_email_constraints(c.permitted_email_addresses, true),
+        email_e: new_email_constraints(c.excluded_email_addresses, false),
+        index: i,
+      })
+    }
+    i += 1
+  }
+  if len(ccs) == 0 { return Ok(()) }
+  var cur = 0
+  i = 0
+  for c in chain {
+    if !has_ext(c, [2, 5, 29, 17]) {
+      i += 1
+      continue
+    }
+    if i >= ccs[cur].index {
+      while ccs[cur].index <= i {
+        if cur + 1 >= len(ccs) { return Ok(()) }
+        cur += 1
+      }
+    }
+    let uris = parse_uris(c.uris)?
+    let emails = parse_mailboxes(c.email_addresses)?
+    var n = cur
+    while n < len(ccs) {
+      cc_check(ccs[n], c.dns_names, uris, emails, c.ip_addresses)?
+      n += 1
+    }
+    i += 1
+  }
+  Ok(())
+}
+
+fn split_host_port(hostport: Str) -> Result<(Str, Str), Str> {
+  let err = (why: Str) => Err("address " + hostport + ": " + why)
+  let missing_port = "missing port in address"
+  let too_many_colons = "too many colons in address"
+  let i = strings.last_index(hostport, ":")
+  if i < 0 { return err(missing_port) }
+  var host = ""
+  var j = 0
+  var k = 0
+  if starts_with(hostport, "[") {
+    let end = __str_find(hostport, "]", 0)
+    if end < 0 { return err("missing ']' in address") }
+    if end + 1 == len(hostport) { return err(missing_port) }
+    if end + 1 != i {
+      if __str_slice(hostport, end + 1, end + 2) == ":" { return err(too_many_colons) }
+      return err(missing_port)
+    }
+    host = __str_slice(hostport, 1, end)
+    j = 1
+    k = end + 1
+  } else {
+    host = __str_slice(hostport, 0, i)
+    if contains(host, ":") { return err(too_many_colons) }
+  }
+  if contains(__str_slice(hostport, j, len(hostport)), "[") {
+    return err("unexpected '[' in address")
+  }
+  if contains(__str_slice(hostport, k, len(hostport)), "]") {
+    return err("unexpected ']' in address")
+  }
+  Ok((host, __str_slice(hostport, i + 1, len(hostport))))
+}
+
+// ───────── 主机名（verify.go）─────────
+
+fn to_lower_ascii(s: Str) -> Str {
+  // Kite 的 Str 总是合法 UTF-8，只需处理 A-Z
+  bstr(map(__bytes(s), ascii_lower_b))
+}
+
+fn valid_hostname(host0: Str, is_pattern: Bool) -> Bool {
+  var host = host0
+  if !is_pattern && ends_with(host, ".") { host = __str_slice(host, 0, len(host) - 1) }
+  if len(host) == 0 || host == "*" { return false }
+  var i = 0
+  for part in split(host, ".") {
+    if part == "" { return false }
+    if is_pattern && i == 0 && part == "*" {
+      i += 1
+      continue
+    }
+    var j = 0
+    for c in __bytes(part) {
+      let ok = (c >= 97 && c <= 122)
+        || (c >= 48 && c <= 57)
+        || (c >= 65 && c <= 90)
+        || (c == 45 && j != 0)
+        || c == 95
+      if !ok { return false }
+      j += 1
+    }
+    i += 1
+  }
+  true
+}
+
+fn match_exactly(a: Str, b: Str) -> Bool {
+  if a == "" || a == "." || b == "" || b == "." { return false }
+  to_lower_ascii(a) == to_lower_ascii(b)
+}
+
+fn match_hostnames(pattern0: Str, host_parts: List<Str>) -> Bool {
+  let pattern = to_lower_ascii(pattern0)
+  if len(pattern) == 0 || len(host_parts) == 0 { return false }
+  let pp = split(pattern, ".")
+  if len(pp) != len(host_parts) { return false }
+  var i = 0
+  for p in pp {
+    if !(i == 0 && p == "*") && p != host_parts[i] { return false }
+    i += 1
+  }
+  true
+}
+
+fn split_hostname(host: Str) -> List<Str> {
+  let h = if ends_with(host, ".") { __str_slice(host, 0, len(host) - 1) } else { host }
+  split(to_lower_ascii(h), ".")
+}
+
+fn hostname_error(c: Certificate, host: Str) -> Str {
+  if !has_ext(c, [2, 5, 29, 17]) && match_hostnames(c.subject.common_name, split_hostname(host)) {
+    return "x509: certificate relies on legacy Common Name field, use SANs instead"
+  }
+  var valid = ""
+  let parsed = match parse_addr(host) {
+    Ok(a) => a.zone() == "",
+    Err(_) => false,
+  }
+  if parsed {
+    if len(c.ip_addresses) == 0 {
+      return "x509: cannot validate certificate for " + host + " because it doesn't contain any IP SANs"
+    }
+    if len(c.ip_addresses) >= 100 {
+      return "x509: certificate is valid for {len(c.ip_addresses)} IP SANs, but none matched " + host
+    }
+    valid = join(map(c.ip_addresses, go_ip_string), ", ")
+  } else {
+    if len(c.dns_names) >= 100 {
+      return "x509: certificate is valid for {len(c.dns_names)} names, but none matched " + host
+    }
+    valid = join(c.dns_names, ", ")
+  }
+  if len(valid) == 0 {
+    return "x509: certificate is not valid for any names, but wanted to match " + host
+  }
+  "x509: certificate is valid for " + valid + ", not " + host
+}
+
+// Certificate.VerifyHostname
+pub fn verify_hostname(c: Certificate, h: Str) -> Result<(), Str> {
+  var cand = h
+  if len(h) >= 3 && starts_with(h, "[") && ends_with(h, "]") {
+    cand = __str_slice(h, 1, len(h) - 1)
+  }
+  if let Ok(a) = parse_addr(cand) {
+    let ip = a.as_slice()
+    for x in c.ip_addresses { if ip_equal(ip, x) { return Ok(()) } }
+    return Err(hostname_error(c, go_ip_string(ip)))
+  }
+  let name = to_lower_ascii(h)
+  let valid = valid_hostname(name, false)
+  let parts = split_hostname(name)
+  for m in c.dns_names {
+    if valid && valid_hostname(m, true) {
+      if match_hostnames(m, parts) { return Ok(()) }
+    } else if match_exactly(m, name) {
+      return Ok(())
+    }
+  }
+  Err(hostname_error(c, h))
+}
+
+// ───────── 链验证 ─────────
+
+pub type VerifyOptions = {
+  dns_name: Str,
+  intermediates: CertPool,
+  roots: Option<CertPool>, // None = 系统根
+  current_time: Time,       // 零值 = 现在
+  key_usages: List<Int>,
+  certificate_policies: List<OID>,
+  inhibit_policy_mapping: Bool,
+  require_explicit_policy: Bool,
+  inhibit_any_policy: Bool,
+}
+
+pub fn verify_options() -> VerifyOptions {
+  VerifyOptions {
+    dns_name: "",
+    intermediates: new_cert_pool(),
+    roots: None,
+    current_time: zero_time(),
+    key_usages: [],
+    certificate_policies: [],
+    inhibit_policy_mapping: false,
+    require_explicit_policy: false,
+    inhibit_any_policy: false,
+  }
+}
+
+pub const ERR_NOT_PARSED: Str = "x509: missing ASN.1 contents; use ParseCertificate"
+pub const ERR_SIGNATURE_LIMIT: Str =
+  "x509: signature check attempts limit reached while verifying certificate chain"
+
+const LEAF: Int = 0
+const INTERMEDIATE: Int = 1
+const ROOT: Int = 2
+
+fn time_before(a: Time, b: Time) -> Bool {
+  a.unix < b.unix || (a.unix == b.unix && a.nsec < b.nsec)
+}
+
+fn rfc3339(t: Time) -> Str {
+  let (y, mo, d, h, mi, sec) = asn1.civil(t)
+  let p2 = (v: Int) => if v < 10 { "0{v}" } else { "{v}" }
+  let ys = if y < 10 {
+    "000{y}"
+  } else if y < 100 {
+    "00{y}"
+  } else if y < 1000 {
+    "0{y}"
+  } else {
+    "{y}"
+  }
+  let base = ys + "-" + p2(mo) + "-" + p2(d) + "T" + p2(h) + ":" + p2(mi) + ":" + p2(sec)
+  if t.offset == 0 { return base + "Z" }
+  var z = t.offset / 60
+  var sign = "+"
+  if z < 0 {
+    sign = "-"
+    z = -z
+  }
+  let hh = z / 60
+  let mm = z % 60
+  base + sign + (if hh < 10 { "0" } else { "" }) + "{hh}:" + (if mm < 10 {
+    "0"
+  } else {
+    ""
+  }) + "{mm}"
+}
+
+fn now_time() -> Time {
+  let ms = time.unix_ms()
+  Time { unix: ms / 1000, nsec: (ms % 1000) * 1000000, offset: 0 }
+}
+
+fn is_valid(
+  c: Certificate,
+  cert_type: Int,
+  chain: List<Certificate>,
+  now: Time,
+) -> Result<(), Str> {
+  if len(c.unhandled_critical_extensions) > 0 { return Err("x509: unhandled critical extension") }
+  if len(chain) > 0 {
+    if chain[len(chain) - 1].raw_issuer != c.raw_subject {
+      return Err("x509: issuer name does not match subject from issuing certificate")
+    }
+  }
+  if time_before(now, c.not_before) {
+    return Err(
+      "x509: certificate has expired or is not yet valid: current time " + rfc3339(
+        now,
+      ) + " is before " + rfc3339(c.not_before),
+    )
+  } else if time_before(c.not_after, now) {
+    return Err(
+      "x509: certificate has expired or is not yet valid: current time " + rfc3339(
+        now,
+      ) + " is after " + rfc3339(c.not_after),
+    )
+  }
+  if (cert_type == INTERMEDIATE || cert_type == ROOT) && len(chain) == 0 {
+    return Err("x509: internal error: empty chain when appending CA cert")
+  }
+  if cert_type == INTERMEDIATE && (!c.basic_constraints_valid || !c.is_ca) {
+    return Err("x509: certificate is not authorized to sign other certificates")
+  }
+  if c.basic_constraints_valid && c.max_path_len >= 0 {
+    if len(chain) - 1 > c.max_path_len {
+      return Err("x509: too many intermediates for path length constraint")
+    }
+  }
+  Ok(())
+}
+
+fn already_in_chain(cand: Certificate, chain: List<Certificate>) -> Bool {
+  let san_of = (c: Certificate) => {
+    var r: Option<List<Int>> = None
+    for e in c.extensions {
+      if e.id == [2, 5, 29, 17] {
+        r = Some(e.value)
+        break
+      }
+    }
+    r
+  }
+  let cs = san_of(cand)
+  for c in chain {
+    if cand.raw_subject != c.raw_subject
+      || cand.raw_subject_public_key_info != c.raw_subject_public_key_info {
+      continue
+    }
+    let s = san_of(c)
+    if cs == None && s == None { return true }
+    if cs == None || s == None { return false }
+    if cs == s { return true }
+  }
+  false
+}
+
+fn unknown_authority(hint_err: Option<Str>, hint: Option<Certificate>) -> Str {
+  var s = "x509: certificate signed by unknown authority"
+  if let Some(he) = hint_err {
+    let hc = unwrap(hint)
+    var name = hc.subject.common_name
+    if len(name) == 0 {
+      name = if len(hc.subject.organization) > 0 {
+        hc.subject.organization[0]
+      } else {
+        "serial:" + hc.serial_number.text(10)
+      }
+    }
+    s = s + " (possibly because of " + strconv.quote_go(
+      he,
+    ) + " while trying to verify candidate authority certificate "
+    s = s + strconv.quote_go(name) + ")"
+  }
+  s
+}
+
+type Build = { chains: List<List<Certificate>>, err: Option<Str>, sig: Int }
+
+fn build_chains(
+  c: Certificate,
+  chain: List<Certificate>,
+  sig0: Int,
+  roots: CertPool,
+  inter: CertPool,
+  now: Time,
+) -> Build {
+  var chains: List<List<Certificate>> = []
+  var err: Option<Str> = None
+  var sig = sig0
+  var hint_err: Option<Str> = None
+  var hint: Option<Certificate> = None
+  var stop = false
+  for (cert_type, pool) in [(ROOT, roots), (INTERMEDIATE, inter)] {
+    if stop { break }
+    for cand in find_potential_parents(pool, c) {
+      sig += 1
+      if sig > 100 {
+        err = Some(ERR_SIGNATURE_LIMIT)
+        stop = true
+        break
+      }
+      let pc = cand.cert
+      if pc.public_key == PublicKey.NoKey || already_in_chain(pc, chain) { continue }
+      if let Err(e) = check_signature_from(c, pc) {
+        if hint_err == None {
+          hint_err = Some(e)
+          hint = Some(pc)
+        }
+        continue
+      }
+      match is_valid(pc, cert_type, chain, now) {
+        Err(e) => {
+          err = Some(e)
+          if hint_err == None {
+            hint_err = Some(e)
+            hint = Some(pc)
+          }
+          continue
+        },
+        Ok(_) => { err = None },
+      }
+      if let Some(f) = cand.constraint {
+        if let Err(e) = f(chain) {
+          if hint_err == None {
+            hint_err = Some(e)
+            hint = Some(pc)
+          }
+          continue
+        }
+      }
+      if cert_type == ROOT {
+        chains = push(chains, push(chain, pc))
+      } else {
+        let b = build_chains(pc, push(chain, pc), sig, roots, inter, now)
+        sig = b.sig
+        err = b.err
+        chains = chains + b.chains
+        if err == Some(ERR_SIGNATURE_LIMIT) {
+          stop = true
+          break
+        }
+      }
+    }
+  }
+  if len(chains) > 0 { err = None }
+  if len(chains) == 0 && err == None { err = Some(unknown_authority(hint_err, hint)) }
+  Build { chains: chains, err: err, sig: sig }
+}
+
+fn check_chain_for_key_usage(chain: List<Certificate>, key_usages: List<Int>) -> Bool {
+  var usages = key_usages
+  if len(chain) == 0 { return false }
+  var remaining = len(usages)
+  var i = len(chain) - 1
+  while i >= 0 {
+    let cert = chain[i]
+    i -= 1
+    if len(cert.ext_key_usage) == 0 && len(cert.unknown_ext_key_usage) == 0 { continue }
+    if contains(cert.ext_key_usage, EXT_KEY_USAGE_ANY) { continue }
+    var k = 0
+    while k < len(usages) {
+      let u = usages[k]
+      if u != -1 && !contains(cert.ext_key_usage, u) {
+        usages = set_at_i(usages, k, -1)
+        remaining -= 1
+        if remaining == 0 { return false }
+      }
+      k += 1
+    }
+  }
+  true
+}
+
+fn set_at_i(xs: List<Int>, i: Int, v: Int) -> List<Int> { xs[..i] + [v] + xs[i + 1..] }
+
+// Certificate.Verify
+pub fn verify(c: Certificate, opts0: VerifyOptions) -> Result<List<List<Certificate>>, Str> {
+  var opts = opts0
+  if len(c.raw) == 0 { return Err(ERR_NOT_PARSED) }
+  for e in opts.intermediates.entries { if len(e.cert.raw) == 0 { return Err(ERR_NOT_PARSED) } }
+  let roots = match opts.roots {
+    Some(r) => r,
+    None => match system_cert_pool() {
+      Ok(r) => r,
+      Err(e) => { return Err("x509: failed to load system roots and no roots provided; " + e) },
+    },
+  }
+  let now = if opts.current_time == zero_time() { now_time() } else { opts.current_time }
+  is_valid(c, LEAF, [], now)?
+  if len(opts.dns_name) > 0 { verify_hostname(c, opts.dns_name)? }
+  var cands: List<List<Certificate>> = []
+  if cert_pool_contains(roots, c) {
+    cands = [[c]]
+  } else {
+    let b = build_chains(c, [c], 0, roots, opts.intermediates, now)
+    if let Some(e) = b.err { return Err(e) }
+    cands = b.chains
+  }
+  let any_usage = contains(opts.key_usages, EXT_KEY_USAGE_ANY)
+  if len(opts.key_usages) == 0 {
+    opts = VerifyOptions { key_usages: [EXT_KEY_USAGE_SERVER_AUTH], ..opts }
+  }
+  var invalid_policies = 0
+  var incompatible = 0
+  var hint: Option<Str> = None
+  var kept: List<List<Certificate>> = []
+  for ch in cands {
+    if !policies_valid(ch, opts) {
+      invalid_policies += 1
+      continue
+    }
+    if !any_usage && !check_chain_for_key_usage(ch, opts.key_usages) {
+      incompatible += 1
+      continue
+    }
+    if let Err(e) = check_chain_constraints(ch) {
+      if hint == None {
+        hint = Some(
+          "x509: a root or intermediate certificate is not authorized to sign for this name: " + e,
+        )
+      }
+      continue
+    }
+    kept = push(kept, ch)
+  }
+  if len(kept) == 0 {
+    if let Some(h) = hint { return Err(h) }
+    var details: List<Str> = []
+    if incompatible > 0 {
+      if invalid_policies == 0 {
+        return Err("x509: certificate specifies an incompatible key usage")
+      }
+      details = push(details, "{incompatible} candidate chains with incompatible key usage")
+    }
+    if invalid_policies > 0 {
+      details = push(details, "{invalid_policies} candidate chains with invalid policies")
+    }
+    let d = join(details, ", ")
+    return Err(if d != "" {
+      "x509: no valid chains built: " + d
+    } else {
+      "x509: no valid chains built"
+    })
+  }
+  Ok(kept)
+}
+
+// ───────── 证书策略（RFC 5280 6.1，verify.go 的 policyGraph）─────────
+// 节点放在数组里，用下标代替指针；strata 每层是 (validPolicy.der, 节点) 的有序表，插入同键时覆盖（同 Go map）。
+
+type PN = { valid: List<Int>, expected: List<List<Int>>, parents: List<Int>, children: List<Int> }
+
+type PG = {
+  nodes: List<PN>,
+  strata: List<List<(List<Int>, Int)>>,
+  pindex: List<(List<Int>, List<Int>)>,
+  depth: Int,
+}
+
+const ANY_POLICY_DER: List<Int> = [85, 29, 32, 0]
+
+fn pg_new() -> PG {
+  PG {
+    nodes: [PN { valid: ANY_POLICY_DER, expected: [ANY_POLICY_DER], parents: [], children: [] }],
+    strata: [[(ANY_POLICY_DER, 0)]],
+    pindex: [],
+    depth: 0,
+  }
+}
+
+fn set_node(pg: PG, i: Int, n: PN) -> PG {
+  PG { nodes: pg.nodes[..i] + [n] + pg.nodes[i + 1..], ..pg }
+}
+
+fn add_id(xs: List<Int>, x: Int) -> List<Int> { if contains(xs, x) { xs } else { push(xs, x) } }
+
+fn del_id(xs: List<Int>, x: Int) -> List<Int> { filter(xs, (y) => y != x) }
+
+fn pg_new_node(pg0: PG, valid: List<Int>, parents: List<Int>) -> (PG, Int) {
+  let id = len(pg0.nodes)
+  var pg = PG {
+    nodes: push(pg0.nodes, PN { valid: valid, expected: [valid], parents: [], children: [] }),
+    ..pg0
+  }
+  for p in parents {
+    let pn = pg.nodes[p]
+    pg = set_node(pg, p, PN { children: add_id(pn.children, id), ..pn })
+    let nn = pg.nodes[id]
+    pg = set_node(pg, id, PN { parents: add_id(nn.parents, p), ..nn })
+  }
+  (pg, id)
+}
+
+fn stratum_set(s: List<(List<Int>, Int)>, k: List<Int>, v: Int) -> List<(List<Int>, Int)> {
+  var out: List<(List<Int>, Int)> = []
+  var done = false
+  for e in s {
+    if e.0 == k {
+      out = push(out, (k, v))
+      done = true
+    } else {
+      out = push(out, e)
+    }
+  }
+  if done { out } else { push(out, (k, v)) }
+}
+
+fn stratum_get(s: List<(List<Int>, Int)>, k: List<Int>) -> Option<Int> {
+  for e in s { if e.0 == k { return Some(e.1) } }
+  None
+}
+
+fn pg_set_stratum(pg: PG, i: Int, s: List<(List<Int>, Int)>) -> PG {
+  PG { strata: pg.strata[..i] + [s] + pg.strata[i + 1..], ..pg }
+}
+
+fn pg_insert(pg: PG, id: Int) -> PG {
+  pg_set_stratum(pg, pg.depth, stratum_set(pg.strata[pg.depth], pg.nodes[id].valid, id))
+}
+
+fn pg_parents_with_expected(pg: PG, e: List<Int>) -> List<Int> {
+  if pg.depth == 0 { return [] }
+  for x in pg.pindex { if x.0 == e { return x.1 } }
+  []
+}
+
+fn pg_parent_with_any(pg: PG) -> Option<Int> {
+  if pg.depth == 0 { return None }
+  stratum_get(pg.strata[pg.depth - 1], ANY_POLICY_DER)
+}
+
+fn pg_parents(pg: PG) -> List<Int> {
+  if pg.depth == 0 { [] } else { map(pg.strata[pg.depth - 1], (e) => e.1) }
+}
+
+fn pg_delete_leaf(pg0: PG, policy: List<Int>) -> PG {
+  let Some(n) = stratum_get(pg0.strata[pg0.depth], policy) else { return pg0 }
+  var pg = pg0
+  let node = pg.nodes[n]
+  for p in node.parents {
+    let pn = pg.nodes[p]
+    pg = set_node(pg, p, PN { children: del_id(pn.children, n), ..pn })
+  }
+  for c in node.children {
+    let cn = pg.nodes[c]
+    pg = set_node(pg, c, PN { parents: del_id(cn.parents, n), ..cn })
+  }
+  pg_set_stratum(pg, pg.depth, filter(pg.strata[pg.depth], (e) => e.0 != policy))
+}
+
+fn pg_valid_policy_nodes(pg: PG) -> List<Int> {
+  var out: List<Int> = []
+  var i = pg.depth
+  while i >= 0 {
+    for e in pg.strata[i] {
+      let n = pg.nodes[e.1]
+      if n.valid == ANY_POLICY_DER { continue }
+      if len(n.parents) == 1 && pg.nodes[n.parents[0]].valid == ANY_POLICY_DER {
+        out = push(out, e.1)
+      }
+    }
+    i -= 1
+  }
+  out
+}
+
+fn pg_prune(pg0: PG) -> PG {
+  var pg = pg0
+  var i = pg.depth - 1
+  while i > 0 {
+    for e in pg.strata[i] {
+      let n = pg.nodes[e.1]
+      if len(n.children) == 0 {
+        for p in n.parents {
+          let pn = pg.nodes[p]
+          pg = set_node(pg, p, PN { children: del_id(pn.children, e.1), ..pn })
+        }
+        pg = pg_set_stratum(pg, i, filter(pg.strata[i], (x) => x.1 != e.1))
+      }
+    }
+    i -= 1
+  }
+  pg
+}
+
+fn pg_incr_depth(pg: PG) -> PG {
+  var idx: List<(List<Int>, List<Int>)> = []
+  for e in pg.strata[pg.depth] {
+    for x in pg.nodes[e.1].expected {
+      if any(idx, (y) => y.0 == x) {
+        idx = map(idx, (y) => if y.0 == x { (y.0, push(y.1, e.1)) } else { y })
+      } else {
+        idx = push(idx, (x, [e.1]))
+      }
+    }
+  }
+  PG { pindex: idx, depth: pg.depth + 1, strata: push(pg.strata, []), ..pg }
+}
+
+fn uniq(xs: List<List<Int>>) -> List<List<Int>> {
+  var out: List<List<Int>> = []
+  for x in xs { if !contains(out, x) { out = push(out, x) } }
+  out
+}
+
+fn policies_valid(chain: List<Certificate>, opts: VerifyOptions) -> Bool {
+  if len(chain) == 1 { return true }
+  let n = len(chain) - 1
+  var pgo: Option<PG> = Some(pg_new())
+  var inhibit_any = if opts.inhibit_any_policy { 0 } else { n + 1 }
+  var explicit = if opts.require_explicit_policy { 0 } else { n + 1 }
+  var mapping = if opts.inhibit_policy_mapping { 0 } else { n + 1 }
+  var user_set = uniq(map(opts.certificate_policies, (p) => p.der))
+  if len(user_set) == 0 { user_set = [ANY_POLICY_DER] }
+  var i = n - 1
+  while i >= 0 {
+    let cert = chain[i]
+    let self_signed = cert.raw_issuer == cert.raw_subject
+    if len(cert.policies) == 0 { pgo = None }
+    if explicit == 0 && pgo == None { return false }
+    if let Some(pg0) = pgo {
+      var pg = pg_incr_depth(pg0)
+      var policies: List<List<Int>> = []
+      for pol in cert.policies {
+        policies = push(policies, pol.der)
+        if pol.der == ANY_POLICY_DER { continue }
+        var parents = pg_parents_with_expected(pg, pol.der)
+        if len(parents) == 0 { if let Some(a) = pg_parent_with_any(pg) { parents = [a] } }
+        if len(parents) > 0 {
+          let (pg2, id) = pg_new_node(pg, pol.der, parents)
+          pg = pg_insert(pg2, id)
+        }
+      }
+      if contains(policies, ANY_POLICY_DER) && (inhibit_any > 0 || (n - i < n && self_signed)) {
+        var missing: List<(List<Int>, List<Int>)> = []
+        let leaves = pg.strata[pg.depth]
+        for p in pg_parents(pg) {
+          for ex in pg.nodes[p].expected {
+            if stratum_get(leaves, ex) == None {
+              if any(missing, (m) => m.0 == ex) {
+                missing = map(missing, (m) => if m.0 == ex { (m.0, push(m.1, p)) } else { m })
+              } else {
+                missing = push(missing, (ex, [p]))
+              }
+            }
+          }
+        }
+        for m in missing {
+          let (pg2, id) = pg_new_node(pg, m.0, m.1)
+          pg = pg_insert(pg2, id)
+        }
+      }
+      pg = pg_prune(pg)
+      if i != 0 && len(cert.policy_mappings) > 0 {
+        var mappings: List<(List<Int>, List<List<Int>>)> = []
+        for mp in cert.policy_mappings {
+          let iss = mp.issuer_domain_policy.der
+          let sub = mp.subject_domain_policy.der
+          if mapping > 0 {
+            if iss == ANY_POLICY_DER || sub == ANY_POLICY_DER { return false }
+            if any(mappings, (m) => m.0 == iss) {
+              mappings = map(mappings, (m) => if m.0 == iss { (m.0, push(m.1, sub)) } else { m })
+            } else {
+              mappings = push(mappings, (iss, [sub]))
+            }
+          } else {
+            pg = pg_delete_leaf(pg, iss)
+          }
+        }
+        pg = pg_prune(pg)
+        for m in mappings {
+          if let Some(id) = stratum_get(pg.strata[pg.depth], m.0) {
+            let nd = pg.nodes[id]
+            pg = set_node(pg, id, PN { expected: m.1, ..nd })
+          } else if let Some(a) = stratum_get(pg.strata[pg.depth], ANY_POLICY_DER) {
+            let (pg2, id) = pg_new_node(pg, m.0, [a])
+            let nd = pg2.nodes[id]
+            pg = pg_insert(set_node(pg2, id, PN { expected: m.1, ..nd }), id)
+          }
+        }
+      }
+      pgo = Some(pg)
+    }
+    if i != 0 {
+      if !self_signed {
+        if explicit > 0 { explicit -= 1 }
+        if mapping > 0 { mapping -= 1 }
+        if inhibit_any > 0 { inhibit_any -= 1 }
+      }
+      if (cert.require_explicit_policy > 0 || cert.require_explicit_policy_zero)
+        && cert.require_explicit_policy < explicit {
+        explicit = cert.require_explicit_policy
+      }
+      if (cert.inhibit_policy_mapping > 0 || cert.inhibit_policy_mapping_zero)
+        && cert.inhibit_policy_mapping < mapping {
+        mapping = cert.inhibit_policy_mapping
+      }
+      if (cert.inhibit_any_policy > 0 || cert.inhibit_any_policy_zero)
+        && cert.inhibit_any_policy < inhibit_any {
+        inhibit_any = cert.inhibit_any_policy
+      }
+    }
+    i -= 1
+  }
+  if explicit > 0 { explicit -= 1 }
+  if chain[0].require_explicit_policy_zero { explicit = 0 }
+  var valid_set: List<List<Int>> = []
+  if let Some(pg) = pgo {
+    valid_set = map(pg_valid_policy_nodes(pg), (id) => pg.nodes[id].valid)
+    if let Some(a) = stratum_get(pg.strata[pg.depth], ANY_POLICY_DER) {
+      valid_set = push(valid_set, pg.nodes[a].valid)
+    }
+  }
+  let authority = uniq(valid_set)
+  var user = authority
+  if len(user_set) != 1 || user_set[0] != ANY_POLICY_DER {
+    user = filter(user, (p) => contains(user_set, p))
+    if contains(authority, ANY_POLICY_DER) { user = uniq(user + user_set) }
+  }
+  if explicit == 0 && len(user) == 0 { return false }
+  true
 }

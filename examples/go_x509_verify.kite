@@ -1,0 +1,178 @@
+// crypto/x509 链验证、名称约束、主机名和 CertPool 对拍（tests/go/x509_verify.go）
+use std.fs
+use std.encoding.pem
+use std.encoding.asn1.{ Time }
+use std.strconv
+use std.crypto.x509
+use std.crypto.x509.{ Certificate, CertPool, VerifyOptions }
+
+fn load() -> List<Certificate> {
+  var data = unwrap(fs.read("tests/go/testdata/x509/verify.pem"))
+  var out: List<Certificate> = []
+  while true {
+    let (b, rest) = pem.decode(data)
+    data = rest
+    let Some(blk) = b else { break }
+    out = push(out, unwrap(x509.parse_certificate(blk.bytes)))
+  }
+  out
+}
+
+fn pool(cs: List<Certificate>, idx: List<Int>) -> CertPool {
+  var p = x509.new_cert_pool()
+  for i in idx { p = x509.cert_pool_add_cert(p, cs[i]) }
+  p
+}
+
+fn show(r: Result<List<List<Certificate>>, Str>) -> Str {
+  match r {
+    Err(e) => "ERR " + e,
+    Ok(chains) => "OK " + join(
+      map(chains, (ch) => join(map(ch, (c) => c.subject.common_name), " > ")),
+      " | ",
+    ),
+  }
+}
+
+// time.Date(...) 的 Unix 秒
+fn date(y: Int, mo: Int, d: Int, h: Int, offset: Int) -> Time {
+  var days = 0
+  var yy = 1970
+  while yy < y {
+    days += if (yy % 4 == 0 && yy % 100 != 0) || yy % 400 == 0 { 366 } else { 365 }
+    yy += 1
+  }
+  let ml = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
+  var m = 1
+  while m < mo {
+    days += ml[m - 1]
+    if m == 2 && ((y % 4 == 0 && y % 100 != 0) || y % 400 == 0) { days += 1 }
+    m += 1
+  }
+  days += d - 1
+  Time { unix: days * 86400 + h * 3600 - offset, nsec: 0, offset: offset }
+}
+
+fn main() {
+  let cs = load()
+  let at = date(2025, 1, 1, 0, 0)
+  let inter = pool(cs, [2, 3, 4, 5, 6, 7, 8, 9, 10, 11])
+  let roots = pool(cs, [0, 1])
+  let p40 = unwrap(x509.oid_from_ints([1, 2, 3, 40]))
+  let p77 = unwrap(x509.oid_from_ints([1, 2, 3, 77]))
+  var i = 0
+  for c in cs {
+    print("cert {i} {strconv.quote_go(c.subject.common_name)}")
+    let base = VerifyOptions {
+      roots: Some(roots),
+      intermediates: inter,
+      current_time: at,
+      ..x509.verify_options()
+    }
+    print("  A", show(x509.verify(c, base)))
+    let dn = if len(c.dns_names) > 0 { c.dns_names[0] } else { "www.example.com" }
+    print("  B", show(x509.verify(c, VerifyOptions { dns_name: dn, ..base })))
+    print("  C", show(x509.verify(c, VerifyOptions { roots: Some(pool(cs, [0])), ..base })))
+    print(
+      "  D",
+      show(x509.verify(c, VerifyOptions {
+        roots: Some(pool(cs, [1])),
+        intermediates: x509.new_cert_pool(),
+        ..base
+      })),
+    )
+    print("  E", show(x509.verify(c, VerifyOptions {
+      key_usages: [x509.EXT_KEY_USAGE_CLIENT_AUTH],
+      ..base
+    })))
+    print("  F", show(x509.verify(c, VerifyOptions {
+      key_usages: [x509.EXT_KEY_USAGE_ANY],
+      ..base
+    })))
+    print(
+      "  F2",
+      show(
+        x509.verify(
+          c,
+          VerifyOptions {
+            key_usages: [x509.EXT_KEY_USAGE_SERVER_AUTH, x509.EXT_KEY_USAGE_CODE_SIGNING],
+            ..base
+          },
+        ),
+      ),
+    )
+    print("  G", show(x509.verify(c, VerifyOptions {
+      current_time: date(2019, 6, 1, 12, 0),
+      ..base
+    })))
+    print("  G2", show(x509.verify(c, VerifyOptions {
+      current_time: date(2041, 6, 1, 12, 5 * 3600 + 1800),
+      ..base
+    })))
+    print("  H", show(x509.verify(c, VerifyOptions { certificate_policies: [p40], ..base })))
+    print("  I", show(x509.verify(c, VerifyOptions { certificate_policies: [p77], ..base })))
+    print("  J", show(x509.verify(c, VerifyOptions { roots: Some(x509.new_cert_pool()), ..base })))
+    var rp = x509.cert_pool_add_cert_with_constraint(
+      x509.new_cert_pool(),
+      cs[0],
+      (chain: List<Certificate>) => if len(chain) > 1 {
+        Err("chain too long for root one")
+      } else {
+        Ok(())
+      },
+    )
+    rp = x509.cert_pool_add_cert(rp, cs[1])
+    print("  K", show(x509.verify(c, VerifyOptions { roots: Some(rp), ..base })))
+    print("  L", show(x509.verify(c, VerifyOptions { roots: Some(pool(cs, [0, 1, 3])), ..base })))
+    i += 1
+  }
+  let hosts = [
+    "www.example.com",
+    "WWW.EXAMPLE.COM.",
+    "foo.wild.example.com",
+    "a.b.wild.example.com",
+    "10.1.2.3",
+    "[::1]",
+    "::1",
+    "192.0.2.1",
+    "legacy.example.com",
+    "",
+    "*.example.com",
+    "x.Example.com",
+    "10.1.2.4",
+    "fe80::1%eth0",
+    "bad host",
+    "nc.many.example.com",
+    "nz.many.example.com",
+    ".",
+    "example.com",
+    "*.wild.example.com",
+    "::ffff:192.0.2.1",
+    "multi.example.com.",
+  ]
+  i = 12
+  for c in cs[12..] {
+    let rs = map(
+      hosts,
+      (h) => match x509.verify_hostname(c, h) {
+        Ok(_) => "ok",
+        Err(e) => e,
+      },
+    )
+    print("host {i}: " + join(rs, " ; "))
+    i += 1
+  }
+  let data = unwrap(fs.read("tests/go/testdata/x509/verify.pem"))
+  let (p1, ok1) = x509.cert_pool_append_certs_from_pem(x509.new_cert_pool(), data)
+  print("append", ok1, len(x509.cert_pool_subjects(p1)))
+  let (p2, ok2) = x509.cert_pool_append_certs_from_pem(p1, data)
+  print("append2", ok2, len(x509.cert_pool_subjects(p2)))
+  let (p3, ok3) = x509.cert_pool_append_certs_from_pem(p2, "junk")
+  print("append3", ok3, len(x509.cert_pool_subjects(p3)))
+  print(
+    "equal",
+    x509.cert_pool_equal(p3, pool(cs, [0])),
+    x509.cert_pool_equal(pool(cs, [0, 1]), pool(cs, [1, 0, 1])),
+    x509.cert_pool_equal(x509.new_cert_pool(), x509.new_cert_pool()),
+  )
+}

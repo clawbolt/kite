@@ -1,0 +1,584 @@
+cert 0 "Root One"
+  A OK Root One
+  B ERR x509: certificate is not valid for any names, but wanted to match www.example.com
+  C OK Root One
+  D ERR x509: certificate signed by unknown authority
+  E OK Root One
+  F OK Root One
+  F2 OK Root One
+  G ERR x509: certificate has expired or is not yet valid: current time 2019-06-01T12:00:00Z is before 2020-01-01T00:00:00Z
+  G2 ERR x509: certificate has expired or is not yet valid: current time 2041-06-01T12:00:00+05:30 is after 2040-01-01T00:00:00Z
+  H OK Root One
+  I OK Root One
+  J ERR x509: certificate signed by unknown authority
+  K OK Root One
+  L OK Root One
+cert 1 "Root Two"
+  A OK Root Two
+  B ERR x509: certificate is not valid for any names, but wanted to match www.example.com
+  C ERR x509: certificate signed by unknown authority
+  D OK Root Two
+  E OK Root Two
+  F OK Root Two
+  F2 OK Root Two
+  G ERR x509: certificate has expired or is not yet valid: current time 2019-06-01T12:00:00Z is before 2020-01-01T00:00:00Z
+  G2 ERR x509: certificate has expired or is not yet valid: current time 2041-06-01T12:00:00+05:30 is after 2040-01-01T00:00:00Z
+  H OK Root Two
+  I OK Root Two
+  J ERR x509: certificate signed by unknown authority
+  K OK Root Two
+  L OK Root Two
+cert 2 "Root Two"
+  A OK Root Two > Root One
+  B ERR x509: certificate is not valid for any names, but wanted to match www.example.com
+  C OK Root Two > Root One
+  D ERR x509: certificate signed by unknown authority
+  E OK Root Two > Root One
+  F OK Root Two > Root One
+  F2 OK Root Two > Root One
+  G ERR x509: certificate has expired or is not yet valid: current time 2019-06-01T12:00:00Z is before 2020-01-01T00:00:00Z
+  G2 ERR x509: certificate has expired or is not yet valid: current time 2041-06-01T12:00:00+05:30 is after 2040-01-01T00:00:00Z
+  H OK Root Two > Root One
+  I OK Root Two > Root One
+  J ERR x509: certificate signed by unknown authority
+  K OK Root Two > Root One
+  L OK Root Two > Root One
+cert 3 "Constrained CA"
+  A OK Constrained CA > Root One
+  B ERR x509: certificate is not valid for any names, but wanted to match www.example.com
+  C OK Constrained CA > Root One
+  D ERR x509: certificate signed by unknown authority
+  E OK Constrained CA > Root One
+  F OK Constrained CA > Root One
+  F2 OK Constrained CA > Root One
+  G ERR x509: certificate has expired or is not yet valid: current time 2019-06-01T12:00:00Z is before 2020-01-01T00:00:00Z
+  G2 ERR x509: certificate has expired or is not yet valid: current time 2041-06-01T12:00:00+05:30 is after 2040-01-01T00:00:00Z
+  H OK Constrained CA > Root One
+  I OK Constrained CA > Root One
+  J ERR x509: certificate signed by unknown authority
+  K OK Constrained CA > Root One
+  L OK Constrained CA
+cert 4 "PathLen0 CA"
+  A OK PathLen0 CA > Root One
+  B ERR x509: certificate is not valid for any names, but wanted to match www.example.com
+  C OK PathLen0 CA > Root One
+  D ERR x509: certificate signed by unknown authority
+  E OK PathLen0 CA > Root One
+  F OK PathLen0 CA > Root One
+  F2 OK PathLen0 CA > Root One
+  G ERR x509: certificate has expired or is not yet valid: current time 2019-06-01T12:00:00Z is before 2020-01-01T00:00:00Z
+  G2 ERR x509: certificate has expired or is not yet valid: current time 2041-06-01T12:00:00+05:30 is after 2040-01-01T00:00:00Z
+  H OK PathLen0 CA > Root One
+  I OK PathLen0 CA > Root One
+  J ERR x509: certificate signed by unknown authority
+  K OK PathLen0 CA > Root One
+  L OK PathLen0 CA > Root One
+cert 5 "Below PathLen0"
+  A OK Below PathLen0 > PathLen0 CA > Root One
+  B ERR x509: certificate is not valid for any names, but wanted to match www.example.com
+  C OK Below PathLen0 > PathLen0 CA > Root One
+  D ERR x509: certificate signed by unknown authority
+  E OK Below PathLen0 > PathLen0 CA > Root One
+  F OK Below PathLen0 > PathLen0 CA > Root One
+  F2 OK Below PathLen0 > PathLen0 CA > Root One
+  G ERR x509: certificate has expired or is not yet valid: current time 2019-06-01T12:00:00Z is before 2020-01-01T00:00:00Z
+  G2 ERR x509: certificate has expired or is not yet valid: current time 2041-06-01T12:00:00+05:30 is after 2040-01-01T00:00:00Z
+  H OK Below PathLen0 > PathLen0 CA > Root One
+  I OK Below PathLen0 > PathLen0 CA > Root One
+  J ERR x509: certificate signed by unknown authority
+  K ERR x509: certificate signed by unknown authority (possibly because of "chain too long for root one" while trying to verify candidate authority certificate "Root One")
+  L OK Below PathLen0 > PathLen0 CA > Root One
+cert 6 "ClientOnly CA"
+  A ERR x509: certificate specifies an incompatible key usage
+  B ERR x509: certificate is not valid for any names, but wanted to match www.example.com
+  C ERR x509: certificate specifies an incompatible key usage
+  D ERR x509: certificate specifies an incompatible key usage
+  E OK ClientOnly CA > Root Two | ClientOnly CA > Root Two > Root One
+  F OK ClientOnly CA > Root Two | ClientOnly CA > Root Two > Root One
+  F2 ERR x509: certificate specifies an incompatible key usage
+  G ERR x509: certificate has expired or is not yet valid: current time 2019-06-01T12:00:00Z is before 2020-01-01T00:00:00Z
+  G2 ERR x509: certificate has expired or is not yet valid: current time 2041-06-01T12:00:00+05:30 is after 2040-01-01T00:00:00Z
+  H ERR x509: certificate specifies an incompatible key usage
+  I ERR x509: certificate specifies an incompatible key usage
+  J ERR x509: certificate signed by unknown authority
+  K ERR x509: certificate specifies an incompatible key usage
+  L ERR x509: certificate specifies an incompatible key usage
+cert 7 "Expired CA"
+  A ERR x509: certificate has expired or is not yet valid: current time 2025-01-01T00:00:00Z is after 2021-01-01T00:00:00Z
+  B ERR x509: certificate has expired or is not yet valid: current time 2025-01-01T00:00:00Z is after 2021-01-01T00:00:00Z
+  C ERR x509: certificate has expired or is not yet valid: current time 2025-01-01T00:00:00Z is after 2021-01-01T00:00:00Z
+  D ERR x509: certificate has expired or is not yet valid: current time 2025-01-01T00:00:00Z is after 2021-01-01T00:00:00Z
+  E ERR x509: certificate has expired or is not yet valid: current time 2025-01-01T00:00:00Z is after 2021-01-01T00:00:00Z
+  F ERR x509: certificate has expired or is not yet valid: current time 2025-01-01T00:00:00Z is after 2021-01-01T00:00:00Z
+  F2 ERR x509: certificate has expired or is not yet valid: current time 2025-01-01T00:00:00Z is after 2021-01-01T00:00:00Z
+  G ERR x509: certificate has expired or is not yet valid: current time 2019-06-01T12:00:00Z is before 2020-01-01T00:00:00Z
+  G2 ERR x509: certificate has expired or is not yet valid: current time 2041-06-01T12:00:00+05:30 is after 2021-01-01T00:00:00Z
+  H ERR x509: certificate has expired or is not yet valid: current time 2025-01-01T00:00:00Z is after 2021-01-01T00:00:00Z
+  I ERR x509: certificate has expired or is not yet valid: current time 2025-01-01T00:00:00Z is after 2021-01-01T00:00:00Z
+  J ERR x509: certificate has expired or is not yet valid: current time 2025-01-01T00:00:00Z is after 2021-01-01T00:00:00Z
+  K ERR x509: certificate has expired or is not yet valid: current time 2025-01-01T00:00:00Z is after 2021-01-01T00:00:00Z
+  L ERR x509: certificate has expired or is not yet valid: current time 2025-01-01T00:00:00Z is after 2021-01-01T00:00:00Z
+cert 8 "Policy CA"
+  A OK Policy CA > Root One
+  B ERR x509: certificate is not valid for any names, but wanted to match www.example.com
+  C OK Policy CA > Root One
+  D ERR x509: certificate signed by unknown authority
+  E OK Policy CA > Root One
+  F OK Policy CA > Root One
+  F2 OK Policy CA > Root One
+  G ERR x509: certificate has expired or is not yet valid: current time 2019-06-01T12:00:00Z is before 2020-01-01T00:00:00Z
+  G2 ERR x509: certificate has expired or is not yet valid: current time 2041-06-01T12:00:00+05:30 is after 2040-01-01T00:00:00Z
+  H OK Policy CA > Root One
+  I OK Policy CA > Root One
+  J ERR x509: certificate signed by unknown authority
+  K OK Policy CA > Root One
+  L OK Policy CA > Root One
+cert 9 "NotCA"
+  A OK NotCA > Root One
+  B ERR x509: certificate is not valid for any names, but wanted to match www.example.com
+  C OK NotCA > Root One
+  D ERR x509: certificate signed by unknown authority
+  E OK NotCA > Root One
+  F OK NotCA > Root One
+  F2 OK NotCA > Root One
+  G ERR x509: certificate has expired or is not yet valid: current time 2019-06-01T12:00:00Z is before 2020-01-01T00:00:00Z
+  G2 ERR x509: certificate has expired or is not yet valid: current time 2041-06-01T12:00:00+05:30 is after 2040-01-01T00:00:00Z
+  H OK NotCA > Root One
+  I OK NotCA > Root One
+  J ERR x509: certificate signed by unknown authority
+  K OK NotCA > Root One
+  L OK NotCA > Root One
+cert 10 "Any Policy CA"
+  A OK Any Policy CA > Root Two | Any Policy CA > Root Two > Root One
+  B ERR x509: certificate is not valid for any names, but wanted to match www.example.com
+  C OK Any Policy CA > Root Two > Root One
+  D OK Any Policy CA > Root Two
+  E OK Any Policy CA > Root Two | Any Policy CA > Root Two > Root One
+  F OK Any Policy CA > Root Two | Any Policy CA > Root Two > Root One
+  F2 OK Any Policy CA > Root Two | Any Policy CA > Root Two > Root One
+  G ERR x509: certificate has expired or is not yet valid: current time 2019-06-01T12:00:00Z is before 2020-01-01T00:00:00Z
+  G2 ERR x509: certificate has expired or is not yet valid: current time 2041-06-01T12:00:00+05:30 is after 2040-01-01T00:00:00Z
+  H OK Any Policy CA > Root Two | Any Policy CA > Root Two > Root One
+  I OK Any Policy CA > Root Two | Any Policy CA > Root Two > Root One
+  J ERR x509: certificate signed by unknown authority
+  K OK Any Policy CA > Root Two
+  L OK Any Policy CA > Root Two | Any Policy CA > Root Two > Root One
+cert 11 "KeyUsage CA"
+  A OK KeyUsage CA > Root One
+  B ERR x509: certificate is not valid for any names, but wanted to match www.example.com
+  C OK KeyUsage CA > Root One
+  D ERR x509: certificate signed by unknown authority
+  E OK KeyUsage CA > Root One
+  F OK KeyUsage CA > Root One
+  F2 OK KeyUsage CA > Root One
+  G ERR x509: certificate has expired or is not yet valid: current time 2019-06-01T12:00:00Z is before 2020-01-01T00:00:00Z
+  G2 ERR x509: certificate has expired or is not yet valid: current time 2041-06-01T12:00:00+05:30 is after 2040-01-01T00:00:00Z
+  H OK KeyUsage CA > Root One
+  I OK KeyUsage CA > Root One
+  J ERR x509: certificate signed by unknown authority
+  K OK KeyUsage CA > Root One
+  L OK KeyUsage CA > Root One
+cert 12 "ok.example.com"
+  A OK ok.example.com > Constrained CA > Root One
+  B OK ok.example.com > Constrained CA > Root One
+  C OK ok.example.com > Constrained CA > Root One
+  D ERR x509: certificate signed by unknown authority
+  E ERR x509: certificate specifies an incompatible key usage
+  F OK ok.example.com > Constrained CA > Root One
+  F2 OK ok.example.com > Constrained CA > Root One
+  G ERR x509: certificate has expired or is not yet valid: current time 2019-06-01T12:00:00Z is before 2020-01-01T00:00:00Z
+  G2 ERR x509: certificate has expired or is not yet valid: current time 2041-06-01T12:00:00+05:30 is after 2040-01-01T00:00:00Z
+  H OK ok.example.com > Constrained CA > Root One
+  I OK ok.example.com > Constrained CA > Root One
+  J ERR x509: certificate signed by unknown authority
+  K ERR x509: certificate signed by unknown authority (possibly because of "chain too long for root one" while trying to verify candidate authority certificate "Root One")
+  L OK ok.example.com > Constrained CA | ok.example.com > Constrained CA > Root One
+cert 13 "bad"
+  A ERR x509: a root or intermediate certificate is not authorized to sign for this name: DNS name "bad.example.com" is excluded by constraint "bad.example.com"
+  B ERR x509: a root or intermediate certificate is not authorized to sign for this name: DNS name "bad.example.com" is excluded by constraint "bad.example.com"
+  C ERR x509: a root or intermediate certificate is not authorized to sign for this name: DNS name "bad.example.com" is excluded by constraint "bad.example.com"
+  D ERR x509: certificate signed by unknown authority
+  E ERR x509: certificate specifies an incompatible key usage
+  F ERR x509: a root or intermediate certificate is not authorized to sign for this name: DNS name "bad.example.com" is excluded by constraint "bad.example.com"
+  F2 ERR x509: a root or intermediate certificate is not authorized to sign for this name: DNS name "bad.example.com" is excluded by constraint "bad.example.com"
+  G ERR x509: certificate has expired or is not yet valid: current time 2019-06-01T12:00:00Z is before 2020-01-01T00:00:00Z
+  G2 ERR x509: certificate has expired or is not yet valid: current time 2041-06-01T12:00:00+05:30 is after 2040-01-01T00:00:00Z
+  H ERR x509: a root or intermediate certificate is not authorized to sign for this name: DNS name "bad.example.com" is excluded by constraint "bad.example.com"
+  I ERR x509: a root or intermediate certificate is not authorized to sign for this name: DNS name "bad.example.com" is excluded by constraint "bad.example.com"
+  J ERR x509: certificate signed by unknown authority
+  K ERR x509: certificate signed by unknown authority (possibly because of "chain too long for root one" while trying to verify candidate authority certificate "Root One")
+  L ERR x509: a root or intermediate certificate is not authorized to sign for this name: DNS name "bad.example.com" is excluded by constraint "bad.example.com"
+cert 14 "other"
+  A ERR x509: a root or intermediate certificate is not authorized to sign for this name: DNS name "www.other.org" is not permitted by any constraint
+  B ERR x509: a root or intermediate certificate is not authorized to sign for this name: DNS name "www.other.org" is not permitted by any constraint
+  C ERR x509: a root or intermediate certificate is not authorized to sign for this name: DNS name "www.other.org" is not permitted by any constraint
+  D ERR x509: certificate signed by unknown authority
+  E ERR x509: certificate specifies an incompatible key usage
+  F ERR x509: a root or intermediate certificate is not authorized to sign for this name: DNS name "www.other.org" is not permitted by any constraint
+  F2 ERR x509: a root or intermediate certificate is not authorized to sign for this name: DNS name "www.other.org" is not permitted by any constraint
+  G ERR x509: certificate has expired or is not yet valid: current time 2019-06-01T12:00:00Z is before 2020-01-01T00:00:00Z
+  G2 ERR x509: certificate has expired or is not yet valid: current time 2041-06-01T12:00:00+05:30 is after 2040-01-01T00:00:00Z
+  H ERR x509: a root or intermediate certificate is not authorized to sign for this name: DNS name "www.other.org" is not permitted by any constraint
+  I ERR x509: a root or intermediate certificate is not authorized to sign for this name: DNS name "www.other.org" is not permitted by any constraint
+  J ERR x509: certificate signed by unknown authority
+  K ERR x509: certificate signed by unknown authority (possibly because of "chain too long for root one" while trying to verify candidate authority certificate "Root One")
+  L ERR x509: a root or intermediate certificate is not authorized to sign for this name: DNS name "www.other.org" is not permitted by any constraint
+cert 15 "ip"
+  A ERR x509: a root or intermediate certificate is not authorized to sign for this name: IP address "10.9.1.1" is excluded by constraint "10.9.0.0/16"
+  B ERR x509: certificate is not valid for any names, but wanted to match www.example.com
+  C ERR x509: a root or intermediate certificate is not authorized to sign for this name: IP address "10.9.1.1" is excluded by constraint "10.9.0.0/16"
+  D ERR x509: certificate signed by unknown authority
+  E ERR x509: certificate specifies an incompatible key usage
+  F ERR x509: a root or intermediate certificate is not authorized to sign for this name: IP address "10.9.1.1" is excluded by constraint "10.9.0.0/16"
+  F2 ERR x509: a root or intermediate certificate is not authorized to sign for this name: IP address "10.9.1.1" is excluded by constraint "10.9.0.0/16"
+  G ERR x509: certificate has expired or is not yet valid: current time 2019-06-01T12:00:00Z is before 2020-01-01T00:00:00Z
+  G2 ERR x509: certificate has expired or is not yet valid: current time 2041-06-01T12:00:00+05:30 is after 2040-01-01T00:00:00Z
+  H ERR x509: a root or intermediate certificate is not authorized to sign for this name: IP address "10.9.1.1" is excluded by constraint "10.9.0.0/16"
+  I ERR x509: a root or intermediate certificate is not authorized to sign for this name: IP address "10.9.1.1" is excluded by constraint "10.9.0.0/16"
+  J ERR x509: certificate signed by unknown authority
+  K ERR x509: certificate signed by unknown authority (possibly because of "chain too long for root one" while trying to verify candidate authority certificate "Root One")
+  L ERR x509: a root or intermediate certificate is not authorized to sign for this name: IP address "10.9.1.1" is excluded by constraint "10.9.0.0/16"
+cert 16 "mail"
+  A ERR x509: a root or intermediate certificate is not authorized to sign for this name: email address "x@spam.example.com" is excluded by constraint "spam.example.com"
+  B ERR x509: a root or intermediate certificate is not authorized to sign for this name: email address "x@spam.example.com" is excluded by constraint "spam.example.com"
+  C ERR x509: a root or intermediate certificate is not authorized to sign for this name: email address "x@spam.example.com" is excluded by constraint "spam.example.com"
+  D ERR x509: certificate signed by unknown authority
+  E ERR x509: certificate specifies an incompatible key usage
+  F ERR x509: a root or intermediate certificate is not authorized to sign for this name: email address "x@spam.example.com" is excluded by constraint "spam.example.com"
+  F2 ERR x509: a root or intermediate certificate is not authorized to sign for this name: email address "x@spam.example.com" is excluded by constraint "spam.example.com"
+  G ERR x509: certificate has expired or is not yet valid: current time 2019-06-01T12:00:00Z is before 2020-01-01T00:00:00Z
+  G2 ERR x509: certificate has expired or is not yet valid: current time 2041-06-01T12:00:00+05:30 is after 2040-01-01T00:00:00Z
+  H ERR x509: a root or intermediate certificate is not authorized to sign for this name: email address "x@spam.example.com" is excluded by constraint "spam.example.com"
+  I ERR x509: a root or intermediate certificate is not authorized to sign for this name: email address "x@spam.example.com" is excluded by constraint "spam.example.com"
+  J ERR x509: certificate signed by unknown authority
+  K ERR x509: certificate signed by unknown authority (possibly because of "chain too long for root one" while trying to verify candidate authority certificate "Root One")
+  L ERR x509: a root or intermediate certificate is not authorized to sign for this name: email address "x@spam.example.com" is excluded by constraint "spam.example.com"
+cert 17 "evil"
+  A ERR x509: a root or intermediate certificate is not authorized to sign for this name: URI "https://evil.example.com:8443/" is excluded by constraint "evil.example.com"
+  B ERR x509: a root or intermediate certificate is not authorized to sign for this name: URI "https://evil.example.com:8443/" is excluded by constraint "evil.example.com"
+  C ERR x509: a root or intermediate certificate is not authorized to sign for this name: URI "https://evil.example.com:8443/" is excluded by constraint "evil.example.com"
+  D ERR x509: certificate signed by unknown authority
+  E ERR x509: certificate specifies an incompatible key usage
+  F ERR x509: a root or intermediate certificate is not authorized to sign for this name: URI "https://evil.example.com:8443/" is excluded by constraint "evil.example.com"
+  F2 ERR x509: a root or intermediate certificate is not authorized to sign for this name: URI "https://evil.example.com:8443/" is excluded by constraint "evil.example.com"
+  G ERR x509: certificate has expired or is not yet valid: current time 2019-06-01T12:00:00Z is before 2020-01-01T00:00:00Z
+  G2 ERR x509: certificate has expired or is not yet valid: current time 2041-06-01T12:00:00+05:30 is after 2040-01-01T00:00:00Z
+  H ERR x509: a root or intermediate certificate is not authorized to sign for this name: URI "https://evil.example.com:8443/" is excluded by constraint "evil.example.com"
+  I ERR x509: a root or intermediate certificate is not authorized to sign for this name: URI "https://evil.example.com:8443/" is excluded by constraint "evil.example.com"
+  J ERR x509: certificate signed by unknown authority
+  K ERR x509: certificate signed by unknown authority (possibly because of "chain too long for root one" while trying to verify candidate authority certificate "Root One")
+  L ERR x509: a root or intermediate certificate is not authorized to sign for this name: URI "https://evil.example.com:8443/" is excluded by constraint "evil.example.com"
+cert 18 "uriip"
+  A ERR x509: a root or intermediate certificate is not authorized to sign for this name: URI with IP ("https://10.0.0.1/") cannot be matched against constraints
+  B ERR x509: a root or intermediate certificate is not authorized to sign for this name: URI with IP ("https://10.0.0.1/") cannot be matched against constraints
+  C ERR x509: a root or intermediate certificate is not authorized to sign for this name: URI with IP ("https://10.0.0.1/") cannot be matched against constraints
+  D ERR x509: certificate signed by unknown authority
+  E ERR x509: certificate specifies an incompatible key usage
+  F ERR x509: a root or intermediate certificate is not authorized to sign for this name: URI with IP ("https://10.0.0.1/") cannot be matched against constraints
+  F2 ERR x509: a root or intermediate certificate is not authorized to sign for this name: URI with IP ("https://10.0.0.1/") cannot be matched against constraints
+  G ERR x509: certificate has expired or is not yet valid: current time 2019-06-01T12:00:00Z is before 2020-01-01T00:00:00Z
+  G2 ERR x509: certificate has expired or is not yet valid: current time 2041-06-01T12:00:00+05:30 is after 2040-01-01T00:00:00Z
+  H ERR x509: a root or intermediate certificate is not authorized to sign for this name: URI with IP ("https://10.0.0.1/") cannot be matched against constraints
+  I ERR x509: a root or intermediate certificate is not authorized to sign for this name: URI with IP ("https://10.0.0.1/") cannot be matched against constraints
+  J ERR x509: certificate signed by unknown authority
+  K ERR x509: certificate signed by unknown authority (possibly because of "chain too long for root one" while trying to verify candidate authority certificate "Root One")
+  L ERR x509: a root or intermediate certificate is not authorized to sign for this name: URI with IP ("https://10.0.0.1/") cannot be matched against constraints
+cert 19 "deep"
+  A ERR x509: too many intermediates for path length constraint
+  B ERR x509: too many intermediates for path length constraint
+  C ERR x509: too many intermediates for path length constraint
+  D ERR x509: certificate signed by unknown authority
+  E ERR x509: too many intermediates for path length constraint
+  F ERR x509: too many intermediates for path length constraint
+  F2 ERR x509: too many intermediates for path length constraint
+  G ERR x509: certificate has expired or is not yet valid: current time 2019-06-01T12:00:00Z is before 2020-01-01T00:00:00Z
+  G2 ERR x509: certificate has expired or is not yet valid: current time 2041-06-01T12:00:00+05:30 is after 2040-01-01T00:00:00Z
+  H ERR x509: too many intermediates for path length constraint
+  I ERR x509: too many intermediates for path length constraint
+  J ERR x509: too many intermediates for path length constraint
+  K ERR x509: too many intermediates for path length constraint
+  L ERR x509: too many intermediates for path length constraint
+cert 20 "server"
+  A ERR x509: certificate specifies an incompatible key usage
+  B ERR x509: certificate specifies an incompatible key usage
+  C ERR x509: certificate specifies an incompatible key usage
+  D ERR x509: certificate signed by unknown authority
+  E ERR x509: certificate specifies an incompatible key usage
+  F OK server > ClientOnly CA > Root Two | server > ClientOnly CA > Root Two > Root One
+  F2 ERR x509: certificate specifies an incompatible key usage
+  G ERR x509: certificate has expired or is not yet valid: current time 2019-06-01T12:00:00Z is before 2020-01-01T00:00:00Z
+  G2 ERR x509: certificate has expired or is not yet valid: current time 2041-06-01T12:00:00+05:30 is after 2040-01-01T00:00:00Z
+  H ERR x509: certificate specifies an incompatible key usage
+  I ERR x509: certificate specifies an incompatible key usage
+  J ERR x509: certificate signed by unknown authority
+  K ERR x509: certificate specifies an incompatible key usage
+  L ERR x509: certificate specifies an incompatible key usage
+cert 21 "under expired"
+  A ERR x509: certificate has expired or is not yet valid: current time 2025-01-01T00:00:00Z is after 2021-01-01T00:00:00Z
+  B ERR x509: certificate has expired or is not yet valid: current time 2025-01-01T00:00:00Z is after 2021-01-01T00:00:00Z
+  C ERR x509: certificate has expired or is not yet valid: current time 2025-01-01T00:00:00Z is after 2021-01-01T00:00:00Z
+  D ERR x509: certificate signed by unknown authority
+  E ERR x509: certificate has expired or is not yet valid: current time 2025-01-01T00:00:00Z is after 2021-01-01T00:00:00Z
+  F ERR x509: certificate has expired or is not yet valid: current time 2025-01-01T00:00:00Z is after 2021-01-01T00:00:00Z
+  F2 ERR x509: certificate has expired or is not yet valid: current time 2025-01-01T00:00:00Z is after 2021-01-01T00:00:00Z
+  G ERR x509: certificate has expired or is not yet valid: current time 2019-06-01T12:00:00Z is before 2020-01-01T00:00:00Z
+  G2 ERR x509: certificate has expired or is not yet valid: current time 2041-06-01T12:00:00+05:30 is after 2040-01-01T00:00:00Z
+  H ERR x509: certificate has expired or is not yet valid: current time 2025-01-01T00:00:00Z is after 2021-01-01T00:00:00Z
+  I ERR x509: certificate has expired or is not yet valid: current time 2025-01-01T00:00:00Z is after 2021-01-01T00:00:00Z
+  J ERR x509: certificate has expired or is not yet valid: current time 2025-01-01T00:00:00Z is after 2021-01-01T00:00:00Z
+  K ERR x509: certificate has expired or is not yet valid: current time 2025-01-01T00:00:00Z is after 2021-01-01T00:00:00Z
+  L ERR x509: certificate has expired or is not yet valid: current time 2025-01-01T00:00:00Z is after 2021-01-01T00:00:00Z
+cert 22 "policy"
+  A OK policy > Policy CA > Root One
+  B OK policy > Policy CA > Root One
+  C OK policy > Policy CA > Root One
+  D ERR x509: certificate signed by unknown authority
+  E ERR x509: certificate specifies an incompatible key usage
+  F OK policy > Policy CA > Root One
+  F2 OK policy > Policy CA > Root One
+  G ERR x509: certificate has expired or is not yet valid: current time 2019-06-01T12:00:00Z is before 2020-01-01T00:00:00Z
+  G2 ERR x509: certificate has expired or is not yet valid: current time 2041-06-01T12:00:00+05:30 is after 2040-01-01T00:00:00Z
+  H OK policy > Policy CA > Root One
+  I OK policy > Policy CA > Root One
+  J ERR x509: certificate signed by unknown authority
+  K ERR x509: certificate signed by unknown authority (possibly because of "chain too long for root one" while trying to verify candidate authority certificate "Root One")
+  L OK policy > Policy CA > Root One
+cert 23 "notca child"
+  A ERR x509: certificate signed by unknown authority (possibly because of "x509: invalid signature: parent certificate cannot sign this kind of certificate" while trying to verify candidate authority certificate "NotCA")
+  B ERR x509: certificate signed by unknown authority (possibly because of "x509: invalid signature: parent certificate cannot sign this kind of certificate" while trying to verify candidate authority certificate "NotCA")
+  C ERR x509: certificate signed by unknown authority (possibly because of "x509: invalid signature: parent certificate cannot sign this kind of certificate" while trying to verify candidate authority certificate "NotCA")
+  D ERR x509: certificate signed by unknown authority
+  E ERR x509: certificate signed by unknown authority (possibly because of "x509: invalid signature: parent certificate cannot sign this kind of certificate" while trying to verify candidate authority certificate "NotCA")
+  F ERR x509: certificate signed by unknown authority (possibly because of "x509: invalid signature: parent certificate cannot sign this kind of certificate" while trying to verify candidate authority certificate "NotCA")
+  F2 ERR x509: certificate signed by unknown authority (possibly because of "x509: invalid signature: parent certificate cannot sign this kind of certificate" while trying to verify candidate authority certificate "NotCA")
+  G ERR x509: certificate has expired or is not yet valid: current time 2019-06-01T12:00:00Z is before 2020-01-01T00:00:00Z
+  G2 ERR x509: certificate has expired or is not yet valid: current time 2041-06-01T12:00:00+05:30 is after 2040-01-01T00:00:00Z
+  H ERR x509: certificate signed by unknown authority (possibly because of "x509: invalid signature: parent certificate cannot sign this kind of certificate" while trying to verify candidate authority certificate "NotCA")
+  I ERR x509: certificate signed by unknown authority (possibly because of "x509: invalid signature: parent certificate cannot sign this kind of certificate" while trying to verify candidate authority certificate "NotCA")
+  J ERR x509: certificate signed by unknown authority (possibly because of "x509: invalid signature: parent certificate cannot sign this kind of certificate" while trying to verify candidate authority certificate "NotCA")
+  K ERR x509: certificate signed by unknown authority (possibly because of "x509: invalid signature: parent certificate cannot sign this kind of certificate" while trying to verify candidate authority certificate "NotCA")
+  L ERR x509: certificate signed by unknown authority (possibly because of "x509: invalid signature: parent certificate cannot sign this kind of certificate" while trying to verify candidate authority certificate "NotCA")
+cert 24 "legacy.example.com"
+  A OK legacy.example.com > Root One
+  B ERR x509: certificate is not valid for any names, but wanted to match www.example.com
+  C OK legacy.example.com > Root One
+  D ERR x509: certificate signed by unknown authority
+  E ERR x509: certificate specifies an incompatible key usage
+  F OK legacy.example.com > Root One
+  F2 OK legacy.example.com > Root One
+  G ERR x509: certificate has expired or is not yet valid: current time 2019-06-01T12:00:00Z is before 2020-01-01T00:00:00Z
+  G2 ERR x509: certificate has expired or is not yet valid: current time 2041-06-01T12:00:00+05:30 is after 2040-01-01T00:00:00Z
+  H OK legacy.example.com > Root One
+  I OK legacy.example.com > Root One
+  J ERR x509: certificate signed by unknown authority
+  K OK legacy.example.com > Root One
+  L OK legacy.example.com > Root One
+cert 25 "wild"
+  A OK wild > Root One
+  B OK wild > Root One
+  C OK wild > Root One
+  D ERR x509: certificate signed by unknown authority
+  E ERR x509: certificate specifies an incompatible key usage
+  F OK wild > Root One
+  F2 OK wild > Root One
+  G ERR x509: certificate has expired or is not yet valid: current time 2019-06-01T12:00:00Z is before 2020-01-01T00:00:00Z
+  G2 ERR x509: certificate has expired or is not yet valid: current time 2041-06-01T12:00:00+05:30 is after 2040-01-01T00:00:00Z
+  H OK wild > Root One
+  I OK wild > Root One
+  J ERR x509: certificate signed by unknown authority
+  K OK wild > Root One
+  L OK wild > Root One
+cert 26 "critical"
+  A ERR x509: unhandled critical extension
+  B ERR x509: unhandled critical extension
+  C ERR x509: unhandled critical extension
+  D ERR x509: unhandled critical extension
+  E ERR x509: unhandled critical extension
+  F ERR x509: unhandled critical extension
+  F2 ERR x509: unhandled critical extension
+  G ERR x509: unhandled critical extension
+  G2 ERR x509: unhandled critical extension
+  H ERR x509: unhandled critical extension
+  I ERR x509: unhandled critical extension
+  J ERR x509: unhandled critical extension
+  K ERR x509: unhandled critical extension
+  L ERR x509: unhandled critical extension
+cert 27 "expired"
+  A ERR x509: certificate has expired or is not yet valid: current time 2025-01-01T00:00:00Z is after 2021-06-01T00:00:00Z
+  B ERR x509: certificate has expired or is not yet valid: current time 2025-01-01T00:00:00Z is after 2021-06-01T00:00:00Z
+  C ERR x509: certificate has expired or is not yet valid: current time 2025-01-01T00:00:00Z is after 2021-06-01T00:00:00Z
+  D ERR x509: certificate has expired or is not yet valid: current time 2025-01-01T00:00:00Z is after 2021-06-01T00:00:00Z
+  E ERR x509: certificate has expired or is not yet valid: current time 2025-01-01T00:00:00Z is after 2021-06-01T00:00:00Z
+  F ERR x509: certificate has expired or is not yet valid: current time 2025-01-01T00:00:00Z is after 2021-06-01T00:00:00Z
+  F2 ERR x509: certificate has expired or is not yet valid: current time 2025-01-01T00:00:00Z is after 2021-06-01T00:00:00Z
+  G ERR x509: certificate has expired or is not yet valid: current time 2019-06-01T12:00:00Z is before 2020-01-01T00:00:00Z
+  G2 ERR x509: certificate has expired or is not yet valid: current time 2041-06-01T12:00:00+05:30 is after 2021-06-01T00:00:00Z
+  H ERR x509: certificate has expired or is not yet valid: current time 2025-01-01T00:00:00Z is after 2021-06-01T00:00:00Z
+  I ERR x509: certificate has expired or is not yet valid: current time 2025-01-01T00:00:00Z is after 2021-06-01T00:00:00Z
+  J ERR x509: certificate has expired or is not yet valid: current time 2025-01-01T00:00:00Z is after 2021-06-01T00:00:00Z
+  K ERR x509: certificate has expired or is not yet valid: current time 2025-01-01T00:00:00Z is after 2021-06-01T00:00:00Z
+  L ERR x509: certificate has expired or is not yet valid: current time 2025-01-01T00:00:00Z is after 2021-06-01T00:00:00Z
+cert 28 "multi"
+  A OK multi > Root Two | multi > Root Two > Root One
+  B OK multi > Root Two | multi > Root Two > Root One
+  C OK multi > Root Two > Root One
+  D OK multi > Root Two
+  E ERR x509: certificate specifies an incompatible key usage
+  F OK multi > Root Two | multi > Root Two > Root One
+  F2 OK multi > Root Two | multi > Root Two > Root One
+  G ERR x509: certificate has expired or is not yet valid: current time 2019-06-01T12:00:00Z is before 2020-01-01T00:00:00Z
+  G2 ERR x509: certificate has expired or is not yet valid: current time 2041-06-01T12:00:00+05:30 is after 2040-01-01T00:00:00Z
+  H OK multi > Root Two | multi > Root Two > Root One
+  I OK multi > Root Two | multi > Root Two > Root One
+  J ERR x509: certificate signed by unknown authority
+  K OK multi > Root Two
+  L OK multi > Root Two | multi > Root Two > Root One
+cert 29 "anypol"
+  A OK anypol > Any Policy CA > Root Two | anypol > Any Policy CA > Root Two > Root One
+  B OK anypol > Any Policy CA > Root Two | anypol > Any Policy CA > Root Two > Root One
+  C OK anypol > Any Policy CA > Root Two > Root One
+  D ERR x509: certificate signed by unknown authority
+  E ERR x509: certificate specifies an incompatible key usage
+  F OK anypol > Any Policy CA > Root Two | anypol > Any Policy CA > Root Two > Root One
+  F2 OK anypol > Any Policy CA > Root Two | anypol > Any Policy CA > Root Two > Root One
+  G ERR x509: certificate has expired or is not yet valid: current time 2019-06-01T12:00:00Z is before 2020-01-01T00:00:00Z
+  G2 ERR x509: certificate has expired or is not yet valid: current time 2041-06-01T12:00:00+05:30 is after 2040-01-01T00:00:00Z
+  H OK anypol > Any Policy CA > Root Two | anypol > Any Policy CA > Root Two > Root One
+  I OK anypol > Any Policy CA > Root Two | anypol > Any Policy CA > Root Two > Root One
+  J ERR x509: certificate signed by unknown authority
+  K OK anypol > Any Policy CA > Root Two
+  L OK anypol > Any Policy CA > Root Two | anypol > Any Policy CA > Root Two > Root One
+cert 30 "ku child"
+  A ERR x509: certificate signed by unknown authority (possibly because of "x509: invalid signature: parent certificate cannot sign this kind of certificate" while trying to verify candidate authority certificate "KeyUsage CA")
+  B ERR x509: certificate signed by unknown authority (possibly because of "x509: invalid signature: parent certificate cannot sign this kind of certificate" while trying to verify candidate authority certificate "KeyUsage CA")
+  C ERR x509: certificate signed by unknown authority (possibly because of "x509: invalid signature: parent certificate cannot sign this kind of certificate" while trying to verify candidate authority certificate "KeyUsage CA")
+  D ERR x509: certificate signed by unknown authority
+  E ERR x509: certificate signed by unknown authority (possibly because of "x509: invalid signature: parent certificate cannot sign this kind of certificate" while trying to verify candidate authority certificate "KeyUsage CA")
+  F ERR x509: certificate signed by unknown authority (possibly because of "x509: invalid signature: parent certificate cannot sign this kind of certificate" while trying to verify candidate authority certificate "KeyUsage CA")
+  F2 ERR x509: certificate signed by unknown authority (possibly because of "x509: invalid signature: parent certificate cannot sign this kind of certificate" while trying to verify candidate authority certificate "KeyUsage CA")
+  G ERR x509: certificate has expired or is not yet valid: current time 2019-06-01T12:00:00Z is before 2020-01-01T00:00:00Z
+  G2 ERR x509: certificate has expired or is not yet valid: current time 2041-06-01T12:00:00+05:30 is after 2040-01-01T00:00:00Z
+  H ERR x509: certificate signed by unknown authority (possibly because of "x509: invalid signature: parent certificate cannot sign this kind of certificate" while trying to verify candidate authority certificate "KeyUsage CA")
+  I ERR x509: certificate signed by unknown authority (possibly because of "x509: invalid signature: parent certificate cannot sign this kind of certificate" while trying to verify candidate authority certificate "KeyUsage CA")
+  J ERR x509: certificate signed by unknown authority (possibly because of "x509: invalid signature: parent certificate cannot sign this kind of certificate" while trying to verify candidate authority certificate "KeyUsage CA")
+  K ERR x509: certificate signed by unknown authority (possibly because of "x509: invalid signature: parent certificate cannot sign this kind of certificate" while trying to verify candidate authority certificate "KeyUsage CA")
+  L ERR x509: certificate signed by unknown authority (possibly because of "x509: invalid signature: parent certificate cannot sign this kind of certificate" while trying to verify candidate authority certificate "KeyUsage CA")
+cert 31 "anyeku"
+  A OK anyeku > Root One
+  B OK anyeku > Root One
+  C OK anyeku > Root One
+  D ERR x509: certificate signed by unknown authority
+  E OK anyeku > Root One
+  F OK anyeku > Root One
+  F2 OK anyeku > Root One
+  G ERR x509: certificate has expired or is not yet valid: current time 2019-06-01T12:00:00Z is before 2020-01-01T00:00:00Z
+  G2 ERR x509: certificate has expired or is not yet valid: current time 2041-06-01T12:00:00+05:30 is after 2040-01-01T00:00:00Z
+  H OK anyeku > Root One
+  I OK anyeku > Root One
+  J ERR x509: certificate signed by unknown authority
+  K OK anyeku > Root One
+  L OK anyeku > Root One
+cert 32 "wild under constrained"
+  A ERR x509: a root or intermediate certificate is not authorized to sign for this name: DNS name "*.example.com" is excluded by constraint "foo.example.com"
+  B ERR x509: a root or intermediate certificate is not authorized to sign for this name: DNS name "*.example.com" is excluded by constraint "foo.example.com"
+  C ERR x509: a root or intermediate certificate is not authorized to sign for this name: DNS name "*.example.com" is excluded by constraint "foo.example.com"
+  D ERR x509: certificate signed by unknown authority
+  E ERR x509: certificate specifies an incompatible key usage
+  F ERR x509: a root or intermediate certificate is not authorized to sign for this name: DNS name "*.example.com" is excluded by constraint "foo.example.com"
+  F2 ERR x509: a root or intermediate certificate is not authorized to sign for this name: DNS name "*.example.com" is excluded by constraint "foo.example.com"
+  G ERR x509: certificate has expired or is not yet valid: current time 2019-06-01T12:00:00Z is before 2020-01-01T00:00:00Z
+  G2 ERR x509: certificate has expired or is not yet valid: current time 2041-06-01T12:00:00+05:30 is after 2040-01-01T00:00:00Z
+  H ERR x509: a root or intermediate certificate is not authorized to sign for this name: DNS name "*.example.com" is excluded by constraint "foo.example.com"
+  I ERR x509: a root or intermediate certificate is not authorized to sign for this name: DNS name "*.example.com" is excluded by constraint "foo.example.com"
+  J ERR x509: certificate signed by unknown authority
+  K ERR x509: certificate signed by unknown authority (possibly because of "chain too long for root one" while trying to verify candidate authority certificate "Root One")
+  L ERR x509: a root or intermediate certificate is not authorized to sign for this name: DNS name "*.example.com" is excluded by constraint "foo.example.com"
+cert 33 "nosan.example.com"
+  A OK nosan.example.com > Constrained CA > Root One
+  B ERR x509: certificate is not valid for any names, but wanted to match www.example.com
+  C OK nosan.example.com > Constrained CA > Root One
+  D ERR x509: certificate signed by unknown authority
+  E ERR x509: certificate specifies an incompatible key usage
+  F OK nosan.example.com > Constrained CA > Root One
+  F2 OK nosan.example.com > Constrained CA > Root One
+  G ERR x509: certificate has expired or is not yet valid: current time 2019-06-01T12:00:00Z is before 2020-01-01T00:00:00Z
+  G2 ERR x509: certificate has expired or is not yet valid: current time 2041-06-01T12:00:00+05:30 is after 2040-01-01T00:00:00Z
+  H OK nosan.example.com > Constrained CA > Root One
+  I OK nosan.example.com > Constrained CA > Root One
+  J ERR x509: certificate signed by unknown authority
+  K ERR x509: certificate signed by unknown authority (possibly because of "chain too long for root one" while trying to verify candidate authority certificate "Root One")
+  L OK nosan.example.com > Constrained CA | nosan.example.com > Constrained CA > Root One
+cert 34 "many"
+  A OK many > Root One
+  B OK many > Root One
+  C OK many > Root One
+  D ERR x509: certificate signed by unknown authority
+  E ERR x509: certificate specifies an incompatible key usage
+  F OK many > Root One
+  F2 OK many > Root One
+  G ERR x509: certificate has expired or is not yet valid: current time 2019-06-01T12:00:00Z is before 2020-01-01T00:00:00Z
+  G2 ERR x509: certificate has expired or is not yet valid: current time 2041-06-01T12:00:00+05:30 is after 2040-01-01T00:00:00Z
+  H OK many > Root One
+  I OK many > Root One
+  J ERR x509: certificate signed by unknown authority
+  K OK many > Root One
+  L OK many > Root One
+cert 35 "client"
+  A ERR x509: certificate specifies an incompatible key usage
+  B ERR x509: certificate specifies an incompatible key usage
+  C ERR x509: certificate specifies an incompatible key usage
+  D ERR x509: certificate signed by unknown authority
+  E OK client > ClientOnly CA > Root Two | client > ClientOnly CA > Root Two > Root One
+  F OK client > ClientOnly CA > Root Two | client > ClientOnly CA > Root Two > Root One
+  F2 ERR x509: certificate specifies an incompatible key usage
+  G ERR x509: certificate has expired or is not yet valid: current time 2019-06-01T12:00:00Z is before 2020-01-01T00:00:00Z
+  G2 ERR x509: certificate has expired or is not yet valid: current time 2041-06-01T12:00:00+05:30 is after 2040-01-01T00:00:00Z
+  H ERR x509: certificate specifies an incompatible key usage
+  I ERR x509: certificate specifies an incompatible key usage
+  J ERR x509: certificate signed by unknown authority
+  K ERR x509: certificate specifies an incompatible key usage
+  L ERR x509: certificate specifies an incompatible key usage
+cert 36 "emptyhost"
+  A ERR x509: a root or intermediate certificate is not authorized to sign for this name: URI with empty host ("mailto:x@example.com") cannot be matched against constraints
+  B ERR x509: a root or intermediate certificate is not authorized to sign for this name: URI with empty host ("mailto:x@example.com") cannot be matched against constraints
+  C ERR x509: a root or intermediate certificate is not authorized to sign for this name: URI with empty host ("mailto:x@example.com") cannot be matched against constraints
+  D ERR x509: certificate signed by unknown authority
+  E ERR x509: certificate specifies an incompatible key usage
+  F ERR x509: a root or intermediate certificate is not authorized to sign for this name: URI with empty host ("mailto:x@example.com") cannot be matched against constraints
+  F2 ERR x509: a root or intermediate certificate is not authorized to sign for this name: URI with empty host ("mailto:x@example.com") cannot be matched against constraints
+  G ERR x509: certificate has expired or is not yet valid: current time 2019-06-01T12:00:00Z is before 2020-01-01T00:00:00Z
+  G2 ERR x509: certificate has expired or is not yet valid: current time 2041-06-01T12:00:00+05:30 is after 2040-01-01T00:00:00Z
+  H ERR x509: a root or intermediate certificate is not authorized to sign for this name: URI with empty host ("mailto:x@example.com") cannot be matched against constraints
+  I ERR x509: a root or intermediate certificate is not authorized to sign for this name: URI with empty host ("mailto:x@example.com") cannot be matched against constraints
+  J ERR x509: certificate signed by unknown authority
+  K ERR x509: certificate signed by unknown authority (possibly because of "chain too long for root one" while trying to verify candidate authority certificate "Root One")
+  L ERR x509: a root or intermediate certificate is not authorized to sign for this name: URI with empty host ("mailto:x@example.com") cannot be matched against constraints
+host 12: ok ; ok ; x509: certificate is valid for www.example.com, not foo.wild.example.com ; x509: certificate is valid for www.example.com, not a.b.wild.example.com ; ok ; x509: certificate is valid for 10.1.2.3, not ::1 ; x509: certificate is valid for 10.1.2.3, not ::1 ; x509: certificate is valid for 10.1.2.3, not 192.0.2.1 ; x509: certificate is valid for www.example.com, not legacy.example.com ; x509: certificate is valid for www.example.com, not  ; x509: certificate is valid for www.example.com, not *.example.com ; x509: certificate is valid for www.example.com, not x.Example.com ; x509: certificate is valid for 10.1.2.3, not 10.1.2.4 ; x509: certificate is valid for 10.1.2.3, not fe80::1 ; x509: certificate is valid for www.example.com, not bad host ; x509: certificate is valid for www.example.com, not nc.many.example.com ; x509: certificate is valid for www.example.com, not nz.many.example.com ; x509: certificate is valid for www.example.com, not . ; x509: certificate is valid for www.example.com, not example.com ; x509: certificate is valid for www.example.com, not *.wild.example.com ; x509: certificate is valid for 10.1.2.3, not 192.0.2.1 ; x509: certificate is valid for www.example.com, not multi.example.com.
+host 13: x509: certificate is valid for bad.example.com, not www.example.com ; x509: certificate is valid for bad.example.com, not WWW.EXAMPLE.COM. ; x509: certificate is valid for bad.example.com, not foo.wild.example.com ; x509: certificate is valid for bad.example.com, not a.b.wild.example.com ; x509: cannot validate certificate for 10.1.2.3 because it doesn't contain any IP SANs ; x509: cannot validate certificate for ::1 because it doesn't contain any IP SANs ; x509: cannot validate certificate for ::1 because it doesn't contain any IP SANs ; x509: cannot validate certificate for 192.0.2.1 because it doesn't contain any IP SANs ; x509: certificate is valid for bad.example.com, not legacy.example.com ; x509: certificate is valid for bad.example.com, not  ; x509: certificate is valid for bad.example.com, not *.example.com ; x509: certificate is valid for bad.example.com, not x.Example.com ; x509: cannot validate certificate for 10.1.2.4 because it doesn't contain any IP SANs ; x509: cannot validate certificate for fe80::1 because it doesn't contain any IP SANs ; x509: certificate is valid for bad.example.com, not bad host ; x509: certificate is valid for bad.example.com, not nc.many.example.com ; x509: certificate is valid for bad.example.com, not nz.many.example.com ; x509: certificate is valid for bad.example.com, not . ; x509: certificate is valid for bad.example.com, not example.com ; x509: certificate is valid for bad.example.com, not *.wild.example.com ; x509: cannot validate certificate for 192.0.2.1 because it doesn't contain any IP SANs ; x509: certificate is valid for bad.example.com, not multi.example.com.
+host 14: x509: certificate is valid for www.other.org, not www.example.com ; x509: certificate is valid for www.other.org, not WWW.EXAMPLE.COM. ; x509: certificate is valid for www.other.org, not foo.wild.example.com ; x509: certificate is valid for www.other.org, not a.b.wild.example.com ; x509: cannot validate certificate for 10.1.2.3 because it doesn't contain any IP SANs ; x509: cannot validate certificate for ::1 because it doesn't contain any IP SANs ; x509: cannot validate certificate for ::1 because it doesn't contain any IP SANs ; x509: cannot validate certificate for 192.0.2.1 because it doesn't contain any IP SANs ; x509: certificate is valid for www.other.org, not legacy.example.com ; x509: certificate is valid for www.other.org, not  ; x509: certificate is valid for www.other.org, not *.example.com ; x509: certificate is valid for www.other.org, not x.Example.com ; x509: cannot validate certificate for 10.1.2.4 because it doesn't contain any IP SANs ; x509: cannot validate certificate for fe80::1 because it doesn't contain any IP SANs ; x509: certificate is valid for www.other.org, not bad host ; x509: certificate is valid for www.other.org, not nc.many.example.com ; x509: certificate is valid for www.other.org, not nz.many.example.com ; x509: certificate is valid for www.other.org, not . ; x509: certificate is valid for www.other.org, not example.com ; x509: certificate is valid for www.other.org, not *.wild.example.com ; x509: cannot validate certificate for 192.0.2.1 because it doesn't contain any IP SANs ; x509: certificate is valid for www.other.org, not multi.example.com.
+host 15: x509: certificate is not valid for any names, but wanted to match www.example.com ; x509: certificate is not valid for any names, but wanted to match WWW.EXAMPLE.COM. ; x509: certificate is not valid for any names, but wanted to match foo.wild.example.com ; x509: certificate is not valid for any names, but wanted to match a.b.wild.example.com ; x509: certificate is valid for 10.9.1.1, 192.168.1.1, not 10.1.2.3 ; x509: certificate is valid for 10.9.1.1, 192.168.1.1, not ::1 ; x509: certificate is valid for 10.9.1.1, 192.168.1.1, not ::1 ; x509: certificate is valid for 10.9.1.1, 192.168.1.1, not 192.0.2.1 ; x509: certificate is not valid for any names, but wanted to match legacy.example.com ; x509: certificate is not valid for any names, but wanted to match  ; x509: certificate is not valid for any names, but wanted to match *.example.com ; x509: certificate is not valid for any names, but wanted to match x.Example.com ; x509: certificate is valid for 10.9.1.1, 192.168.1.1, not 10.1.2.4 ; x509: certificate is valid for 10.9.1.1, 192.168.1.1, not fe80::1 ; x509: certificate is not valid for any names, but wanted to match bad host ; x509: certificate is not valid for any names, but wanted to match nc.many.example.com ; x509: certificate is not valid for any names, but wanted to match nz.many.example.com ; x509: certificate is not valid for any names, but wanted to match . ; x509: certificate is not valid for any names, but wanted to match example.com ; x509: certificate is not valid for any names, but wanted to match *.wild.example.com ; x509: certificate is valid for 10.9.1.1, 192.168.1.1, not 192.0.2.1 ; x509: certificate is not valid for any names, but wanted to match multi.example.com.
+host 16: x509: certificate is valid for mail.example.com, not www.example.com ; x509: certificate is valid for mail.example.com, not WWW.EXAMPLE.COM. ; x509: certificate is valid for mail.example.com, not foo.wild.example.com ; x509: certificate is valid for mail.example.com, not a.b.wild.example.com ; x509: cannot validate certificate for 10.1.2.3 because it doesn't contain any IP SANs ; x509: cannot validate certificate for ::1 because it doesn't contain any IP SANs ; x509: cannot validate certificate for ::1 because it doesn't contain any IP SANs ; x509: cannot validate certificate for 192.0.2.1 because it doesn't contain any IP SANs ; x509: certificate is valid for mail.example.com, not legacy.example.com ; x509: certificate is valid for mail.example.com, not  ; x509: certificate is valid for mail.example.com, not *.example.com ; x509: certificate is valid for mail.example.com, not x.Example.com ; x509: cannot validate certificate for 10.1.2.4 because it doesn't contain any IP SANs ; x509: cannot validate certificate for fe80::1 because it doesn't contain any IP SANs ; x509: certificate is valid for mail.example.com, not bad host ; x509: certificate is valid for mail.example.com, not nc.many.example.com ; x509: certificate is valid for mail.example.com, not nz.many.example.com ; x509: certificate is valid for mail.example.com, not . ; x509: certificate is valid for mail.example.com, not example.com ; x509: certificate is valid for mail.example.com, not *.wild.example.com ; x509: cannot validate certificate for 192.0.2.1 because it doesn't contain any IP SANs ; x509: certificate is valid for mail.example.com, not multi.example.com.
+host 17: x509: certificate is valid for evil2.example.com, not www.example.com ; x509: certificate is valid for evil2.example.com, not WWW.EXAMPLE.COM. ; x509: certificate is valid for evil2.example.com, not foo.wild.example.com ; x509: certificate is valid for evil2.example.com, not a.b.wild.example.com ; x509: cannot validate certificate for 10.1.2.3 because it doesn't contain any IP SANs ; x509: cannot validate certificate for ::1 because it doesn't contain any IP SANs ; x509: cannot validate certificate for ::1 because it doesn't contain any IP SANs ; x509: cannot validate certificate for 192.0.2.1 because it doesn't contain any IP SANs ; x509: certificate is valid for evil2.example.com, not legacy.example.com ; x509: certificate is valid for evil2.example.com, not  ; x509: certificate is valid for evil2.example.com, not *.example.com ; x509: certificate is valid for evil2.example.com, not x.Example.com ; x509: cannot validate certificate for 10.1.2.4 because it doesn't contain any IP SANs ; x509: cannot validate certificate for fe80::1 because it doesn't contain any IP SANs ; x509: certificate is valid for evil2.example.com, not bad host ; x509: certificate is valid for evil2.example.com, not nc.many.example.com ; x509: certificate is valid for evil2.example.com, not nz.many.example.com ; x509: certificate is valid for evil2.example.com, not . ; x509: certificate is valid for evil2.example.com, not example.com ; x509: certificate is valid for evil2.example.com, not *.wild.example.com ; x509: cannot validate certificate for 192.0.2.1 because it doesn't contain any IP SANs ; x509: certificate is valid for evil2.example.com, not multi.example.com.
+host 18: x509: certificate is valid for uriip.example.com, not www.example.com ; x509: certificate is valid for uriip.example.com, not WWW.EXAMPLE.COM. ; x509: certificate is valid for uriip.example.com, not foo.wild.example.com ; x509: certificate is valid for uriip.example.com, not a.b.wild.example.com ; x509: cannot validate certificate for 10.1.2.3 because it doesn't contain any IP SANs ; x509: cannot validate certificate for ::1 because it doesn't contain any IP SANs ; x509: cannot validate certificate for ::1 because it doesn't contain any IP SANs ; x509: cannot validate certificate for 192.0.2.1 because it doesn't contain any IP SANs ; x509: certificate is valid for uriip.example.com, not legacy.example.com ; x509: certificate is valid for uriip.example.com, not  ; x509: certificate is valid for uriip.example.com, not *.example.com ; x509: certificate is valid for uriip.example.com, not x.Example.com ; x509: cannot validate certificate for 10.1.2.4 because it doesn't contain any IP SANs ; x509: cannot validate certificate for fe80::1 because it doesn't contain any IP SANs ; x509: certificate is valid for uriip.example.com, not bad host ; x509: certificate is valid for uriip.example.com, not nc.many.example.com ; x509: certificate is valid for uriip.example.com, not nz.many.example.com ; x509: certificate is valid for uriip.example.com, not . ; x509: certificate is valid for uriip.example.com, not example.com ; x509: certificate is valid for uriip.example.com, not *.wild.example.com ; x509: cannot validate certificate for 192.0.2.1 because it doesn't contain any IP SANs ; x509: certificate is valid for uriip.example.com, not multi.example.com.
+host 19: x509: certificate is valid for deep.example.com, not www.example.com ; x509: certificate is valid for deep.example.com, not WWW.EXAMPLE.COM. ; x509: certificate is valid for deep.example.com, not foo.wild.example.com ; x509: certificate is valid for deep.example.com, not a.b.wild.example.com ; x509: cannot validate certificate for 10.1.2.3 because it doesn't contain any IP SANs ; x509: cannot validate certificate for ::1 because it doesn't contain any IP SANs ; x509: cannot validate certificate for ::1 because it doesn't contain any IP SANs ; x509: cannot validate certificate for 192.0.2.1 because it doesn't contain any IP SANs ; x509: certificate is valid for deep.example.com, not legacy.example.com ; x509: certificate is valid for deep.example.com, not  ; x509: certificate is valid for deep.example.com, not *.example.com ; x509: certificate is valid for deep.example.com, not x.Example.com ; x509: cannot validate certificate for 10.1.2.4 because it doesn't contain any IP SANs ; x509: cannot validate certificate for fe80::1 because it doesn't contain any IP SANs ; x509: certificate is valid for deep.example.com, not bad host ; x509: certificate is valid for deep.example.com, not nc.many.example.com ; x509: certificate is valid for deep.example.com, not nz.many.example.com ; x509: certificate is valid for deep.example.com, not . ; x509: certificate is valid for deep.example.com, not example.com ; x509: certificate is valid for deep.example.com, not *.wild.example.com ; x509: cannot validate certificate for 192.0.2.1 because it doesn't contain any IP SANs ; x509: certificate is valid for deep.example.com, not multi.example.com.
+host 20: x509: certificate is valid for server.example.com, not www.example.com ; x509: certificate is valid for server.example.com, not WWW.EXAMPLE.COM. ; x509: certificate is valid for server.example.com, not foo.wild.example.com ; x509: certificate is valid for server.example.com, not a.b.wild.example.com ; x509: cannot validate certificate for 10.1.2.3 because it doesn't contain any IP SANs ; x509: cannot validate certificate for ::1 because it doesn't contain any IP SANs ; x509: cannot validate certificate for ::1 because it doesn't contain any IP SANs ; x509: cannot validate certificate for 192.0.2.1 because it doesn't contain any IP SANs ; x509: certificate is valid for server.example.com, not legacy.example.com ; x509: certificate is valid for server.example.com, not  ; x509: certificate is valid for server.example.com, not *.example.com ; x509: certificate is valid for server.example.com, not x.Example.com ; x509: cannot validate certificate for 10.1.2.4 because it doesn't contain any IP SANs ; x509: cannot validate certificate for fe80::1 because it doesn't contain any IP SANs ; x509: certificate is valid for server.example.com, not bad host ; x509: certificate is valid for server.example.com, not nc.many.example.com ; x509: certificate is valid for server.example.com, not nz.many.example.com ; x509: certificate is valid for server.example.com, not . ; x509: certificate is valid for server.example.com, not example.com ; x509: certificate is valid for server.example.com, not *.wild.example.com ; x509: cannot validate certificate for 192.0.2.1 because it doesn't contain any IP SANs ; x509: certificate is valid for server.example.com, not multi.example.com.
+host 21: x509: certificate is valid for exp.example.com, not www.example.com ; x509: certificate is valid for exp.example.com, not WWW.EXAMPLE.COM. ; x509: certificate is valid for exp.example.com, not foo.wild.example.com ; x509: certificate is valid for exp.example.com, not a.b.wild.example.com ; x509: cannot validate certificate for 10.1.2.3 because it doesn't contain any IP SANs ; x509: cannot validate certificate for ::1 because it doesn't contain any IP SANs ; x509: cannot validate certificate for ::1 because it doesn't contain any IP SANs ; x509: cannot validate certificate for 192.0.2.1 because it doesn't contain any IP SANs ; x509: certificate is valid for exp.example.com, not legacy.example.com ; x509: certificate is valid for exp.example.com, not  ; x509: certificate is valid for exp.example.com, not *.example.com ; x509: certificate is valid for exp.example.com, not x.Example.com ; x509: cannot validate certificate for 10.1.2.4 because it doesn't contain any IP SANs ; x509: cannot validate certificate for fe80::1 because it doesn't contain any IP SANs ; x509: certificate is valid for exp.example.com, not bad host ; x509: certificate is valid for exp.example.com, not nc.many.example.com ; x509: certificate is valid for exp.example.com, not nz.many.example.com ; x509: certificate is valid for exp.example.com, not . ; x509: certificate is valid for exp.example.com, not example.com ; x509: certificate is valid for exp.example.com, not *.wild.example.com ; x509: cannot validate certificate for 192.0.2.1 because it doesn't contain any IP SANs ; x509: certificate is valid for exp.example.com, not multi.example.com.
+host 22: x509: certificate is valid for policy.example.com, not www.example.com ; x509: certificate is valid for policy.example.com, not WWW.EXAMPLE.COM. ; x509: certificate is valid for policy.example.com, not foo.wild.example.com ; x509: certificate is valid for policy.example.com, not a.b.wild.example.com ; x509: cannot validate certificate for 10.1.2.3 because it doesn't contain any IP SANs ; x509: cannot validate certificate for ::1 because it doesn't contain any IP SANs ; x509: cannot validate certificate for ::1 because it doesn't contain any IP SANs ; x509: cannot validate certificate for 192.0.2.1 because it doesn't contain any IP SANs ; x509: certificate is valid for policy.example.com, not legacy.example.com ; x509: certificate is valid for policy.example.com, not  ; x509: certificate is valid for policy.example.com, not *.example.com ; x509: certificate is valid for policy.example.com, not x.Example.com ; x509: cannot validate certificate for 10.1.2.4 because it doesn't contain any IP SANs ; x509: cannot validate certificate for fe80::1 because it doesn't contain any IP SANs ; x509: certificate is valid for policy.example.com, not bad host ; x509: certificate is valid for policy.example.com, not nc.many.example.com ; x509: certificate is valid for policy.example.com, not nz.many.example.com ; x509: certificate is valid for policy.example.com, not . ; x509: certificate is valid for policy.example.com, not example.com ; x509: certificate is valid for policy.example.com, not *.wild.example.com ; x509: cannot validate certificate for 192.0.2.1 because it doesn't contain any IP SANs ; x509: certificate is valid for policy.example.com, not multi.example.com.
+host 23: x509: certificate is valid for nc.example.com, not www.example.com ; x509: certificate is valid for nc.example.com, not WWW.EXAMPLE.COM. ; x509: certificate is valid for nc.example.com, not foo.wild.example.com ; x509: certificate is valid for nc.example.com, not a.b.wild.example.com ; x509: cannot validate certificate for 10.1.2.3 because it doesn't contain any IP SANs ; x509: cannot validate certificate for ::1 because it doesn't contain any IP SANs ; x509: cannot validate certificate for ::1 because it doesn't contain any IP SANs ; x509: cannot validate certificate for 192.0.2.1 because it doesn't contain any IP SANs ; x509: certificate is valid for nc.example.com, not legacy.example.com ; x509: certificate is valid for nc.example.com, not  ; x509: certificate is valid for nc.example.com, not *.example.com ; x509: certificate is valid for nc.example.com, not x.Example.com ; x509: cannot validate certificate for 10.1.2.4 because it doesn't contain any IP SANs ; x509: cannot validate certificate for fe80::1 because it doesn't contain any IP SANs ; x509: certificate is valid for nc.example.com, not bad host ; x509: certificate is valid for nc.example.com, not nc.many.example.com ; x509: certificate is valid for nc.example.com, not nz.many.example.com ; x509: certificate is valid for nc.example.com, not . ; x509: certificate is valid for nc.example.com, not example.com ; x509: certificate is valid for nc.example.com, not *.wild.example.com ; x509: cannot validate certificate for 192.0.2.1 because it doesn't contain any IP SANs ; x509: certificate is valid for nc.example.com, not multi.example.com.
+host 24: x509: certificate is not valid for any names, but wanted to match www.example.com ; x509: certificate is not valid for any names, but wanted to match WWW.EXAMPLE.COM. ; x509: certificate is not valid for any names, but wanted to match foo.wild.example.com ; x509: certificate is not valid for any names, but wanted to match a.b.wild.example.com ; x509: cannot validate certificate for 10.1.2.3 because it doesn't contain any IP SANs ; x509: cannot validate certificate for ::1 because it doesn't contain any IP SANs ; x509: cannot validate certificate for ::1 because it doesn't contain any IP SANs ; x509: cannot validate certificate for 192.0.2.1 because it doesn't contain any IP SANs ; x509: certificate relies on legacy Common Name field, use SANs instead ; x509: certificate is not valid for any names, but wanted to match  ; x509: certificate is not valid for any names, but wanted to match *.example.com ; x509: certificate is not valid for any names, but wanted to match x.Example.com ; x509: cannot validate certificate for 10.1.2.4 because it doesn't contain any IP SANs ; x509: cannot validate certificate for fe80::1 because it doesn't contain any IP SANs ; x509: certificate is not valid for any names, but wanted to match bad host ; x509: certificate is not valid for any names, but wanted to match nc.many.example.com ; x509: certificate is not valid for any names, but wanted to match nz.many.example.com ; x509: certificate is not valid for any names, but wanted to match . ; x509: certificate is not valid for any names, but wanted to match example.com ; x509: certificate is not valid for any names, but wanted to match *.wild.example.com ; x509: cannot validate certificate for 192.0.2.1 because it doesn't contain any IP SANs ; x509: certificate is not valid for any names, but wanted to match multi.example.com.
+host 25: x509: certificate is valid for *.wild.example.com, not www.example.com ; x509: certificate is valid for *.wild.example.com, not WWW.EXAMPLE.COM. ; ok ; x509: certificate is valid for *.wild.example.com, not a.b.wild.example.com ; x509: certificate is valid for ::1, 192.0.2.1, not 10.1.2.3 ; ok ; ok ; ok ; x509: certificate is valid for *.wild.example.com, not legacy.example.com ; x509: certificate is valid for *.wild.example.com, not  ; x509: certificate is valid for *.wild.example.com, not *.example.com ; x509: certificate is valid for *.wild.example.com, not x.Example.com ; x509: certificate is valid for ::1, 192.0.2.1, not 10.1.2.4 ; x509: certificate is valid for ::1, 192.0.2.1, not fe80::1 ; x509: certificate is valid for *.wild.example.com, not bad host ; x509: certificate is valid for *.wild.example.com, not nc.many.example.com ; x509: certificate is valid for *.wild.example.com, not nz.many.example.com ; x509: certificate is valid for *.wild.example.com, not . ; x509: certificate is valid for *.wild.example.com, not example.com ; ok ; ok ; x509: certificate is valid for *.wild.example.com, not multi.example.com.
+host 26: x509: certificate is valid for crit.example.com, not www.example.com ; x509: certificate is valid for crit.example.com, not WWW.EXAMPLE.COM. ; x509: certificate is valid for crit.example.com, not foo.wild.example.com ; x509: certificate is valid for crit.example.com, not a.b.wild.example.com ; x509: cannot validate certificate for 10.1.2.3 because it doesn't contain any IP SANs ; x509: cannot validate certificate for ::1 because it doesn't contain any IP SANs ; x509: cannot validate certificate for ::1 because it doesn't contain any IP SANs ; x509: cannot validate certificate for 192.0.2.1 because it doesn't contain any IP SANs ; x509: certificate is valid for crit.example.com, not legacy.example.com ; x509: certificate is valid for crit.example.com, not  ; x509: certificate is valid for crit.example.com, not *.example.com ; x509: certificate is valid for crit.example.com, not x.Example.com ; x509: cannot validate certificate for 10.1.2.4 because it doesn't contain any IP SANs ; x509: cannot validate certificate for fe80::1 because it doesn't contain any IP SANs ; x509: certificate is valid for crit.example.com, not bad host ; x509: certificate is valid for crit.example.com, not nc.many.example.com ; x509: certificate is valid for crit.example.com, not nz.many.example.com ; x509: certificate is valid for crit.example.com, not . ; x509: certificate is valid for crit.example.com, not example.com ; x509: certificate is valid for crit.example.com, not *.wild.example.com ; x509: cannot validate certificate for 192.0.2.1 because it doesn't contain any IP SANs ; x509: certificate is valid for crit.example.com, not multi.example.com.
+host 27: x509: certificate is valid for expired.example.com, not www.example.com ; x509: certificate is valid for expired.example.com, not WWW.EXAMPLE.COM. ; x509: certificate is valid for expired.example.com, not foo.wild.example.com ; x509: certificate is valid for expired.example.com, not a.b.wild.example.com ; x509: cannot validate certificate for 10.1.2.3 because it doesn't contain any IP SANs ; x509: cannot validate certificate for ::1 because it doesn't contain any IP SANs ; x509: cannot validate certificate for ::1 because it doesn't contain any IP SANs ; x509: cannot validate certificate for 192.0.2.1 because it doesn't contain any IP SANs ; x509: certificate is valid for expired.example.com, not legacy.example.com ; x509: certificate is valid for expired.example.com, not  ; x509: certificate is valid for expired.example.com, not *.example.com ; x509: certificate is valid for expired.example.com, not x.Example.com ; x509: cannot validate certificate for 10.1.2.4 because it doesn't contain any IP SANs ; x509: cannot validate certificate for fe80::1 because it doesn't contain any IP SANs ; x509: certificate is valid for expired.example.com, not bad host ; x509: certificate is valid for expired.example.com, not nc.many.example.com ; x509: certificate is valid for expired.example.com, not nz.many.example.com ; x509: certificate is valid for expired.example.com, not . ; x509: certificate is valid for expired.example.com, not example.com ; x509: certificate is valid for expired.example.com, not *.wild.example.com ; x509: cannot validate certificate for 192.0.2.1 because it doesn't contain any IP SANs ; x509: certificate is valid for expired.example.com, not multi.example.com.
+host 28: x509: certificate is valid for multi.example.com, not www.example.com ; x509: certificate is valid for multi.example.com, not WWW.EXAMPLE.COM. ; x509: certificate is valid for multi.example.com, not foo.wild.example.com ; x509: certificate is valid for multi.example.com, not a.b.wild.example.com ; x509: cannot validate certificate for 10.1.2.3 because it doesn't contain any IP SANs ; x509: cannot validate certificate for ::1 because it doesn't contain any IP SANs ; x509: cannot validate certificate for ::1 because it doesn't contain any IP SANs ; x509: cannot validate certificate for 192.0.2.1 because it doesn't contain any IP SANs ; x509: certificate is valid for multi.example.com, not legacy.example.com ; x509: certificate is valid for multi.example.com, not  ; x509: certificate is valid for multi.example.com, not *.example.com ; x509: certificate is valid for multi.example.com, not x.Example.com ; x509: cannot validate certificate for 10.1.2.4 because it doesn't contain any IP SANs ; x509: cannot validate certificate for fe80::1 because it doesn't contain any IP SANs ; x509: certificate is valid for multi.example.com, not bad host ; x509: certificate is valid for multi.example.com, not nc.many.example.com ; x509: certificate is valid for multi.example.com, not nz.many.example.com ; x509: certificate is valid for multi.example.com, not . ; x509: certificate is valid for multi.example.com, not example.com ; x509: certificate is valid for multi.example.com, not *.wild.example.com ; x509: cannot validate certificate for 192.0.2.1 because it doesn't contain any IP SANs ; ok
+host 29: x509: certificate is valid for anypol.example.com, not www.example.com ; x509: certificate is valid for anypol.example.com, not WWW.EXAMPLE.COM. ; x509: certificate is valid for anypol.example.com, not foo.wild.example.com ; x509: certificate is valid for anypol.example.com, not a.b.wild.example.com ; x509: cannot validate certificate for 10.1.2.3 because it doesn't contain any IP SANs ; x509: cannot validate certificate for ::1 because it doesn't contain any IP SANs ; x509: cannot validate certificate for ::1 because it doesn't contain any IP SANs ; x509: cannot validate certificate for 192.0.2.1 because it doesn't contain any IP SANs ; x509: certificate is valid for anypol.example.com, not legacy.example.com ; x509: certificate is valid for anypol.example.com, not  ; x509: certificate is valid for anypol.example.com, not *.example.com ; x509: certificate is valid for anypol.example.com, not x.Example.com ; x509: cannot validate certificate for 10.1.2.4 because it doesn't contain any IP SANs ; x509: cannot validate certificate for fe80::1 because it doesn't contain any IP SANs ; x509: certificate is valid for anypol.example.com, not bad host ; x509: certificate is valid for anypol.example.com, not nc.many.example.com ; x509: certificate is valid for anypol.example.com, not nz.many.example.com ; x509: certificate is valid for anypol.example.com, not . ; x509: certificate is valid for anypol.example.com, not example.com ; x509: certificate is valid for anypol.example.com, not *.wild.example.com ; x509: cannot validate certificate for 192.0.2.1 because it doesn't contain any IP SANs ; x509: certificate is valid for anypol.example.com, not multi.example.com.
+host 30: x509: certificate is valid for ku.example.com, not www.example.com ; x509: certificate is valid for ku.example.com, not WWW.EXAMPLE.COM. ; x509: certificate is valid for ku.example.com, not foo.wild.example.com ; x509: certificate is valid for ku.example.com, not a.b.wild.example.com ; x509: cannot validate certificate for 10.1.2.3 because it doesn't contain any IP SANs ; x509: cannot validate certificate for ::1 because it doesn't contain any IP SANs ; x509: cannot validate certificate for ::1 because it doesn't contain any IP SANs ; x509: cannot validate certificate for 192.0.2.1 because it doesn't contain any IP SANs ; x509: certificate is valid for ku.example.com, not legacy.example.com ; x509: certificate is valid for ku.example.com, not  ; x509: certificate is valid for ku.example.com, not *.example.com ; x509: certificate is valid for ku.example.com, not x.Example.com ; x509: cannot validate certificate for 10.1.2.4 because it doesn't contain any IP SANs ; x509: cannot validate certificate for fe80::1 because it doesn't contain any IP SANs ; x509: certificate is valid for ku.example.com, not bad host ; x509: certificate is valid for ku.example.com, not nc.many.example.com ; x509: certificate is valid for ku.example.com, not nz.many.example.com ; x509: certificate is valid for ku.example.com, not . ; x509: certificate is valid for ku.example.com, not example.com ; x509: certificate is valid for ku.example.com, not *.wild.example.com ; x509: cannot validate certificate for 192.0.2.1 because it doesn't contain any IP SANs ; x509: certificate is valid for ku.example.com, not multi.example.com.
+host 31: ok ; ok ; x509: certificate is valid for *.Example.COM, not foo.wild.example.com ; x509: certificate is valid for *.Example.COM, not a.b.wild.example.com ; x509: cannot validate certificate for 10.1.2.3 because it doesn't contain any IP SANs ; x509: cannot validate certificate for ::1 because it doesn't contain any IP SANs ; x509: cannot validate certificate for ::1 because it doesn't contain any IP SANs ; x509: cannot validate certificate for 192.0.2.1 because it doesn't contain any IP SANs ; ok ; x509: certificate is valid for *.Example.COM, not  ; ok ; ok ; x509: cannot validate certificate for 10.1.2.4 because it doesn't contain any IP SANs ; x509: cannot validate certificate for fe80::1 because it doesn't contain any IP SANs ; x509: certificate is valid for *.Example.COM, not bad host ; x509: certificate is valid for *.Example.COM, not nc.many.example.com ; x509: certificate is valid for *.Example.COM, not nz.many.example.com ; x509: certificate is valid for *.Example.COM, not . ; x509: certificate is valid for *.Example.COM, not example.com ; x509: certificate is valid for *.Example.COM, not *.wild.example.com ; x509: cannot validate certificate for 192.0.2.1 because it doesn't contain any IP SANs ; ok
+host 32: ok ; ok ; x509: certificate is valid for *.example.com, not foo.wild.example.com ; x509: certificate is valid for *.example.com, not a.b.wild.example.com ; x509: cannot validate certificate for 10.1.2.3 because it doesn't contain any IP SANs ; x509: cannot validate certificate for ::1 because it doesn't contain any IP SANs ; x509: cannot validate certificate for ::1 because it doesn't contain any IP SANs ; x509: cannot validate certificate for 192.0.2.1 because it doesn't contain any IP SANs ; ok ; x509: certificate is valid for *.example.com, not  ; ok ; ok ; x509: cannot validate certificate for 10.1.2.4 because it doesn't contain any IP SANs ; x509: cannot validate certificate for fe80::1 because it doesn't contain any IP SANs ; x509: certificate is valid for *.example.com, not bad host ; x509: certificate is valid for *.example.com, not nc.many.example.com ; x509: certificate is valid for *.example.com, not nz.many.example.com ; x509: certificate is valid for *.example.com, not . ; x509: certificate is valid for *.example.com, not example.com ; x509: certificate is valid for *.example.com, not *.wild.example.com ; x509: cannot validate certificate for 192.0.2.1 because it doesn't contain any IP SANs ; ok
+host 33: x509: certificate is not valid for any names, but wanted to match www.example.com ; x509: certificate is not valid for any names, but wanted to match WWW.EXAMPLE.COM. ; x509: certificate is not valid for any names, but wanted to match foo.wild.example.com ; x509: certificate is not valid for any names, but wanted to match a.b.wild.example.com ; x509: cannot validate certificate for 10.1.2.3 because it doesn't contain any IP SANs ; x509: cannot validate certificate for ::1 because it doesn't contain any IP SANs ; x509: cannot validate certificate for ::1 because it doesn't contain any IP SANs ; x509: cannot validate certificate for 192.0.2.1 because it doesn't contain any IP SANs ; x509: certificate is not valid for any names, but wanted to match legacy.example.com ; x509: certificate is not valid for any names, but wanted to match  ; x509: certificate is not valid for any names, but wanted to match *.example.com ; x509: certificate is not valid for any names, but wanted to match x.Example.com ; x509: cannot validate certificate for 10.1.2.4 because it doesn't contain any IP SANs ; x509: cannot validate certificate for fe80::1 because it doesn't contain any IP SANs ; x509: certificate is not valid for any names, but wanted to match bad host ; x509: certificate is not valid for any names, but wanted to match nc.many.example.com ; x509: certificate is not valid for any names, but wanted to match nz.many.example.com ; x509: certificate is not valid for any names, but wanted to match . ; x509: certificate is not valid for any names, but wanted to match example.com ; x509: certificate is not valid for any names, but wanted to match *.wild.example.com ; x509: cannot validate certificate for 192.0.2.1 because it doesn't contain any IP SANs ; x509: certificate is not valid for any names, but wanted to match multi.example.com.
+host 34: x509: certificate is valid for 120 names, but none matched www.example.com ; x509: certificate is valid for 120 names, but none matched WWW.EXAMPLE.COM. ; x509: certificate is valid for 120 names, but none matched foo.wild.example.com ; x509: certificate is valid for 120 names, but none matched a.b.wild.example.com ; x509: cannot validate certificate for 10.1.2.3 because it doesn't contain any IP SANs ; x509: cannot validate certificate for ::1 because it doesn't contain any IP SANs ; x509: cannot validate certificate for ::1 because it doesn't contain any IP SANs ; x509: cannot validate certificate for 192.0.2.1 because it doesn't contain any IP SANs ; x509: certificate is valid for 120 names, but none matched legacy.example.com ; x509: certificate is valid for 120 names, but none matched  ; x509: certificate is valid for 120 names, but none matched *.example.com ; x509: certificate is valid for 120 names, but none matched x.Example.com ; x509: cannot validate certificate for 10.1.2.4 because it doesn't contain any IP SANs ; x509: cannot validate certificate for fe80::1 because it doesn't contain any IP SANs ; x509: certificate is valid for 120 names, but none matched bad host ; ok ; ok ; x509: certificate is valid for 120 names, but none matched . ; x509: certificate is valid for 120 names, but none matched example.com ; x509: certificate is valid for 120 names, but none matched *.wild.example.com ; x509: cannot validate certificate for 192.0.2.1 because it doesn't contain any IP SANs ; x509: certificate is valid for 120 names, but none matched multi.example.com.
+host 35: x509: certificate is valid for client.example.com, not www.example.com ; x509: certificate is valid for client.example.com, not WWW.EXAMPLE.COM. ; x509: certificate is valid for client.example.com, not foo.wild.example.com ; x509: certificate is valid for client.example.com, not a.b.wild.example.com ; x509: cannot validate certificate for 10.1.2.3 because it doesn't contain any IP SANs ; x509: cannot validate certificate for ::1 because it doesn't contain any IP SANs ; x509: cannot validate certificate for ::1 because it doesn't contain any IP SANs ; x509: cannot validate certificate for 192.0.2.1 because it doesn't contain any IP SANs ; x509: certificate is valid for client.example.com, not legacy.example.com ; x509: certificate is valid for client.example.com, not  ; x509: certificate is valid for client.example.com, not *.example.com ; x509: certificate is valid for client.example.com, not x.Example.com ; x509: cannot validate certificate for 10.1.2.4 because it doesn't contain any IP SANs ; x509: cannot validate certificate for fe80::1 because it doesn't contain any IP SANs ; x509: certificate is valid for client.example.com, not bad host ; x509: certificate is valid for client.example.com, not nc.many.example.com ; x509: certificate is valid for client.example.com, not nz.many.example.com ; x509: certificate is valid for client.example.com, not . ; x509: certificate is valid for client.example.com, not example.com ; x509: certificate is valid for client.example.com, not *.wild.example.com ; x509: cannot validate certificate for 192.0.2.1 because it doesn't contain any IP SANs ; x509: certificate is valid for client.example.com, not multi.example.com.
+host 36: x509: certificate is valid for eh.example.com, not www.example.com ; x509: certificate is valid for eh.example.com, not WWW.EXAMPLE.COM. ; x509: certificate is valid for eh.example.com, not foo.wild.example.com ; x509: certificate is valid for eh.example.com, not a.b.wild.example.com ; x509: cannot validate certificate for 10.1.2.3 because it doesn't contain any IP SANs ; x509: cannot validate certificate for ::1 because it doesn't contain any IP SANs ; x509: cannot validate certificate for ::1 because it doesn't contain any IP SANs ; x509: cannot validate certificate for 192.0.2.1 because it doesn't contain any IP SANs ; x509: certificate is valid for eh.example.com, not legacy.example.com ; x509: certificate is valid for eh.example.com, not  ; x509: certificate is valid for eh.example.com, not *.example.com ; x509: certificate is valid for eh.example.com, not x.Example.com ; x509: cannot validate certificate for 10.1.2.4 because it doesn't contain any IP SANs ; x509: cannot validate certificate for fe80::1 because it doesn't contain any IP SANs ; x509: certificate is valid for eh.example.com, not bad host ; x509: certificate is valid for eh.example.com, not nc.many.example.com ; x509: certificate is valid for eh.example.com, not nz.many.example.com ; x509: certificate is valid for eh.example.com, not . ; x509: certificate is valid for eh.example.com, not example.com ; x509: certificate is valid for eh.example.com, not *.wild.example.com ; x509: cannot validate certificate for 192.0.2.1 because it doesn't contain any IP SANs ; x509: certificate is valid for eh.example.com, not multi.example.com.
+append true 37
+append2 true 37
+append3 false 37
+equal false true true

@@ -1,0 +1,177 @@
+// 生成 tests/go/testdata/x509/verify.pem：链验证用的根、中间 CA 和叶子（一次性工具）
+package main
+
+import (
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
+	"crypto/rsa"
+	"crypto/x509"
+	"crypto/x509/pkix"
+	"encoding/asn1"
+	"encoding/pem"
+	"math/big"
+	"net"
+	"net/url"
+	"os"
+	"time"
+)
+
+func must[T any](v T, err error) T {
+	if err != nil {
+		panic(err)
+	}
+	return v
+}
+
+var out []byte
+var serial int64 = 100
+
+type ca struct {
+	cert *x509.Certificate
+	key  any
+}
+
+var nb = time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC)
+var na = time.Date(2040, 1, 1, 0, 0, 0, 0, time.UTC)
+
+func oid(xs ...uint64) x509.OID { return must(x509.OIDFromInts(xs)) }
+
+func mk(t *x509.Certificate, parent *ca, pub, priv any) *ca {
+	serial++
+	t.SerialNumber = big.NewInt(serial)
+	if t.NotBefore.IsZero() {
+		t.NotBefore = nb
+	}
+	if t.NotAfter.IsZero() {
+		t.NotAfter = na
+	}
+	p := t
+	signer := priv
+	if parent != nil {
+		p = parent.cert
+		signer = parent.key
+	}
+	der := must(x509.CreateCertificate(rand.Reader, t, p, pub, signer))
+	out = append(out, pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der})...)
+	return &ca{must(x509.ParseCertificate(der)), priv}
+}
+
+func caT(cn string) *x509.Certificate {
+	return &x509.Certificate{Subject: pkix.Name{CommonName: cn, Organization: []string{"Kite Verify"}}, IsCA: true,
+		BasicConstraintsValid: true, KeyUsage: x509.KeyUsageCertSign | x509.KeyUsageCRLSign}
+}
+
+func leafT(cn string, dns ...string) *x509.Certificate {
+	return &x509.Certificate{Subject: pkix.Name{CommonName: cn}, DNSNames: dns, KeyUsage: x509.KeyUsageDigitalSignature,
+		ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth}}
+}
+
+func ec() *ecdsa.PrivateKey { return must(ecdsa.GenerateKey(elliptic.P256(), rand.Reader)) }
+
+func main() {
+	rk := must(rsa.GenerateKey(rand.Reader, 2048))
+	r1 := mk(caT("Root One"), nil, &rk.PublicKey, rk)
+	k2 := ec()
+	r2 := mk(caT("Root Two"), nil, &k2.PublicKey, k2)
+	mk(caT("Root Two"), r1, &k2.PublicKey, k2) // 2 交叉签名
+	t := caT("Constrained CA")
+	t.PermittedDNSDomains = []string{"example.com"}
+	t.ExcludedDNSDomains = []string{"bad.example.com", "foo.example.com"}
+	t.PermittedIPRanges = []*net.IPNet{{IP: net.IP{10, 0, 0, 0}, Mask: net.CIDRMask(8, 32)}}
+	t.ExcludedIPRanges = []*net.IPNet{{IP: net.IP{10, 9, 0, 0}, Mask: net.CIDRMask(16, 32)}}
+	t.PermittedEmailAddresses = []string{"example.com", "boss@other.org"}
+	t.ExcludedEmailAddresses = []string{"spam.example.com"}
+	t.PermittedURIDomains = []string{".example.com"}
+	t.ExcludedURIDomains = []string{"evil.example.com"}
+	ki := ec()
+	i1 := mk(t, r1, &ki.PublicKey, ki) // 3
+	t = caT("PathLen0 CA")
+	t.MaxPathLen, t.MaxPathLenZero = 0, true
+	i2 := mk(t, r1, &ki.PublicKey, ki) // 4
+	i3 := mk(caT("Below PathLen0"), i2, &ki.PublicKey, ki) // 5
+	t = caT("ClientOnly CA")
+	t.ExtKeyUsage = []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth}
+	i4 := mk(t, r2, &ki.PublicKey, ki) // 6
+	t = caT("Expired CA")
+	t.NotAfter = time.Date(2021, 1, 1, 0, 0, 0, 0, time.UTC)
+	i5 := mk(t, r1, &ki.PublicKey, ki) // 7
+	t = caT("Policy CA")
+	t.Policies = []x509.OID{oid(1, 2, 3, 4), oid(1, 2, 3, 5)}
+	t.PolicyMappings = []x509.PolicyMapping{{IssuerDomainPolicy: oid(1, 2, 3, 4), SubjectDomainPolicy: oid(1, 2, 3, 40)}}
+	t.RequireExplicitPolicyZero = true
+	i6 := mk(t, r1, &ki.PublicKey, ki) // 8
+	t = caT("NotCA")
+	t.IsCA = false
+	i7 := mk(t, r1, &ki.PublicKey, ki) // 9
+	t = caT("Any Policy CA")
+	t.Policies = []x509.OID{oid(2, 5, 29, 32, 0)}
+	t.InhibitAnyPolicyZero = true
+	i8 := mk(t, r2, &ki.PublicKey, ki) // 10
+	t = caT("KeyUsage CA")
+	t.KeyUsage = x509.KeyUsageDigitalSignature
+	i9 := mk(t, r1, &ki.PublicKey, ki) // 11
+
+	lk := ec()
+	u := func(s string) *url.URL { return must(url.Parse(s)) }
+	l := leafT("ok.example.com", "www.example.com")
+	l.IPAddresses = []net.IP{net.IP{10, 1, 2, 3}}
+	l.EmailAddresses = []string{"a@example.com"}
+	l.URIs = []*url.URL{u("https://api.example.com/x")}
+	mk(l, i1, &lk.PublicKey, lk) // 12
+	mk(leafT("bad", "bad.example.com"), i1, &lk.PublicKey, lk) // 13
+	mk(leafT("other", "www.other.org"), i1, &lk.PublicKey, lk) // 14
+	l = leafT("ip")
+	l.IPAddresses = []net.IP{net.IP{10, 9, 1, 1}, net.IP{192, 168, 1, 1}}
+	mk(l, i1, &lk.PublicKey, lk) // 15
+	l = leafT("mail", "mail.example.com")
+	l.EmailAddresses = []string{"boss@other.org", "x@spam.example.com"}
+	mk(l, i1, &lk.PublicKey, lk) // 16
+	l = leafT("evil", "evil2.example.com")
+	l.URIs = []*url.URL{u("https://evil.example.com:8443/")}
+	mk(l, i1, &lk.PublicKey, lk) // 17
+	l = leafT("uriip", "uriip.example.com")
+	l.URIs = []*url.URL{u("https://10.0.0.1/")}
+	mk(l, i1, &lk.PublicKey, lk) // 18
+	mk(leafT("deep", "deep.example.com"), i3, &lk.PublicKey, lk) // 19
+	mk(leafT("server", "server.example.com"), i4, &lk.PublicKey, lk) // 20
+	mk(leafT("under expired", "exp.example.com"), i5, &lk.PublicKey, lk) // 21
+	l = leafT("policy", "policy.example.com")
+	l.Policies = []x509.OID{oid(1, 2, 3, 40)}
+	mk(l, i6, &lk.PublicKey, lk) // 22
+	mk(leafT("notca child", "nc.example.com"), i7, &lk.PublicKey, lk) // 23
+	mk(leafT("legacy.example.com"), r1, &lk.PublicKey, lk) // 24
+	l = leafT("wild", "*.wild.example.com")
+	l.IPAddresses = []net.IP{net.IPv6loopback, net.IP{192, 0, 2, 1}}
+	mk(l, r1, &lk.PublicKey, lk) // 25
+	l = leafT("critical", "crit.example.com")
+	l.ExtraExtensions = []pkix.Extension{{Id: asn1.ObjectIdentifier{1, 2, 3, 99}, Critical: true, Value: []byte{5, 0}}}
+	mk(l, r1, &lk.PublicKey, lk) // 26
+	l = leafT("expired", "expired.example.com")
+	l.NotAfter = time.Date(2021, 6, 1, 0, 0, 0, 0, time.UTC)
+	mk(l, r1, &lk.PublicKey, lk) // 27
+	mk(leafT("multi", "multi.example.com"), r2, &lk.PublicKey, lk) // 28
+	l = leafT("anypol", "anypol.example.com")
+	l.Policies = []x509.OID{oid(1, 2, 3, 99)}
+	mk(l, i8, &lk.PublicKey, lk) // 29
+	mk(leafT("ku child", "ku.example.com"), i9, &lk.PublicKey, lk) // 30
+	l = leafT("anyeku", "*.Example.COM")
+	l.ExtKeyUsage = []x509.ExtKeyUsage{x509.ExtKeyUsageAny}
+	mk(l, r1, &lk.PublicKey, lk) // 31
+	mk(leafT("wild under constrained", "*.example.com"), i1, &lk.PublicKey, lk) // 32
+	mk(leafT("nosan.example.com"), i1, &lk.PublicKey, lk) // 33
+	l = leafT("many")
+	for i := 0; i < 120; i++ {
+		l.DNSNames = append(l.DNSNames, "n"+string(rune('a'+i%26))+".many.example.com")
+	}
+	mk(l, r1, &lk.PublicKey, lk) // 34
+	l = leafT("client", "client.example.com")
+	l.ExtKeyUsage = []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth}
+	l.UnknownExtKeyUsage = []asn1.ObjectIdentifier{{1, 2, 3, 7}}
+	mk(l, i4, &lk.PublicKey, lk) // 35
+	l = leafT("emptyhost", "eh.example.com")
+	l.URIs = []*url.URL{u("mailto:x@example.com")}
+	mk(l, i1, &lk.PublicKey, lk) // 36
+	_ = r2
+	must(0, os.WriteFile(os.Args[1]+"/verify.pem", out, 0o644))
+}
