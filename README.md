@@ -1111,6 +1111,9 @@ Go 1.27 的 encoding/json（v1）改由 v2 实现，语法错误、Compact/Inden
 | `std.kite.ast` | （对标 go/ast） | Kite 强类型语法树 Node / K；kname、kids、with_kids、dump；类型检查后表达式节点带 Node.t |
 | `std.kite.parser` | （对标 go/parser） | parse / parse_type，就是 kitec 的解析器，报错 `ERR 行:列 信息` |
 | `std.kite.format` | （对标 go/format） | fmt（带安全网）/ format_source，就是 kitec fmt |
+| `std.kite.types` | （对标 go/types） | check_file / check_source → Info（类型化 IR、顶层签名、局部变量类型、警告）或 Diag 列表；sig、locals_at、type_text |
+| `std.kite.doc` | （对标 go/doc） | from_file / from_source → Module（模块文档 + pub 声明及其注释、impl 方法）；synopsis、text、markdown |
+| `std.kite.version` | （对标 go/version） | 语义化版本 parse_version / vcmp / compare / is_valid，约束 parse_constraint / satisfies / sat_str（规则同 Cargo） |
 | `std.go.token` | go/token | 记号常量与 String / Precedence / Lookup、IsIdentifier 等；Position、File（行表、行指令信息、SetLinesForContent、MergeLine）、FileSet；File / FileSet 是值，扫描后用 set_file 写回 |
 | `std.go.scanner` | go/scanner | Scanner（分号自动插入、注释、行指令 //line 与 /*line*/、全部错误信息）、Error / ErrorList；错误收集在 s.errors，不用回调 |
 | `std.go.ast` | go/ast | 节点是一个枚举 Node（变体名同 Go 类型名，nil 是 Nil）；pos / end、comment_text、children（Walk 顺序）、preorder、inspect（折叠）、fprint（ast.Fprint 格式，含 NotNilFilter）、Object / Scope；Ident.obj 是 File.objects 的编号。没有 CommentMap、Filter、MergePackageFiles |

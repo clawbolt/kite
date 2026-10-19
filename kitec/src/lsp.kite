@@ -13,9 +13,9 @@ use std.encoding.json
 use std.kite.ast as ast
 use std.kite.scanner as lexer
 use std.kite.parser as parser
-use check
-use modules
-use builtins
+use std.kite.check as check
+use std.kite.modules as modules
+use std.kite.builtins as builtins
 use std.kite.format as fmt
 
 // ───────── JSON 小工具 ─────────

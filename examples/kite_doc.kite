@@ -1,0 +1,19 @@
+// std.kite.doc：从 Kite 源码提取文档
+use std.kite.doc
+
+fn main() {
+  let m = unwrap(doc.from_file("tests/kite_doc/geom.kite"))
+  print(m.name, len(m.items))
+  print(doc.synopsis(m.doc))
+  for it in m.items {
+    print(
+      "{it.kind} {it.name} @{it.line} attrs={it.attrs} methods={len(it.methods)} | {doc.synopsis(it.doc)}",
+    )
+  }
+  print("-----")
+  print(doc.text(m))
+  print("-----")
+  print(doc.markdown(m))
+  print(doc.from_source("bad", "pub fn f( \{"))
+  print(doc.synopsis("Hello world. More.\nnext"), doc.synopsis("一行\n两行\n\n三"))
+}

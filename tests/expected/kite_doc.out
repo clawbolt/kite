@@ -1,0 +1,145 @@
+geom 8
+几何小工具。
+type Point @6 attrs=[] methods=0 | 平面上的点
+enum Shape @9 attrs=[] methods=0 | 形状
+const PI @15 attrs=[] methods=0 | 圆周率（近似）
+trait Area @18 attrs=[] methods=0 | 能算面积的东西
+impl Shape @22 attrs=[] methods=1 | 
+fn dist2 @34 attrs=[] methods=0 | 两点距离的平方。
+fn make_rect @41 attrs=[] methods=0 | 很长的参数表会被格式化器折行
+fn distance2 @52 attrs=["deprecated"] methods=0 | 旧名字
+-----
+module geom
+
+几何小工具。用来测试 std.kite.doc。
+
+第二段：坐标都是 Float。
+
+pub type Point = { x: Float, y: Float }
+    平面上的点
+
+pub enum Shape {
+  Circle(Point, Float)
+  Rect { lo: Point, hi: Point }
+}
+    形状
+
+pub const PI: Float = 3.14159
+    圆周率（近似）
+
+pub trait Area {
+  fn area(self) -> Float
+}
+    能算面积的东西
+
+impl Area for Shape
+    fn area(self) -> Float
+        面积
+
+pub fn dist2(a: Point, b: Point) -> Float
+    两点距离的平方。
+    不开方，比较大小时够用
+
+pub fn make_rect(
+  x0: Float,
+  y0: Float,
+  x1: Float,
+  y1: Float,
+) -> Shape
+    很长的参数表会被格式化器折行
+
+pub fn distance2(a: Point, b: Point) -> Float
+    旧名字
+
+-----
+# geom
+
+几何小工具。用来测试 std.kite.doc。
+
+第二段：坐标都是 Float。
+
+## type Point
+
+```kite
+pub type Point = { x: Float, y: Float }
+```
+
+平面上的点
+
+## enum Shape
+
+```kite
+pub enum Shape {
+  Circle(Point, Float)
+  Rect { lo: Point, hi: Point }
+}
+```
+
+形状
+
+## const PI
+
+```kite
+pub const PI: Float = 3.14159
+```
+
+圆周率（近似）
+
+## trait Area
+
+```kite
+pub trait Area {
+  fn area(self) -> Float
+}
+```
+
+能算面积的东西
+
+## impl Shape
+
+```kite
+impl Area for Shape
+```
+
+### fn area
+
+```kite
+fn area(self) -> Float
+```
+
+面积
+
+## fn dist2
+
+```kite
+pub fn dist2(a: Point, b: Point) -> Float
+```
+
+两点距离的平方。
+不开方，比较大小时够用
+
+## fn make_rect
+
+```kite
+pub fn make_rect(
+  x0: Float,
+  y0: Float,
+  x1: Float,
+  y1: Float,
+) -> Shape
+```
+
+很长的参数表会被格式化器折行
+
+## fn distance2
+
+```kite
+pub fn distance2(a: Point, b: Point) -> Float
+```
+
+旧名字
+
+**已废弃**
+
+Err("ERR 1:11 语法错误: 期望标识符，实际是 '{'")
+Hello world. 一行 两行

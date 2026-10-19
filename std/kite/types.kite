@@ -1,0 +1,153 @@
+// std.kite.types：Kite 类型检查（对应 Go 的 go/types；底下就是 kitec check 用的检查器 std.kite.check）
+//   check_file(file) / check_source(file, src) -> Result<Info, List<Diag>>：读入程序（含它 use 的模块和依赖包）并做类型检查
+//   Info = { ir（类型化 IR：拼接、改名后的顶层项，表达式节点带 Node.t）, sigs（主文件顶层函数的签名）,
+//            locals（局部绑定的类型，供悬停之类）, warnings（@deprecated 等警告）, files（源文件表）}
+//   Diag = { file, line, col, msg }：文字和 kitec check 的报错相同（不截断，按行号排序）；line / col 不知道时为 0
+//   sig(info, 名字)、locals_at(info, file, line)、type_text(info, 名字)：常用查询
+//   home()：Kite 安装目录（$KITE_HOME，或从当前目录往上找有 prelude.kite 的目录）
+use std.fs
+use std.env
+use std.path
+use std.kite.ast as ast
+use std.kite.parser as parser
+use std.kite.check as check
+use std.kite.modules as modules
+
+pub type Diag = { file: Str, line: Int, col: Int, msg: Str }
+
+pub type Local = { file: Str, line: Int, name: Str, ty: Str, kind: Str }
+
+pub type Info = {
+  ir: List<ast.Node>,
+  sigs: List<(Str, Str)>,
+  locals: List<Local>,
+  warnings: List<Diag>,
+  files: List<Str>,
+}
+
+fn is_home(d: Str) -> Bool { fs.exists(path.join([d, "prelude.kite"])) }
+
+pub fn home() -> Str? {
+  if let Some(h) = env.get("KITE_HOME") { if trim(h) != "" && is_home(h) { return Some(h) } }
+  var d = __getcwd()
+  var n = 0
+  while d != "" && n < 16 {
+    if is_home(d) { return Some(d) }
+    let p = path.dir(d)
+    if p == d { return None }
+    d = p
+    n += 1
+  }
+  None
+}
+
+fn diag(files: List<Str>, file: Str, ln: Int, msg: Str) -> Diag {
+  let i = ln / modules.LINE_BASE
+  let m = modules.strip_lm(msg)
+  if ln > 0 && i > 0 && i < len(files) {
+    Diag { file: files[i], line: ln % modules.LINE_BASE, col: 0, msg: m }
+  } else if ln > 0 && ln < modules.LINE_BASE {
+    Diag { file: file, line: ln, col: 0, msg: m }
+  } else {
+    Diag { file: file, line: 0, col: 0, msg: m }
+  }
+}
+
+// "文件:行[:列]: 信息"（模块系统报语法错误的格式）拆开
+fn located(file: Str, s: Str) -> Diag {
+  let i = __str_find(s, ": ", 0)
+  if i < 0 { return Diag { file: file, line: 0, col: 0, msg: s } }
+  let hp = split(__str_slice(s, 0, i), ":")
+  let msg = __str_slice(s, i + 2, len(s))
+  var nums: List<Int> = []
+  var k = len(hp) - 1
+  while k > 0 && len(nums) < 2 {
+    match parse_int(hp[k]) {
+      Ok(n) => { nums = [n] + nums },
+      Err(_) => { break },
+    }
+    k -= 1
+  }
+  if len(nums) == 0 { return Diag { file: file, line: 0, col: 0, msg: s } }
+  let f = join(take(hp, len(hp) - len(nums)), ":")
+  Diag { file: f, line: nums[0], col: if len(nums) > 1 { nums[1] } else { 0 }, msg: msg }
+}
+
+fn one(file: Str, msg: Str) -> Result<Info, List<Diag>> {
+  Err([Diag { file: file, line: 0, col: 0, msg: msg }])
+}
+
+pub fn check_file(file: Str) -> Result<Info, List<Diag>> {
+  match fs.read(file) {
+    Ok(src) => check_source(file, src),
+    Err(e) => one(file, "读取失败: {e}"),
+  }
+}
+
+// src 当作文件 file 的内容（文件不必存在；它 use 的模块相对 file 所在目录查找）
+pub fn check_source(file: Str, src: Str) -> Result<Info, List<Diag>> {
+  let h = match home() {
+    Some(x) => x,
+    None => { return one(file, "找不到 Kite 安装目录（prelude.kite）：请设置环境变量 KITE_HOME") },
+  }
+  let pre = match fs.read(path.join([h, "prelude.kite"])) {
+    Ok(x) => x,
+    Err(e) => { return one(file, "读取 prelude 失败: {e}") },
+  }
+  let pits = match parser.parse(pre) {
+    Ok(x) => x,
+    Err(e) => { return one(file, "prelude: " + e) },
+  }
+  let l = modules.with_overlay(modules.new_l(__getcwd(), file, h), src)
+  let (items, files) = match modules.load_main_src(l, file) {
+    Ok(r) => r,
+    Err(e) => {
+      if e.ln == -2 { return Err([located(file, modules.strip_lm(e.msg))]) }
+      if e.ln == -1 { return one(file, modules.strip_lm(e.msg)) }
+      return Err([diag([], file, e.ln, e.msg)])
+    },
+  }
+  let (errs, sigs, low, c) = check.check_c(pits, items)
+  if len(errs) > 0 { return Err(map(errs, (e) => diag(files, file, e.0, e.1))) }
+  var locals: List<Local> = []
+  var seen: Set<(Int, Str)> = Set()
+  for x in check.local_types(c) {
+    if contains(seen, (x.0, x.1)) { continue }
+    seen = insert(seen, (x.0, x.1))
+    let d = diag(files, file, x.0, "")
+    locals = push(locals, Local { file: d.file, line: d.line, name: x.1, ty: x.2, kind: x.3 })
+  }
+  Ok(Info {
+    ir: low,
+    sigs: sigs,
+    locals: locals,
+    warnings: map(sort(c.warns), (w) => diag(files, file, w.0, w.1)),
+    files: files,
+  })
+}
+
+// 主文件顶层函数的签名，如 "fn(Int, Int) -> Int"
+pub fn sig(info: Info, name: Str) -> Str? {
+  for (n, s) in info.sigs { if n == name { return Some(s) } }
+  None
+}
+
+pub fn locals_at(info: Info, file: Str, line: Int) -> List<Local> {
+  filter(info.locals, (l) => l.file == file && l.line == line)
+}
+
+// 局部绑定的类型（同名取第一个）
+pub fn type_text(info: Info, name: Str) -> Str? {
+  for l in info.locals { if l.name == name { return Some(l.ty) } }
+  None
+}
+
+pub fn format_diag(d: Diag) -> Str {
+  if d.line > 0 && d.col > 0 {
+    "{d.file}:{d.line}:{d.col}: {d.msg}"
+  } else if d.line > 0 {
+    "{d.file}:{d.line}: {d.msg}"
+  } else {
+    "{d.file}: {d.msg}"
+  }
+}

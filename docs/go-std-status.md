@@ -17,9 +17,9 @@ Go 标准库里有一部分是给 Go 语言自己用的（解析、类型检查�
 | go/ast | std.kite.ast | 完成（kitec 的强类型语法树，类型检查后带 Node.t） |
 | go/parser | std.kite.parser | 完成（kitec 的语法分析） |
 | go/format、go/printer | std.kite.format | 完成（kitec fmt 的格式化器，规则见 docs/fmt.md） |
-| go/types | std.kite.types | 计划：包装 kitec 的 check + std.kite.ty（类型表示已在 std.kite.ty） |
-| go/doc | std.kite.doc | 计划：从 // 注释和 pub 声明提取文档 |
-| go/version | std.kite.version | 计划 |
+| go/types | std.kite.types | 完成（2026-10-19；检查器 std.kite.check、模块加载 std.kite.modules 也移入标准库） |
+| go/doc | std.kite.doc | 完成（2026-10-19；text / markdown 输出） |
+| go/version | std.kite.version | 完成（2026-10-19；Kite 包的语义化版本与约束，kitec 包管理用的同一份） |
 | go/constant | — | 不需要：Kite 常量就是普通值 |
 | debug/gosym、debug/buildinfo | — | 不移植：描述的是 Go 二进制 |
 

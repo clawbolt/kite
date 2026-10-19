@@ -1,0 +1,55 @@
+// 几何小工具。用来测试 std.kite.doc。
+//
+// 第二段：坐标都是 Float。
+
+// 平面上的点
+pub type Point = { x: Float, y: Float }
+
+// 形状
+pub enum Shape {
+  Circle(Point, Float)
+  Rect { lo: Point, hi: Point }
+}
+
+// 圆周率（近似）
+pub const PI: Float = 3.14159
+
+// 能算面积的东西
+pub trait Area {
+  fn area(self) -> Float
+}
+
+impl Area for Shape {
+  // 面积
+  fn area(self) -> Float {
+    match self {
+      Circle(_, r) => PI * r * r,
+      Rect { lo, hi } => (hi.x - lo.x) * (hi.y - lo.y),
+    }
+  }
+}
+
+// 两点距离的平方。
+// 不开方，比较大小时够用
+pub fn dist2(a: Point, b: Point) -> Float {
+  let dx = a.x - b.x
+  let dy = a.y - b.y
+  dx * dx + dy * dy
+}
+
+// 很长的参数表会被格式化器折行
+pub fn make_rect(
+  x0: Float,
+  y0: Float,
+  x1: Float,
+  y1: Float,
+) -> Shape {
+  Rect { lo: Point { x: x0, y: y0 }, hi: Point { x: x1, y: y1 } }
+}
+
+// 旧名字
+@deprecated("用 dist2")
+pub fn distance2(a: Point, b: Point) -> Float { dist2(a, b) }
+
+// 不导出的
+fn helper() -> Int { 1 }

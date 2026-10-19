@@ -6,7 +6,7 @@ use std.kite.ast as ast
 use std.kite.val as val
 use std.kite.val.{ V, sv, iv, items, is_nil }
 use std.kite.ast.{ Node, K, Lit, Nm, Pat, Arm, SArm, MatchD, FnD, kname }
-use modules
+use std.kite.modules as modules
 
 type Lp = {
   breaks: List<Int>,

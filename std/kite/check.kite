@@ -31,7 +31,7 @@ use std.kite.ast.{
 use std.kite.ty as tys
 use std.kite.ty.{ Ty, tcon, fn_t, list_t, tname, targs, is_tv, is_tr, is_tg, is_con }
 use std.kite.parser as parser
-use builtins
+use std.kite.builtins as builtins
 use std.kite.scanner.{ repr_str }
 pub enum FT {
   FTy(Ty),

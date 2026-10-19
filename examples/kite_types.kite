@@ -1,0 +1,42 @@
+// std.kite.types：对 Kite 代码做类型检查，查询签名和局部变量的类型
+use std.kite.ast
+use std.kite.types
+
+fn main() {
+  let good =
+    "fn add(a: Int, b: Int) -> Int \{ a + b }\nfn pair<T>(x: T) -> (T, T) \{ (x, x) }\nfn main() \{\n  let xs = map([1, 2, 3], (x) => add(x, 1))\n  let p = pair(\"hi\")\n  var n = 0\n  for x in xs \{ n += x }\n  print(n, p)\n}\n"
+  match types.check_source("demo.kite", good) {
+    Ok(info) => {
+      for (n, s) in info.sigs { print("sig {n}: {s}") }
+      for l in info.locals { print("local {l.file}:{l.line} {l.kind} {l.name}: {l.ty}") }
+      print(
+        "add =",
+        types.sig(info, "add"),
+        "p =",
+        types.type_text(info, "p"),
+        "zz =",
+        types.type_text(info, "zz"),
+      )
+      print("line 4:", map(types.locals_at(info, "demo.kite", 4), (l) => l.name))
+      print("ir", len(info.ir) > 0, "warnings", len(info.warnings))
+    },
+    Err(ds) => { for d in ds { print(types.format_diag(d)) } },
+  }
+  let bad = "fn f(x: Int) -> Str \{ x }\nfn main() \{\n  let y: Int = \"s\"\n  print(f(1), zz)\n}\n"
+  match types.check_source("bad.kite", bad) {
+    Ok(_) => print("unexpected ok"),
+    Err(ds) => { for d in ds { print(types.format_diag(d)) } },
+  }
+  match types.check_source("syn.kite", "fn main() \{ let = 1 }\n") {
+    Ok(_) => print("unexpected ok"),
+    Err(ds) => { for d in ds { print(types.format_diag(d), d.line, d.col) } },
+  }
+  match types.check_source("use.kite", "use nosuch\nfn main() \{}\n") {
+    Ok(_) => print("unexpected ok"),
+    Err(ds) => { for d in ds { print(types.format_diag(d)) } },
+  }
+  match types.check_file("examples/assoc.kite") {
+    Ok(info) => print("assoc.kite ok, sigs", len(info.sigs)),
+    Err(ds) => { for d in ds { print(types.format_diag(d)) } },
+  }
+}

@@ -11,7 +11,7 @@ use std.kite.val.{ V, sv, iv, items, is_nil }
 use std.kite.ast.{ Node, K, Lit, Nm, Pat, Arm, MatchD, FnD, TyX, kname }
 use std.kite.ty as tys
 use std.kite.ty.{ Ty }
-use check
+use std.kite.check as check
 use bc
 
 pub enum A {

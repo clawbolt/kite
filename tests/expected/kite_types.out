@@ -1,0 +1,20 @@
+sig add: fn(Int, Int) -> Int
+sig pair: fn(T) -> (T, T)
+sig main: fn() -> Unit
+local demo.kite:1 param a: Int
+local demo.kite:1 param b: Int
+local demo.kite:2 param x: T
+local demo.kite:4 param x: Int
+local demo.kite:4 let xs: List<Int>
+local demo.kite:5 let p: (Str, Str)
+local demo.kite:6 var n: Int
+local demo.kite:7 let x: Int
+add = Some("fn(Int, Int) -> Int") p = Some("(Str, Str)") zz = None
+line 4: ["x", "xs"]
+ir true warnings 0
+bad.kite:1: 类型错误: 函数 f 的返回值：期望 Str，实际是 Int
+bad.kite:3: 类型错误: let 的类型标注：期望 Int，实际是 Str
+bad.kite:4: 类型错误: 未定义的名字 zz
+syn.kite:1:17: 语法错误: 无效的模式 '=' 1 17
+use.kite:1: 找不到模块 nosuch（没有 nosuch.kite，也不是 kite.toml 里的依赖）
+assoc.kite ok, sigs 3

@@ -1,6 +1,6 @@
 # kitec：用 Kite 写的 Kite 编译器（自举进行中）
 
-> 2026-10-19 起，前端源码移到标准库：`std/kite/scanner.kite`（原 lexer）、`ast.kite`、`parser.kite`、`format.kite`（原 fmt，命令行部分留在 `src/fmtcli.kite`）、`ty.kite`（原 tys）、`val.kite`。kitec 用 `use std.kite.scanner as lexer` 这样引用，下文的旧路径按此对应。
+> 2026-10-19 起，前端源码移到标准库：`std/kite/scanner.kite`（原 lexer）、`ast.kite`、`parser.kite`、`format.kite`（原 fmt，命令行部分留在 `src/fmtcli.kite`）、`ty.kite`（原 tys）、`val.kite`，以及 `check.kite`、`builtins.kite`、`modules.kite`（语义化版本在 `version.kite`）。kitec 用 `use std.kite.scanner as lexer` 这样引用，下文的旧路径按此对应。
 
 自举分四步，每一步都和 Python 版逐字节对拍：
 

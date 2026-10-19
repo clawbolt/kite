@@ -3,8 +3,8 @@ use std.env
 use std.kite.ast as ast
 use std.kite.scanner as lexer
 use std.kite.parser as parser
-use check
-use modules
+use std.kite.check as check
+use std.kite.modules as modules
 use std.path
 use bc
 use cgen
