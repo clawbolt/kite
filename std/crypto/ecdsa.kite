@@ -1,5 +1,5 @@
 // std.crypto.ecdsa：对齐 Go 1.27 的 crypto/ecdsa（P-256、P-384、P-521）
-//   曲线编号与 std.crypto.ecdh 相同：P256 = 1，P384 = 2，P521 = 3。
+//   曲线编号与 std.crypto.ecdh 相同：P256 = 1，P384 = 2，P521 = 3；另有 P224 = 0（ecdh 没有）。
 //   sign 对应 PrivateKey.Sign(nil, digest, hash)，即 RFC 6979 的确定性签名，输出 DER；
 //   verify_asn1 对应 VerifyASN1。哈希用 crypto.Hash 的编号：SHA1 = 3，SHA224 = 4，SHA256 = 5，SHA384 = 6，SHA512 = 7。
 //   不提供需要随机数的 GenerateKey / SignASN1
@@ -13,6 +13,7 @@ use std.crypto.sha1
 use std.crypto.sha256
 use std.crypto.sha512
 
+pub const P224: Int = 0
 pub const P256: Int = 1
 pub const P384: Int = 2
 pub const P521: Int = 3
@@ -28,7 +29,15 @@ pub type PrivateKey = { curve: Int, d: List<Int>, q: List<Int> }
 pub type PublicKey = { curve: Int, q: List<Int> }
 
 fn nist(c: Int) -> Curve {
-  if c == P256 { nistec.p256() } else if c == P384 { nistec.p384() } else { nistec.p521() }
+  if c == P224 {
+    nistec.p224()
+  } else if c == P256 {
+    nistec.p256()
+  } else if c == P384 {
+    nistec.p384()
+  } else {
+    nistec.p521()
+  }
 }
 
 fn hash_fn(h: Int) -> fn(List<Int>) -> List<Int> {

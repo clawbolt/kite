@@ -1,0 +1,569 @@
+sig 0: root=<nil> self=<nil> prev=x509: invalid signature: parent certificate cannot sign this kind of certificate
+  check=<nil>
+sig 1: root=<nil> self=x509: invalid signature: parent certificate cannot sign this kind of certificate prev=<nil>
+  check=crypto/rsa: verification error
+sig 2: root=<nil> self=x509: invalid signature: parent certificate cannot sign this kind of certificate prev=x509: invalid signature: parent certificate cannot sign this kind of certificate
+  check=x509: signature algorithm specifies an RSA public key, but have public key of type *ecdsa.PublicKey
+sig 3: root=<nil> self=x509: invalid signature: parent certificate cannot sign this kind of certificate prev=x509: invalid signature: parent certificate cannot sign this kind of certificate
+  check=x509: signature algorithm specifies an RSA public key, but have public key of type *ecdsa.PublicKey
+sig 4: root=<nil> self=x509: invalid signature: parent certificate cannot sign this kind of certificate prev=x509: invalid signature: parent certificate cannot sign this kind of certificate
+  check=x509: signature algorithm specifies an RSA public key, but have public key of type *ecdsa.PublicKey
+sig 5: root=<nil> self=x509: invalid signature: parent certificate cannot sign this kind of certificate prev=x509: invalid signature: parent certificate cannot sign this kind of certificate
+  check=x509: signature algorithm specifies an RSA public key, but have public key of type *ecdsa.PublicKey
+sig 6: root=<nil> self=x509: invalid signature: parent certificate cannot sign this kind of certificate prev=x509: invalid signature: parent certificate cannot sign this kind of certificate
+  check=x509: signature algorithm specifies an RSA public key, but have public key of type ed25519.PublicKey
+sig 7: root=<nil> self=x509: invalid signature: parent certificate cannot sign this kind of certificate prev=x509: invalid signature: parent certificate cannot sign this kind of certificate
+  check=x509: signature algorithm specifies an RSA public key, but have public key of type *mldsa.PublicKey
+sig 8: root=<nil> self=x509: invalid signature: parent certificate cannot sign this kind of certificate prev=x509: invalid signature: parent certificate cannot sign this kind of certificate
+  check=<nil>
+sig 9: root=<nil> self=x509: invalid signature: parent certificate cannot sign this kind of certificate prev=x509: invalid signature: parent certificate cannot sign this kind of certificate
+  check=<nil>
+sig 10: root=<nil> self=x509: invalid signature: parent certificate cannot sign this kind of certificate prev=x509: invalid signature: parent certificate cannot sign this kind of certificate
+  check=<nil>
+sig 11: root=<nil> self=x509: invalid signature: parent certificate cannot sign this kind of certificate prev=x509: invalid signature: parent certificate cannot sign this kind of certificate
+  check=<nil>
+sig 12: root=<nil> self=x509: invalid signature: parent certificate cannot sign this kind of certificate prev=x509: invalid signature: parent certificate cannot sign this kind of certificate
+  check=<nil>
+sig 13: root=<nil> self=x509: invalid signature: parent certificate cannot sign this kind of certificate prev=x509: invalid signature: parent certificate cannot sign this kind of certificate
+  check=<nil>
+sig 14: root=<nil> self=x509: invalid signature: parent certificate cannot sign this kind of certificate prev=x509: invalid signature: parent certificate cannot sign this kind of certificate
+  check=<nil>
+sig 15: root=x509: signature algorithm specifies an ECDSA public key, but have public key of type *rsa.PublicKey self=x509: invalid signature: parent certificate cannot sign this kind of certificate prev=x509: invalid signature: parent certificate cannot sign this kind of certificate
+  check=<nil>
+sig 16: root=x509: signature algorithm specifies an ECDSA public key, but have public key of type *rsa.PublicKey self=x509: invalid signature: parent certificate cannot sign this kind of certificate prev=x509: invalid signature: parent certificate cannot sign this kind of certificate
+  check=<nil>
+sig 17: root=x509: signature algorithm specifies an ECDSA public key, but have public key of type *rsa.PublicKey self=x509: invalid signature: parent certificate cannot sign this kind of certificate prev=x509: invalid signature: parent certificate cannot sign this kind of certificate
+  check=<nil>
+sig 18: root=x509: signature algorithm specifies an Ed25519 public key, but have public key of type *rsa.PublicKey self=x509: invalid signature: parent certificate cannot sign this kind of certificate prev=x509: invalid signature: parent certificate cannot sign this kind of certificate
+  check=<nil>
+sig 19: root=x509: signature algorithm specifies an ML-DSA public key, but have public key of type *rsa.PublicKey self=x509: invalid signature: parent certificate cannot sign this kind of certificate prev=x509: invalid signature: parent certificate cannot sign this kind of certificate
+  check=<nil>
+sig 20: root=x509: cannot verify signature: insecure algorithm SHA1-RSA self=x509: invalid signature: parent certificate cannot sign this kind of certificate prev=x509: invalid signature: parent certificate cannot sign this kind of certificate
+  check=<nil>
+sig 21: root=x509: cannot verify signature: insecure algorithm ECDSA-SHA1 self=x509: invalid signature: parent certificate cannot sign this kind of certificate prev=x509: invalid signature: parent certificate cannot sign this kind of certificate
+  check=<nil>
+sig 22: root=x509: cannot verify signature: insecure algorithm ECDSA-SHA1 self=x509: cannot verify signature: insecure algorithm ECDSA-SHA1 prev=x509: invalid signature: parent certificate cannot sign this kind of certificate
+  check=<nil>
+sig 23: root=x509: signature algorithm specifies an ECDSA public key, but have public key of type *rsa.PublicKey self=<nil> prev=x509: ECDSA verification failure
+  check=<nil>
+sig 24: root=x509: signature algorithm specifies an ECDSA public key, but have public key of type *rsa.PublicKey self=<nil> prev=x509: ECDSA verification failure
+  check=<nil>
+sig 25: root=x509: signature algorithm specifies an ECDSA public key, but have public key of type *rsa.PublicKey self=<nil> prev=x509: ECDSA verification failure
+  check=<nil>
+sig 26: root=x509: cannot verify signature: insecure algorithm DSA-SHA1 self=x509: cannot verify signature: insecure algorithm DSA-SHA1 prev=x509: cannot verify signature: insecure algorithm DSA-SHA1
+  check=x509: cannot verify signature: algorithm unimplemented
+sig 27: root=crypto/rsa: verification error self=<nil> prev=x509: cannot verify signature: algorithm unimplemented
+  check=<nil>
+sig 28: root=crypto/rsa: verification error self=<nil> prev=crypto/rsa: verification error
+  check=<nil>
+sig 29: root=x509: signature algorithm specifies an Ed25519 public key, but have public key of type *rsa.PublicKey self=<nil> prev=x509: signature algorithm specifies an Ed25519 public key, but have public key of type *rsa.PublicKey
+  check=<nil>
+sig 30: root=crypto/rsa: verification error self=x509: invalid signature: parent certificate cannot sign this kind of certificate prev=x509: signature algorithm specifies an RSA public key, but have public key of type ed25519.PublicKey
+  check=<nil>
+sig 31: root=x509: signature algorithm specifies an Ed25519 public key, but have public key of type *rsa.PublicKey self=<nil> prev=x509: invalid signature: parent certificate cannot sign this kind of certificate
+  check=<nil>
+sig 32: root=x509: cannot verify signature: insecure algorithm MD5-RSA self=x509: cannot verify signature: insecure algorithm MD5-RSA prev=x509: cannot verify signature: insecure algorithm MD5-RSA
+  check=x509: cannot verify signature: insecure algorithm MD5-RSA
+sig 33: root=x509: cannot verify signature: insecure algorithm SHA1-RSA self=x509: invalid signature: parent certificate cannot sign this kind of certificate prev=x509: cannot verify signature: insecure algorithm SHA1-RSA
+  check=crypto/rsa: verification error
+sig 34: root=x509: cannot verify signature: insecure algorithm SHA1-RSA self=x509: invalid signature: parent certificate cannot sign this kind of certificate prev=x509: invalid signature: parent certificate cannot sign this kind of certificate
+  check=crypto/rsa: verification error
+sig 35: root=crypto/rsa: verification error self=x509: invalid signature: parent certificate cannot sign this kind of certificate prev=x509: invalid signature: parent certificate cannot sign this kind of certificate
+  check=<nil>
+sig 36: root=crypto/rsa: verification error self=x509: invalid signature: parent certificate cannot sign this kind of certificate prev=x509: invalid signature: parent certificate cannot sign this kind of certificate
+  check=crypto/rsa: verification error
+sig 37: root=crypto/rsa: verification error self=crypto/rsa: verification error prev=x509: invalid signature: parent certificate cannot sign this kind of certificate
+  check=crypto/rsa: verification error
+sig 38: root=crypto/rsa: verification error self=crypto/rsa: verification error prev=crypto/rsa: verification error
+  check=crypto/rsa: verification error
+sig 39: root=crypto/rsa: verification error self=x509: invalid signature: parent certificate cannot sign this kind of certificate prev=crypto/rsa: verification error
+  check=x509: signature algorithm specifies an RSA public key, but have public key of type *ecdsa.PublicKey
+sig 40: root=crypto/rsa: verification error self=x509: invalid signature: parent certificate cannot sign this kind of certificate prev=x509: invalid signature: parent certificate cannot sign this kind of certificate
+  check=crypto/rsa: verification error
+sig 41: root=x509: cannot verify signature: insecure algorithm SHA1-RSA self=x509: cannot verify signature: insecure algorithm SHA1-RSA prev=x509: invalid signature: parent certificate cannot sign this kind of certificate
+  check=crypto/rsa: verification error
+sig 42: root=crypto/rsa: verification error self=x509: invalid signature: parent certificate cannot sign this kind of certificate prev=crypto/rsa: verification error
+  check=<nil>
+sig 43: root=x509: cannot verify signature: insecure algorithm SHA1-RSA self=x509: invalid signature: parent certificate cannot sign this kind of certificate prev=x509: invalid signature: parent certificate cannot sign this kind of certificate
+  check=crypto/rsa: verification error
+sig 44: root=x509: signature algorithm specifies an ML-DSA public key, but have public key of type *rsa.PublicKey self=<nil> prev=x509: invalid signature: parent certificate cannot sign this kind of certificate
+  check=<nil>
+sig 45: root=x509: signature algorithm specifies an ML-DSA public key, but have public key of type *rsa.PublicKey self=<nil> prev=x509: signature algorithm specifies an ML-DSA public key with ML-DSA-65 parameters, but have a public key with ML-DSA-44 parameters
+  check=<nil>
+sig 46: root=x509: signature algorithm specifies an ML-DSA public key, but have public key of type *rsa.PublicKey self=<nil> prev=x509: signature algorithm specifies an ML-DSA public key with ML-DSA-87 parameters, but have a public key with ML-DSA-65 parameters
+  check=<nil>
+sig 47: root=crypto/rsa: verification error self=crypto/rsa: verification error prev=x509: signature algorithm specifies an RSA public key, but have public key of type *mldsa.PublicKey
+  check=crypto/rsa: verification error
+sig 48: root=crypto/rsa: verification error self=<nil> prev=crypto/rsa: verification error
+  check=<nil>
+sig 49: root=crypto/rsa: verification error self=x509: invalid signature: parent certificate cannot sign this kind of certificate prev=crypto/rsa: verification error
+  check=crypto/rsa: verification error
+sig 50: root=x509: cannot verify signature: algorithm unimplemented self=x509: invalid signature: parent certificate cannot sign this kind of certificate prev=x509: invalid signature: parent certificate cannot sign this kind of certificate
+  check=x509: cannot verify signature: algorithm unimplemented
+sig 51: root=crypto/rsa: verification error self=x509: invalid signature: parent certificate cannot sign this kind of certificate prev=x509: invalid signature: parent certificate cannot sign this kind of certificate
+  check=crypto/rsa: verification error
+sig 52: root=crypto/rsa: verification error self=crypto/rsa: verification error prev=x509: invalid signature: parent certificate cannot sign this kind of certificate
+  check=crypto/rsa: verification error
+sig 53: root=crypto/rsa: verification error self=<nil> prev=crypto/rsa: verification error
+  check=<nil>
+sig 54: root=crypto/rsa: verification error self=x509: invalid signature: parent certificate cannot sign this kind of certificate prev=crypto/rsa: verification error
+  check=crypto/rsa: verification error
+sig 55: root=crypto/rsa: verification error self=crypto/rsa: verification error prev=x509: invalid signature: parent certificate cannot sign this kind of certificate
+  check=crypto/rsa: verification error
+sig 56: root=crypto/rsa: verification error self=crypto/rsa: verification error prev=crypto/rsa: verification error
+  check=crypto/rsa: verification error
+sig 57: root=crypto/rsa: verification error self=<nil> prev=crypto/rsa: verification error
+  check=<nil>
+sig 58: root=x509: cannot verify signature: insecure algorithm SHA1-RSA self=x509: cannot verify signature: insecure algorithm SHA1-RSA prev=x509: cannot verify signature: insecure algorithm SHA1-RSA
+  check=<nil>
+sig 59: root=crypto/rsa: verification error self=x509: signature algorithm specifies an RSA public key, but have public key of type *ecdsa.PublicKey prev=<nil>
+  check=x509: signature algorithm specifies an RSA public key, but have public key of type *ecdsa.PublicKey
+sig 60: root=x509: signature algorithm specifies an ECDSA public key, but have public key of type *rsa.PublicKey self=x509: invalid signature: parent certificate cannot sign this kind of certificate prev=<nil>
+  check=x509: ECDSA verification failure
+sig 61: root=crypto/rsa: verification error self=x509: invalid signature: parent certificate cannot sign this kind of certificate prev=x509: invalid signature: parent certificate cannot sign this kind of certificate
+  check=<nil>
+sig 62: root=crypto/rsa: verification error self=<nil> prev=x509: invalid signature: parent certificate cannot sign this kind of certificate
+  check=<nil>
+sig 63: root=crypto/rsa: verification error self=x509: invalid signature: parent certificate cannot sign this kind of certificate prev=<nil>
+  check=crypto/rsa: verification error
+sig 64: root=crypto/rsa: verification error self=<nil> prev=x509: invalid signature: parent certificate cannot sign this kind of certificate
+  check=<nil>
+sig 65: root=crypto/rsa: verification error self=crypto/rsa: verification error prev=<nil>
+  check=crypto/rsa: verification error
+sig 66: root=crypto/rsa: verification error self=x509: invalid signature: parent certificate cannot sign this kind of certificate prev=<nil>
+  check=crypto/rsa: verification error
+sig 67: root=crypto/rsa: verification error self=<nil> prev=x509: invalid signature: parent certificate cannot sign this kind of certificate
+  check=<nil>
+sig 68: root=crypto/rsa: verification error self=x509: invalid signature: parent certificate cannot sign this kind of certificate prev=<nil>
+  check=crypto/rsa: verification error
+sig 69: root=crypto/rsa: verification error self=x509: invalid signature: parent certificate cannot sign this kind of certificate prev=x509: invalid signature: parent certificate cannot sign this kind of certificate
+  check=crypto/rsa: verification error
+sig 70: root=crypto/rsa: verification error self=crypto/rsa: verification error prev=x509: invalid signature: parent certificate cannot sign this kind of certificate
+  check=crypto/rsa: verification error
+sig 71: root=crypto/rsa: verification error self=crypto/rsa: verification error prev=crypto/rsa: verification error
+  check=crypto/rsa: verification error
+sig 72: root=x509: signature algorithm specifies an ECDSA public key, but have public key of type *rsa.PublicKey self=<nil> prev=x509: signature algorithm specifies an ECDSA public key, but have public key of type *rsa.PublicKey
+  check=<nil>
+sig 73: root=x509: signature algorithm specifies an ECDSA public key, but have public key of type *rsa.PublicKey self=x509: ECDSA verification failure prev=<nil>
+  check=x509: ECDSA verification failure
+sig 74: root=x509: signature algorithm specifies an ECDSA public key, but have public key of type *rsa.PublicKey self=<nil> prev=x509: ECDSA verification failure
+  check=<nil>
+sig 75: root=x509: signature algorithm specifies an ECDSA public key, but have public key of type *rsa.PublicKey self=x509: invalid signature: parent certificate cannot sign this kind of certificate prev=<nil>
+  check=x509: ECDSA verification failure
+sig 76: root=x509: signature algorithm specifies an ECDSA public key, but have public key of type *rsa.PublicKey self=<nil> prev=x509: invalid signature: parent certificate cannot sign this kind of certificate
+  check=<nil>
+sig 77: root=x509: signature algorithm specifies an ECDSA public key, but have public key of type *rsa.PublicKey self=<nil> prev=x509: ECDSA verification failure
+  check=<nil>
+sig 78: root=x509: signature algorithm specifies an ECDSA public key, but have public key of type *rsa.PublicKey self=x509: invalid signature: parent certificate cannot sign this kind of certificate prev=<nil>
+  check=<nil>
+sig 79: root=crypto/rsa: verification error self=x509: invalid signature: parent certificate cannot sign this kind of certificate prev=x509: invalid signature: parent certificate cannot sign this kind of certificate
+  check=<nil>
+sig 80: root=crypto/rsa: verification error self=x509: invalid signature: parent certificate cannot sign this kind of certificate prev=x509: invalid signature: parent certificate cannot sign this kind of certificate
+  check=<nil>
+sig 81: root=crypto/rsa: verification error self=x509: invalid signature: parent certificate cannot sign this kind of certificate prev=x509: invalid signature: parent certificate cannot sign this kind of certificate
+  check=<nil>
+sig 82: root=x509: signature algorithm specifies an ECDSA public key, but have public key of type *rsa.PublicKey self=<nil> prev=x509: invalid signature: parent certificate cannot sign this kind of certificate
+  check=<nil>
+sig 83: root=x509: signature algorithm specifies an ECDSA public key, but have public key of type *rsa.PublicKey self=x509: ECDSA verification failure prev=<nil>
+  check=x509: ECDSA verification failure
+sig 84: root=x509: signature algorithm specifies an ECDSA public key, but have public key of type *rsa.PublicKey self=x509: invalid signature: parent certificate cannot sign this kind of certificate prev=<nil>
+  check=x509: ECDSA verification failure
+sig 85: root=x509: signature algorithm specifies an ECDSA public key, but have public key of type *rsa.PublicKey self=x509: ECDSA verification failure prev=x509: invalid signature: parent certificate cannot sign this kind of certificate
+  check=x509: ECDSA verification failure
+sig 86: root=x509: signature algorithm specifies an ECDSA public key, but have public key of type *rsa.PublicKey self=x509: invalid signature: parent certificate cannot sign this kind of certificate prev=<nil>
+  check=x509: ECDSA verification failure
+sig 87: root=crypto/rsa: verification error self=crypto/rsa: verification error prev=x509: invalid signature: parent certificate cannot sign this kind of certificate
+  check=crypto/rsa: verification error
+sig 88: root=x509: signature algorithm specifies an ECDSA public key, but have public key of type *rsa.PublicKey self=x509: invalid signature: parent certificate cannot sign this kind of certificate prev=x509: signature algorithm specifies an ECDSA public key, but have public key of type *rsa.PublicKey
+  check=x509: ECDSA verification failure
+sig 89: root=x509: cannot verify signature: insecure algorithm SHA1-RSA self=x509: cannot verify signature: insecure algorithm SHA1-RSA prev=x509: invalid signature: parent certificate cannot sign this kind of certificate
+  check=crypto/rsa: verification error
+sig 90: root=x509: cannot verify signature: insecure algorithm SHA1-RSA self=x509: invalid signature: parent certificate cannot sign this kind of certificate prev=x509: cannot verify signature: insecure algorithm SHA1-RSA
+  check=x509: signature algorithm specifies an RSA public key, but have public key of type *ecdsa.PublicKey
+badsig 0: crypto/rsa: verification error
+badtbs 0: crypto/rsa: verification error
+badsig 1: crypto/rsa: verification error
+badtbs 1: crypto/rsa: verification error
+badsig 2: x509: signature algorithm specifies an RSA public key, but have public key of type *ecdsa.PublicKey
+badtbs 2: x509: signature algorithm specifies an RSA public key, but have public key of type *ecdsa.PublicKey
+badsig 3: x509: signature algorithm specifies an RSA public key, but have public key of type *ecdsa.PublicKey
+badtbs 3: x509: signature algorithm specifies an RSA public key, but have public key of type *ecdsa.PublicKey
+badsig 4: x509: signature algorithm specifies an RSA public key, but have public key of type *ecdsa.PublicKey
+badtbs 4: x509: signature algorithm specifies an RSA public key, but have public key of type *ecdsa.PublicKey
+badsig 5: x509: signature algorithm specifies an RSA public key, but have public key of type *ecdsa.PublicKey
+badtbs 5: x509: signature algorithm specifies an RSA public key, but have public key of type *ecdsa.PublicKey
+badsig 6: x509: signature algorithm specifies an RSA public key, but have public key of type ed25519.PublicKey
+badtbs 6: x509: signature algorithm specifies an RSA public key, but have public key of type ed25519.PublicKey
+badsig 7: x509: signature algorithm specifies an RSA public key, but have public key of type *mldsa.PublicKey
+badtbs 7: x509: signature algorithm specifies an RSA public key, but have public key of type *mldsa.PublicKey
+badsig 8: crypto/rsa: verification error
+badtbs 8: crypto/rsa: verification error
+badsig 9: crypto/rsa: verification error
+badtbs 9: crypto/rsa: verification error
+badsig 10: crypto/rsa: verification error
+badtbs 10: crypto/rsa: verification error
+badsig 11: crypto/rsa: verification error
+badtbs 11: crypto/rsa: verification error
+crl 0: <nil> x509: invalid signature: parent certificate cannot sign this kind of certificate
+crl 1: <nil> x509: invalid signature: parent certificate cannot sign this kind of certificate
+crl 2: <nil> x509: invalid signature: parent certificate cannot sign this kind of certificate
+csr 0: v=0 subj=CN=csr.example.com,O=Kite sigalg=SHA256-RSA pkalg=RSA attrs=[] exts=[] dns=[] email=[] ip=[] uri=[] raw=626/346/294/43/15 sig=256 check=<nil>
+  mut 0 @497=191: ok CN=csr.example.com,O=Kite 0 crypto/rsa: verification error
+  mut 1 @433=198: ok CN=csr.example.com,O=Kite 0 crypto/rsa: verification error
+  mut 2 @114=31: ok CN=csr.example.com,O=Kite 0 crypto/rsa: verification error
+  mut 3 @141=10: ok CN=csr.example.com,O=Kite 0 crypto/rsa: verification error
+  mut 4 @459=101: ok CN=csr.example.com,O=Kite 0 crypto/rsa: verification error
+  mut 5 @369=9: asn1: syntax error: invalid padding bits in BIT STRING
+  mut 6 @560=44: ok CN=csr.example.com,O=Kite 0 crypto/rsa: verification error
+  mut 7 @237=192: ok CN=csr.example.com,O=Kite 0 crypto/rsa: verification error
+  mut 8 @53=210: x509: invalid RDNSequence: invalid attribute value: invalid PrintableString
+  mut 9 @79=235: x509: invalid RSA public key
+  mut 10 @285=113: ok CN=csr.example.com,O=Kite 0 crypto/rsa: verification error
+  mut 11 @310=5: ok CN=csr.example.com,O=Kite 0 crypto/rsa: verification error
+  mut 12 @232=230: ok CN=csr.example.com,O=Kite 0 crypto/rsa: verification error
+  mut 13 @478=75: ok CN=csr.example.com,O=Kite 0 crypto/rsa: verification error
+  mut 14 @366=204: asn1: structure error: length too large
+csr 1: v=0 subj=CN=csr.example.com,O=Kite sigalg=ECDSA-SHA256 pkalg=ECDSA attrs=["1.2.840.113549.1.9.14:2.5.29.17=[48 104 130 13 97 46 101 120 97 109 112 108 101 46 99 111 109 130 13 98 46 101 120 97 109 112 108 101 46 99 111 109 129 13 120 64 101 120 97 109 112 108 101 46 99 111 109 135 4 10 1 2 3 135 16 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1 134 33 104 116 116 112 115 58 47 47 101 120 97 109 112 108 101 46 99 111 109 47 112 97 116 104 63 113 61 49 35 102 114 97 103],1.2.3.4=true"] exts=["2.5.29.17/false/3068820d612e6578616d706c652e636f6d820d622e6578616d706c652e636f6d810d78406578616d706c652e636f6d87040a010203871000000000000000000000000000000001862168747470733a2f2f6578616d706c652e636f6d2f706174683f713d312366726167" "1.2.3.4/true/0500"] dns=["a.example.com" "b.example.com"] email=["x@example.com"] ip=["0a010203" "00000000000000000000000000000001"] uri=["https://example.com/path?q=1#frag"] raw=384/293/91/43/12 sig=72 check=<nil>
+  mut 0 @354=185: ok CN=csr.example.com,O=Kite 2 x509: ECDSA verification failure
+  mut 1 @214=129: x509: SAN rfc822Name is malformed
+  mut 2 @181=11: ok CN=csr.example.com,O=Kite 2 x509: ECDSA verification failure
+  mut 3 @107=31: P256 point not on curve
+  mut 4 @143=189: P256 point not on curve
+  mut 5 @197=131: x509: SAN dNSName is malformed
+  mut 6 @284=10: asn1: structure error: sequence tag mismatch
+  mut 7 @111=72: P256 point not on curve
+  mut 8 @199=239: x509: SAN dNSName is malformed
+  mut 9 @311=203: asn1: syntax error: invalid padding bits in BIT STRING
+  mut 10 @317=40: ok CN=csr.example.com,O=Kite 2 x509: ECDSA verification failure
+  mut 11 @39=41: ok CN=)sr.example.com,O=Kite 2 x509: ECDSA verification failure
+  mut 12 @234=48: ok CN=csr.example.com,O=Kite 2 x509: ECDSA verification failure
+  mut 13 @11=59: x509: invalid RDNSequence
+  mut 14 @122=68: P256 point not on curve
+csr 2: v=0 subj=CN=csr.example.com,O=Kite sigalg=ECDSA-SHA384 pkalg=ECDSA attrs=["1.2.840.113549.1.9.7:1.2.3=challenge"] exts=[] dns=[] email=[] ip=[] uri=[] raw=327/205/120/43/12 sig=103 check=<nil>
+  mut 0 @218=160: ok CN=csr.example.com,O=Kite 0 x509: cannot verify signature: algorithm unimplemented
+  mut 1 @126=96: P384 point not on curve
+  mut 2 @294=178: ok CN=csr.example.com,O=Kite 0 x509: ECDSA verification failure
+  mut 3 @224=64: ok CN=csr.example.com,O=Kite 0 x509: ECDSA verification failure
+  mut 4 @38=143: x509: invalid RDNSequence: invalid attribute value: invalid PrintableString
+  mut 5 @303=96: ok CN=csr.example.com,O=Kite 0 x509: ECDSA verification failure
+  mut 6 @130=16: P384 point not on curve
+  mut 7 @127=251: P384 point not on curve
+  mut 8 @262=212: ok CN=csr.example.com,O=Kite 0 x509: ECDSA verification failure
+  mut 9 @249=14: ok CN=csr.example.com,O=Kite 0 x509: ECDSA verification failure
+  mut 10 @55=53: asn1: structure error: tags don't match (16 vs {class:0 tag:21 length:16 isCompound:true}) {optional:false explicit:false application:false private:false defaultValue:<nil> tag:<nil> stringType:0 timeType:0 set:false omitEmpty:false} AlgorithmIdentifier @2
+  mut 11 @108=84: P384 point not on curve
+  mut 12 @309=80: ok CN=csr.example.com,O=Kite 0 x509: ECDSA verification failure
+  mut 13 @95=75: P384 point not on curve
+  mut 14 @101=1: P384 point not on curve
+csr 3: v=0 subj=CN=csr.example.com,O=Kite sigalg=Ed25519 pkalg=Ed25519 attrs=[] exts=[] dns=[] email=[] ip=[] uri=[] raw=171/94/44/43/7 sig=64 check=<nil>
+  mut 0 @153=45: ok CN=csr.example.com,O=Kite 0 x509: Ed25519 verification failure
+  mut 1 @3=228: asn1: structure error: tags don't match (16 vs {class:3 tag:4 length:92 isCompound:true}) {optional:false explicit:false application:false private:false defaultValue:<nil> tag:<nil> stringType:0 timeType:0 set:false omitEmpty:false} tbsCertificateRequest @2
+  mut 2 @145=247: ok CN=csr.example.com,O=Kite 0 x509: Ed25519 verification failure
+  mut 3 @161=84: ok CN=csr.example.com,O=Kite 0 x509: Ed25519 verification failure
+  mut 4 @139=101: ok CN=csr.example.com,O=Kite 0 x509: Ed25519 verification failure
+  mut 5 @143=110: ok CN=csr.example.com,O=Kite 0 x509: Ed25519 verification failure
+  mut 6 @44=242: x509: invalid RDNSequence: invalid attribute value: invalid PrintableString
+  mut 7 @14=14: x509: invalid RDNSequence: invalid attribute type
+  mut 8 @38=220: x509: invalid RDNSequence: invalid attribute value: invalid PrintableString
+  mut 9 @69=208: ok CN=csr.example.com,O=Kite 0 x509: Ed25519 verification failure
+  mut 10 @88=29: ok CN=csr.example.com,O=Kite 0 x509: Ed25519 verification failure
+  mut 11 @61=15: x509: wrong Ed25519 public key size
+  mut 12 @24=113: ok CN=csr.example.com,O=Kitq 0 x509: Ed25519 verification failure
+  mut 13 @91=232: ok CN=csr.example.com,O=Kite 0 x509: Ed25519 verification failure
+  mut 14 @114=86: ok CN=csr.example.com,O=Kite 0 x509: Ed25519 verification failure
+csr 4: v=0 subj=CN=csr.example.com,O=Kite sigalg=SHA384-RSAPSS pkalg=RSA attrs=[] exts=[] dns=[] email=[] ip=[] uri=[] raw=678/346/294/43/67 sig=256 check=<nil>
+  mut 0 @404=55: ok CN=csr.example.com,O=Kite 0 x509: cannot verify signature: algorithm unimplemented
+  mut 1 @113=6: ok CN=csr.example.com,O=Kite 0 crypto/rsa: verification error
+  mut 2 @120=152: ok CN=csr.example.com,O=Kite 0 crypto/rsa: verification error
+  mut 3 @635=126: ok CN=csr.example.com,O=Kite 0 crypto/rsa: verification error
+  mut 4 @414=102: ok CN=csr.example.com,O=Kite 0 x509: cannot verify signature: algorithm unimplemented
+  mut 5 @358=122: ok CN=csr.example.com,O=Kite 0 x509: cannot verify signature: algorithm unimplemented
+  mut 6 @333=190: ok CN=csr.example.com,O=Kite 0 crypto/rsa: verification error
+  mut 7 @170=117: ok CN=csr.example.com,O=Kite 0 crypto/rsa: verification error
+  mut 8 @633=124: ok CN=csr.example.com,O=Kite 0 crypto/rsa: verification error
+  mut 9 @423=172: ok CN=csr.example.com,O=Kite 0 crypto/rsa: verification error
+  mut 10 @471=60: ok CN=csr.example.com,O=Kite 0 crypto/rsa: verification error
+  mut 11 @598=27: ok CN=csr.example.com,O=Kite 0 crypto/rsa: verification error
+  mut 12 @291=89: ok CN=csr.example.com,O=Kite 0 crypto/rsa: verification error
+  mut 13 @432=126: ok CN=csr.example.com,O=Kite 0 crypto/rsa: verification error
+  mut 14 @385=240: ok CN=csr.example.com,O=Kite 0 x509: cannot verify signature: algorithm unimplemented
+csr 5: v=0 subj=CN=csr.example.com,O=Kite sigalg=ML-DSA-44 pkalg=ML-DSA attrs=[] exts=[] dns=[] email=[] ip=[] uri=[] raw=3828/1386/1334/43/13 sig=2420 check=<nil>
+  mut 0 @2085=81: ok CN=csr.example.com,O=Kite 0 x509: ML-DSA verification failure: mldsa: invalid signature
+  mut 1 @1284=221: ok CN=csr.example.com,O=Kite 0 x509: ML-DSA verification failure: mldsa: invalid signature
+  mut 2 @1455=207: ok CN=csr.example.com,O=Kite 0 x509: ML-DSA verification failure: mldsa: invalid signature
+  mut 3 @719=188: ok CN=csr.example.com,O=Kite 0 x509: ML-DSA verification failure: mldsa: invalid signature
+  mut 4 @1447=245: ok CN=csr.example.com,O=Kite 0 x509: ML-DSA verification failure: mldsa: invalid signature
+  mut 5 @1083=232: ok CN=csr.example.com,O=Kite 0 x509: ML-DSA verification failure: mldsa: invalid signature
+  mut 6 @2335=127: ok CN=csr.example.com,O=Kite 0 x509: ML-DSA verification failure: mldsa: invalid signature
+  mut 7 @1616=126: ok CN=csr.example.com,O=Kite 0 x509: ML-DSA verification failure: mldsa: invalid signature
+  mut 8 @1857=232: ok CN=csr.example.com,O=Kite 0 x509: ML-DSA verification failure: mldsa: invalid signature
+  mut 9 @450=90: ok CN=csr.example.com,O=Kite 0 x509: ML-DSA verification failure: mldsa: invalid signature
+  mut 10 @1513=109: ok CN=csr.example.com,O=Kite 0 x509: ML-DSA verification failure: mldsa: invalid signature
+  mut 11 @1753=24: ok CN=csr.example.com,O=Kite 0 x509: ML-DSA verification failure: mldsa: invalid signature
+  mut 12 @2485=10: ok CN=csr.example.com,O=Kite 0 x509: ML-DSA verification failure: mldsa: invalid signature
+  mut 13 @3176=19: ok CN=csr.example.com,O=Kite 0 x509: ML-DSA verification failure: mldsa: invalid signature
+  mut 14 @2659=123: ok CN=csr.example.com,O=Kite 0 x509: ML-DSA verification failure: mldsa: invalid signature
+csr 6: v=0 subj=CN=csr.example.com,O=Kite sigalg=ECDSA-SHA1 pkalg=ECDSA attrs=[] exts=[] dns=[] email=[] ip=[] uri=[] raw=367/209/158/43/11 sig=139 check=<nil>
+  mut 0 @21=104: ok CN=csr.example.com 0 x509: ECDSA verification failure
+  mut 1 @70=60: x509: unsupported elliptic curve
+  mut 2 @289=243: ok CN=csr.example.com,O=Kite 0 x509: ECDSA verification failure
+  mut 3 @130=136: P521 point not on curve
+  mut 4 @194=80: P521 point not on curve
+  mut 5 @196=92: P521 point not on curve
+  mut 6 @125=218: P521 point not on curve
+  mut 7 @139=116: P521 point not on curve
+  mut 8 @87=174: P521 point not on curve
+  mut 9 @138=75: P521 point not on curve
+  mut 10 @125=168: P521 point not on curve
+  mut 11 @346=30: ok CN=csr.example.com,O=Kite 0 x509: ECDSA verification failure
+  mut 12 @176=100: P521 point not on curve
+  mut 13 @350=233: ok CN=csr.example.com,O=Kite 0 x509: ECDSA verification failure
+  mut 14 @295=61: ok CN=csr.example.com,O=Kite 0 x509: ECDSA verification failure
+key 0 RSA PRIVATE KEY:
+  pkcs1=RSA n=da0bc8a235528b08 e=65537 d=1f4a3af11c19cb9d p=ebb1526c89fe68c1 q=ecd53ac61c37e498 dp=c451ee83042a8a9d dq=b749ced2c3c3fe06 qinv=ba7e352540a62eec <nil>
+  ec=nil x509: failed to parse private key (use ParsePKCS1PrivateKey instead for this key format)
+  pkcs8=nil x509: failed to parse private key (use ParsePKCS1PrivateKey instead for this key format)
+  re1 true
+  mut 0 @439=104: crypto/rsa: invalid CRT exponent
+  mut 1 @466=80: crypto/rsa: invalid CRT exponent
+  mut 2 @48=22: crypto/rsa: p * q != n
+  mut 3 @466=121: crypto/rsa: invalid CRT exponent
+  mut 4 @100=49: crypto/rsa: p * q != n
+  mut 5 @22=83: crypto/rsa: p * q != n
+  mut 6 @12=179: crypto/rsa: p * q != n
+  mut 7 @330=60: crypto/rsa: p * q != n
+  mut 8 @105=88: crypto/rsa: p * q != n
+  mut 9 @209=78: crypto/rsa: d does not match dP
+key 1 RSA PRIVATE KEY:
+  pkcs1=RSA n=caef8c7ef1b50e56 e=65537 d=48d46fb79f473b3d p=fc5f6dc8dbaba679 q=cdda3920d4647d6c dp=d1940dff772d1c9a dq=5136c7532c787903 qinv=5b4022ff1cd77eea <nil>
+  ec=nil x509: failed to parse private key (use ParsePKCS1PrivateKey instead for this key format)
+  pkcs8=nil x509: failed to parse private key (use ParsePKCS1PrivateKey instead for this key format)
+  re1 true
+  mut 0 @920=158: crypto/rsa: invalid CRT exponent
+  mut 1 @1126=102: crypto/rsa: invalid CRT coefficient
+  mut 2 @587=191: crypto/rsa: p * q != n
+  mut 3 @930=31: asn1: structure error: length too large
+  mut 4 @773=184: crypto/rsa: p * q != n
+  mut 5 @908=215: crypto/rsa: invalid CRT exponent
+  mut 6 @700=69: crypto/rsa: p * q != n
+  mut 7 @497=168: crypto/rsa: d does not match dP
+  mut 8 @398=225: crypto/rsa: d does not match dP
+  mut 9 @456=111: crypto/rsa: d does not match dP
+key 2 EC PRIVATE KEY:
+  pkcs1=nil x509: failed to parse private key (use ParseECPrivateKey instead for this key format)
+  ec=ECDSA P-224 d=f5fe4bc7705f3cfead005aed14a501ba3ee38e27536647672bd9bef3 q=04162d3e0306cb5e <nil>
+  pkcs8=nil x509: failed to parse private key (use ParseECPrivateKey instead for this key format)
+  re2 true <nil>
+  mut 0 @68=202: ECDSA P-224 d=f5fe4bc7705f3cfead005aed14a501ba3ee38e27536647672bd9bef3 q=04162d3e0306cb5e
+  mut 1 @103=199: ECDSA P-224 d=f5fe4bc7705f3cfead005aed14a501ba3ee38e27536647672bd9bef3 q=04162d3e0306cb5e
+  mut 2 @1=250: x509: failed to parse EC private key: asn1: structure error: length too large
+  mut 3 @102=14: ECDSA P-224 d=f5fe4bc7705f3cfead005aed14a501ba3ee38e27536647672bd9bef3 q=04162d3e0306cb5e
+  mut 4 @74=45: ECDSA P-224 d=f5fe4bc7705f3cfead005aed14a501ba3ee38e27536647672bd9bef3 q=04162d3e0306cb5e
+  mut 5 @57=94: ECDSA P-224 d=f5fe4bc7705f3cfead005aed14a501ba3ee38e27536647672bd9bef3 q=04162d3e0306cb5e
+  mut 6 @22=225: ECDSA P-224 d=f5fe4bc7705f3cfead005aed14a501e13ee38e27536647672bd9bef3 q=04f30b10102706ed
+  mut 7 @96=148: ECDSA P-224 d=f5fe4bc7705f3cfead005aed14a501ba3ee38e27536647672bd9bef3 q=04162d3e0306cb5e
+  mut 8 @18=80: ECDSA P-224 d=f5fe4bc7705f3cfead005a5014a501ba3ee38e27536647672bd9bef3 q=049b2c733f3be153
+  mut 9 @3=75: x509: failed to parse EC private key: asn1: structure error: integer too large
+key 3 EC PRIVATE KEY:
+  pkcs1=nil x509: failed to parse private key (use ParseECPrivateKey instead for this key format)
+  ec=ECDSA P-256 d=675b7db249c5d03b940bca04b416408f658402d3e88046712dd3ee12ea1f4d7a q=042dcca2357bf852 <nil>
+  pkcs8=nil x509: failed to parse private key (use ParseECPrivateKey instead for this key format)
+  re2 true <nil>
+  mut 0 @26=119: ECDSA P-256 d=675b7db249c5d03b940bca04b416408f65840277e88046712dd3ee12ea1f4d7a q=0483bb8b5afcc3ab
+  mut 1 @35=225: ECDSA P-256 d=675b7db249c5d03b940bca04b416408f658402d3e88046712dd3ee12e11f4d7a q=04deb64149f8923f
+  mut 2 @47=18: x509: unknown elliptic curve
+  mut 3 @77=112: ECDSA P-256 d=675b7db249c5d03b940bca04b416408f658402d3e88046712dd3ee12ea1f4d7a q=042dcca2357bf852
+  mut 4 @24=156: ECDSA P-256 d=675b7db249c5d03b940bca04b416408f659c02d3e88046712dd3ee12ea1f4d7a q=0439e6a9c4f865c2
+  mut 5 @110=213: ECDSA P-256 d=675b7db249c5d03b940bca04b416408f658402d3e88046712dd3ee12ea1f4d7a q=042dcca2357bf852
+  mut 6 @23=82: ECDSA P-256 d=675b7db249c5d03b940bca04b416408f528402d3e88046712dd3ee12ea1f4d7a q=045bb16553f18150
+  mut 7 @95=171: ECDSA P-256 d=675b7db249c5d03b940bca04b416408f658402d3e88046712dd3ee12ea1f4d7a q=042dcca2357bf852
+  mut 8 @21=48: ECDSA P-256 d=675b7db249c5d03b940bca04b416308f658402d3e88046712dd3ee12ea1f4d7a q=048afc21dc78042a
+  mut 9 @28=80: ECDSA P-256 d=675b7db249c5d03b940bca04b416408f658402d3e85046712dd3ee12ea1f4d7a q=04d934bb7a4841ee
+key 4 EC PRIVATE KEY:
+  pkcs1=nil x509: failed to parse private key (use ParseECPrivateKey instead for this key format)
+  ec=ECDSA P-384 d=a7b56c094e7f9fb92d1c7be9a08581271b35f4b35a25a4e11b1377b8f6d5b10b844d1290b68a135c4de35cf1b89d7ba9 q=04ab668bbede4a40 <nil>
+  pkcs8=nil x509: failed to parse private key (use ParseECPrivateKey instead for this key format)
+  re2 true <nil>
+  mut 0 @22=242: ECDSA P-384 d=a7b56c094e7f9fb92d1c7be9a085f2271b35f4b35a25a4e11b1377b8f6d5b10b844d1290b68a135c4de35cf1b89d7ba9 q=04a2d3855ea26eee
+  mut 1 @115=222: ECDSA P-384 d=a7b56c094e7f9fb92d1c7be9a08581271b35f4b35a25a4e11b1377b8f6d5b10b844d1290b68a135c4de35cf1b89d7ba9 q=04ab668bbede4a40
+  mut 2 @117=20: ECDSA P-384 d=a7b56c094e7f9fb92d1c7be9a08581271b35f4b35a25a4e11b1377b8f6d5b10b844d1290b68a135c4de35cf1b89d7ba9 q=04ab668bbede4a40
+  mut 3 @49=50: ECDSA P-384 d=a7b56c094e7f9fb92d1c7be9a08581271b35f4b35a25a4e11b1377b8f6d5b10b844d1290b68a135c4d325cf1b89d7ba9 q=0446ce2b86f9b4ba
+  mut 4 @14=209: ECDSA P-384 d=a7b56c094e7fd1b92d1c7be9a08581271b35f4b35a25a4e11b1377b8f6d5b10b844d1290b68a135c4de35cf1b89d7ba9 q=0473e780a79d2b17
+  mut 5 @79=231: ECDSA P-384 d=a7b56c094e7f9fb92d1c7be9a08581271b35f4b35a25a4e11b1377b8f6d5b10b844d1290b68a135c4de35cf1b89d7ba9 q=04ab668bbede4a40
+  mut 6 @124=38: ECDSA P-384 d=a7b56c094e7f9fb92d1c7be9a08581271b35f4b35a25a4e11b1377b8f6d5b10b844d1290b68a135c4de35cf1b89d7ba9 q=04ab668bbede4a40
+  mut 7 @66=90: ECDSA P-384 d=a7b56c094e7f9fb92d1c7be9a08581271b35f4b35a25a4e11b1377b8f6d5b10b844d1290b68a135c4de35cf1b89d7ba9 q=04ab668bbede4a40
+  mut 8 @127=207: ECDSA P-384 d=a7b56c094e7f9fb92d1c7be9a08581271b35f4b35a25a4e11b1377b8f6d5b10b844d1290b68a135c4de35cf1b89d7ba9 q=04ab668bbede4a40
+  mut 9 @9=168: ECDSA P-384 d=a7a86c094e7f9fb92d1c7be9a08581271b35f4b35a25a4e11b1377b8f6d5b10b844d1290b68a135c4de35cf1b89d7ba9 q=045ff0de2a93d14a
+key 5 EC PRIVATE KEY:
+  pkcs1=nil x509: failed to parse private key (use ParseECPrivateKey instead for this key format)
+  ec=ECDSA P-521 d=0151542750bb86147e642431b02048437cdaed0dfce5410b2e07792d6c0aa8142c13d29612bc591d33bd3fe47ae21cf637550f9bd7aba1355793dcefea8b1f9d488a q=0401e9ddee694eea <nil>
+  pkcs8=nil x509: failed to parse private key (use ParseECPrivateKey instead for this key format)
+  re2 true <nil>
+  mut 0 @211=71: ECDSA P-521 d=0151542750bb86147e642431b02048437cdaed0dfce5410b2e07792d6c0aa8142c13d29612bc591d33bd3fe47ae21cf637550f9bd7aba1355793dcefea8b1f9d488a q=0401e9ddee694eea
+  mut 1 @44=170: ECDSA P-521 d=0151542750bb86147e642431b02048437cdaed0dfce5410b2e07792d6c0aa8142c13d296aabc591d33bd3fe47ae21cf637550f9bd7aba1355793dcefea8b1f9d488a q=04019dc5a7689a56
+  mut 2 @15=203: ECDSA P-521 d=0151542750bb86cb7e642431b02048437cdaed0dfce5410b2e07792d6c0aa8142c13d29612bc591d33bd3fe47ae21cf637550f9bd7aba1355793dcefea8b1f9d488a q=040110192e996e65
+  mut 3 @86=255: ECDSA P-521 d=0151542750bb86147e642431b02048437cdaed0dfce5410b2e07792d6c0aa8142c13d29612bc591d33bd3fe47ae21cf637550f9bd7aba1355793dcefea8b1f9d488a q=0401e9ddee694eea
+  mut 4 @190=87: ECDSA P-521 d=0151542750bb86147e642431b02048437cdaed0dfce5410b2e07792d6c0aa8142c13d29612bc591d33bd3fe47ae21cf637550f9bd7aba1355793dcefea8b1f9d488a q=0401e9ddee694eea
+  mut 5 @25=1: ECDSA P-521 d=0151542750bb86147e642431b02048437c01ed0dfce5410b2e07792d6c0aa8142c13d29612bc591d33bd3fe47ae21cf637550f9bd7aba1355793dcefea8b1f9d488a q=0401bc00e9d25783
+  mut 6 @176=167: ECDSA P-521 d=0151542750bb86147e642431b02048437cdaed0dfce5410b2e07792d6c0aa8142c13d29612bc591d33bd3fe47ae21cf637550f9bd7aba1355793dcefea8b1f9d488a q=0401e9ddee694eea
+  mut 7 @136=206: ECDSA P-521 d=0151542750bb86147e642431b02048437cdaed0dfce5410b2e07792d6c0aa8142c13d29612bc591d33bd3fe47ae21cf637550f9bd7aba1355793dcefea8b1f9d488a q=0401e9ddee694eea
+  mut 8 @51=55: ECDSA P-521 d=0151542750bb86147e642431b02048437cdaed0dfce5410b2e07792d6c0aa8142c13d29612bc591d33bd3f377ae21cf637550f9bd7aba1355793dcefea8b1f9d488a q=04015add0975ce1f
+  mut 9 @82=63: x509: unknown elliptic curve
+key 6 PRIVATE KEY:
+  pkcs1=nil x509: failed to parse private key (use ParsePKCS8PrivateKey instead for this key format)
+  ec=nil x509: failed to parse private key (use ParsePKCS8PrivateKey instead for this key format)
+  pkcs8=RSA n=da0bc8a235528b08 e=65537 d=1f4a3af11c19cb9d p=ebb1526c89fe68c1 q=ecd53ac61c37e498 dp=c451ee83042a8a9d dq=b749ced2c3c3fe06 qinv=ba7e352540a62eec <nil>
+  re8 true <nil>
+  mut 0 @39=66: x509: failed to parse RSA private key embedded in PKCS#8: crypto/rsa: p * q != n
+  mut 1 @518=243: x509: failed to parse RSA private key embedded in PKCS#8: crypto/rsa: invalid CRT exponent
+  mut 2 @77=197: x509: failed to parse RSA private key embedded in PKCS#8: crypto/rsa: p * q != n
+  mut 3 @415=68: x509: failed to parse RSA private key embedded in PKCS#8: crypto/rsa: p * q != n
+  mut 4 @297=123: x509: failed to parse RSA private key embedded in PKCS#8: crypto/rsa: d does not match dP
+  mut 5 @533=79: x509: failed to parse RSA private key embedded in PKCS#8: crypto/rsa: invalid CRT exponent
+  mut 6 @556=226: x509: failed to parse RSA private key embedded in PKCS#8: crypto/rsa: invalid CRT exponent
+  mut 7 @484=240: x509: failed to parse RSA private key embedded in PKCS#8: crypto/rsa: invalid CRT exponent
+  mut 8 @5=52: asn1: structure error: integer not minimally-encoded
+  mut 9 @63=195: x509: failed to parse RSA private key embedded in PKCS#8: crypto/rsa: p * q != n
+key 7 PRIVATE KEY:
+  pkcs1=nil x509: failed to parse private key (use ParsePKCS8PrivateKey instead for this key format)
+  ec=nil x509: failed to parse private key (use ParsePKCS8PrivateKey instead for this key format)
+  pkcs8=ECDSA P-224 d=f5fe4bc7705f3cfead005aed14a501ba3ee38e27536647672bd9bef3 q=04162d3e0306cb5e <nil>
+  re8 true <nil>
+  mut 0 @44=110: ECDSA P-224 d=f5fe4bc7705f3cfead005aed6ea501ba3ee38e27536647672bd9bef3 q=04f563b85db600f3
+  mut 1 @8=35: asn1: syntax error: data truncated
+  mut 2 @75=76: ECDSA P-224 d=f5fe4bc7705f3cfead005aed14a501ba3ee38e27536647672bd9bef3 q=04162d3e0306cb5e
+  mut 3 @71=45: ECDSA P-224 d=f5fe4bc7705f3cfead005aed14a501ba3ee38e27536647672bd9bef3 q=04162d3e0306cb5e
+  mut 4 @49=73: ECDSA P-224 d=f5fe4bc7705f3cfead005aed14a501ba3e498e27536647672bd9bef3 q=048ab359c02e2ba4
+  mut 5 @45=189: ECDSA P-224 d=f5fe4bc7705f3cfead005aed14bd01ba3ee38e27536647672bd9bef3 q=04e9f1356499269a
+  mut 6 @103=163: ECDSA P-224 d=f5fe4bc7705f3cfead005aed14a501ba3ee38e27536647672bd9bef3 q=04162d3e0306cb5e
+  mut 7 @91=111: ECDSA P-224 d=f5fe4bc7705f3cfead005aed14a501ba3ee38e27536647672bd9bef3 q=04162d3e0306cb5e
+  mut 8 @89=84: ECDSA P-224 d=f5fe4bc7705f3cfead005aed14a501ba3ee38e27536647672bd9bef3 q=04162d3e0306cb5e
+  mut 9 @22=158: x509: failed to parse EC private key embedded in PKCS#8: x509: unknown elliptic curve
+key 8 PRIVATE KEY:
+  pkcs1=nil x509: failed to parse private key (use ParsePKCS8PrivateKey instead for this key format)
+  ec=nil x509: failed to parse private key (use ParsePKCS8PrivateKey instead for this key format)
+  pkcs8=ECDSA P-256 d=675b7db249c5d03b940bca04b416408f658402d3e88046712dd3ee12ea1f4d7a q=042dcca2357bf852 <nil>
+  re8 true <nil>
+  mut 0 @85=24: ECDSA P-256 d=675b7db249c5d03b940bca04b416408f658402d3e88046712dd3ee12ea1f4d7a q=042dcca2357bf852
+  mut 1 @84=103: ECDSA P-256 d=675b7db249c5d03b940bca04b416408f658402d3e88046712dd3ee12ea1f4d7a q=042dcca2357bf852
+  mut 2 @60=109: ECDSA P-256 d=675b7db249c5d03b940bca04b416408f658402d3e88046716dd3ee12ea1f4d7a q=04bce7b733331d17
+  mut 3 @71=166: x509: failed to parse EC private key embedded in PKCS#8: x509: failed to parse EC private key: asn1: structure error: superfluous leading zeros in length
+  mut 4 @126=141: ECDSA P-256 d=675b7db249c5d03b940bca04b416408f658402d3e88046712dd3ee12ea1f4d7a q=042dcca2357bf852
+  mut 5 @123=247: ECDSA P-256 d=675b7db249c5d03b940bca04b416408f658402d3e88046712dd3ee12ea1f4d7a q=042dcca2357bf852
+  mut 6 @42=117: ECDSA P-256 d=675b7db249c5753b940bca04b416408f658402d3e88046712dd3ee12ea1f4d7a q=047fe768e27dad9e
+  mut 7 @69=181: x509: failed to parse EC private key embedded in PKCS#8: x509: failed to parse EC private key: asn1: structure error: length too large
+  mut 8 @135=225: ECDSA P-256 d=675b7db249c5d03b940bca04b416408f658402d3e88046712dd3ee12ea1f4d7a q=042dcca2357bf852
+  mut 9 @58=253: ECDSA P-256 d=675b7db249c5d03b940bca04b416408f658402d3e880fd712dd3ee12ea1f4d7a q=04da6121114d7e96
+key 9 PRIVATE KEY:
+  pkcs1=nil x509: failed to parse private key (use ParsePKCS8PrivateKey instead for this key format)
+  ec=nil x509: failed to parse private key (use ParsePKCS8PrivateKey instead for this key format)
+  pkcs8=ECDSA P-384 d=a7b56c094e7f9fb92d1c7be9a08581271b35f4b35a25a4e11b1377b8f6d5b10b844d1290b68a135c4de35cf1b89d7ba9 q=04ab668bbede4a40 <nil>
+  re8 true <nil>
+  mut 0 @17=76: x509: failed to parse EC private key embedded in PKCS#8: x509: unknown elliptic curve
+  mut 1 @130=171: ECDSA P-384 d=a7b56c094e7f9fb92d1c7be9a08581271b35f4b35a25a4e11b1377b8f6d5b10b844d1290b68a135c4de35cf1b89d7ba9 q=04ab668bbede4a40
+  mut 2 @91=243: ECDSA P-384 d=a7b56c094e7f9fb92d1c7be9a08581271b35f4b35a25a4e11b1377b8f6d5b10b844d1290b68a135c4de35cf1b89d7ba9 q=04ab668bbede4a40
+  mut 3 @20=91: x509: failed to parse EC private key embedded in PKCS#8: x509: unknown elliptic curve
+  mut 4 @61=210: ECDSA P-384 d=a7b56c094e7f9fb92d1c7be9a08581271b35f4b35a25a4e11b13d2b8f6d5b10b844d1290b68a135c4de35cf1b89d7ba9 q=04924ef021ccd1eb
+  mut 5 @118=104: ECDSA P-384 d=a7b56c094e7f9fb92d1c7be9a08581271b35f4b35a25a4e11b1377b8f6d5b10b844d1290b68a135c4de35cf1b89d7ba9 q=04ab668bbede4a40
+  mut 6 @59=165: ECDSA P-384 d=a7b56c094e7f9fb92d1c7be9a08581271b35f4b35a25a4e1a51377b8f6d5b10b844d1290b68a135c4de35cf1b89d7ba9 q=04be52057e96d52a
+  mut 7 @127=239: ECDSA P-384 d=a7b56c094e7f9fb92d1c7be9a08581271b35f4b35a25a4e11b1377b8f6d5b10b844d1290b68a135c4de35cf1b89d7ba9 q=04ab668bbede4a40
+  mut 8 @175=232: ECDSA P-384 d=a7b56c094e7f9fb92d1c7be9a08581271b35f4b35a25a4e11b1377b8f6d5b10b844d1290b68a135c4de35cf1b89d7ba9 q=04ab668bbede4a40
+  mut 9 @113=204: ECDSA P-384 d=a7b56c094e7f9fb92d1c7be9a08581271b35f4b35a25a4e11b1377b8f6d5b10b844d1290b68a135c4de35cf1b89d7ba9 q=04ab668bbede4a40
+key 10 PRIVATE KEY:
+  pkcs1=nil x509: failed to parse private key (use ParsePKCS8PrivateKey instead for this key format)
+  ec=nil x509: failed to parse private key (use ParsePKCS8PrivateKey instead for this key format)
+  pkcs8=ECDSA P-521 d=0151542750bb86147e642431b02048437cdaed0dfce5410b2e07792d6c0aa8142c13d29612bc591d33bd3fe47ae21cf637550f9bd7aba1355793dcefea8b1f9d488a q=0401e9ddee694eea <nil>
+  re8 true <nil>
+  mut 0 @134=214: ECDSA P-521 d=0151542750bb86147e642431b02048437cdaed0dfce5410b2e07792d6c0aa8142c13d29612bc591d33bd3fe47ae21cf637550f9bd7aba1355793dcefea8b1f9d488a q=0401e9ddee694eea
+  mut 1 @239=155: ECDSA P-521 d=0151542750bb86147e642431b02048437cdaed0dfce5410b2e07792d6c0aa8142c13d29612bc591d33bd3fe47ae21cf637550f9bd7aba1355793dcefea8b1f9d488a q=0401e9ddee694eea
+  mut 2 @58=108: ECDSA P-521 d=0151542750bb86147e642431b02048437cdaed0dfce5416c2e07792d6c0aa8142c13d29612bc591d33bd3fe47ae21cf637550f9bd7aba1355793dcefea8b1f9d488a q=040069077af07ad3
+  mut 3 @71=183: ECDSA P-521 d=0151542750bb86147e642431b02048437cdaed0dfce5410b2e07792d6c0aa8142c13d296b7bc591d33bd3fe47ae21cf637550f9bd7aba1355793dcefea8b1f9d488a q=0400b37230c8c32a
+  mut 4 @2=102: asn1: structure error: non-minimal length
+  mut 5 @84=61: ECDSA P-521 d=0151542750bb86147e642431b02048437cdaed0dfce5410b2e07792d6c0aa8142c13d29612bc591d33bd3fe47ae21cf6373d0f9bd7aba1355793dcefea8b1f9d488a q=04008e7126d315f6
+  mut 6 @68=63: ECDSA P-521 d=0151542750bb86147e642431b02048437cdaed0dfce5410b2e07792d6c0aa8142c3fd29612bc591d33bd3fe47ae21cf637550f9bd7aba1355793dcefea8b1f9d488a q=04016124b4f6a91b
+  mut 7 @47=9: ECDSA P-521 d=0151542750bb86147e642431092048437cdaed0dfce5410b2e07792d6c0aa8142c13d29612bc591d33bd3fe47ae21cf637550f9bd7aba1355793dcefea8b1f9d488a q=0400cb0372aa0c80
+  mut 8 @213=52: ECDSA P-521 d=0151542750bb86147e642431b02048437cdaed0dfce5410b2e07792d6c0aa8142c13d29612bc591d33bd3fe47ae21cf637550f9bd7aba1355793dcefea8b1f9d488a q=0401e9ddee694eea
+  mut 9 @67=183: ECDSA P-521 d=0151542750bb86147e642431b02048437cdaed0dfce5410b2e07792d6c0aa814b713d29612bc591d33bd3fe47ae21cf637550f9bd7aba1355793dcefea8b1f9d488a q=04007878ad9edcc3
+key 11 PRIVATE KEY:
+  pkcs1=nil x509: failed to parse private key (use ParsePKCS8PrivateKey instead for this key format)
+  ec=nil x509: failed to parse private key (use ParsePKCS8PrivateKey instead for this key format)
+  pkcs8=Ed25519 d22144a05f29df76961ef088fd70befa59147c80380cbf336fa81194b4d574d6eb3e87f985ccbed05c6c8b09a07017598ecbacd4b6ee85ce9dda0378c226c94b <nil>
+  re8 true <nil>
+  mut 0 @36=65: Ed25519 d22144a05f29df76961ef088fd70befa59147c80410cbf336fa81194b4d574d6fd69d61d6b3ced486beabb9b0f12e3848e215bcf07e63c142eb7c1b873c4036e
+  mut 1 @7=162: asn1: structure error: tags don't match (6 vs {class:2 tag:2 length:3 isCompound:true}) {optional:false explicit:false application:false private:false defaultValue:<nil> tag:<nil> stringType:0 timeType:0 set:false omitEmpty:false} ObjectIdentifier @2
+  mut 2 @34=34: Ed25519 d22144a05f29df76961ef088fd70befa59142280380cbf336fa81194b4d574d610cba38b4d42380ea54449848f633e353297c963f4ea11feb8dc74c702c6a948
+  mut 3 @47=231: Ed25519 d22144a05f29df76961ef088fd70befa59147c80380cbf336fa81194b4d574e727fcb0952594840f661661f22c6615d002b7d2549d204bf65399518c99a9f261
+  mut 4 @23=83: Ed25519 d22144a05f29df53961ef088fd70befa59147c80380cbf336fa81194b4d574d6ecab6ae84044e2fe637c150a90eb262c5e31d0e329e2b4ef36158d1d025787ef
+  mut 5 @28=98: Ed25519 d22144a05f29df76961ef0886270befa59147c80380cbf336fa81194b4d574d6f1324b24f67aad3db95f607fcf290b1bd33b057c680d4b7cd2f77ddeed66f145
+  mut 6 @14=15: x509: invalid Ed25519 private key: asn1: structure error: tags don't match (4 vs {class:0 tag:15 length:32 isCompound:false}) {optional:false explicit:false application:false private:false defaultValue:<nil> tag:<nil> stringType:0 timeType:0 set:false omitEmpty:false}  @2
+  mut 7 @10=175: x509: PKCS#8 wrapping contained private key with unknown algorithm: 1.3.6128
+  mut 8 @5=83: asn1: structure error: tags don't match (16 vs {class:1 tag:19 length:5 isCompound:false}) {optional:false explicit:false application:false private:false defaultValue:<nil> tag:<nil> stringType:0 timeType:0 set:false omitEmpty:false} AlgorithmIdentifier @5
+  mut 9 @4=41: Ed25519 d22144a05f29df76961ef088fd70befa59147c80380cbf336fa81194b4d574d6eb3e87f985ccbed05c6c8b09a07017598ecbacd4b6ee85ce9dda0378c226c94b
+key 12 PRIVATE KEY:
+  pkcs1=nil x509: failed to parse private key (use ParsePKCS8PrivateKey instead for this key format)
+  ec=nil x509: failed to parse private key (use ParsePKCS8PrivateKey instead for this key format)
+  pkcs8=ECDH X25519 95c79d473fe441a0f6e97fe44fc67f372bd7669669c3806941a0464240d3e0a0 6935f6381fbca65ede005a16683321f4c22cc2b4e57e1dd825a2e756644ef463 <nil>
+  re8 true <nil>
+  mut 0 @38=219: ECDH X25519 95c79d473fe441a0f6e97fe44fc67f372bd7669669c3db6941a0464240d3e0a0 adb530ecf8272ca9aa6d482770f60b399b8d932e19a321244380a75b29700b35
+  mut 1 @23=237: ECDH X25519 95c79d473fe441edf6e97fe44fc67f372bd7669669c3806941a0464240d3e0a0 e4662ce6285f0024a33d68122cccde3d689fd58ab6e7e29b8f2f4ca062084338
+  mut 2 @30=34: ECDH X25519 95c79d473fe441a0f6e97fe44fc622372bd7669669c3806941a0464240d3e0a0 25fda4edd81831f5e103dd9a6a8cbda46db7c1e74860b73defa33847effffc0d
+  mut 3 @15=215: x509: invalid X25519 private key: asn1: structure error: length too large
+  mut 4 @41=101: ECDH X25519 95c79d473fe441a0f6e97fe44fc67f372bd7669669c380694165464240d3e0a0 18fd394396f9adb2ae61de37c598f550e5c531cc632320fd04f8142d5628d33f
+  mut 5 @7=131: asn1: structure error: tags don't match (6 vs {class:2 tag:3 length:3 isCompound:false}) {optional:false explicit:false application:false private:false defaultValue:<nil> tag:<nil> stringType:0 timeType:0 set:false omitEmpty:false} ObjectIdentifier @2
+  mut 6 @18=160: ECDH X25519 95c7a0473fe441a0f6e97fe44fc67f372bd7669669c3806941a0464240d3e0a0 e8089756643d7451d3074e3a0884dca143085b36babf24aa40fc14df63126a38
+  mut 7 @44=76: ECDH X25519 95c79d473fe441a0f6e97fe44fc67f372bd7669669c3806941a046424cd3e0a0 b40f97f7d8eb508f889fedec34919e51eaf82b7ce2f92a01eaee21563f28013a
+  mut 8 @38=143: ECDH X25519 95c79d473fe441a0f6e97fe44fc67f372bd7669669c38f6941a0464240d3e0a0 dcd82b1f9d79d2898f6c36712ddb1623c0c36ec7739e2646f073473f95715316
+  mut 9 @27=79: ECDH X25519 95c79d473fe441a0f6e97f4f4fc67f372bd7669669c3806941a0464240d3e0a0 c4874fcb55d2cbdd9b95fac8fb74d2b7c05acdd97a7656ffe6b60ba44ec1f724
+key 13 PRIVATE KEY:
+  pkcs1=nil x509: failed to parse private key (use ParsePKCS8PrivateKey instead for this key format)
+  ec=nil x509: failed to parse private key (use ParsePKCS8PrivateKey instead for this key format)
+  pkcs8=MLDSA ML-DSA-44 883e4a23753e32b8132f32635beff59220a1b64a3e62e9cd16e4f91de2544f11 <nil>
+  re8 true <nil>
+  mut 0 @33=173: MLDSA ML-DSA-44 883e4a23753e32b8132f32ad5beff59220a1b64a3e62e9cd16e4f91de2544f11
+  mut 1 @29=104: MLDSA ML-DSA-44 883e4a23753e3268132f32635beff59220a1b64a3e62e9cd16e4f91de2544f11
+  mut 2 @25=56: MLDSA ML-DSA-44 883e4a38753e32b8132f32635beff59220a1b64a3e62e9cd16e4f91de2544f11
+  mut 3 @13=50: x509: PKCS#8 wrapping contained private key with unknown algorithm: 2.16.840.1.50.3.4.3.17
+  mut 4 @19=42: asn1: syntax error: data truncated
+  mut 5 @25=11: MLDSA ML-DSA-44 883e4a0b753e32b8132f32635beff59220a1b64a3e62e9cd16e4f91de2544f11
+  mut 6 @6=63: asn1: syntax error: data truncated
+  mut 7 @26=13: MLDSA ML-DSA-44 883e4a230d3e32b8132f32635beff59220a1b64a3e62e9cd16e4f91de2544f11
+  mut 8 @2=245: asn1: structure error: tags don't match (2 vs {class:3 tag:21 length:1 isCompound:true}) {optional:false explicit:false application:false private:false defaultValue:<nil> tag:<nil> stringType:0 timeType:0 set:false omitEmpty:false} int @2
+  mut 9 @52=21: MLDSA ML-DSA-44 883e4a23753e32b8132f32635beff59220a1b64a3e62e9cd16e4f91de2541511
+key 14 PRIVATE KEY:
+  pkcs1=nil x509: failed to parse private key (use ParsePKCS8PrivateKey instead for this key format)
+  ec=nil x509: failed to parse private key (use ParsePKCS8PrivateKey instead for this key format)
+  pkcs8=ECDSA P-256 d=675b7db249c5d03b940bca04b416408f658402d3e88046712dd3ee12ea1f4d7a q=042dcca2357bf852 <nil>
+  re8 true <nil>
+  mut 0 @31=134: x509: failed to parse EC private key embedded in PKCS#8: x509: failed to parse EC private key: asn1: structure error: tags don't match (2 vs {class:2 tag:6 length:1 isCompound:false}) {optional:false explicit:false application:false private:false defaultValue:<nil> tag:<nil> stringType:0 timeType:0 set:false omitEmpty:false} int @2
+  mut 1 @113=190: ECDSA P-256 d=675b7db249c5d03b940bca04b416408f658402d3e88046712dd3ee12ea1f4d7a q=042dcca2357bf852
+  mut 2 @86=239: ECDSA P-256 d=675b7db249c5d03b940bca04b416408f658402d3e88046712dd3ee12ea1f4d7a q=042dcca2357bf852
+  mut 3 @16=102: x509: PKCS#8 wrapping contained private key with unknown algorithm: 1.2.840.10045.2.102
+  mut 4 @97=236: ECDSA P-256 d=675b7db249c5d03b940bca04b416408f658402d3e88046712dd3ee12ea1f4d7a q=042dcca2357bf852
+  mut 5 @122=39: ECDSA P-256 d=675b7db249c5d03b940bca04b416408f658402d3e88046712dd3ee12ea1f4d7a q=042dcca2357bf852
+  mut 6 @103=248: ECDSA P-256 d=675b7db249c5d03b940bca04b416408f658402d3e88046712dd3ee12ea1f4d7a q=042dcca2357bf852
+  mut 7 @41=222: ECDSA P-256 d=675b7db249ded03b940bca04b416408f658402d3e88046712dd3ee12ea1f4d7a q=04ca4a1825310136
+  mut 8 @19=81: x509: failed to parse EC private key embedded in PKCS#8: x509: unknown elliptic curve
+  mut 9 @2=38: asn1: structure error: non-minimal length
+pkix 0 <nil> true <nil>
+  as pkcs1: x509: failed to parse public key (use ParsePKIXPublicKey instead for this key format)
+pkix 1 <nil> true <nil>
+  as pkcs1: x509: failed to parse public key (use ParsePKIXPublicKey instead for this key format)
+pkix 2 <nil> true <nil>
+  as pkcs1: x509: failed to parse public key (use ParsePKIXPublicKey instead for this key format)
+pkix 3 <nil> true <nil>
+  as pkcs1: x509: failed to parse public key (use ParsePKIXPublicKey instead for this key format)
+pkix 4 <nil> true <nil>
+  as pkcs1: x509: failed to parse public key (use ParsePKIXPublicKey instead for this key format)
+pkix 5 <nil> true <nil>
+  as pkcs1: x509: failed to parse public key (use ParsePKIXPublicKey instead for this key format)
+pkix 6 <nil> true <nil>
+  as pkcs1: x509: failed to parse public key (use ParsePKIXPublicKey instead for this key format)
+pkcs1pub 7 <nil> true
+  as pkix: x509: failed to parse public key (use ParsePKCS1PublicKey instead for this key format)
+pkcs1pub "": asn1: syntax error: sequence truncated
+pkcs1pub "3000": asn1: syntax error: sequence truncated
+pkcs1pub "300602010102010": asn1: syntax error: data truncated
+pkcs1pub "3006020100020101": x509: public key contains zero or negative value
+pkcs1pub "30060201010201ff": x509: public key contains zero or negative value
+pkcs1pub "3008020101020500ffffffff": asn1: syntax error: data truncated
+pkcs1pub "300602010102010300": asn1: syntax error: trailing data

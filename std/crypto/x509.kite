@@ -23,7 +23,10 @@ use std.crypto.dsa
 use std.crypto.ecdsa
 use std.crypto.ecdh
 use std.crypto.mldsa
-use std.crypto.internal.nistec
+use std.crypto.ed25519
+use std.crypto.sha1
+use std.crypto.sha256
+use std.crypto.sha512
 use std.math.big
 use std.math.big.{ BigInt }
 use std.net.url
@@ -762,11 +765,6 @@ fn parse_public_key(ai: AlgorithmIdentifier, bits: BitString) -> Result<PublicKe
     }
     let c = named_curve(curve_oid)
     if c < 0 { return Err("x509: unsupported elliptic curve") }
-    if c == 0 {
-      if len(data) < 1 || data[0] != 4 { return Err("ecdsa: invalid uncompressed public key") }
-      let _ = nistec.decode(nistec.p224(), data)?
-      return Ok(PublicKey.ECDSAKey(ecdsa.PublicKey { curve: 0, q: data }))
-    }
     return Ok(PublicKey.ECDSAKey(ecdsa.parse_uncompressed_public_key(c, data)?))
   }
   if oid == OID_ED25519 {
@@ -1770,4 +1768,832 @@ pub fn parse_pkix_public_key(der: List<Int>) -> Result<PublicKey, Str> {
       parse_public_key(AlgorithmIdentifier { algorithm: oid, parameters: params }, bits)
     },
   }
+}
+
+// ───────── 私钥（pkcs1.go、sec1.go、pkcs8.go）─────────
+
+pub enum PrivateKey {
+  RSAPriv(rsa.PrivateKey)
+  ECDSAPriv(ecdsa.PrivateKey)
+  Ed25519Priv(List<Int>)
+  X25519Priv(ecdh.PrivateKey)
+  ECDHPriv(ecdh.PrivateKey)
+  MLDSAPriv(mldsa.PrivateKey)
+}
+
+fn big_opt() -> Ty { Ty.TBig }
+
+fn pkcs1_priv_ty() -> Ty {
+  Ty.TStruct("pkcs1PrivateKey", [
+    asn1.field(Ty.TInt, ""),
+    asn1.field(Ty.TBig, ""),
+    asn1.field(Ty.TInt, ""),
+    asn1.field(Ty.TBig, ""),
+    asn1.field(Ty.TBig, ""),
+    asn1.field(Ty.TBig, ""),
+    asn1.field(Ty.TBig, "optional"),
+    asn1.field(Ty.TBig, "optional"),
+    asn1.field(Ty.TBig, "optional"),
+    asn1.field(
+      Ty.TSlice("[]pkcs1AdditionalRSAPrime", [
+        Ty.TStruct("pkcs1AdditionalRSAPrime", [
+          asn1.field(Ty.TBig, ""),
+          asn1.field(Ty.TBig, ""),
+          asn1.field(Ty.TBig, ""),
+        ]),
+      ]),
+      "optional,omitempty",
+    ),
+  ])
+}
+
+fn ec_priv_ty() -> Ty {
+  Ty.TStruct("ecPrivateKey", [
+    asn1.field(Ty.TInt, ""),
+    asn1.field(Ty.TBytes, ""),
+    asn1.field(Ty.TOid, "optional,explicit,tag:0"),
+    asn1.field(Ty.TBits, "optional,explicit,tag:1"),
+  ])
+}
+
+fn pkcs8_ty() -> Ty {
+  Ty.TStruct("pkcs8", [asn1.field(Ty.TInt, ""), asn1.field(ai_ty(), ""), asn1.field(Ty.TBytes, "")])
+}
+
+fn fields(v: Val) -> List<Val> {
+  match v {
+    VStruct(fs) => fs,
+    _ => [],
+  }
+}
+
+fn vint(v: Val) -> Int {
+  match v {
+    VInt(n) => n,
+    _ => 0,
+  }
+}
+
+fn vbig(v: Val) -> BigInt? {
+  match v {
+    VBig(b) => b,
+    _ => None,
+  }
+}
+
+fn vbytes(v: Val) -> List<Int> {
+  match v {
+    VBytes(b) => b,
+    _ => [],
+  }
+}
+
+fn void(v: Val) -> List<Int> {
+  match v {
+    VOid(o) => o,
+    _ => [],
+  }
+}
+
+fn pos(b: BigInt?) -> Bool {
+  match b {
+    Some(x) => x.sign() > 0,
+    None => false,
+  }
+}
+
+fn nonpos_opt(b: BigInt?) -> Bool {
+  match b {
+    Some(x) => x.sign() <= 0,
+    None => false,
+  }
+}
+
+pub fn parse_pkcs1_private_key(der: List<Int>) -> Result<rsa.PrivateKey, Str> {
+  let r = asn1.unmarshal(der, pkcs1_priv_ty())
+  if let Ok((_, rest)) = r { if len(rest) > 0 { return Err("asn1: syntax error: trailing data") } }
+  let (v, rest) = match r {
+    Ok(x) => x,
+    Err(e) => {
+      if is_ok(asn1.unmarshal(der, ec_priv_ty())) {
+        return Err(
+          "x509: failed to parse private key (use ParseECPrivateKey instead for this key format)",
+        )
+      }
+      if is_ok(asn1.unmarshal(der, pkcs8_ty())) {
+        return Err(
+          "x509: failed to parse private key (use ParsePKCS8PrivateKey instead for this key format)",
+        )
+      }
+      return Err(e)
+    },
+  }
+  if len(rest) > 0 { return Err("asn1: syntax error: trailing data") }
+  let fs = fields(v)
+  if vint(fs[0]) > 1 { return Err("x509: unsupported private key version") }
+  let n = vbig(fs[1])
+  let d = vbig(fs[3])
+  let p = vbig(fs[4])
+  let q = vbig(fs[5])
+  let dp = vbig(fs[6])
+  let dq = vbig(fs[7])
+  let qinv = vbig(fs[8])
+  if !pos(n)
+    || !pos(d)
+    || !pos(p)
+    || !pos(q)
+    || nonpos_opt(dp)
+    || nonpos_opt(dq)
+    || nonpos_opt(qinv) {
+    return Err("x509: private key contains zero or negative value")
+  }
+  let extra = match fs[9] {
+    VList(xs) => xs,
+    _ => [],
+  }
+  for a in extra {
+    if !pos(vbig(fields(a)[0])) { return Err("x509: private key contains zero or negative prime") }
+  }
+  if len(extra) > 0 { return Err("x509: multi-prime RSA keys are not supported") }
+  if dp != None && dq != None && qinv != None {
+    return rsa.new_private_key_with_precomputation(
+      unwrap(n),
+      vint(fs[2]),
+      unwrap(d),
+      unwrap(p),
+      unwrap(q),
+      unwrap(dp),
+      unwrap(dq),
+      unwrap(qinv),
+    )
+  }
+  rsa.new_private_key(unwrap(n), vint(fs[2]), unwrap(d), unwrap(p), unwrap(q))
+}
+
+pub fn marshal_pkcs1_private_key(k: rsa.PrivateKey) -> List<Int> {
+  let v = Val.VStruct([
+    Val.VInt(0),
+    Val.VBig(Some(k.pub_.n)),
+    Val.VInt(k.pub_.e),
+    Val.VBig(Some(k.d)),
+    Val.VBig(Some(k.p)),
+    Val.VBig(Some(k.q)),
+    Val.VBig(Some(k.dp)),
+    Val.VBig(Some(k.dq)),
+    Val.VBig(Some(k.qinv)),
+    Val.VList([]),
+  ])
+  unwrap_or(asn1.marshal(v, pkcs1_priv_ty()), [])
+}
+
+pub fn parse_pkcs1_public_key(der: List<Int>) -> Result<rsa.PublicKey, Str> {
+  let (v, rest) = match asn1.unmarshal(der, pkcs1_pub_ty()) {
+    Ok(x) => x,
+    Err(e) => {
+      if is_ok(asn1.unmarshal(der, spki_ty())) {
+        return Err(
+          "x509: failed to parse public key (use ParsePKIXPublicKey instead for this key format)",
+        )
+      }
+      return Err(e)
+    },
+  }
+  if len(rest) > 0 { return Err("asn1: syntax error: trailing data") }
+  let fs = fields(v)
+  let n = vbig(fs[0])
+  let e = vint(fs[1])
+  if !pos(n) || e <= 0 { return Err("x509: public key contains zero or negative value") }
+  if e > (1 << 31) - 1 { return Err("x509: public key contains large public exponent") }
+  Ok(rsa.PublicKey { n: unwrap(n), e: e })
+}
+
+pub fn marshal_pkcs1_public_key(k: rsa.PublicKey) -> List<Int> {
+  unwrap_or(asn1.marshal(Val.VStruct([Val.VBig(Some(k.n)), Val.VInt(k.e)]), pkcs1_pub_ty()), [])
+}
+
+const CURVE_OIDS: List<List<Int>> = [
+  [1, 3, 132, 0, 33],
+  [1, 2, 840, 10045, 3, 1, 7],
+  [1, 3, 132, 0, 34],
+  [1, 3, 132, 0, 35],
+]
+
+const CURVE_SIZES: List<Int> = [28, 32, 48, 66]
+
+fn parse_ec_private_key_with(named: List<Int>?, der: List<Int>) -> Result<ecdsa.PrivateKey, Str> {
+  let (v, _) = match asn1.unmarshal(der, ec_priv_ty()) {
+    Ok(x) => x,
+    Err(e) => {
+      if is_ok(asn1.unmarshal(der, pkcs8_ty())) {
+        return Err(
+          "x509: failed to parse private key (use ParsePKCS8PrivateKey instead for this key format)",
+        )
+      }
+      if is_ok(asn1.unmarshal(der, pkcs1_priv_ty())) {
+        return Err(
+          "x509: failed to parse private key (use ParsePKCS1PrivateKey instead for this key format)",
+        )
+      }
+      return Err("x509: failed to parse EC private key: " + e)
+    },
+  }
+  let fs = fields(v)
+  let ver = vint(fs[0])
+  if ver != 1 { return Err("x509: unknown EC private key version {ver}") }
+  let curve_oid = match named {
+    Some(o) => o,
+    None => void(fs[2]),
+  }
+  let c = named_curve(curve_oid)
+  if c < 0 { return Err("x509: unknown elliptic curve") }
+  let size = CURVE_SIZES[c]
+  var pk = vbytes(fs[1])
+  while len(pk) > size {
+    if pk[0] != 0 { return Err("x509: invalid private key length") }
+    pk = pk[1..]
+  }
+  while len(pk) < size { pk = [0] + pk }
+  ecdsa.parse_raw_private_key(c, pk)
+}
+
+pub fn parse_ec_private_key(der: List<Int>) -> Result<ecdsa.PrivateKey, Str> {
+  parse_ec_private_key_with(None, der)
+}
+
+fn marshal_ec_raw(priv: List<Int>, pub_: List<Int>, oid: List<Int>) -> Result<List<Int>, Str> {
+  asn1.marshal(
+    Val.VStruct([
+      Val.VInt(1),
+      Val.VBytes(priv),
+      Val.VOid(oid),
+      Val.VBits(BitString { bytes: pub_, bit_length: 0 }),
+    ]),
+    ec_priv_ty(),
+  )
+}
+
+pub fn marshal_ec_private_key(k: ecdsa.PrivateKey) -> Result<List<Int>, Str> {
+  if k.curve < 0 || k.curve > 3 { return Err("x509: unknown elliptic curve") }
+  marshal_ec_raw(k.d, k.q, CURVE_OIDS[k.curve])
+}
+
+fn oid_der(o: List<Int>) -> List<Int> { unwrap_or(asn1.marshal(Val.VOid(o), Ty.TOid), []) }
+
+pub fn parse_pkcs8_private_key(der: List<Int>) -> Result<PrivateKey, Str> {
+  let (v, _) = match asn1.unmarshal(der, pkcs8_ty()) {
+    Ok(x) => x,
+    Err(e) => {
+      if is_ok(asn1.unmarshal(der, ec_priv_ty())) {
+        return Err(
+          "x509: failed to parse private key (use ParseECPrivateKey instead for this key format)",
+        )
+      }
+      if is_ok(asn1.unmarshal(der, pkcs1_priv_ty())) {
+        return Err(
+          "x509: failed to parse private key (use ParsePKCS1PrivateKey instead for this key format)",
+        )
+      }
+      return Err(e)
+    },
+  }
+  let fs = fields(v)
+  let (alg, params) = ai_of(fs[1])
+  let pk = vbytes(fs[2])
+  if alg == OID_RSA {
+    return match parse_pkcs1_private_key(pk) {
+      Ok(k) => Ok(PrivateKey.RSAPriv(k)),
+      Err(e) => Err("x509: failed to parse RSA private key embedded in PKCS#8: " + e),
+    }
+  }
+  if alg == OID_ECDSA {
+    let named = match asn1.unmarshal(params, Ty.TOid) {
+      Ok((o, _)) => Some(void(o)),
+      Err(_) => None,
+    }
+    return match parse_ec_private_key_with(named, pk) {
+      Ok(k) => Ok(PrivateKey.ECDSAPriv(k)),
+      Err(e) => Err("x509: failed to parse EC private key embedded in PKCS#8: " + e),
+    }
+  }
+  if alg == OID_ED25519 {
+    if len(params) != 0 { return Err("x509: invalid Ed25519 private key parameters") }
+    let seed = match asn1.unmarshal(pk, Ty.TBytes) {
+      Ok((s, _)) => vbytes(s),
+      Err(e) => { return Err("x509: invalid Ed25519 private key: " + e) },
+    }
+    if len(seed) != 32 { return Err("x509: invalid Ed25519 private key length: {len(seed)}") }
+    return Ok(PrivateKey.Ed25519Priv(ed25519.new_key_from_seed(seed)?))
+  }
+  if alg == OID_MLDSA44 || alg == OID_MLDSA65 || alg == OID_MLDSA87 {
+    if len(params) != 0 { return Err("x509: invalid ML-DSA private key parameters") }
+    if len(pk) == 0 { return Err("x509: invalid ML-DSA private key length: 0") }
+    let t = pk[0]
+    if t == 0x04 {
+      return Err("x509: semi-expanded ML-DSA private keys without seed are not supported")
+    }
+    if t == 0x30 {
+      return Err(
+        "x509: ML-DSA private keys with both seed and expanded key are not supported, use e.g. \"openssl pkey -provparam ml-dsa.output_formats=seed-only\" to convert to a seed-only key",
+      )
+    }
+    if t != 0x80 {
+      return Err("x509: invalid ML-DSA private key: invalid ASN.1 tag " + strconv.format_int(
+        t + 256,
+        16,
+      )[1..])
+    }
+    if len(pk) != 34 { return Err("x509: invalid ML-DSA private key length: {len(pk)}") }
+    if pk[1] != 32 { return Err("x509: invalid ML-DSA private key ASN.1 encoding") }
+    let Some(p) = mldsa_params(alg) else { return Err("x509: unknown ML-DSA parameters") }
+    return Ok(PrivateKey.MLDSAPriv(mldsa.new_private_key(p, pk[2..])?))
+  }
+  if alg == OID_X25519 {
+    if len(params) != 0 { return Err("x509: invalid X25519 private key parameters") }
+    let k = match asn1.unmarshal(pk, Ty.TBytes) {
+      Ok((s, _)) => vbytes(s),
+      Err(e) => { return Err("x509: invalid X25519 private key: " + e) },
+    }
+    return Ok(PrivateKey.X25519Priv(ecdh.new_private_key(0, k)?))
+  }
+  Err("x509: PKCS#8 wrapping contained private key with unknown algorithm: " + asn1.oid_string(alg))
+}
+
+fn ai_val(alg: List<Int>, params: List<Int>) -> Val {
+  Val.VStruct([Val.VOid(alg), Val.VRaw(RawValue { full_bytes: params, ..pkix.empty_raw() })])
+}
+
+pub fn marshal_pkcs8_private_key(key: PrivateKey) -> Result<List<Int>, Str> {
+  var alg: List<Int> = []
+  var params: List<Int> = []
+  var body: List<Int> = []
+  match key {
+    RSAPriv(k) => {
+      alg = OID_RSA
+      params = NULL_BYTES
+      body = marshal_pkcs1_private_key(k)
+    },
+    ECDSAPriv(k) => {
+      if k.curve < 0 || k.curve > 3 { return Err("x509: unknown curve while marshaling to PKCS#8") }
+      alg = OID_ECDSA
+      params = oid_der(CURVE_OIDS[k.curve])
+      body = match marshal_ec_raw(k.d, k.q, []) {
+        Ok(b) => b,
+        Err(e) => {
+          return Err("x509: failed to marshal EC private key while building PKCS#8: " + e)
+        },
+      }
+    },
+    Ed25519Priv(k) => {
+      alg = OID_ED25519
+      body = asn1.marshal(Val.VBytes(ed25519.seed(k)), Ty.TBytes)?
+    },
+    MLDSAPriv(k) => {
+      alg = if k.pub_.params.name == "ML-DSA-44" {
+        OID_MLDSA44
+      } else if k.pub_.params.name == "ML-DSA-65" {
+        OID_MLDSA65
+      } else {
+        OID_MLDSA87
+      }
+      body = [0x80, 32] + k.seed
+    },
+    X25519Priv(k) => {
+      alg = OID_X25519
+      body = asn1.marshal(Val.VBytes(k.d), Ty.TBytes)?
+    },
+    ECDHPriv(k) => {
+      if k.curve == 0 {
+        alg = OID_X25519
+        body = asn1.marshal(Val.VBytes(k.d), Ty.TBytes)?
+      } else {
+        alg = OID_ECDSA
+        params = oid_der(CURVE_OIDS[k.curve])
+        body = match marshal_ec_raw(k.d, k.pub_, []) {
+          Ok(b) => b,
+          Err(e) => {
+            return Err("x509: failed to marshal EC private key while building PKCS#8: " + e)
+          },
+        }
+      }
+    },
+  }
+  asn1.marshal(Val.VStruct([Val.VInt(0), ai_val(alg, params), Val.VBytes(body)]), pkcs8_ty())
+}
+
+pub fn marshal_pkix_public_key(pub_: PublicKey) -> Result<List<Int>, Str> {
+  var alg: List<Int> = []
+  var params: List<Int> = []
+  var bytes: List<Int> = []
+  match pub_ {
+    RSAKey(k) => {
+      bytes = marshal_pkcs1_public_key(k)
+      alg = OID_RSA
+      params = NULL_BYTES
+    },
+    ECDSAKey(k) => {
+      if k.curve < 0 || k.curve > 3 { return Err("x509: unsupported elliptic curve") }
+      bytes = k.q
+      alg = OID_ECDSA
+      params = oid_der(CURVE_OIDS[k.curve])
+    },
+    Ed25519Key(k) => {
+      bytes = k
+      alg = OID_ED25519
+    },
+    MLDSAKey(k) => {
+      bytes = k.raw
+      alg = if k.params.name == "ML-DSA-44" {
+        OID_MLDSA44
+      } else if k.params.name == "ML-DSA-65" {
+        OID_MLDSA65
+      } else {
+        OID_MLDSA87
+      }
+    },
+    X25519Key(k) => {
+      bytes = k.q
+      if k.curve == 0 {
+        alg = OID_X25519
+      } else {
+        alg = OID_ECDSA
+        params = oid_der(CURVE_OIDS[k.curve])
+      }
+    },
+    DSAKey(_) => { return Err("x509: unsupported public key type: *dsa.PublicKey") },
+    NoKey => { return Err("x509: unsupported public key type: <nil>") },
+  }
+  asn1.marshal(
+    Val.VStruct([
+      ai_val(alg, params),
+      Val.VBits(BitString { bytes: bytes, bit_length: 8 * len(bytes) }),
+    ]),
+    Ty.TStruct("pkixPublicKey", [asn1.field(ai_ty(), ""), asn1.field(Ty.TBits, "")]),
+  )
+}
+
+// ───────── 签名校验 ─────────
+
+pub const ERR_UNSUPPORTED_ALGORITHM: Str = "x509: cannot verify signature: algorithm unimplemented"
+pub const ERR_CONSTRAINT_VIOLATION: Str =
+  "x509: invalid signature: parent certificate cannot sign this kind of certificate"
+
+fn digest(h: Int, b: List<Int>) -> List<Int> {
+  if h == 3 {
+    sha1.digest(b)
+  } else if h == 5 {
+    sha256.digest(b)
+  } else if h == 6 {
+    sha512.digest384(b)
+  } else {
+    sha512.digest(b)
+  }
+}
+
+fn go_key_type(k: PublicKey) -> Str {
+  match k {
+    RSAKey(_) => "*rsa.PublicKey",
+    ECDSAKey(_) => "*ecdsa.PublicKey",
+    Ed25519Key(_) => "ed25519.PublicKey",
+    MLDSAKey(_) => "*mldsa.PublicKey",
+    DSAKey(_) => "*dsa.PublicKey",
+    X25519Key(_) => "*ecdh.PublicKey",
+    NoKey => "<nil>",
+  }
+}
+
+pub fn check_signature(
+  algo: Int,
+  signed0: List<Int>,
+  signature: List<Int>,
+  public_key: PublicKey,
+  allow_sha1: Bool,
+) -> Result<(), Str> {
+  var hash = 0
+  var pka = 0
+  var pss = false
+  for d in signature_algorithm_details() {
+    if d.algo == algo {
+      hash = d.hash
+      pka = d.pub_algo
+      pss = d.pss
+      break
+    }
+  }
+  var signed = signed0
+  if hash == 0 {
+    if pka != ED25519 && pka != MLDSA { return Err(ERR_UNSUPPORTED_ALGORITHM) }
+  } else if hash == 2 {
+    return Err(
+      "x509: cannot verify signature: insecure algorithm " + signature_algorithm_string(algo),
+    )
+  } else {
+    if hash == 3 && !allow_sha1 {
+      return Err(
+        "x509: cannot verify signature: insecure algorithm " + signature_algorithm_string(algo),
+      )
+    }
+    signed = digest(hash, signed0)
+  }
+  let mismatch = "x509: signature algorithm specifies an " + public_key_algorithm_string(
+    pka,
+  ) + " public key, but have public key of type " + go_key_type(public_key)
+  match public_key {
+    RSAKey(k) => {
+      if pka != RSA { return Err(mismatch) }
+      if pss { return rsa.verify_pss(k, hash, signed, signature, rsa.PSS_SALT_LENGTH_EQUALS_HASH) }
+      rsa.verify_pkcs1v15(k, hash, signed, signature)
+    },
+    ECDSAKey(k) => {
+      if pka != ECDSA { return Err(mismatch) }
+      if !ecdsa.verify_asn1(k, signed, signature) { return Err("x509: ECDSA verification failure") }
+      Ok(())
+    },
+    Ed25519Key(k) => {
+      if pka != ED25519 { return Err(mismatch) }
+      if !ed25519.verify(k, signed, signature) { return Err("x509: Ed25519 verification failure") }
+      Ok(())
+    },
+    MLDSAKey(k) => {
+      if pka != MLDSA { return Err(mismatch) }
+      let want = if k.params.name == "ML-DSA-44" {
+        MLDSA44
+      } else if k.params.name == "ML-DSA-65" {
+        MLDSA65
+      } else {
+        MLDSA87
+      }
+      if algo != want {
+        return Err(
+          "x509: signature algorithm specifies an ML-DSA public key with " + signature_algorithm_string(
+            algo,
+          ) + " parameters, but have a public key with " + k.params.name + " parameters",
+        )
+      }
+      match mldsa.verify(k, signed, signature, None) {
+        Ok(_) => Ok(()),
+        Err(e) => Err("x509: ML-DSA verification failure: " + e),
+      }
+    },
+    _ => Err(ERR_UNSUPPORTED_ALGORITHM),
+  }
+}
+
+// Certificate.CheckSignature
+pub fn certificate_check_signature(
+  c: Certificate,
+  algo: Int,
+  signed: List<Int>,
+  signature: List<Int>,
+) -> Result<(), Str> {
+  check_signature(algo, signed, signature, c.public_key, true)
+}
+
+fn parent_ok(parent: Certificate, usage: Int) -> Result<(), Str> {
+  if (parent.version == 3 && !parent.basic_constraints_valid)
+    || (parent.basic_constraints_valid && !parent.is_ca) {
+    return Err(ERR_CONSTRAINT_VIOLATION)
+  }
+  if parent.key_usage != 0 && parent.key_usage & usage == 0 { return Err(ERR_CONSTRAINT_VIOLATION) }
+  if parent.public_key_algorithm == UNKNOWN_PUBLIC_KEY_ALGORITHM {
+    return Err(ERR_UNSUPPORTED_ALGORITHM)
+  }
+  Ok(())
+}
+
+// Certificate.CheckSignatureFrom
+pub fn check_signature_from(c: Certificate, parent: Certificate) -> Result<(), Str> {
+  parent_ok(parent, KEY_USAGE_CERT_SIGN)?
+  check_signature(
+    c.signature_algorithm,
+    c.raw_tbs_certificate,
+    c.signature,
+    parent.public_key,
+    false,
+  )
+}
+
+// RevocationList.CheckSignatureFrom
+pub fn revocation_list_check_signature_from(
+  rl: RevocationList,
+  parent: Certificate,
+) -> Result<(), Str> {
+  parent_ok(parent, KEY_USAGE_CRL_SIGN)?
+  check_signature(
+    rl.signature_algorithm,
+    rl.raw_tbs_revocation_list,
+    rl.signature,
+    parent.public_key,
+    true,
+  )
+}
+
+// ───────── CSR ─────────
+
+pub type AttributeTypeAndValueSET = { typ: List<Int>, value: List<List<AttributeTypeAndValue>> }
+
+pub type CertificateRequest = {
+  raw: List<Int>,
+  raw_tbs_certificate_request: List<Int>,
+  raw_subject_public_key_info: List<Int>,
+  raw_subject: List<Int>,
+  raw_signature_algorithm: List<Int>,
+  version: Int,
+  signature: List<Int>,
+  signature_algorithm: Int,
+  public_key_algorithm: Int,
+  public_key: PublicKey,
+  subject: Name,
+  attributes: List<AttributeTypeAndValueSET>,
+  extensions: List<Extension>,
+  dns_names: List<Str>,
+  email_addresses: List<Str>,
+  ip_addresses: List<List<Int>>,
+  uris: List<url.URL>,
+}
+
+fn csr_ty() -> Ty {
+  Ty.TStruct("certificateRequest", [
+    asn1.field(Ty.TRawContent, ""),
+    asn1.field(
+      Ty.TStruct("tbsCertificateRequest", [
+        asn1.field(Ty.TRawContent, ""),
+        asn1.field(Ty.TInt, ""),
+        asn1.field(Ty.TRaw, ""),
+        asn1.field(spki_ty(), ""),
+        asn1.field(Ty.TSlice("[]asn1.RawValue", [Ty.TRaw]), "tag:0"),
+      ]),
+      "",
+    ),
+    asn1.field(
+      Ty.TStruct("", [
+        asn1.field(Ty.TRawContent, ""),
+        asn1.field(Ty.TOid, ""),
+        asn1.field(Ty.TRaw, "optional"),
+      ]),
+      "",
+    ),
+    asn1.field(Ty.TBits, ""),
+  ])
+}
+
+fn atv_set_ty() -> Ty {
+  Ty.TStruct("AttributeTypeAndValueSET", [
+    asn1.field(Ty.TOid, ""),
+    asn1.field(
+      Ty.TSlice("[][]pkix.AttributeTypeAndValue", [
+        Ty.TSlice("[]pkix.AttributeTypeAndValue", [
+          Ty.TStruct("AttributeTypeAndValue", [asn1.field(Ty.TOid, ""), asn1.field(Ty.TAny, "")]),
+        ]),
+      ]),
+      "set",
+    ),
+  ])
+}
+
+fn ext_list_ty() -> Ty {
+  Ty.TSlice("[]pkix.Extension", [
+    Ty.TStruct("Extension", [
+      asn1.field(Ty.TOid, ""),
+      asn1.field(Ty.TBool, "optional"),
+      asn1.field(Ty.TBytes, ""),
+    ]),
+  ])
+}
+
+fn vlist(v: Val) -> List<Val> {
+  match v {
+    VList(xs) => xs,
+    _ => [],
+  }
+}
+
+fn vraw(v: Val) -> RawValue {
+  match v {
+    VRaw(r) => r,
+    _ => pkix.empty_raw(),
+  }
+}
+
+fn vbits(v: Val) -> BitString {
+  match v {
+    VBits(b) => b,
+    _ => BitString { bytes: [], bit_length: 0 },
+  }
+}
+
+fn parse_raw_attributes(raws: List<Val>) -> List<AttributeTypeAndValueSET> {
+  var out: List<AttributeTypeAndValueSET> = []
+  for r in raws {
+    if let Ok((v, rest)) = asn1.unmarshal(vraw(r).full_bytes, atv_set_ty()) {
+      if len(rest) == 0 {
+        let fs = fields(v)
+        let sets = map(
+          vlist(fs[1]),
+          (s) => map(
+            vlist(s),
+            (a) => AttributeTypeAndValue { typ: void(fields(a)[0]), value: fields(a)[1] },
+          ),
+        )
+        out = push(out, AttributeTypeAndValueSET { typ: void(fs[0]), value: sets })
+      }
+    }
+  }
+  out
+}
+
+const OID_EXTENSION_REQUEST: List<Int> = [1, 2, 840, 113549, 1, 9, 14]
+
+fn parse_csr_extensions(raws: List<Val>) -> Result<List<Extension>, Str> {
+  let attr_ty = Ty.TStruct("pkcs10Attribute", [
+    asn1.field(Ty.TOid, ""),
+    asn1.field(Ty.TSlice("[]asn1.RawValue", [Ty.TRaw]), "set"),
+  ])
+  var out: List<Extension> = []
+  var seen: List<Str> = []
+  for r in raws {
+    let Ok((v, rest)) = asn1.unmarshal(vraw(r).full_bytes, attr_ty) else { continue }
+    let fs = fields(v)
+    let values = vlist(fs[1])
+    if len(rest) != 0 || len(values) == 0 { continue }
+    if void(fs[0]) != OID_EXTENSION_REQUEST { continue }
+    let (ev, _) = asn1.unmarshal(vraw(values[0]).full_bytes, ext_list_ty())?
+    let exts = map(
+      vlist(ev),
+      (e) => {
+        let f = fields(e)
+        let crit = match f[1] {
+          VBool(b) => b,
+          _ => false,
+        }
+        Extension { id: void(f[0]), critical: crit, value: vbytes(f[2]) }
+      },
+    )
+    for e in exts {
+      let s = asn1.oid_string(e.id)
+      if contains(seen, s) {
+        return Err("x509: certificate request contains duplicate requested extensions")
+      }
+      seen = push(seen, s)
+    }
+    out = out + exts
+  }
+  Ok(out)
+}
+
+pub fn parse_certificate_request(der: List<Int>) -> Result<CertificateRequest, Str> {
+  let (v, rest) = asn1.unmarshal(der, csr_ty())?
+  if len(rest) != 0 { return Err("asn1: syntax error: trailing data") }
+  let fs = fields(v)
+  let tbs = fields(fs[1])
+  let spki = fields(tbs[3])
+  let (pk_oid, pk_params) = ai_of(spki[1])
+  let sa = fields(fs[2])
+  let raws = vlist(tbs[4])
+  let subject = vraw(tbs[2])
+  let pka = pub_algo_from_oid(pk_oid)
+  var pk = PublicKey.NoKey
+  if pka != UNKNOWN_PUBLIC_KEY_ALGORITHM {
+    let params = vraw(fields(spki[1])[1])
+    pk = parse_public_key(AlgorithmIdentifier { algorithm: pk_oid, parameters: params }, vbits(spki[
+      2
+    ]))?
+  }
+  let _ = pk_params
+  let sub = parse_name(subject.full_bytes)?
+  let exts = parse_csr_extensions(raws)?
+  var san = SAN { dns: [], emails: [], ips: [], uris: [] }
+  for e in exts { if e.id == [2, 5, 29, 17] { san = parse_san(e.value)? } }
+  Ok(CertificateRequest {
+    raw: vbytes(fs[0]),
+    raw_tbs_certificate_request: vbytes(tbs[0]),
+    raw_subject_public_key_info: vbytes(spki[0]),
+    raw_subject: subject.full_bytes,
+    raw_signature_algorithm: vbytes(sa[0]),
+    version: vint(tbs[1]),
+    signature: right_align(vbits(fs[3])),
+    signature_algorithm: sig_algo_from_ai(AlgorithmIdentifier {
+      algorithm: void(sa[1]),
+      parameters: vraw(sa[2]),
+    }),
+    public_key_algorithm: pka,
+    public_key: pk,
+    subject: pkix.fill_from_rdn_sequence(pkix.empty_name(), sub),
+    attributes: parse_raw_attributes(raws),
+    extensions: exts,
+    dns_names: san.dns,
+    email_addresses: san.emails,
+    ip_addresses: san.ips,
+    uris: san.uris,
+  })
+}
+
+// CertificateRequest.CheckSignature
+pub fn certificate_request_check_signature(c: CertificateRequest) -> Result<(), Str> {
+  check_signature(
+    c.signature_algorithm,
+    c.raw_tbs_certificate_request,
+    c.signature,
+    c.public_key,
+    true,
+  )
 }

@@ -179,6 +179,52 @@ pub fn new_private_key(
   Ok(PrivateKey { pub_: pub_, d: d, p: p, q: q, dp: dp, dq: dq, qinv: qinv })
 }
 
+// PrivateKey 带 Precomputed.{Dp, Dq, Qinv} 时的 Precompute + Validate
+// （crypto/internal/fips140/rsa.NewPrivateKeyWithPrecomputation 的检查顺序）
+pub fn new_private_key_with_precomputation(
+  n: BigInt,
+  e: Int,
+  d: BigInt,
+  p: BigInt,
+  q: BigInt,
+  dp: BigInt,
+  dq: BigInt,
+  qinv: BigInt,
+) -> Result<PrivateKey, Str> {
+  if d.cmp(n) >= 0 || qinv.cmp(p) >= 0 { return Err("input overflows the modulus") }
+  let pub_ = PublicKey { n: n, e: e }
+  let ce = check_public_key(pub_)
+  if ce != "" { return Err(ce) }
+  if p.cmp(n) >= 0 || q.cmp(n) >= 0 { return Err("crypto/rsa: invalid prime") }
+  if p.mul(q).modulo(n).sign() != 0 { return Err("crypto/rsa: p * q != n") }
+  let one = big.one()
+  let p1 = p.sub(one)
+  let q1 = q.sub(one)
+  let ee = big.new_int(e)
+  if dp.cmp(p1) >= 0 || ee.mul(dp).modulo(p1).cmp(one) != 0 {
+    return Err("crypto/rsa: invalid CRT exponent")
+  }
+  if dq.cmp(q1) >= 0 || ee.mul(dq).modulo(q1).cmp(one) != 0 {
+    return Err("crypto/rsa: invalid CRT exponent")
+  }
+  if q.modulo(p).mul(qinv).modulo(p).cmp(one) != 0 {
+    return Err("crypto/rsa: invalid CRT coefficient")
+  }
+  if d.modulo(p1).cmp(dp) != 0 { return Err("crypto/rsa: d does not match dP") }
+  if d.modulo(q1).cmp(dq) != 0 { return Err("crypto/rsa: d does not match dQ") }
+  var diff = big.zero()
+  if q.cmp(p) < 0 {
+    diff = p.sub(q)
+  } else if p.cmp(q) < 0 {
+    diff = q.sub(p)
+  } else {
+    return Err("crypto/rsa: p == q")
+  }
+  if diff.bit_len() <= n.bit_len() / 2 - 100 { return Err("crypto/rsa: |p - q| too small") }
+  if d.bit_len() <= n.bit_len() / 2 { return Err("crypto/rsa: d too small") }
+  Ok(PrivateKey { pub_: pub_, d: d, p: p, q: q, dp: dp, dq: dq, qinv: qinv })
+}
+
 pub fn public_key(k: PrivateKey) -> PublicKey { k.pub_ }
 
 // ── 原始运算 ──

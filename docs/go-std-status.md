@@ -42,6 +42,10 @@ image/color/palette、path/filepath、go/constant、net/http/cookiejar、crypto/
   8 个公钥、约 500 个变异 / 截断输入，2199 行与 Go 逐字节一致。下一步：CSR、PKCS#1/#8/SEC1、签名校验、链验证与名称约束、签发
 
 ## 可以做（纯数据 / 算法，计划后续批次）
+  第二步完成（2026-10-19）：parse_certificate_request（CSR，含属性、扩展请求、SAN）；PKCS#1 / SEC1（含 P-224，std.crypto.ecdsa 新增 P224 = 0）/ PKCS#8
+  私钥（RSA / ECDSA / Ed25519 / X25519 / ML-DSA 种子）的解析和编码、PKCS#1 公钥、marshal_pkix_public_key；签名校验 check_signature /
+  check_signature_from / CRL、CSR 校验；rsa.new_private_key_with_precomputation（按 Go fips 的检查顺序）。tests/go/x509_keys 569 行一致。
+  与 Go 的差异：多素数 RSA 私钥报错（Kite rsa 只有双素数）。剩余：Verify / 名称约束 / CertPool、Create*（证书、CRL、CSR）。
 - crypto/hpke
 - encoding/gob（值用类似 fmt.Arg 的枚举表示）
 - debug/dwarf、debug/macho、debug/pe、debug/plan9obj

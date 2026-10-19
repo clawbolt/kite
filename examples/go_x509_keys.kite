@@ -1,0 +1,252 @@
+// crypto/x509 私钥格式、CSR 和签名校验对拍（tests/go/x509_keys.go）
+use std.fs
+use std.encoding.pem
+use std.encoding.hex
+use std.encoding.asn1
+use std.strconv
+use std.crypto.x509
+use std.crypto.x509.{ Certificate, PrivateKey }
+use std.crypto.x509.pkix
+use std.net.url
+use std.crypto.rsa
+
+type Blk = { typ: Str, der: List<Int> }
+
+fn read_pem(path: Str) -> List<Blk> {
+  var data = unwrap(fs.read(path))
+  var out: List<Blk> = []
+  while true {
+    let (b, rest) = pem.decode(data)
+    match b {
+      Some(blk) => { out = push(out, Blk { typ: blk.typ, der: blk.bytes }) },
+      None => { return out },
+    }
+    data = rest
+  }
+  out
+}
+
+fn hx(b: List<Int>) -> Str { hex.encode_bytes(b) }
+
+fn pre(s: Str) -> Str { if len(s) > 16 { __str_slice(s, 0, 16) } else { s } }
+
+fn q(s: Str) -> Str { strconv.quote_go(s) }
+
+fn ql(xs: List<Str>) -> Str { "[" + join(map(xs, q), " ") + "]" }
+
+fn curve_name(c: Int) -> Str { ["P-224", "P-256", "P-384", "P-521"][c] }
+
+fn priv(k: PrivateKey) -> Str {
+  match k {
+    RSAPriv(r) =>
+      "RSA n={pre(r.pub_.n.text(16))} e={r.pub_.e} d={pre(r.d.text(16))} p={pre(r.p.text(16))} q={pre(r.q.text(16))} dp={pre(r.dp.text(16))} dq={pre(r.dq.text(16))} qinv={pre(r.qinv.text(16))}",
+    ECDSAPriv(e) => "ECDSA {curve_name(e.curve)} d={hx(e.d)} q={pre(hx(e.q))}",
+    Ed25519Priv(e) => "Ed25519 " + hx(e),
+    X25519Priv(e) => "ECDH X25519 {hx(e.d)} {hx(e.pub_)}",
+    ECDHPriv(e) => "ECDH {e.curve} {hx(e.d)} {hx(e.pub_)}",
+    MLDSAPriv(m) => "MLDSA {m.pub_.params.name} {hx(m.seed)}",
+  }
+}
+
+fn er(r: Result<(), Str>) -> Str {
+  match r {
+    Ok(_) => "<nil>",
+    Err(e) => e,
+  }
+}
+
+fn lcg(s: Int) -> Int { (s * 1103515245 + 12345) & 0x7fffffff }
+
+fn set_at(xs: List<Int>, p: Int, v: Int) -> List<Int> { xs[..p] + [v] + xs[p + 1..] }
+
+fn pk1(r: Result<rsa.PrivateKey, Str>) -> (Str, Str) {
+  match r {
+    Ok(k) => (priv(PrivateKey.RSAPriv(k)), "<nil>"),
+    Err(e) => ("nil", e),
+  }
+}
+
+fn main() {
+  var seed = 777
+  var certs: List<Certificate> = []
+  for b in read_pem("tests/go/testdata/x509/certs.pem") {
+    if let Ok(c) = x509.parse_certificate(b.der) { certs = push(certs, c) }
+  }
+  let root = certs[0]
+  var i = 0
+  for c in certs {
+    let prev = certs[(i + len(certs) - 1) % len(certs)]
+    print(
+      "sig {i}: root={er(x509.check_signature_from(c, root))} self={er(x509.check_signature_from(c, c))} prev={er(x509.check_signature_from(c, prev))}",
+    )
+    print(
+      "  check={er(x509.certificate_check_signature(c, c.signature_algorithm, c.raw_tbs_certificate, c.signature))}",
+    )
+    i += 1
+  }
+  i = 0
+  for c in take(certs, 12) {
+    let m = len(c.signature) / 2
+    let s = set_at(c.signature, m, c.signature[m] ^ 1)
+    print(
+      "badsig {i}: {er(x509.certificate_check_signature(c, c.signature_algorithm, c.raw_tbs_certificate, s))}",
+    )
+    print(
+      "badtbs {i}: {er(x509.certificate_check_signature(c, c.signature_algorithm, c.raw_tbs_certificate[1..], c.signature))}",
+    )
+    i += 1
+  }
+  i = 0
+  for b in read_pem("tests/go/testdata/x509/crls.pem") {
+    if let Ok(rl) = x509.parse_revocation_list(b.der) {
+      print(
+        "crl {i}: {er(x509.revocation_list_check_signature_from(rl, root))} {er(x509.revocation_list_check_signature_from(rl, certs[1]))}",
+      )
+    }
+    i += 1
+  }
+  i = 0
+  for b in read_pem("tests/go/testdata/x509/csrs.pem") {
+    match x509.parse_certificate_request(b.der) {
+      Err(e) => print("csr {i} {e}"),
+      Ok(r) => {
+        let attrs = map(
+          r.attributes,
+          (a) => {
+            var vs: List<Str> = []
+            for s in a.value {
+              for v in s { vs = push(vs, asn1.oid_string(v.typ) + "=" + pkix.sprint(v.value)) }
+            }
+            asn1.oid_string(a.typ) + ":" + join(vs, ",")
+          },
+        )
+        let exts = map(
+          r.extensions,
+          (e) => asn1.oid_string(e.id) + "/" + (if e.critical {
+            "true"
+          } else {
+            "false"
+          }) + "/" + hx(e.value),
+        )
+        print(
+          "csr {i}: v={r.version} subj={pkix.name_string(r.subject)} sigalg={x509.signature_algorithm_string(r.signature_algorithm)} pkalg={x509.public_key_algorithm_string(r.public_key_algorithm)} attrs={ql(attrs)} exts={ql(exts)} dns={ql(r.dns_names)} email={ql(r.email_addresses)} ip={ql(map(r.ip_addresses, hx))} uri={ql(map(r.uris, url.to_str))} raw={len(r.raw)}/{len(r.raw_tbs_certificate_request)}/{len(r.raw_subject_public_key_info)}/{len(r.raw_subject)}/{len(r.raw_signature_algorithm)} sig={len(r.signature)} check={er(x509.certificate_request_check_signature(r))}",
+        )
+        var k = 0
+        while k < 15 {
+          seed = lcg(seed)
+          let p = (seed >> 8) % len(b.der)
+          seed = lcg(seed)
+          let v = (seed >> 8) % 256
+          match x509.parse_certificate_request(set_at(b.der, p, v)) {
+            Err(e) => print("  mut {k} @{p}={v}: {e}"),
+            Ok(r2) => print(
+              "  mut {k} @{p}={v}: ok {pkix.name_string(r2.subject)} {len(r2.extensions)} {er(x509.certificate_request_check_signature(r2))}",
+            ),
+          }
+          k += 1
+        }
+      },
+    }
+    i += 1
+  }
+  i = 0
+  for b in read_pem("tests/go/testdata/x509/keys.pem") {
+    let r1 = x509.parse_pkcs1_private_key(b.der)
+    let r2 = x509.parse_ec_private_key(b.der)
+    let r8 = x509.parse_pkcs8_private_key(b.der)
+    let (s1, e1) = pk1(r1)
+    let (s2, e2) = match r2 {
+      Ok(k) => (priv(PrivateKey.ECDSAPriv(k)), "<nil>"),
+      Err(e) => ("nil", e),
+    }
+    let (s8, e8) = match r8 {
+      Ok(k) => (priv(k), "<nil>"),
+      Err(e) => ("nil", e),
+    }
+    print("key {i} {b.typ}:\n  pkcs1={s1} {e1}\n  ec={s2} {e2}\n  pkcs8={s8} {e8}")
+    if let Ok(k) = r1 { print("  re1", x509.marshal_pkcs1_private_key(k) == b.der) }
+    if let Ok(k) = r2 {
+      match x509.marshal_ec_private_key(k) {
+        Ok(out) => print("  re2", out == b.der, "<nil>"),
+        Err(e) => print("  re2 false", e),
+      }
+    }
+    if let Ok(k) = r8 {
+      match x509.marshal_pkcs8_private_key(k) {
+        Ok(out) => print("  re8", out == b.der, "<nil>"),
+        Err(e) => print("  re8 false", e),
+      }
+    }
+    var k = 0
+    while k < 10 {
+      seed = lcg(seed)
+      let p = (seed >> 8) % len(b.der)
+      seed = lcg(seed)
+      let v = (seed >> 8) % 256
+      let m = set_at(b.der, p, v)
+      let s = if b.typ == "RSA PRIVATE KEY" {
+        let (a, e) = pk1(x509.parse_pkcs1_private_key(m))
+        if e == "<nil>" { a } else { e }
+      } else if b.typ == "EC PRIVATE KEY" {
+        match x509.parse_ec_private_key(m) {
+          Ok(x) => priv(PrivateKey.ECDSAPriv(x)),
+          Err(e) => e,
+        }
+      } else {
+        match x509.parse_pkcs8_private_key(m) {
+          Ok(x) => priv(x),
+          Err(e) => e,
+        }
+      }
+      print("  mut {k} @{p}={v}: {s}")
+      k += 1
+    }
+    i += 1
+  }
+  i = 0
+  for b in read_pem("tests/go/testdata/x509/pubkeys.pem") {
+    if b.typ == "RSA PUBLIC KEY" {
+      match x509.parse_pkcs1_public_key(b.der) {
+        Ok(k) => print("pkcs1pub", i, "<nil>", x509.marshal_pkcs1_public_key(k) == b.der),
+        Err(e) => print("pkcs1pub", i, e, false),
+      }
+      match x509.parse_pkix_public_key(b.der) {
+        Ok(_) => print("  as pkix: <nil>"),
+        Err(e) => print("  as pkix:", e),
+      }
+    } else {
+      match x509.parse_pkix_public_key(b.der) {
+        Ok(k) => match x509.marshal_pkix_public_key(k) {
+          Ok(out) => print("pkix", i, "<nil>", out == b.der, "<nil>"),
+          Err(e) => print("pkix", i, "<nil>", false, e),
+        },
+        Err(e) => print("pkix", i, e, false, "?"),
+      }
+      match x509.parse_pkcs1_public_key(b.der) {
+        Ok(_) => print("  as pkcs1: <nil>"),
+        Err(e) => print("  as pkcs1:", e),
+      }
+    }
+    i += 1
+  }
+  for h in [
+    "",
+    "3000",
+    "300602010102010",
+    "3006020100020101",
+    "30060201010201ff",
+    "3008020101020500ffffffff",
+    "300602010102010300",
+  ] {
+    // Go 的 DecodeString 在奇数长度时返回已解码的前缀
+    let even = if len(h) % 2 == 1 { __str_slice(h, 0, len(h) - 1) } else { h }
+    let bs = match hex.decode(even) {
+      Ok(x) => x,
+      Err(_) => [],
+    }
+    match x509.parse_pkcs1_public_key(bs) {
+      Ok(_) => print("pkcs1pub {q(h)}: <nil>"),
+      Err(e) => print("pkcs1pub {q(h)}: {e}"),
+    }
+  }
+}

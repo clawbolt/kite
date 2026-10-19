@@ -211,6 +211,46 @@ func main() {
 	}
 	emit("RSA PUBLIC KEY", x509.MarshalPKCS1PublicKey(&rsa2048.PublicKey))
 	must(0, os.WriteFile(os.Args[1]+"/pubkeys.pem", out, 0o644))
+
+	// 私钥
+	out = nil
+	emit("RSA PRIVATE KEY", x509.MarshalPKCS1PrivateKey(rsa1024))
+	emit("RSA PRIVATE KEY", x509.MarshalPKCS1PrivateKey(rsa2048))
+	for _, k := range []*ecdsa.PrivateKey{p224, p256, p384, p521} {
+		emit("EC PRIVATE KEY", must(x509.MarshalECPrivateKey(k)))
+	}
+	p256dh := must(p256.ECDH())
+	for _, k := range []any{rsa1024, p224, p256, p384, p521, edk, x25519, ml, p256dh} {
+		emit("PRIVATE KEY", must(x509.MarshalPKCS8PrivateKey(k)))
+	}
+	must(0, os.WriteFile(os.Args[1]+"/keys.pem", out, 0o644))
+
+	// CSR
+	out = nil
+	csr := func(priv any, mod func(t *x509.CertificateRequest)) {
+		t := &x509.CertificateRequest{Subject: pkix.Name{CommonName: "csr.example.com", Organization: []string{"Kite"}}}
+		if mod != nil {
+			mod(t)
+		}
+		emit("CERTIFICATE REQUEST", must(x509.CreateCertificateRequest(rand.Reader, t, priv)))
+	}
+	csr(rsa2048, nil)
+	csr(p256, func(t *x509.CertificateRequest) {
+		t.DNSNames = []string{"a.example.com", "b.example.com"}
+		t.EmailAddresses = []string{"x@example.com"}
+		t.IPAddresses = []net.IP{net.ParseIP("10.1.2.3"), net.ParseIP("::1")}
+		t.URIs = []*url.URL{u1}
+		t.ExtraExtensions = []pkix.Extension{{Id: asn1.ObjectIdentifier{1, 2, 3, 4}, Critical: true, Value: []byte{5, 0}}}
+	})
+	csr(p384, func(t *x509.CertificateRequest) {
+		t.Attributes = []pkix.AttributeTypeAndValueSET{{Type: asn1.ObjectIdentifier{1, 2, 840, 113549, 1, 9, 7},
+			Value: [][]pkix.AttributeTypeAndValue{{{Type: asn1.ObjectIdentifier{1, 2, 3}, Value: "challenge"}}}}}
+	})
+	csr(edk, func(t *x509.CertificateRequest) { t.SignatureAlgorithm = x509.PureEd25519 })
+	csr(rsa2048, func(t *x509.CertificateRequest) { t.SignatureAlgorithm = x509.SHA384WithRSAPSS })
+	csr(ml, nil)
+	csr(p521, func(t *x509.CertificateRequest) { t.SignatureAlgorithm = x509.ECDSAWithSHA1 })
+	must(0, os.WriteFile(os.Args[1]+"/csrs.pem", out, 0o644))
 }
 
 func must2[A, B any](a A, b B, err error) (A, B) {
