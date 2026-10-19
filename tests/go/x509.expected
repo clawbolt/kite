@@ -1,0 +1,2199 @@
+cert 0 (1066 bytes)
+  version=3 serial=1 sigalg=SHA256-RSA pkalg=RSA
+  subject=SERIALNUMBER=SN-1,CN=Kite Root CA,OU=Unit A+OU=Unit\+B,O=Kite Test\, Inc.,POSTALCODE=94000,STREET=1 Main St,L=Somewhere,ST=CA,C=US
+  issuer=SERIALNUMBER=SN-1,CN=Kite Root CA,OU=Unit A+OU=Unit\+B,O=Kite Test\, Inc.,POSTALCODE=94000,STREET=1 Main St,L=Somewhere,ST=CA,C=US
+  subject.names=[2.5.4.6=string:US; 2.5.4.8=string:CA; 2.5.4.7=string:Somewhere; 2.5.4.9=string:1 Main St; 2.5.4.17=string:94000; 2.5.4.10=string:Kite Test, Inc.; 2.5.4.11=string:Unit A; 2.5.4.11=string:Unit+B; 2.5.4.3=string:Kite Root CA; 2.5.4.5=string:SN-1]
+  cn="Kite Root CA" o=["Kite Test, Inc."] ou=["Unit A" "Unit+B"] c=["US"] l=["Somewhere"] st=["CA"] street=["1 Main St"] pc=["94000"] sn="SN-1"
+  validity=1577934245/0..2524607999/0
+  key=RSA n=ad790859f41b8bedf950f23616e059d50841f480ea5a5ee7e8a3b0ec001fce51323b1afd3b4688a939979eb87ee5a1dbc4ea7cdc49ffe36dc53ec1190754cde1f35a0be1875a400b1bbfd8016813619eb00afe3fcc4bea2f68d75da876bb31200249d5b8aa707a27e48164874fbdb19eb091a6332c068c3e724c346a29d6c5a53f434c311aecc1f8101e6901e0eaf34b593c2398466f6074ec5b66b25c4d255730e603ebde2bfec96bd78ca636e35eda55a18f3116c289bb5dfb9f1b4b5d9ecb415130ef41137e27fa8c35b724749c85b99c3a45347d93f69e4b95b3e878dad3914986cf827d3bcbff2af38426bcc297e4b03ea036ec72af14ae4799de5bd8e9 e=65537
+  ku=97 eku=[] unknown=[] bc=true ca=true mpl=2 mplz=false
+  skid=3109b2ec7dd3fc37b8cc1588b645adf6b075859e akid=
+  ocsp=[] issuers=[] crl=[]
+  dns=[] email=[] ip=[] uri=[]
+  nc crit=false pdns=[] xdns=[] pip=[] xip=[] pem=[] xem=[] puri=[] xuri=[]
+  policies=[] ids=[] maps=[] iap=0/false ipm=0/false rep=0/false
+  exts=[2.5.29.15/true/4 2.5.29.19/true/8 2.5.29.14/false/22] unhandled=[]
+  raw=1066 tbs=786 spki=294 subj=181 iss=181 sigai=15 sig=780ebba211c4da71
+cert 1 (854 bytes)
+  version=3 serial=2 sigalg=SHA256-RSA pkalg=RSA
+  subject=CN=leaf.example.com,O=Kite
+  issuer=SERIALNUMBER=SN-1,CN=Kite Root CA,OU=Unit A+OU=Unit\+B,O=Kite Test\, Inc.,POSTALCODE=94000,STREET=1 Main St,L=Somewhere,ST=CA,C=US
+  subject.names=[2.5.4.10=string:Kite; 2.5.4.3=string:leaf.example.com]
+  cn="leaf.example.com" o=["Kite"] ou=[] c=[] l=[] st=[] street=[] pc=[] sn=""
+  validity=1577934245/0..1906502400/0
+  key=RSA n=de6efae743b1b2df6658f81966842dc720ab38dfffec9f3c1701e0edd33f088a4c867e7024d01e1579d938ce7891ede652f910bb3e4396f5ccb884b0afc928e7e306a49b49f825b87cc9c9f5e72b0593816f9a2769b24cf55203e5446d4841689b39ae3f821ced57d98a8175fc56720e616366bb9fe4e00d0f6694735088dba9 e=65537
+  ku=5 eku=[serverAuth clientAuth] unknown=[] bc=false ca=false mpl=0 mplz=false
+  skid= akid=3109b2ec7dd3fc37b8cc1588b645adf6b075859e
+  ocsp=[] issuers=[] crl=[]
+  dns=["leaf.example.com" "*.example.com"] email=[] ip=[] uri=[]
+  nc crit=false pdns=[] xdns=[] pip=[] xip=[] pem=[] xem=[] puri=[] xuri=[]
+  policies=[] ids=[] maps=[] iap=0/false ipm=0/false rep=0/false
+  exts=[2.5.29.15/true/4 2.5.29.37/false/22 2.5.29.35/false/24 2.5.29.17/false/35] unhandled=[]
+  raw=854 tbs=574 spki=162 subj=44 iss=181 sigai=15 sig=06de57fcf3a9ab07
+cert 2 (1090 bytes)
+  version=3 serial=3 sigalg=SHA256-RSA pkalg=ECDSA
+  subject=CN=leaf.example.com,O=Kite
+  issuer=SERIALNUMBER=SN-1,CN=Kite Root CA,OU=Unit A+OU=Unit\+B,O=Kite Test\, Inc.,POSTALCODE=94000,STREET=1 Main St,L=Somewhere,ST=CA,C=US
+  subject.names=[2.5.4.10=string:Kite; 2.5.4.3=string:leaf.example.com]
+  cn="leaf.example.com" o=["Kite"] ou=[] c=[] l=[] st=[] street=[] pc=[] sn=""
+  validity=1577934245/0..1906502400/0
+  key=ECDSA P-256 04e523247115f5a070ff39a04292501cb8d7cdf2e20bcb18dbcd767533a943728144e6863d7d373a6d7c51e2ffda266e4638721948bddf95517cb28fe4dfb80ff0
+  ku=5 eku=[serverAuth clientAuth] unknown=[] bc=false ca=false mpl=0 mplz=false
+  skid= akid=3109b2ec7dd3fc37b8cc1588b645adf6b075859e
+  ocsp=["http://ocsp.example.com"] issuers=["http://ca.example.com/root.crt"] crl=["http://crl.example.com/a.crl" "ldap://crl.example.com/b"]
+  dns=["leaf.example.com" "*.example.com"] email=["a@example.com" "b@example.org"] ip=[c0000201 20010db8000000000000000000000001] uri=["https://example.com/path?q=1#frag" "spiffe://trust.example/ns/default"]
+  nc crit=false pdns=[] xdns=[] pip=[] xip=[] pem=[] xem=[] puri=[] xuri=[]
+  policies=[] ids=[] maps=[] iap=0/false ipm=0/false rep=0/false
+  exts=[2.5.29.15/true/4 2.5.29.37/false/22 2.5.29.35/false/24 1.3.6.1.5.5.7.1.1/false/83 2.5.29.17/false/160 2.5.29.31/false/70] unhandled=[]
+  raw=1090 tbs=810 spki=91 subj=44 iss=181 sigai=15 sig=7e240c258c6556d3
+cert 3 (932 bytes)
+  version=3 serial=4 sigalg=SHA256-RSA pkalg=ECDSA
+  subject=CN=leaf.example.com,O=Kite
+  issuer=SERIALNUMBER=SN-1,CN=Kite Root CA,OU=Unit A+OU=Unit\+B,O=Kite Test\, Inc.,POSTALCODE=94000,STREET=1 Main St,L=Somewhere,ST=CA,C=US
+  subject.names=[2.5.4.10=string:Kite; 2.5.4.3=string:leaf.example.com]
+  cn="leaf.example.com" o=["Kite"] ou=[] c=[] l=[] st=[] street=[] pc=[] sn=""
+  validity=1577934245/0..1906502400/0
+  key=ECDSA P-384 0419259dced19196dcc4a800dce15bc8c83877799ff8c49e419a0588d07af6e94fcfb4ff1a6a919ca377734a684b9be612622ecfe77a056a39e4d483621ba9c04980fcbe810860143cc50493fa8bdfa27a6b53fe866367f58cf479bfc7a22b0422
+  ku=511 eku=[anyExtendedKeyUsage codeSigning emailProtection ipsecEndSystem ipsecTunnel ipsecUser timeStamping OCSPSigning msSGC nsSGC msCodeCom msKernelCode] unknown=[1.2.3.4.5 2.999.1] bc=false ca=false mpl=0 mplz=false
+  skid= akid=3109b2ec7dd3fc37b8cc1588b645adf6b075859e
+  ocsp=[] issuers=[] crl=[]
+  dns=["leaf.example.com" "*.example.com"] email=[] ip=[] uri=[]
+  nc crit=false pdns=[] xdns=[] pip=[] xip=[] pem=[] xem=[] puri=[] xuri=[]
+  policies=[] ids=[] maps=[] iap=0/false ipm=0/false rep=0/false
+  exts=[2.5.29.15/true/5 2.5.29.37/false/137 2.5.29.35/false/24 2.5.29.17/false/35] unhandled=[]
+  raw=932 tbs=652 spki=120 subj=44 iss=181 sigai=15 sig=a5f57f2b286eeaa2
+cert 4 (1142 bytes)
+  version=3 serial=5 sigalg=SHA256-RSA pkalg=ECDSA
+  subject=CN=leaf.example.com,O=Kite
+  issuer=SERIALNUMBER=SN-1,CN=Kite Root CA,OU=Unit A+OU=Unit\+B,O=Kite Test\, Inc.,POSTALCODE=94000,STREET=1 Main St,L=Somewhere,ST=CA,C=US
+  subject.names=[2.5.4.10=string:Kite; 2.5.4.3=string:leaf.example.com]
+  cn="leaf.example.com" o=["Kite"] ou=[] c=[] l=[] st=[] street=[] pc=[] sn=""
+  validity=1577934245/0..1906502400/0
+  key=ECDSA P-521 0401b3c495a48a057d7936e30f8a58d86be3e01e9e94c7afbafa61e66665380810c193681d95ca55a4f791b70c880f57673ef049252d09a159ce155f893d87a3c434ac003a1045b8a5538a4e3935d735cc84f6cd60617342631f384a86d7af8fa3da7be1af59da69106a45d394562de55bb7ef82b50b9efd0a5c3537adaaf1ff0a8bbc0e51
+  ku=5 eku=[serverAuth clientAuth] unknown=[] bc=true ca=true mpl=0 mplz=true
+  skid=2ea089a1f88d6de2ee670feedab2a19b70bd0825 akid=3109b2ec7dd3fc37b8cc1588b645adf6b075859e
+  ocsp=[] issuers=[] crl=[]
+  dns=["leaf.example.com" "*.example.com"] email=[] ip=[] uri=[]
+  nc crit=true pdns=[".example.com" "example.org"] xdns=["bad.example.com"] pip=["0a000000/ff000000" "20010db8000000000000000000000000/ffffffff000000000000000000000000"] xip=["c0a80100/ffffff00"] pem=["foo@example.com" ".example.net" "example.org"] xem=["bar@example.com"] puri=[".example.com"] xuri=["evil.example.com"]
+  policies=[] ids=[] maps=[] iap=0/false ipm=0/false rep=0/false
+  exts=[2.5.29.15/true/4 2.5.29.37/false/22 2.5.29.19/true/8 2.5.29.14/false/22 2.5.29.35/false/24 2.5.29.17/false/35 2.5.29.30/true/223] unhandled=[]
+  raw=1142 tbs=862 spki=158 subj=44 iss=181 sigai=15 sig=2319b12f6ca0f739
+cert 5 (833 bytes)
+  version=3 serial=6 sigalg=SHA256-RSA pkalg=ECDSA
+  subject=CN=leaf.example.com,O=Kite
+  issuer=SERIALNUMBER=SN-1,CN=Kite Root CA,OU=Unit A+OU=Unit\+B,O=Kite Test\, Inc.,POSTALCODE=94000,STREET=1 Main St,L=Somewhere,ST=CA,C=US
+  subject.names=[2.5.4.10=string:Kite; 2.5.4.3=string:leaf.example.com]
+  cn="leaf.example.com" o=["Kite"] ou=[] c=[] l=[] st=[] street=[] pc=[] sn=""
+  validity=1577934245/0..1906502400/0
+  key=ECDSA P-224 041709621c4878ae1383ae527e680b1c281bf78674d3f64d11ea9c3b610e204a57df16f2d534d93f280f927d2afd4992a611eb5d8a8b03c87e
+  ku=5 eku=[serverAuth clientAuth] unknown=[] bc=false ca=false mpl=0 mplz=false
+  skid= akid=3109b2ec7dd3fc37b8cc1588b645adf6b075859e
+  ocsp=[] issuers=[] crl=[]
+  dns=["leaf.example.com" "*.example.com"] email=[] ip=[] uri=[]
+  nc crit=false pdns=[] xdns=[] pip=[] xip=[] pem=[] xem=[] puri=[] xuri=[]
+  policies=[1.2.3.4 2.5.29.32.0 1.2.99999999999999999999999.1 2.999.18446744073709551616] ids=[1.2.3.4 2.5.29.32.0] maps=[] iap=0/false ipm=0/false rep=0/false
+  exts=[2.5.29.15/true/4 2.5.29.37/false/22 2.5.29.35/false/24 2.5.29.17/false/35 2.5.29.32/false/50] unhandled=[]
+  raw=833 tbs=553 spki=80 subj=44 iss=181 sigai=15 sig=98a1cd5dfc7507c9
+cert 6 (878 bytes)
+  version=3 serial=7 sigalg=SHA256-RSA pkalg=Ed25519
+  subject=CN=extra CN,OU=\#hash\<\>\;\"\\,O=\ lead\,trail#\ ,1.2.3.6=#06022a03,1.2.3.5=#0101ff,1.2.3.4=#02012a,1.2.840.113549.1.9.1=mail@example.com
+  issuer=SERIALNUMBER=SN-1,CN=Kite Root CA,OU=Unit A+OU=Unit\+B,O=Kite Test\, Inc.,POSTALCODE=94000,STREET=1 Main St,L=Somewhere,ST=CA,C=US
+  subject.names=[2.5.4.3=string:extra CN; 1.2.840.113549.1.9.1=string:mail@example.com; 1.2.3.4=int64:42; 1.2.3.5=bool:true; 1.2.3.6=asn1.ObjectIdentifier:1.2.3; 2.5.4.10=string: lead,trail# ; 2.5.4.11=string:#hash<>;"\]
+  cn="extra CN" o=[" lead,trail# "] ou=["#hash<>;\"\\"] c=[] l=[] st=[] street=[] pc=[] sn=""
+  validity=1577934245/0..1906502400/0
+  key=Ed25519 cbef0c79e7ffdf5292a356c3c8c3e15f066df18420a81fa50e98ba7f0aa44ee3
+  ku=5 eku=[serverAuth clientAuth] unknown=[] bc=false ca=false mpl=0 mplz=false
+  skid=0102030405 akid=3109b2ec7dd3fc37b8cc1588b645adf6b075859e
+  ocsp=[] issuers=[] crl=[]
+  dns=["leaf.example.com" "*.example.com"] email=[] ip=[] uri=[]
+  nc crit=false pdns=[] xdns=[] pip=[] xip=[] pem=[] xem=[] puri=[] xuri=[]
+  policies=[] ids=[] maps=[] iap=0/false ipm=0/false rep=0/false
+  exts=[2.5.29.15/true/4 2.5.29.37/false/22 2.5.29.14/false/7 2.5.29.35/false/24 2.5.29.17/false/35 1.2.3.4.5.6/true/2 1.2.3.4.5.7/false/4] unhandled=[1.2.3.4.5.6]
+  raw=878 tbs=598 spki=44 subj=137 iss=181 sigai=15 sig=2021fbcce815916c
+cert 7 (2046 bytes)
+  version=3 serial=40000000000000000000000000000000000000 sigalg=SHA256-RSA pkalg=ML-DSA
+  subject=CN=leaf.example.com,O=Kite
+  issuer=SERIALNUMBER=SN-1,CN=Kite Root CA,OU=Unit A+OU=Unit\+B,O=Kite Test\, Inc.,POSTALCODE=94000,STREET=1 Main St,L=Somewhere,ST=CA,C=US
+  subject.names=[2.5.4.10=string:Kite; 2.5.4.3=string:leaf.example.com]
+  cn="leaf.example.com" o=["Kite"] ou=[] c=[] l=[] st=[] street=[] pc=[] sn=""
+  validity=-631152000/0..4102444800/0
+  key=MLDSA ML-DSA-44 1312
+  ku=5 eku=[serverAuth clientAuth] unknown=[] bc=false ca=false mpl=0 mplz=false
+  skid= akid=3109b2ec7dd3fc37b8cc1588b645adf6b075859e
+  ocsp=[] issuers=[] crl=[]
+  dns=["leaf.example.com" "*.example.com"] email=[] ip=[] uri=[]
+  nc crit=false pdns=[] xdns=[] pip=[] xip=[] pem=[] xem=[] puri=[] xuri=[]
+  policies=[] ids=[] maps=[] iap=0/false ipm=0/false rep=0/false
+  exts=[2.5.29.15/true/4 2.5.29.37/false/22 2.5.29.35/false/24 2.5.29.17/false/35] unhandled=[]
+  raw=2046 tbs=1766 spki=1334 subj=44 iss=181 sigai=15 sig=2199a08e5e566408
+cert 8 (944 bytes)
+  version=3 serial=a sigalg=SHA256-RSA pkalg=RSA
+  subject=CN=日本語 名前,C=JP
+  issuer=SERIALNUMBER=SN-1,CN=Kite Root CA,OU=Unit A+OU=Unit\+B,O=Kite Test\, Inc.,POSTALCODE=94000,STREET=1 Main St,L=Somewhere,ST=CA,C=US
+  subject.names=[2.5.4.6=string:JP; 2.5.4.3=string:日本語 名前]
+  cn="日本語 名前" o=[] ou=[] c=["JP"] l=[] st=[] street=[] pc=[] sn=""
+  validity=-631152001/0..2524608000/0
+  key=RSA n=ad790859f41b8bedf950f23616e059d50841f480ea5a5ee7e8a3b0ec001fce51323b1afd3b4688a939979eb87ee5a1dbc4ea7cdc49ffe36dc53ec1190754cde1f35a0be1875a400b1bbfd8016813619eb00afe3fcc4bea2f68d75da876bb31200249d5b8aa707a27e48164874fbdb19eb091a6332c068c3e724c346a29d6c5a53f434c311aecc1f8101e6901e0eaf34b593c2398466f6074ec5b66b25c4d255730e603ebde2bfec96bd78ca636e35eda55a18f3116c289bb5dfb9f1b4b5d9ecb415130ef41137e27fa8c35b724749c85b99c3a45347d93f69e4b95b3e878dad3914986cf827d3bcbff2af38426bcc297e4b03ea036ec72af14ae4799de5bd8e9 e=65537
+  ku=5 eku=[serverAuth clientAuth] unknown=[] bc=false ca=false mpl=0 mplz=false
+  skid= akid=3109b2ec7dd3fc37b8cc1588b645adf6b075859e
+  ocsp=[] issuers=[] crl=[]
+  dns=[] email=[] ip=[] uri=[]
+  nc crit=false pdns=[] xdns=[] pip=[] xip=[] pem=[] xem=[] puri=[] xuri=[]
+  policies=[] ids=[] maps=[] iap=0/false ipm=0/false rep=0/false
+  exts=[2.5.29.15/true/4 2.5.29.37/false/22 2.5.29.35/false/24] unhandled=[]
+  raw=944 tbs=664 spki=294 subj=42 iss=181 sigai=15 sig=68bf20756098adda
+cert 9 (679 bytes)
+  version=3 serial=14 sigalg=SHA256-RSA pkalg=RSA
+  subject=CN=SHA256-RSA
+  issuer=CN=SHA256-RSA
+  subject.names=[2.5.4.3=string:SHA256-RSA]
+  cn="SHA256-RSA" o=[] ou=[] c=[] l=[] st=[] street=[] pc=[] sn=""
+  validity=1577934245/0..2524607999/0
+  key=RSA n=ad790859f41b8bedf950f23616e059d50841f480ea5a5ee7e8a3b0ec001fce51323b1afd3b4688a939979eb87ee5a1dbc4ea7cdc49ffe36dc53ec1190754cde1f35a0be1875a400b1bbfd8016813619eb00afe3fcc4bea2f68d75da876bb31200249d5b8aa707a27e48164874fbdb19eb091a6332c068c3e724c346a29d6c5a53f434c311aecc1f8101e6901e0eaf34b593c2398466f6074ec5b66b25c4d255730e603ebde2bfec96bd78ca636e35eda55a18f3116c289bb5dfb9f1b4b5d9ecb415130ef41137e27fa8c35b724749c85b99c3a45347d93f69e4b95b3e878dad3914986cf827d3bcbff2af38426bcc297e4b03ea036ec72af14ae4799de5bd8e9 e=65537
+  ku=0 eku=[] unknown=[] bc=false ca=false mpl=0 mplz=false
+  skid= akid=
+  ocsp=[] issuers=[] crl=[]
+  dns=[] email=[] ip=[] uri=[]
+  nc crit=false pdns=[] xdns=[] pip=[] xip=[] pem=[] xem=[] puri=[] xuri=[]
+  policies=[] ids=[] maps=[] iap=0/false ipm=0/false rep=0/false
+  exts=[] unhandled=[]
+  raw=679 tbs=399 spki=294 subj=23 iss=23 sigai=15 sig=9ab90da509ed2620
+cert 10 (679 bytes)
+  version=3 serial=15 sigalg=SHA384-RSA pkalg=RSA
+  subject=CN=SHA384-RSA
+  issuer=CN=SHA384-RSA
+  subject.names=[2.5.4.3=string:SHA384-RSA]
+  cn="SHA384-RSA" o=[] ou=[] c=[] l=[] st=[] street=[] pc=[] sn=""
+  validity=1577934245/0..2524607999/0
+  key=RSA n=ad790859f41b8bedf950f23616e059d50841f480ea5a5ee7e8a3b0ec001fce51323b1afd3b4688a939979eb87ee5a1dbc4ea7cdc49ffe36dc53ec1190754cde1f35a0be1875a400b1bbfd8016813619eb00afe3fcc4bea2f68d75da876bb31200249d5b8aa707a27e48164874fbdb19eb091a6332c068c3e724c346a29d6c5a53f434c311aecc1f8101e6901e0eaf34b593c2398466f6074ec5b66b25c4d255730e603ebde2bfec96bd78ca636e35eda55a18f3116c289bb5dfb9f1b4b5d9ecb415130ef41137e27fa8c35b724749c85b99c3a45347d93f69e4b95b3e878dad3914986cf827d3bcbff2af38426bcc297e4b03ea036ec72af14ae4799de5bd8e9 e=65537
+  ku=0 eku=[] unknown=[] bc=false ca=false mpl=0 mplz=false
+  skid= akid=
+  ocsp=[] issuers=[] crl=[]
+  dns=[] email=[] ip=[] uri=[]
+  nc crit=false pdns=[] xdns=[] pip=[] xip=[] pem=[] xem=[] puri=[] xuri=[]
+  policies=[] ids=[] maps=[] iap=0/false ipm=0/false rep=0/false
+  exts=[] unhandled=[]
+  raw=679 tbs=399 spki=294 subj=23 iss=23 sigai=15 sig=1e7dfc633d646ba2
+cert 11 (679 bytes)
+  version=3 serial=16 sigalg=SHA512-RSA pkalg=RSA
+  subject=CN=SHA512-RSA
+  issuer=CN=SHA512-RSA
+  subject.names=[2.5.4.3=string:SHA512-RSA]
+  cn="SHA512-RSA" o=[] ou=[] c=[] l=[] st=[] street=[] pc=[] sn=""
+  validity=1577934245/0..2524607999/0
+  key=RSA n=ad790859f41b8bedf950f23616e059d50841f480ea5a5ee7e8a3b0ec001fce51323b1afd3b4688a939979eb87ee5a1dbc4ea7cdc49ffe36dc53ec1190754cde1f35a0be1875a400b1bbfd8016813619eb00afe3fcc4bea2f68d75da876bb31200249d5b8aa707a27e48164874fbdb19eb091a6332c068c3e724c346a29d6c5a53f434c311aecc1f8101e6901e0eaf34b593c2398466f6074ec5b66b25c4d255730e603ebde2bfec96bd78ca636e35eda55a18f3116c289bb5dfb9f1b4b5d9ecb415130ef41137e27fa8c35b724749c85b99c3a45347d93f69e4b95b3e878dad3914986cf827d3bcbff2af38426bcc297e4b03ea036ec72af14ae4799de5bd8e9 e=65537
+  ku=0 eku=[] unknown=[] bc=false ca=false mpl=0 mplz=false
+  skid= akid=
+  ocsp=[] issuers=[] crl=[]
+  dns=[] email=[] ip=[] uri=[]
+  nc crit=false pdns=[] xdns=[] pip=[] xip=[] pem=[] xem=[] puri=[] xuri=[]
+  policies=[] ids=[] maps=[] iap=0/false ipm=0/false rep=0/false
+  exts=[] unhandled=[]
+  raw=679 tbs=399 spki=294 subj=23 iss=23 sigai=15 sig=ab324b4c75da00d1
+cert 12 (789 bytes)
+  version=3 serial=17 sigalg=SHA256-RSAPSS pkalg=RSA
+  subject=CN=SHA256-RSAPSS
+  issuer=CN=SHA256-RSAPSS
+  subject.names=[2.5.4.3=string:SHA256-RSAPSS]
+  cn="SHA256-RSAPSS" o=[] ou=[] c=[] l=[] st=[] street=[] pc=[] sn=""
+  validity=1577934245/0..2524607999/0
+  key=RSA n=ad790859f41b8bedf950f23616e059d50841f480ea5a5ee7e8a3b0ec001fce51323b1afd3b4688a939979eb87ee5a1dbc4ea7cdc49ffe36dc53ec1190754cde1f35a0be1875a400b1bbfd8016813619eb00afe3fcc4bea2f68d75da876bb31200249d5b8aa707a27e48164874fbdb19eb091a6332c068c3e724c346a29d6c5a53f434c311aecc1f8101e6901e0eaf34b593c2398466f6074ec5b66b25c4d255730e603ebde2bfec96bd78ca636e35eda55a18f3116c289bb5dfb9f1b4b5d9ecb415130ef41137e27fa8c35b724749c85b99c3a45347d93f69e4b95b3e878dad3914986cf827d3bcbff2af38426bcc297e4b03ea036ec72af14ae4799de5bd8e9 e=65537
+  ku=0 eku=[] unknown=[] bc=false ca=false mpl=0 mplz=false
+  skid= akid=
+  ocsp=[] issuers=[] crl=[]
+  dns=[] email=[] ip=[] uri=[]
+  nc crit=false pdns=[] xdns=[] pip=[] xip=[] pem=[] xem=[] puri=[] xuri=[]
+  policies=[] ids=[] maps=[] iap=0/false ipm=0/false rep=0/false
+  exts=[] unhandled=[]
+  raw=789 tbs=457 spki=294 subj=26 iss=26 sigai=67 sig=02603f831251a97f
+cert 13 (789 bytes)
+  version=3 serial=18 sigalg=SHA384-RSAPSS pkalg=RSA
+  subject=CN=SHA384-RSAPSS
+  issuer=CN=SHA384-RSAPSS
+  subject.names=[2.5.4.3=string:SHA384-RSAPSS]
+  cn="SHA384-RSAPSS" o=[] ou=[] c=[] l=[] st=[] street=[] pc=[] sn=""
+  validity=1577934245/0..2524607999/0
+  key=RSA n=ad790859f41b8bedf950f23616e059d50841f480ea5a5ee7e8a3b0ec001fce51323b1afd3b4688a939979eb87ee5a1dbc4ea7cdc49ffe36dc53ec1190754cde1f35a0be1875a400b1bbfd8016813619eb00afe3fcc4bea2f68d75da876bb31200249d5b8aa707a27e48164874fbdb19eb091a6332c068c3e724c346a29d6c5a53f434c311aecc1f8101e6901e0eaf34b593c2398466f6074ec5b66b25c4d255730e603ebde2bfec96bd78ca636e35eda55a18f3116c289bb5dfb9f1b4b5d9ecb415130ef41137e27fa8c35b724749c85b99c3a45347d93f69e4b95b3e878dad3914986cf827d3bcbff2af38426bcc297e4b03ea036ec72af14ae4799de5bd8e9 e=65537
+  ku=0 eku=[] unknown=[] bc=false ca=false mpl=0 mplz=false
+  skid= akid=
+  ocsp=[] issuers=[] crl=[]
+  dns=[] email=[] ip=[] uri=[]
+  nc crit=false pdns=[] xdns=[] pip=[] xip=[] pem=[] xem=[] puri=[] xuri=[]
+  policies=[] ids=[] maps=[] iap=0/false ipm=0/false rep=0/false
+  exts=[] unhandled=[]
+  raw=789 tbs=457 spki=294 subj=26 iss=26 sigai=67 sig=8df84d060d748e32
+cert 14 (789 bytes)
+  version=3 serial=19 sigalg=SHA512-RSAPSS pkalg=RSA
+  subject=CN=SHA512-RSAPSS
+  issuer=CN=SHA512-RSAPSS
+  subject.names=[2.5.4.3=string:SHA512-RSAPSS]
+  cn="SHA512-RSAPSS" o=[] ou=[] c=[] l=[] st=[] street=[] pc=[] sn=""
+  validity=1577934245/0..2524607999/0
+  key=RSA n=ad790859f41b8bedf950f23616e059d50841f480ea5a5ee7e8a3b0ec001fce51323b1afd3b4688a939979eb87ee5a1dbc4ea7cdc49ffe36dc53ec1190754cde1f35a0be1875a400b1bbfd8016813619eb00afe3fcc4bea2f68d75da876bb31200249d5b8aa707a27e48164874fbdb19eb091a6332c068c3e724c346a29d6c5a53f434c311aecc1f8101e6901e0eaf34b593c2398466f6074ec5b66b25c4d255730e603ebde2bfec96bd78ca636e35eda55a18f3116c289bb5dfb9f1b4b5d9ecb415130ef41137e27fa8c35b724749c85b99c3a45347d93f69e4b95b3e878dad3914986cf827d3bcbff2af38426bcc297e4b03ea036ec72af14ae4799de5bd8e9 e=65537
+  ku=0 eku=[] unknown=[] bc=false ca=false mpl=0 mplz=false
+  skid= akid=
+  ocsp=[] issuers=[] crl=[]
+  dns=[] email=[] ip=[] uri=[]
+  nc crit=false pdns=[] xdns=[] pip=[] xip=[] pem=[] xem=[] puri=[] xuri=[]
+  policies=[] ids=[] maps=[] iap=0/false ipm=0/false rep=0/false
+  exts=[] unhandled=[]
+  raw=789 tbs=457 spki=294 subj=26 iss=26 sigai=67 sig=4d59fba28c7a7130
+cert 15 (285 bytes)
+  version=3 serial=1a sigalg=ECDSA-SHA256 pkalg=ECDSA
+  subject=CN=ECDSA-SHA256
+  issuer=CN=ECDSA-SHA256
+  subject.names=[2.5.4.3=string:ECDSA-SHA256]
+  cn="ECDSA-SHA256" o=[] ou=[] c=[] l=[] st=[] street=[] pc=[] sn=""
+  validity=1577934245/0..2524607999/0
+  key=ECDSA P-256 04e523247115f5a070ff39a04292501cb8d7cdf2e20bcb18dbcd767533a943728144e6863d7d373a6d7c51e2ffda266e4638721948bddf95517cb28fe4dfb80ff0
+  ku=0 eku=[] unknown=[] bc=false ca=false mpl=0 mplz=false
+  skid= akid=
+  ocsp=[] issuers=[] crl=[]
+  dns=[] email=[] ip=[] uri=[]
+  nc crit=false pdns=[] xdns=[] pip=[] xip=[] pem=[] xem=[] puri=[] xuri=[]
+  policies=[] ids=[] maps=[] iap=0/false ipm=0/false rep=0/false
+  exts=[] unhandled=[]
+  raw=285 tbs=196 spki=91 subj=25 iss=25 sigai=12 sig=3044022010afda5d
+cert 16 (347 bytes)
+  version=3 serial=1b sigalg=ECDSA-SHA384 pkalg=ECDSA
+  subject=CN=ECDSA-SHA384
+  issuer=CN=ECDSA-SHA384
+  subject.names=[2.5.4.3=string:ECDSA-SHA384]
+  cn="ECDSA-SHA384" o=[] ou=[] c=[] l=[] st=[] street=[] pc=[] sn=""
+  validity=1577934245/0..2524607999/0
+  key=ECDSA P-384 0419259dced19196dcc4a800dce15bc8c83877799ff8c49e419a0588d07af6e94fcfb4ff1a6a919ca377734a684b9be612622ecfe77a056a39e4d483621ba9c04980fcbe810860143cc50493fa8bdfa27a6b53fe866367f58cf479bfc7a22b0422
+  ku=0 eku=[] unknown=[] bc=false ca=false mpl=0 mplz=false
+  skid= akid=
+  ocsp=[] issuers=[] crl=[]
+  dns=[] email=[] ip=[] uri=[]
+  nc crit=false pdns=[] xdns=[] pip=[] xip=[] pem=[] xem=[] puri=[] xuri=[]
+  policies=[] ids=[] maps=[] iap=0/false ipm=0/false rep=0/false
+  exts=[] unhandled=[]
+  raw=347 tbs=225 spki=120 subj=25 iss=25 sigai=12 sig=3065023100d83b29
+cert 17 (422 bytes)
+  version=3 serial=1c sigalg=ECDSA-SHA512 pkalg=ECDSA
+  subject=CN=ECDSA-SHA512
+  issuer=CN=ECDSA-SHA512
+  subject.names=[2.5.4.3=string:ECDSA-SHA512]
+  cn="ECDSA-SHA512" o=[] ou=[] c=[] l=[] st=[] street=[] pc=[] sn=""
+  validity=1577934245/0..2524607999/0
+  key=ECDSA P-521 0401b3c495a48a057d7936e30f8a58d86be3e01e9e94c7afbafa61e66665380810c193681d95ca55a4f791b70c880f57673ef049252d09a159ce155f893d87a3c434ac003a1045b8a5538a4e3935d735cc84f6cd60617342631f384a86d7af8fa3da7be1af59da69106a45d394562de55bb7ef82b50b9efd0a5c3537adaaf1ff0a8bbc0e51
+  ku=0 eku=[] unknown=[] bc=false ca=false mpl=0 mplz=false
+  skid= akid=
+  ocsp=[] issuers=[] crl=[]
+  dns=[] email=[] ip=[] uri=[]
+  nc crit=false pdns=[] xdns=[] pip=[] xip=[] pem=[] xem=[] puri=[] xuri=[]
+  policies=[] ids=[] maps=[] iap=0/false ipm=0/false rep=0/false
+  exts=[] unhandled=[]
+  raw=422 tbs=264 spki=158 subj=25 iss=25 sigai=12 sig=30818702416f171d
+cert 18 (211 bytes)
+  version=3 serial=1d sigalg=Ed25519 pkalg=Ed25519
+  subject=CN=Ed25519
+  issuer=CN=Ed25519
+  subject.names=[2.5.4.3=string:Ed25519]
+  cn="Ed25519" o=[] ou=[] c=[] l=[] st=[] street=[] pc=[] sn=""
+  validity=1577934245/0..2524607999/0
+  key=Ed25519 cbef0c79e7ffdf5292a356c3c8c3e15f066df18420a81fa50e98ba7f0aa44ee3
+  ku=0 eku=[] unknown=[] bc=false ca=false mpl=0 mplz=false
+  skid= akid=
+  ocsp=[] issuers=[] crl=[]
+  dns=[] email=[] ip=[] uri=[]
+  nc crit=false pdns=[] xdns=[] pip=[] xip=[] pem=[] xem=[] puri=[] xuri=[]
+  policies=[] ids=[] maps=[] iap=0/false ipm=0/false rep=0/false
+  exts=[] unhandled=[]
+  raw=211 tbs=134 spki=44 subj=20 iss=20 sigai=7 sig=82407599cdaabce6
+cert 19 (3877 bytes)
+  version=3 serial=1e sigalg=ML-DSA-44 pkalg=ML-DSA
+  subject=CN=ML-DSA-44
+  issuer=CN=ML-DSA-44
+  subject.names=[2.5.4.3=string:ML-DSA-44]
+  cn="ML-DSA-44" o=[] ou=[] c=[] l=[] st=[] street=[] pc=[] sn=""
+  validity=1577934245/0..2524607999/0
+  key=MLDSA ML-DSA-44 1312
+  ku=0 eku=[] unknown=[] bc=false ca=false mpl=0 mplz=false
+  skid= akid=
+  ocsp=[] issuers=[] crl=[]
+  dns=[] email=[] ip=[] uri=[]
+  nc crit=false pdns=[] xdns=[] pip=[] xip=[] pem=[] xem=[] puri=[] xuri=[]
+  policies=[] ids=[] maps=[] iap=0/false ipm=0/false rep=0/false
+  exts=[] unhandled=[]
+  raw=3877 tbs=1435 spki=1334 subj=22 iss=22 sigai=13 sig=b3dcfc51bad16183
+cert 20 (675 bytes)
+  version=3 serial=1f sigalg=SHA1-RSA pkalg=RSA
+  subject=CN=SHA1-RSA
+  issuer=CN=SHA1-RSA
+  subject.names=[2.5.4.3=string:SHA1-RSA]
+  cn="SHA1-RSA" o=[] ou=[] c=[] l=[] st=[] street=[] pc=[] sn=""
+  validity=1577934245/0..2524607999/0
+  key=RSA n=ad790859f41b8bedf950f23616e059d50841f480ea5a5ee7e8a3b0ec001fce51323b1afd3b4688a939979eb87ee5a1dbc4ea7cdc49ffe36dc53ec1190754cde1f35a0be1875a400b1bbfd8016813619eb00afe3fcc4bea2f68d75da876bb31200249d5b8aa707a27e48164874fbdb19eb091a6332c068c3e724c346a29d6c5a53f434c311aecc1f8101e6901e0eaf34b593c2398466f6074ec5b66b25c4d255730e603ebde2bfec96bd78ca636e35eda55a18f3116c289bb5dfb9f1b4b5d9ecb415130ef41137e27fa8c35b724749c85b99c3a45347d93f69e4b95b3e878dad3914986cf827d3bcbff2af38426bcc297e4b03ea036ec72af14ae4799de5bd8e9 e=65537
+  ku=0 eku=[] unknown=[] bc=false ca=false mpl=0 mplz=false
+  skid= akid=
+  ocsp=[] issuers=[] crl=[]
+  dns=[] email=[] ip=[] uri=[]
+  nc crit=false pdns=[] xdns=[] pip=[] xip=[] pem=[] xem=[] puri=[] xuri=[]
+  policies=[] ids=[] maps=[] iap=0/false ipm=0/false rep=0/false
+  exts=[] unhandled=[]
+  raw=675 tbs=395 spki=294 subj=21 iss=21 sigai=15 sig=79c3b5e4d6f908f7
+cert 21 (281 bytes)
+  version=3 serial=20 sigalg=ECDSA-SHA1 pkalg=ECDSA
+  subject=CN=ECDSA-SHA1
+  issuer=CN=ECDSA-SHA1
+  subject.names=[2.5.4.3=string:ECDSA-SHA1]
+  cn="ECDSA-SHA1" o=[] ou=[] c=[] l=[] st=[] street=[] pc=[] sn=""
+  validity=1577934245/0..2524607999/0
+  key=ECDSA P-256 04e523247115f5a070ff39a04292501cb8d7cdf2e20bcb18dbcd767533a943728144e6863d7d373a6d7c51e2ffda266e4638721948bddf95517cb28fe4dfb80ff0
+  ku=0 eku=[] unknown=[] bc=false ca=false mpl=0 mplz=false
+  skid= akid=
+  ocsp=[] issuers=[] crl=[]
+  dns=[] email=[] ip=[] uri=[]
+  nc crit=false pdns=[] xdns=[] pip=[] xip=[] pem=[] xem=[] puri=[] xuri=[]
+  policies=[] ids=[] maps=[] iap=0/false ipm=0/false rep=0/false
+  exts=[] unhandled=[]
+  raw=281 tbs=191 spki=91 subj=23 iss=23 sigai=11 sig=304602210084edbe
+cert 22 (530 bytes)
+  version=1 serial=c5e927cdd27b27ae sigalg=ECDSA-SHA1 pkalg=ECDSA
+  subject=CN=www.google.com,O=Google\, Inc.,L=Mountain View,ST=California,C=US,1.2.840.113549.1.9.1=golang-dev@gmail.com
+  issuer=CN=www.google.com,O=Google\, Inc.,L=Mountain View,ST=California,C=US,1.2.840.113549.1.9.1=golang-dev@gmail.com
+  subject.names=[2.5.4.6=string:US; 2.5.4.8=string:California; 2.5.4.7=string:Mountain View; 2.5.4.10=string:Google, Inc.; 2.5.4.3=string:www.google.com; 1.2.840.113549.1.9.1=string:golang-dev@gmail.com]
+  cn="www.google.com" o=["Google, Inc."] ou=[] c=["US"] l=["Mountain View"] st=["California"] street=[] pc=[] sn=""
+  validity=1337545250/0..1652905250/0
+  key=ECDSA P-256 04fd68275900e8e7e6f3ef54f4df6ec44607794830d715b5cba732190d74e48e97bc41311bb05f9ecec41fade92ba433c2e027773fd2d8d2d1be688f08c9529d52
+  ku=0 eku=[] unknown=[] bc=false ca=false mpl=0 mplz=false
+  skid= akid=
+  ocsp=[] issuers=[] crl=[]
+  dns=[] email=[] ip=[] uri=[]
+  nc crit=false pdns=[] xdns=[] pip=[] xip=[] pem=[] xem=[] puri=[] xuri=[]
+  policies=[] ids=[] maps=[] iap=0/false ipm=0/false rep=0/false
+  exts=[] unhandled=[]
+  raw=530 tbs=441 spki=91 subj=146 iss=146 sigai=11 sig=30450220696ca8c7
+cert 23 (531 bytes)
+  version=1 serial=e5b2e316be043385 sigalg=ECDSA-SHA256 pkalg=ECDSA
+  subject=CN=www.google.com,O=Google\, Inc.,L=Mountain View,ST=California,C=US,1.2.840.113549.1.9.1=golang-dev@gmail.com
+  issuer=CN=www.google.com,O=Google\, Inc.,L=Mountain View,ST=California,C=US,1.2.840.113549.1.9.1=golang-dev@gmail.com
+  subject.names=[2.5.4.6=string:US; 2.5.4.8=string:California; 2.5.4.7=string:Mountain View; 2.5.4.10=string:Google, Inc.; 2.5.4.3=string:www.google.com; 1.2.840.113549.1.9.1=string:golang-dev@gmail.com]
+  cn="www.google.com" o=["Google, Inc."] ou=[] c=["US"] l=["Mountain View"] st=["California"] street=[] pc=[] sn=""
+  validity=1337559556/0..1652919556/0
+  key=ECDSA P-256 04f32dd84ae1c40b72e44251bbdc8cf8c4f2fa15179b7a5d5b57a7b00bf7f362a8184c525c01563fba6326736d1cef974b056660db6a8dc00614aa707a837ffe44
+  ku=0 eku=[] unknown=[] bc=false ca=false mpl=0 mplz=false
+  skid= akid=
+  ocsp=[] issuers=[] crl=[]
+  dns=[] email=[] ip=[] uri=[]
+  nc crit=false pdns=[] xdns=[] pip=[] xip=[] pem=[] xem=[] puri=[] xuri=[]
+  policies=[] ids=[] maps=[] iap=0/false ipm=0/false rep=0/false
+  exts=[] unhandled=[]
+  raw=531 tbs=442 spki=91 subj=146 iss=146 sigai=12 sig=3044022021849a50
+cert 24 (590 bytes)
+  version=1 serial=e37bf9e8ee65e457 sigalg=ECDSA-SHA256 pkalg=ECDSA
+  subject=CN=www.google.com,O=Google\, Inc,L=Mountain View,ST=California,C=US,1.2.840.113549.1.9.1=golang-dev@gmail.com
+  issuer=CN=www.google.com,O=Google\, Inc,L=Mountain View,ST=California,C=US,1.2.840.113549.1.9.1=golang-dev@gmail.com
+  subject.names=[2.5.4.6=string:US; 2.5.4.8=string:California; 2.5.4.7=string:Mountain View; 2.5.4.10=string:Google, Inc; 2.5.4.3=string:www.google.com; 1.2.840.113549.1.9.1=string:golang-dev@gmail.com]
+  cn="www.google.com" o=["Google, Inc"] ou=[] c=["US"] l=["Mountain View"] st=["California"] street=[] pc=[] sn=""
+  validity=1337580634/0..1652940634/0
+  key=ECDSA P-384 0451bb344d20a44a8c892d1265da9cd9ab4d1feafc56875cb856459ea71d67b6e85c3b46cadb93e5631b2e2f7d6b4d9fbc5214aacebb9cdeab12a7984d21e44e3cd0c360ad489191a18ed863092559b1c76d1aaa45ce939f54f32180e0282113a3
+  ku=0 eku=[] unknown=[] bc=false ca=false mpl=0 mplz=false
+  skid= akid=
+  ocsp=[] issuers=[] crl=[]
+  dns=[] email=[] ip=[] uri=[]
+  nc crit=false pdns=[] xdns=[] pip=[] xip=[] pem=[] xem=[] puri=[] xuri=[]
+  policies=[] ids=[] maps=[] iap=0/false ipm=0/false rep=0/false
+  exts=[] unhandled=[]
+  raw=590 tbs=469 spki=120 subj=145 iss=145 sigai=12 sig=3064023005910df2
+cert 25 (666 bytes)
+  version=1 serial=e1a750050ff6a12a sigalg=ECDSA-SHA384 pkalg=ECDSA
+  subject=CN=www.google.com,O=Google\, Inc,L=Mountain View,ST=California,C=US,1.2.840.113549.1.9.1=golang-dev@gmail.com
+  issuer=CN=www.google.com,O=Google\, Inc,L=Mountain View,ST=California,C=US,1.2.840.113549.1.9.1=golang-dev@gmail.com
+  subject.names=[2.5.4.6=string:US; 2.5.4.8=string:California; 2.5.4.7=string:Mountain View; 2.5.4.10=string:Google, Inc; 2.5.4.3=string:www.google.com; 1.2.840.113549.1.9.1=string:golang-dev@gmail.com]
+  cn="www.google.com" o=["Google, Inc"] ou=[] c=["US"] l=["Mountain View"] st=["California"] street=[] pc=[] sn=""
+  validity=1337612669/0..1652972669/0
+  key=ECDSA P-521 0400aac7d46f22cb11b352d661c34df967dfc251f0e13bf7cbcfcb20003d305d5949c2289d4f6744cc6de1adae1895423c3c3a247a733da61cd04f69b8ba04f407caa7016be7d264a2dedd060e7948a3c416475da22a7faef98decd3c05a33018ab3b08ce926f053ed86f3e118faacbbd02f815b87bb73e8b1688718dae1877efda6f6bc33
+  ku=0 eku=[] unknown=[] bc=false ca=false mpl=0 mplz=false
+  skid= akid=
+  ocsp=[] issuers=[] crl=[]
+  dns=[] email=[] ip=[] uri=[]
+  nc crit=false pdns=[] xdns=[] pip=[] xip=[] pem=[] xem=[] puri=[] xuri=[]
+  policies=[] ids=[] maps=[] iap=0/false ipm=0/false rep=0/false
+  exts=[] unhandled=[]
+  raw=666 tbs=507 spki=158 subj=145 iss=145 sigai=12 sig=3081880242010736
+cert 26 (1041 bytes)
+  version=3 serial=b1cf8216a8c5e0e1 sigalg=DSA-SHA1 pkalg=DSA
+  subject=CN=Jon Allie,O=Google\, Inc,L=Newton,ST=NC,C=US,1.2.840.113549.1.9.1=jonallie@google.com
+  issuer=CN=Jon Allie,O=Google\, Inc,L=Newton,ST=NC,C=US,1.2.840.113549.1.9.1=jonallie@google.com
+  subject.names=[2.5.4.6=string:US; 2.5.4.8=string:NC; 2.5.4.7=string:Newton; 2.5.4.10=string:Google, Inc; 2.5.4.3=string:Jon Allie; 1.2.840.113549.1.9.1=string:jonallie@google.com]
+  cn="Jon Allie" o=["Google, Inc"] ou=[] c=["US"] l=["Newton"] st=["NC"] street=[] pc=[] sn=""
+  validity=1305342105/0..1307934105/0
+  key=*dsa.PublicKey
+  ku=0 eku=[] unknown=[] bc=true ca=true mpl=-1 mplz=false
+  skid=15cb2afb84ed75645169597e74dbdf126b757eaf akid=15cb2afb84ed75645169597e74dbdf126b757eaf
+  ocsp=[] issuers=[] crl=[]
+  dns=[] email=[] ip=[] uri=[]
+  nc crit=false pdns=[] xdns=[] pip=[] xip=[] pem=[] xem=[] puri=[] xuri=[]
+  policies=[] ids=[] maps=[] iap=0/false ipm=0/false rep=0/false
+  exts=[2.5.29.14/false/22 2.5.29.35/false/163 2.5.29.19/false/5] unhandled=[]
+  raw=1041 tbs=977 spki=443 subj=123 iss=123 sigai=11 sig=302c02143ed9ffe6
+cert 27 (1570 bytes)
+  version=3 serial=76 sigalg=SHA256-RSAPSS pkalg=RSA
+  subject=CN=e-passportCSCA,OU=The Ministry of Foreign Affairs,O=Japanese Government,C=JP
+  issuer=CN=e-passportCSCA,OU=The Ministry of Foreign Affairs,O=Japanese Government,C=JP
+  subject.names=[2.5.4.6=string:JP; 2.5.4.10=string:Japanese Government; 2.5.4.11=string:The Ministry of Foreign Affairs; 2.5.4.3=string:e-passportCSCA]
+  cn="e-passportCSCA" o=["Japanese Government"] ou=["The Ministry of Foreign Affairs"] c=["JP"] l=[] st=[] street=[] pc=[] sn=""
+  validity=1368508050/0..1873429650/0
+  key=RSA n=c7f1375915717020d7868493f275522e35ba870338362f7d01e816cdc1ad7c6168d338c50350a5e5446ac5abaf62ede04204070460350a8bd6786ae5c95491cce2f58a6718b1280b39c9e15580775dcae87f879bbfdf96f93c0d75cf58cc0c1c8fcacd7799cfe8f297210f963c29043977726fcd18127c6e4fe34f8e455f1523c14bb418669bd3d9fc32e1f6747a1e3cdb9dfeed595e4a64ced26aa3ed3973686e7aab5e7448b65b86939df230fc6ccff00029cb08f47cf308f88427032c4c282f263ce472424c8410327a13529ab2cc47aea4f444226eb28b877c0bd62a216167d984e745c59c98c6892f3abe918c0aa2e75f9e80ba456dafcd95e775e7d0b3af0866e2beb802eef46dc95863e0bb40901a3d093434fcce488357efb878dad973358a8ebd589c02fe55b2ca6c0a702f6bb5f65d960e97d49258a68567eb6aa1cd214294e828d9386df54735dca65223d26b6ab34135afbaf7e7b12cc85a01dbc88da38733d650ae961d04e162735b32d9713e19b291c7442172bd89d7a226d7115d6750babc07228a1b4152ee79f84ac7a857ef0fbe31cb3e198718cbe2e26c646dc5dd577c2d8474f5fc75dda98f38038c475add7eb01fd3a537a4b438459447dc53282f4eee7c52d3a7caca2639555e1119a2ed64ae8dfccab0624025879eb6203947ecd7ec1c5ec85544a96d338754e4c21d12f0b45ee5d889878fba146d e=65537
+  ku=96 eku=[] unknown=[] bc=true ca=true mpl=0 mplz=true
+  skid=3fa86a16a29014d552b93cd54cfb9114b6b31d1a akid=
+  ocsp=[] issuers=[] crl=[]
+  dns=[] email=[] ip=[] uri=[]
+  nc crit=false pdns=[] xdns=[] pip=[] xip=[] pem=[] xem=[] puri=[] xuri=[]
+  policies=[1.2.392.100350.6.5.1.1.1] ids=[1.2.392.100350.6.5.1.1.1] maps=[] iap=0/false ipm=0/false rep=0/false
+  exts=[2.5.29.14/false/22 2.5.29.15/true/4 2.5.29.32/false/17 2.5.29.19/true/8] unhandled=[]
+  raw=1570 tbs=982 spki=550 subj=112 iss=112 sigai=67 sig=1ac560509f9099b8
+cert 28 (964 bytes)
+  version=3 serial=cf4b00c1d3139c69 sigalg=SHA256-RSAPSS pkalg=RSA
+  subject=CN=Test,O=Test,L=SF,ST=CA,C=US
+  issuer=CN=Test,O=Test,L=SF,ST=CA,C=US
+  subject.names=[2.5.4.6=string:US; 2.5.4.8=string:CA; 2.5.4.7=string:SF; 2.5.4.10=string:Test; 2.5.4.3=string:Test]
+  cn="Test" o=["Test"] ou=[] c=["US"] l=["SF"] st=["CA"] street=[] pc=[] sn=""
+  validity=1519337598/0..1834697598/0
+  key=RSA n=e19aecc9da1df86a130092cbbad58d17ceea86154f06c2b5cc1d468fe34001ee3e55bad9d44e351f5c29a884f1ec303c0d1b4911ff8daab4c09c07595811bfb40380e4b7d755ac7465242d2e760b49eca52e832d0f26377850234e6b933a8c95cbaada92da300a71c2874d4db2cb6aa937ebc7a49b9b33a60e629392afc8fbb2b430256c9f8d7144354cf92843d161851a2a041a88969c5496ba9c490c0dd0ea3203132815c0d287c2786fff63601b692a673ad949003aede9f488a017b680cd3e99b20f9a12f586c427ed8d6e6ee82de38ddf48ba919bd7288cc95f1f9459589acc766a9ec8b9ad0f0644717e895157b2a7743330ca9a428e4f914386bb1b29 e=65537
+  ku=0 eku=[] unknown=[] bc=true ca=true mpl=-1 mplz=false
+  skid=f6e158fe796080b1f4d0d067affa3b42fa4df6e8 akid=f6e158fe796080b1f4d0d067affa3b42fa4df6e8
+  ocsp=[] issuers=[] crl=[]
+  dns=[] email=[] ip=[] uri=[]
+  nc crit=false pdns=[] xdns=[] pip=[] xip=[] pem=[] xem=[] puri=[] xuri=[]
+  policies=[] ids=[] maps=[] iap=0/false ipm=0/false rep=0/false
+  exts=[2.5.29.14/false/22 2.5.29.35/false/24 2.5.29.19/true/5] unhandled=[]
+  raw=964 tbs=636 spki=294 subj=71 iss=71 sigai=63 sig=849ce9c3104d18ab
+cert 29 (351 bytes)
+  version=3 serial=c83d8212b82cb23982363e2f7978a435bf3bd92 sigalg=Ed25519 pkalg=Ed25519
+  subject=CN=Ed25519 test certificate
+  issuer=CN=Ed25519 test certificate
+  subject.names=[2.5.4.3=string:Ed25519 test certificate]
+  cn="Ed25519 test certificate" o=[] ou=[] c=[] l=[] st=[] street=[] pc=[] sn=""
+  validity=1557163636/0..1559755636/0
+  key=Ed25519 3629c56c0d4f146c81d0ff75d36a705f69cd0f4d66d5da987e824989a38a3cfa
+  ku=0 eku=[] unknown=[] bc=true ca=true mpl=-1 mplz=false
+  skid=093b3a9d4a29d895ff68be7b435472e0ada2e3ae akid=093b3a9d4a29d895ff68be7b435472e0ada2e3ae
+  ocsp=[] issuers=[] crl=[]
+  dns=[] email=[] ip=[] uri=[]
+  nc crit=false pdns=[] xdns=[] pip=[] xip=[] pem=[] xem=[] puri=[] xuri=[]
+  policies=[] ids=[] maps=[] iap=0/false ipm=0/false rep=0/false
+  exts=[2.5.29.14/false/22 2.5.29.35/false/24 2.5.29.19/true/5] unhandled=[]
+  raw=351 tbs=273 spki=44 subj=37 iss=37 sigai=7 sig=53a5581c2c3b2a9e
+cert 30 (773 bytes)
+  version=3 serial=a42492b171d53fdd801fc6a3fc41339b sigalg=SHA256-RSA pkalg=RSA
+  subject=O=Acme Co
+  issuer=O=Acme Co
+  subject.names=[2.5.4.10=string:Acme Co]
+  cn="" o=["Acme Co"] ou=[] c=[] l=[] st=[] street=[] pc=[] sn=""
+  validity=1471466167/0..1503002167/0
+  key=RSA n=c0a09b631bb33a227b16c08a3e977aaaf6efa0dab2855cdbbdfe6676e1743c5e157a3d447ee474388d41560b9f04c58868b6da8ae7342d286930e4dba18e8c05520581fd594d1805011ed25c591ff4eb6c18ac7058471247a955cea5829b216c052a85eede172983f0a474e9435862a864a042c10c14061584ecc0e1a55750f9996350958bf8594ac902b9891b097794c627a554ccbcdd4f87e63760f378ae862dec8ca55a54dec595f742496f1590e18af390acd884c98111ca574c6db09beba388753f936a7cce57fc4a6ed504cfec7269cc16dd329cd5e8a78156bc9cc49b51b4c43dadf9ed88e54b6bd3874e64f0a0926fbe40981886d66f816ed9662193 e=65537
+  ku=5 eku=[serverAuth] unknown=[] bc=true ca=false mpl=-1 mplz=false
+  skid= akid=
+  ocsp=[] issuers=[] crl=[]
+  dns=["test.example.com"] email=[] ip=[] uri=[]
+  nc crit=false pdns=[] xdns=[] pip=[] xip=[] pem=[] xem=[] puri=[] xuri=[]
+  policies=[] ids=[] maps=[] iap=0/false ipm=0/false rep=0/false
+  exts=[2.5.29.15/true/4 2.5.29.37/false/12 2.5.29.19/true/2 2.5.29.17/false/20] unhandled=[]
+  raw=773 tbs=493 spki=294 subj=20 iss=20 sigai=15 sig=3a6a290c6bb611f9
+cert 31 (398 bytes)
+  version=3 serial=7a07a09d140416fc1fd8e5fed11d1f8d sigalg=Ed25519 pkalg=Ed25519
+  subject=CN=Ed25519 CRL Test CA
+  issuer=CN=Ed25519 CRL Test CA
+  subject.names=[2.5.4.3=string:Ed25519 CRL Test CA]
+  cn="Ed25519 CRL Test CA" o=[] ou=[] c=[] l=[] st=[] street=[] pc=[] sn=""
+  validity=1572398420/0..253402300799/0
+  key=Ed25519 95733bb0062a315ab6a7a66eef71dfac6f6b3903855e634bf8a60f68c66f7521
+  ku=97 eku=[clientAuth serverAuth OCSPSigning] unknown=[] bc=true ca=true mpl=-1 mplz=false
+  skid=b717da16eac5ed1f184944d3d2e3a0350a819360 akid=b717da16eac5ed1f184944d3d2e3a0350a819360
+  ocsp=[] issuers=[] crl=[]
+  dns=[] email=[] ip=[] uri=[]
+  nc crit=false pdns=[] xdns=[] pip=[] xip=[] pem=[] xem=[] puri=[] xuri=[]
+  policies=[] ids=[] maps=[] iap=0/false ipm=0/false rep=0/false
+  exts=[2.5.29.15/true/4 2.5.29.37/false/32 2.5.29.19/true/5 2.5.29.14/false/22 2.5.29.35/false/24] unhandled=[]
+  raw=398 tbs=320 spki=44 subj=32 iss=32 sigai=7 sig=fc3e14eabb70c26f
+cert 32 (485 bytes)
+  version=1 serial=9f9b0def3203d2e5 sigalg=MD5-RSA pkalg=RSA
+  subject=O=MD5 Inc.,ST=Some-State,C=AU
+  issuer=O=MD5 Inc.,ST=Some-State,C=AU
+  subject.names=[2.5.4.6=string:AU; 2.5.4.8=string:Some-State; 2.5.4.10=string:MD5 Inc.]
+  cn="" o=["MD5 Inc."] ou=[] c=["AU"] l=[] st=["Some-State"] street=[] pc=[] sn=""
+  validity=1449170972/0..1881257372/0
+  key=RSA n=daeada784b423e669576e9557dd050f85f126fef744a8f9285ad47f8d16485a6e1619f5a9abf2ca1c9c763eac27fadd75eecc8df25e14e6e9f2022d412525e30703d935dedd5e372e27e6d12d5ec567f8aebec71f632410153c5a9f84da24c774c751e83436cd6e31dad362328e3604febde66ff3c883e276b79019121f3494f e=65537
+  ku=0 eku=[] unknown=[] bc=false ca=false mpl=0 mplz=false
+  skid= akid=
+  ocsp=[] issuers=[] crl=[]
+  dns=[] email=[] ip=[] uri=[]
+  nc crit=false pdns=[] xdns=[] pip=[] xip=[] pem=[] xem=[] puri=[] xuri=[]
+  policies=[] ids=[] maps=[] iap=0/false ipm=0/false rep=0/false
+  exts=[] unhandled=[]
+  raw=485 tbs=334 spki=162 subj=55 iss=55 sigai=15 sig=8c6ce9dcaddecbf6
+cert 33 (497 bytes)
+  error: x509: RSA key missing NULL parameters
+cert 34 (489 bytes)
+  version=3 serial=370c8bdd13d657b749429df81f0646f4 sigalg=SHA1-RSA pkalg=RSA
+  subject=CN=mytest
+  issuer=CN=mytest
+  subject.names=[2.5.4.3=string:mytest]
+  cn="mytest" o=[] ou=[] c=[] l=[] st=[] street=[] pc=[] sn=""
+  validity=1470780665/0..2208988799/0
+  key=RSA n=af32071acc83077a21206924be28c5d8f4d1517d5bbceb58d5e514a63c07caed2dc2900a4ae690bf61dafbfeb7f9a1def0ef3a053fbdf308d7157e911526a0b40ba3a3cd2b205d9d4a6df7046b75f290cdf2feb3a7dddd9c09b48d169242b1c9ef9c70e4ef92d681184752ed528149cbaa81d74e23e9a20d04080e88b20a88c9 e=65537
+  ku=0 eku=[] unknown=[] bc=false ca=false mpl=0 mplz=false
+  skid= akid=
+  ocsp=[] issuers=[] crl=[]
+  dns=[] email=[] ip=[] uri=[]
+  nc crit=false pdns=[] xdns=[] pip=[] xip=[] pem=[] xem=[] puri=[] xuri=[]
+  policies=[] ids=[] maps=[] iap=0/false ipm=0/false rep=0/false
+  exts=[2.5.29.1/false/59] unhandled=[]
+  raw=489 tbs=342 spki=162 subj=19 iss=19 sigai=11 sig=19e0ad2907eef1b9
+cert 35 (1355 bytes)
+  version=3 serial=3a5e7d35 sigalg=SHA1-RSA pkalg=RSA
+  subject=SERIALNUMBER=1236484010010,CN=eportal.mss.edus.si,OU=web-certificates+OU=Servers,O=state-institutions,C=si
+  issuer=OU=sigov-ca,O=state-institutions,C=si
+  subject.names=[2.5.4.6=string:si; 2.5.4.10=string:state-institutions; 2.5.4.11=string:web-certificates; 2.5.4.11=string:Servers; 2.5.4.5=string:1236484010010; 2.5.4.3=string:eportal.mss.edus.si]
+  cn="eportal.mss.edus.si" o=["state-institutions"] ou=["web-certificates" "Servers"] c=["si"] l=[] st=[] street=[] pc=[] sn="1236484010010"
+  validity=1353063177/0..1510836545/0
+  key=RSA n=cacd9191fd30fb814e3306364dec257f15f82905c7fe2bbbb45394b4ba76560cd3df1db527c9decdb0d29ff5341f54991f23d324b42a0eb2a19dd286c48ee03581b5c403f3cdb46ba058c2ac7141335f1d245939cf8dff84d0aef98aeade24f40c3e60461332b58e5385137b2843782714b01761ec78df5ac55aa8d932fb6b2fa22737ccfe6017ed907cf92f3a81d3dc52d1f2894d85588813a2a4dde14812ce1d92afd9ce561d2dbf291d0a23fec188cc5980e4016f9b51d446a3a626b8858c1c1a0ad9fc0151183ad42b9d40b3258bb57b1f1acf24b666060c5f4bbc03967fcb668c4bf0765be1fbf567202e92b6f2f3f07bbbda9b4a05ad5cad01dfaeeb91 e=65537
+  ku=5 eku=[] unknown=[] bc=true ca=false mpl=-1 mplz=false
+  skid=62350eebaefb04c60d991aff11cd6f071b33af59 akid=1ef8d4536bb38306e904065702f9a5bfc6583c72
+  ocsp=[] issuers=[] crl=["ldap://x500.gov.si/ou=sigov-ca,o=state-institutions,c=si?certificateRevocationList?base" "http://www.sigov-ca.gov.si/crl/sigov-ca.crl"]
+  dns=[] email=["podpora.mizks@gov.si"] ip=[] uri=[]
+  nc crit=false pdns=[] xdns=[] pip=[] xip=[] pem=[] xem=[] puri=[] xuri=[]
+  policies=[1.3.6.1.4.1.6105.1.3.3] ids=[1.3.6.1.4.1.6105.1.3.3] maps=[] iap=0/false ipm=0/false rep=0/false
+  exts=[2.5.29.15/true/4 2.5.29.32/false/57 2.5.29.17/false/24 2.5.29.31/false/233 2.5.29.16/false/36 2.5.29.35/false/24 2.5.29.14/false/22 2.5.29.19/false/2 1.2.840.113533.7.65.0/false/12] unhandled=[]
+  raw=1355 tbs=1075 spki=294 subj=142 iss=63 sigai=15 sig=79f2d0ad72050ce7
+cert 36 (778 bytes)
+  version=3 serial=d5cce48de08eea837d3a7f3d8aecfaef sigalg=SHA256-RSA pkalg=RSA
+  subject=O=Acme Co
+  issuer=O=Acme Co
+  subject.names=[2.5.4.10=string:Acme Co]
+  cn="" o=["Acme Co"] ou=[] c=[] l=[] st=[] street=[] pc=[] sn=""
+  validity=1522180581/0..1553716581/0
+  key=RSA n=cafbd9b7ae3b0ed838deb3a6c8610677795dbd245d3d66b8ceac41cbb5a2ab0fafda72ca12a13b1f710afeaf3cf3b5d0798a3597092eb8ce8ff43a2a8179950d67aee355d4e86bda96e5461ed87d18f9935d7c0e4660c143ca4fe5dffb81bb7b2e4d93df5e25b64e3122dbb43caee354219e780e94dcb3acb6ac1445cda74f5b09ff550325bd15cc8ebce5f18d3c7609d899a007a6bc55cf0317710fc1ae897ebfd1af8da1f50e8a07aa49fc3b5efcc2c3d036176dbcdd352172f8e9c61d714c16ac4fc65f9bbef436928bed0a5b100f43e3550f9a9423408a978ef5e3218687b7de5cc8c9747825546e10259949bc2e05b14460087253eae1c621e9674b085b e=65537
+  ku=5 eku=[serverAuth] unknown=[] bc=true ca=false mpl=-1 mplz=false
+  skid= akid=
+  ocsp=[] issuers=[] crl=[]
+  dns=["TestSystemCertPool.go"] email=[] ip=[] uri=[]
+  nc crit=false pdns=[] xdns=[] pip=[] xip=[] pem=[] xem=[] puri=[] xuri=[]
+  policies=[] ids=[] maps=[] iap=0/false ipm=0/false rep=0/false
+  exts=[2.5.29.15/true/4 2.5.29.37/false/12 2.5.29.19/true/2 2.5.29.17/false/25] unhandled=[]
+  raw=778 tbs=498 spki=294 subj=20 iss=20 sigai=15 sig=c2e491c7f55104a8
+cert 37 (730 bytes)
+  error: x509: empty name constraints extension
+cert 38 (769 bytes)
+  version=3 serial=1234 sigalg=SHA256-RSA pkalg=RSA
+  subject=CN=Empty name constraints
+  issuer=CN=Empty name constraints issuer
+  subject.names=[2.5.4.3=string:Empty name constraints]
+  cn="Empty name constraints" o=[] ou=[] c=[] l=[] st=[] street=[] pc=[] sn=""
+  validity=1359676800/0..1590835718/0
+  key=RSA n=c2b88495422ddcb0aa98939bb3ec83a163c317922a81693a9a82286d88cf7dec6d662614e88dc47ef030a0dc4f0e43765a8c1ca1c5193096c4784ab979b064b059f17f5da0071948562218c19033bbb685be10ccc8f2902370bc086d19482f40059d44dee99d037084b9e34e98ffd30a136a0a5db7f811b541bfcf264a403be19fa56495853715e7731ffdc2af14772318daf1cdd4a8abd7f25bb6ba81f7061106342d5926c055947c9d304fc91a78baf4134b68ce421fa34d4a356373bfa35c60ff3440e0510e50295aef4e0e61152473c36e5c788f34d0dc92dafb80ef04d3a35543a9fa68119a3896d2b2ddaf1c0ec48a883b0363c1e302a7f860c57fe14d e=65537
+  ku=0 eku=[] unknown=[] bc=false ca=false mpl=0 mplz=false
+  skid= akid=
+  ocsp=[] issuers=[] crl=[]
+  dns=[] email=[] ip=[] uri=[]
+  nc crit=true pdns=[] xdns=[] pip=[] xip=[] pem=[] xem=[] puri=[] xuri=[]
+  policies=[] ids=[] maps=[] iap=0/false ipm=0/false rep=0/false
+  exts=[2.5.29.30/true/42] unhandled=[2.5.29.30]
+  raw=769 tbs=489 spki=294 subj=35 iss=42 sigai=15 sig=586fbfcd43074213
+cert 39 (723 bytes)
+  error: x509: IP constraint contained invalid mask ffff0100
+cert 40 (1765 bytes)
+  version=3 serial=bb2cfb8acbc3621aeed14587113c8397 sigalg=SHA256-RSA pkalg=RSA
+  subject=CN=CertiPath Bridge CA - G2,OU=Certification Authorities,O=CertiPath LLC,C=US
+  issuer=CN=Ministerie van Defensie Certificatie Autoriteit - G2,O=Ministerie van Defensie,C=NL
+  subject.names=[2.5.4.6=string:US; 2.5.4.10=string:CertiPath LLC; 2.5.4.11=string:Certification Authorities; 2.5.4.3=string:CertiPath Bridge CA - G2]
+  cn="CertiPath Bridge CA - G2" o=["CertiPath LLC"] ou=["Certification Authorities"] c=["US"] l=[] st=[] street=[] pc=[] sn=""
+  validity=1362571429/0..1385813030/0
+  key=RSA n=d2d6e245e246abf006125f37dbb3d76140f8fd83df830fc4eb7b4c65e58e6da9949d822f3bda1fcff29ac31d496749052d4cf059b0bcd2f5c3703a66ece4b098cf8a402ef2463775ca779ab924f5e08f3910c0c06b5fb17c19cac2e2b846835a96c374739a1e723aa9653437a388fa1357e7c1230e92060b5590761a35b473933dce477f9fe13a933fdbdbffc2bee4c928ec67eee7b2f926e6b361b893733ec2ec83355a279fc15723a9959cb6e0528cf18e37323478a2c666f9ad9ed339e2ab0ebfaef72370661a6d86b39d97d01b5197a327f655e6be08282981486555a7e093012cf22ce5f2b229bc1cd7885020150b8622dba8cbdd8f25b0ece37d1f03f7 e=65537
+  ku=96 eku=[] unknown=[] bc=true ca=true mpl=-1 mplz=false
+  skid=d0c28c133733764a91a83ce1e8b7fda29cd1dd14 akid=ce59fd5923f3d8ceb8465d8761fdbf283f12b664
+  ocsp=[] issuers=["http://certs.ca.mindef.nl/mindef-ca-2.p7c"] crl=["http://crls.ca.mindef.nl/mindef-ca-2.crl"]
+  dns=[] email=[] ip=[] uri=[]
+  nc crit=true pdns=[] xdns=[] pip=[] xip=[] pem=[] xem=[] puri=[] xuri=[]
+  policies=[2.16.528.1.1003.1.2.5.1 2.16.528.1.1003.1.2.5.2 2.16.528.1.1003.1.2.5.3] ids=[2.16.528.1.1003.1.2.5.1 2.16.528.1.1003.1.2.5.2 2.16.528.1.1003.1.2.5.3] maps=[2.16.528.1.1003.1.2.5.1>1.3.6.1.4.1.24019.1.1.1.2 2.16.528.1.1003.1.2.5.2>1.3.6.1.4.1.24019.1.1.1.2 2.16.528.1.1003.1.2.5.3>1.3.6.1.4.1.24019.1.1.1.2] iap=0/false ipm=0/false rep=0/false
+  exts=[1.3.6.1.5.5.7.1.1/false/57 2.5.29.35/false/24 2.5.29.19/true/5 2.5.29.32/false/225 2.5.29.31/false/50 2.5.29.15/true/4 2.5.29.30/true/60 2.5.29.33/false/86 2.5.29.14/false/22] unhandled=[2.5.29.30]
+  raw=1765 tbs=1229 spki=294 subj=110 iss=112 sigai=15 sig=105c59fd8c5f74fc
+cert 41 (1509 bytes)
+  version=3 serial=73eeae15e3dfada8541a95ecf258624f sigalg=SHA256-RSA pkalg=RSA
+  subject=CN=EC-Ciutadania,OU=Serveis Públics de Certificació,O=CONSORCI ADMINISTRACIO OBERTA DE CATALUNYA,C=ES
+  issuer=CN=EC-ACC,OU=Serveis Publics de Certificacio+OU=Vegeu https://www.catcert.net/verarrel (c)03+OU=Jerarquia Entitats de Certificacio Catalanes,O=Agencia Catalana de Certificacio (NIF Q-0801176-I),C=ES
+  subject.names=[2.5.4.6=string:ES; 2.5.4.10=string:CONSORCI ADMINISTRACIO OBERTA DE CATALUNYA; 2.5.4.11=string:Serveis Públics de Certificació; 2.5.4.3=string:EC-Ciutadania]
+  cn="EC-Ciutadania" o=["CONSORCI ADMINISTRACIO OBERTA DE CATALUNYA"] ou=["Serveis Públics de Certificació"] c=["ES"] l=[] st=[] street=[] pc=[] sn=""
+  validity=1411028460/0..1915950060/0
+  key=RSA n=c59073d164f6655d3599e69b0985b4bf1b1f9bc5c4e91ab9554071ed224806cfbef24c0ed465415bd8440c9dc7db3a14743a4bd0427d5a32f84e6c525247a9c8f9c69fd83fa1fe6fc89cc9753321f74b4024606659b2d867c82e8ac6a2b603f340a6772b3ab7a1ef450b910b38e5a38ab22d644755b4cc4fa214dfbf3f5f4fec090b465ddb5c109577cc3e0cb85cc11ae47f51420f0e9c12a6859b770681fe5c6c10cc695600c1e593c7005902ad916d00168c4ee695e75c62085c65ae14e9b5260813ee2ce9cef0a30502f1fe691cda7f7c2ce7f6683959abcb22cb255679e297993b09cff442f83ae5b39970a30627d74762006e5c6ce49623e7bb65b38e67 e=65537
+  ku=96 eku=[] unknown=[] bc=true ca=true mpl=0 mplz=true
+  skid=0b68593e87c8a3151ae04082225f9f1db2c53715 akid=a0c38b44aa37a545bf97805ad1f178a29be95d8d
+  ocsp=["http://ocsp.catcert.cat"] issuers=[] crl=["http://epscd.catcert.net/crl/ec-acc.crl" "http://epscd2.catcert.net/crl/ec-acc.crl"]
+  dns=[] email=[] ip=[] uri=[]
+  nc crit=false pdns=[] xdns=[] pip=[] xip=[] pem=[] xem=[] puri=[] xuri=[]
+  policies=[2.5.29.32.0] ids=[2.5.29.32.0] maps=[] iap=0/false ipm=0/false rep=0/false
+  exts=[2.5.29.19/true/8 2.5.29.15/true/4 2.5.29.14/false/22 2.5.29.35/false/24 2.5.29.32/false/206 1.3.6.1.5.5.7.1.1/false/39 2.5.29.31/false/91] unhandled=[]
+  raw=1509 tbs=1229 spki=294 subj=137 iss=246 sigai=15 sig=a1a854e39401f93f
+cert 42 (2106 bytes)
+  version=3 serial=1dd43aa013287bf3090000000041f399 sigalg=SHA256-RSA pkalg=ECDSA
+  subject=CN=*.google.com
+  issuer=CN=GTS CA 1C3,O=Google Trust Services LLC,C=US
+  subject.names=[2.5.4.3=string:*.google.com]
+  cn="*.google.com" o=[] ou=[] c=[] l=[] st=[] street=[] pc=[] sn=""
+  validity=1607418696/0..1614676295/0
+  key=ECDSA P-256 0441587a0c87875007452d676abe7ecd826030009cb0840cb60d183322bfe7d9a5f04448b7f2459173375c8bd0b8226182151ac19aeb01c02cf1d8d917553d3389
+  ku=1 eku=[serverAuth] unknown=[] bc=true ca=false mpl=-1 mplz=false
+  skid=e92596177e9706c99727a895d041cf5d416831bc akid=8a747faf85cdee95cd3d9cd0e24614f371351d27
+  ocsp=["http://ocsp.pki.goog/gts1c3"] issuers=["http://pki.goog/repo/certs/gts1c3.der"] crl=["http://crl.pki.goog/gtsr1/gts1c3.crl"]
+  dns=["*.google.com" "*.android.com" "*.appengine.google.com" "*.bdn.dev" "*.cloud.google.com" "*.crowdsource.google.com" "*.datacompute.google.com" "*.g.co" "*.gcp.gvt2.com" "*.gcpcdn.gvt1.com" "*.ggpht.cn" "*.gkecnapps.cn" "*.google-analytics.com" "*.google.ca" "*.google.cl" "*.google.co.in" "*.google.co.jp" "*.google.co.uk" "*.google.com.ar" "*.google.com.au" "*.google.com.br" "*.google.com.co" "*.google.com.mx" "*.google.com.tr" "*.google.com.vn" "*.google.de" "*.google.es" "*.google.fr" "*.google.hu" "*.google.it" "*.google.nl" "*.google.pl" "*.google.pt" "*.googleadapis.com" "*.googleapis.cn" "*.googlecnapps.cn" "*.googlecommerce.com" "*.googlevideo.com" "*.gstatic.cn" "*.gstatic.com" "*.gstaticcnapps.cn" "*.gvt1.com" "*.gvt2.com" "*.metric.gstatic.com" "*.urchin.com" "*.url.google.com" "*.wear.gkecnapps.cn" "*.youtube-nocookie.com" "*.youtube.com" "*.youtubeeducation.com" "*.youtubekids.com" "*.yt.be" "*.ytimg.com" "android.clients.google.com" "android.com" "developer.android.google.cn" "developers.android.google.cn" "g.co" "ggpht.cn" "gkecnapps.cn" "goo.gl" "google-analytics.com" "google.com" "googlecnapps.cn" "googlecommerce.com" "source.android.google.cn" "urchin.com" "www.goo.gl" "youtu.be" "youtube.com" "youtubeeducation.com" "youtubekids.com" "yt.be"] email=[] ip=[] uri=[]
+  nc crit=false pdns=[] xdns=[] pip=[] xip=[] pem=[] xem=[] puri=[] xuri=[]
+  policies=[2.23.140.1.2.1 1.3.6.1.4.1.11129.2.5.3] ids=[2.23.140.1.2.1 1.3.6.1.4.1.11129.2.5.3] maps=[] iap=0/false ipm=0/false rep=0/false
+  exts=[2.5.29.15/true/4 2.5.29.37/false/12 2.5.29.19/true/2 2.5.29.14/false/22 2.5.29.35/false/24 1.3.6.1.5.5.7.1.1/false/94 2.5.29.17/false/1209 2.5.29.32/false/26 2.5.29.31/false/46 1.3.6.1.4.1.11129.2.4.3/true/2] unhandled=[1.3.6.1.4.1.11129.2.4.3]
+  raw=2106 tbs=1826 spki=91 subj=25 iss=72 sigai=15 sig=250d09b9cd8ec970
+cert 43 (2402 bytes)
+  version=3 serial=f61a4d4b233f88910500000000874928 sigalg=SHA256-RSA pkalg=RSA
+  subject=CN=*.google.com,O=Google LLC,L=Mountain View,ST=California,C=US
+  issuer=CN=GTS CA 1O1,O=Google Trust Services,C=US
+  subject.names=[2.5.4.6=string:US; 2.5.4.8=string:California; 2.5.4.7=string:Mountain View; 2.5.4.10=string:Google LLC; 2.5.4.3=string:*.google.com]
+  cn="*.google.com" o=["Google LLC"] ou=[] c=["US"] l=["Mountain View"] st=["California"] street=[] pc=[] sn=""
+  validity=1611650794/0..1618908393/0
+  key=RSA n=bbeb1c7451d677ebfe35ad934f7d0ff2434e6fb012d43b477edee30e86f0e5a6cb7e5ef22c1ba2febcb0e07f74624111657a2d212aaa8b3ad58b0dcff2d3e3a669a0bef1fb75ce58c161dbd094062866b4fbf42739a40203abb1b5399edc0b86a10e7a3f9f8e851e34ff5135003186bc70a58168c3e778c22c2af9fc9cc759cc791f3b69d477a38479c9fdd17c1e32f366c7c0deea1e40948806de6eba8640ff50249dc67ef224705055d1e091f4eacefdeccf663205018d8b6f3c1756e7e78d5fea48447d8b62d4cbd746d924cbbc8b0903541ba3edbee494e1c29a36f4649478a07f98b59d574612e1fad6000495922495289a3952b8e94c94e031ad6dd58d e=65537
+  ku=5 eku=[serverAuth] unknown=[] bc=true ca=false mpl=-1 mplz=false
+  skid=f330af9652ddde384193fffe59d8e8e3443e4f78 akid=98d1f86e10ebcf9bec609f18901ba0eb7d09fd2b
+  ocsp=["http://ocsp.pki.goog/gts1o1core"] issuers=["http://pki.goog/gsr2/GTS1O1.crt"] crl=["http://crl.pki.goog/GTS1O1core.crl"]
+  dns=["*.google.com" "*.android.com" "*.appengine.google.com" "*.bdn.dev" "*.cloud.google.com" "*.crowdsource.google.com" "*.datacompute.google.com" "*.flash.android.com" "*.g.co" "*.gcp.gvt2.com" "*.gcpcdn.gvt1.com" "*.ggpht.cn" "*.gkecnapps.cn" "*.google-analytics.com" "*.google.ca" "*.google.cl" "*.google.co.in" "*.google.co.jp" "*.google.co.uk" "*.google.com.ar" "*.google.com.au" "*.google.com.br" "*.google.com.co" "*.google.com.mx" "*.google.com.tr" "*.google.com.vn" "*.google.de" "*.google.es" "*.google.fr" "*.google.hu" "*.google.it" "*.google.nl" "*.google.pl" "*.google.pt" "*.googleadapis.com" "*.googleapis.cn" "*.googlecnapps.cn" "*.googlecommerce.com" "*.googlevideo.com" "*.gstatic.cn" "*.gstatic.com" "*.gstaticcnapps.cn" "*.gvt1.com" "*.gvt2.com" "*.metric.gstatic.com" "*.urchin.com" "*.url.google.com" "*.wear.gkecnapps.cn" "*.youtube-nocookie.com" "*.youtube.com" "*.youtubeeducation.com" "*.youtubekids.com" "*.yt.be" "*.ytimg.com" "android.clients.google.com" "android.com" "developer.android.google.cn" "developers.android.google.cn" "g.co" "ggpht.cn" "gkecnapps.cn" "goo.gl" "google-analytics.com" "google.com" "googlecnapps.cn" "googlecommerce.com" "source.android.google.cn" "urchin.com" "www.goo.gl" "youtu.be" "youtube.com" "youtubeeducation.com" "youtubekids.com" "yt.be"] email=[] ip=[] uri=[]
+  nc crit=false pdns=[] xdns=[] pip=[] xip=[] pem=[] xem=[] puri=[] xuri=[]
+  policies=[2.23.140.1.2.2 1.3.6.1.4.1.11129.2.5.3] ids=[2.23.140.1.2.2 1.3.6.1.4.1.11129.2.5.3] maps=[] iap=0/false ipm=0/false rep=0/false
+  exts=[2.5.29.15/true/4 2.5.29.37/false/12 2.5.29.19/true/2 2.5.29.14/false/22 2.5.29.35/false/24 1.3.6.1.5.5.7.1.1/false/92 2.5.29.17/false/1230 2.5.29.32/false/26 2.5.29.31/false/44 1.3.6.1.4.1.11129.2.4.3/true/2] unhandled=[1.3.6.1.4.1.11129.2.4.3]
+  raw=2402 tbs=2122 spki=294 subj=104 iss=68 sigai=15 sig=787dfe8cd850645d
+cert 44 (267 bytes)
+  error: x509: inner and outer signature algorithm identifiers don't match
+cert 45 (269 bytes)
+  error: x509: inner and outer signature algorithm identifiers don't match
+cert 46 (1302 bytes)
+  version=3 serial=10c sigalg=SHA1-RSA pkalg=RSA
+  subject=OU=Starfield Class 2 Certification Authority,O=Starfield Technologies\, Inc.,C=US
+  issuer=CN=http://www.valicert.com/,OU=ValiCert Class 2 Policy Validation Authority,O=ValiCert\, Inc.,L=ValiCert Validation Network,1.2.840.113549.1.9.1=info@valicert.com
+  subject.names=[2.5.4.6=string:US; 2.5.4.10=string:Starfield Technologies, Inc.; 2.5.4.11=string:Starfield Class 2 Certification Authority]
+  cn="" o=["Starfield Technologies, Inc."] ou=["Starfield Class 2 Certification Authority"] c=["US"] l=[] st=[] street=[] pc=[] sn=""
+  validity=1088530756/0..1719682756/0
+  key=RSA n=b732c8fee971a60485ad0c1164dfce4defc80318873fa1abfb3ca69ff0c3a1dad4d86e2b5390fb24a43e84f09ee85fece52744f528a63f7bdee02af0c8af532f9eca0501931e8f661c39a74dfa5ab673042566eb777fe759c64a99251454eb26c7f37f19d530708fafb0462affadeb29edd79faa0487a3d4f989a5345fdb43918236d9663cb1b8b982fd9c3a3e10c83bef0665667a9b19183dff71513c302e5fbe3d7773b25d066cc323569a2b8526921ca702b3e43f0daf087982b8363dea9cd335b3bc69caf5cc9de8fd648d1780336e5e4a5d99c91e87b49d1ac0d56e1335235edf9b5f3defd6f776c2ea3ebb780d1c42676b04d8f8d6da6f8bf244a001ab e=3
+  ku=96 eku=[] unknown=[] bc=true ca=true mpl=-1 mplz=false
+  skid=bf5fb7d1cedd1f86f45b55acdcd710c20ea988e7 akid=
+  ocsp=["http://ocsp.starfieldtech.com"] issuers=[] crl=["http://certificates.starfieldtech.com/repository/root.crl"]
+  dns=[] email=[] ip=[] uri=[]
+  nc crit=false pdns=[] xdns=[] pip=[] xip=[] pem=[] xem=[] puri=[] xuri=[]
+  policies=[2.5.29.32.0] ids=[2.5.29.32.0] maps=[] iap=0/false ipm=0/false rep=0/false
+  exts=[2.5.29.14/false/22 2.5.29.35/false/202 2.5.29.19/true/5 1.3.6.1.5.5.7.1.1/false/45 2.5.29.31/false/67 2.5.29.32/false/74 2.5.29.15/true/4] unhandled=[]
+  raw=1302 tbs=1151 spki=292 subj=106 iss=190 sigai=15 sig=a562f1a7c25d25a5
+cert 47 (801 bytes)
+  version=3 serial=daba53191b094b82b289267dc76fa002 sigalg=SHA256-RSA pkalg=RSA
+  subject=O=Acme Co
+  issuer=O=Acme Co
+  subject.names=[2.5.4.10=string:Acme Co]
+  cn="" o=["Acme Co"] ou=[] c=[] l=[] st=[] street=[] pc=[] sn=""
+  validity=1640105967/0..1671641967/0
+  key=RSA n=bf1716d8bc299c16e576b4931578ad6e45c54a6346a1b2767165519c14c4ea7413e434df2f2c6511e856526911f90efc77bb63a87c1ac6a17b6e6ce7182525c9e8fb067fa2a998fe2abc8ab375b6b87db6c96b2908322210cb8dd660c883adf55891d611e85556fb8fa3a29f48cb79e4654a8ca652649f993835d4d5ac6fcfa0cb428c07eb2117313aeb917b6243a4755fefa72f94f8690bd4ec09e600c08cdd07630be477aa60183ca0e0ae0aea0e523bb4fa6a301b5062217353330160a16b995800f377c60f4619cac25dcdf5e2524d849423d3322fae5fda43a11995d217dd4914b4d9481c0813938ed5094321b6ce52e887bbd2600dc64ebfc5936ac6bf e=65537
+  ku=5 eku=[serverAuth] unknown=[] bc=true ca=false mpl=-1 mplz=false
+  skid= akid=
+  ocsp=[] issuers=[] crl=[]
+  dns=["longOID.example"] email=[] ip=[] uri=[]
+  nc crit=false pdns=[] xdns=[] pip=[] xip=[] pem=[] xem=[] puri=[] xuri=[]
+  policies=[1.3.6.1.4.1.311.21.8.1492336001] ids=[1.3.6.1.4.1.311.21.8.1492336001] maps=[] iap=0/false ipm=0/false rep=0/false
+  exts=[2.5.29.15/true/4 2.5.29.37/false/12 2.5.29.19/true/2 2.5.29.17/false/19 2.5.29.32/false/20] unhandled=[]
+  raw=801 tbs=521 spki=294 subj=20 iss=20 sigai=15 sig=72778bde48fb6d9a
+cert 48 (1460 bytes)
+  version=3 serial=2cec82d7275a7d93 sigalg=SHA1-RSA pkalg=RSA
+  subject=CN=mail.sthonorehotelresort.com,OU=sthonorehotelresort,O=sthonorehotelresort,L=Indonesia,ST=jakarta,C=ID
+  issuer=CN=Microsoft Forefront TMG HTTPS Inspection Certification Authority
+  subject.names=[2.5.4.6=string:ID; 2.5.4.8=string:jakarta; 2.5.4.7=string:Indonesia; 2.5.4.10=string:sthonorehotelresort; 2.5.4.11=string:sthonorehotelresort; 2.5.4.3=string:mail.sthonorehotelresort.com]
+  cn="mail.sthonorehotelresort.com" o=["sthonorehotelresort"] ou=["sthonorehotelresort"] c=["ID"] l=["Indonesia"] st=["jakarta"] street=[] pc=[] sn=""
+  validity=1390005660/0..1447580276/0
+  key=RSA n=afbaed2aa48f8aa365fce13c247fce1c443feb829eafa6073911b7a3c7f0f83c454e37979d6646b3acc1a870afe842a225471c7f95e7e9a2737f72194672595c5553d64ee163b3c93e01ab7a4f5aa9e225f165e900a97f94e1764c206243dcf7243cbe86d91412945eff2e1182b1135174aa4c5924dba2ed8c6b7f60e7629f82c97748afc6c0b896a71a5c4a43500f586e820b8422c4182f16de370a5c85e5d9b716c11a0b8fcd0eeb1fc739bee29406430ecda88d28bcc76c17454abb9af0a5b008983be9576afeadfa3bd1a55ba6201b78be038a422635d67ab235956c172ad93957e4af50719ecb56e40ee64a27a9b2324da91abacf5824fb8cfed6b240a1 e=65537
+  ku=5 eku=[serverAuth] unknown=[] bc=true ca=false mpl=-1 mplz=false
+  skid=c002dd447817001d19e91b84c82777a94c7a3b5b akid=
+  ocsp=[] issuers=[] crl=[]
+  dns=["mail.sthonorehotelresort.com" "ashchsvr.sthonorehotelresort.com" "AutoDiscover.sthonorehotelresort.com" "AutoDiscover.hotelresort.com" "ASHCHSVR" "sthonorehotelresort.com" "hotelresort.com"] email=[] ip=[] uri=[]
+  nc crit=false pdns=[] xdns=[] pip=[] xip=[] pem=[] xem=[] puri=[] xuri=[]
+  policies=[] ids=[] maps=[] iap=0/false ipm=0/false rep=0/false
+  exts=[2.5.29.17/false/187 1.3.6.1.4.1.311.20.2/false/20 2.5.29.14/false/22 2.5.29.15/false/4 2.5.29.37/false/12 2.5.29.19/false/2 2.5.29.1/false/183] unhandled=[]
+  raw=1460 tbs=1180 spki=294 subj=153 iss=145 sigai=15 sig=1952c7208caf7f80
+cert 49 (265 bytes)
+  error: x509: negative serial number
+cert 50 (434 bytes)
+  error: x509: certificate contains duplicate extension with OID "1.2.3"
+cert 51 (3992 bytes)
+  version=3 serial=159ffe6f22fd5cc42c524df6fd5e28d0de38f34e sigalg=ML-DSA-44 pkalg=ML-DSA
+  subject=CN=LAMPS WG,O=IETF
+  issuer=CN=LAMPS WG,O=IETF
+  subject.names=[2.5.4.10=string:IETF; 2.5.4.3=string:LAMPS WG]
+  cn="LAMPS WG" o=["IETF"] ou=[] c=[] l=[] st=[] street=[] pc=[] sn=""
+  validity=1580704330/0..2211424330/0
+  key=MLDSA ML-DSA-44 1312
+  ku=97 eku=[] unknown=[] bc=true ca=true mpl=-1 mplz=false
+  skid=329a07b1fabb48f52a309f11a1898f848e2322ff akid=
+  ocsp=[] issuers=[] crl=[]
+  dns=[] email=[] ip=[] uri=[]
+  nc crit=false pdns=[] xdns=[] pip=[] xip=[] pem=[] xem=[] puri=[] xuri=[]
+  policies=[] ids=[] maps=[] iap=0/false ipm=0/false rep=0/false
+  exts=[2.5.29.15/true/4 2.5.29.19/true/5 2.5.29.14/false/22] unhandled=[]
+  raw=3992 tbs=1550 spki=1334 subj=36 iss=36 sigai=13 sig=67a8951fc308e12f
+cert 52 (5521 bytes)
+  version=3 serial=159ffe6f22fd5cc42c524df6fd5e28d0de38f34e sigalg=ML-DSA-65 pkalg=ML-DSA
+  subject=CN=LAMPS WG,O=IETF
+  issuer=CN=LAMPS WG,O=IETF
+  subject.names=[2.5.4.10=string:IETF; 2.5.4.3=string:LAMPS WG]
+  cn="LAMPS WG" o=["IETF"] ou=[] c=[] l=[] st=[] street=[] pc=[] sn=""
+  validity=1580704330/0..2211424330/0
+  key=MLDSA ML-DSA-65 1952
+  ku=97 eku=[] unknown=[] bc=true ca=true mpl=-1 mplz=false
+  skid=1b0563e3cd3346149c8c9ebcf23b0a4e5a900eea akid=
+  ocsp=[] issuers=[] crl=[]
+  dns=[] email=[] ip=[] uri=[]
+  nc crit=false pdns=[] xdns=[] pip=[] xip=[] pem=[] xem=[] puri=[] xuri=[]
+  policies=[] ids=[] maps=[] iap=0/false ipm=0/false rep=0/false
+  exts=[2.5.29.15/true/4 2.5.29.19/true/5 2.5.29.14/false/22] unhandled=[]
+  raw=5521 tbs=2190 spki=1974 subj=36 iss=36 sigai=13 sig=11816868a90c6693
+cert 53 (7479 bytes)
+  version=3 serial=159ffe6f22fd5cc42c524df6fd5e28d0de38f34e sigalg=ML-DSA-87 pkalg=ML-DSA
+  subject=CN=LAMPS WG,O=IETF
+  issuer=CN=LAMPS WG,O=IETF
+  subject.names=[2.5.4.10=string:IETF; 2.5.4.3=string:LAMPS WG]
+  cn="LAMPS WG" o=["IETF"] ou=[] c=[] l=[] st=[] street=[] pc=[] sn=""
+  validity=1580704330/0..2211424330/0
+  key=MLDSA ML-DSA-87 2592
+  ku=97 eku=[] unknown=[] bc=true ca=true mpl=-1 mplz=false
+  skid=89886750b57c24db3fc012e61ede59753337374f akid=
+  ocsp=[] issuers=[] crl=[]
+  dns=[] email=[] ip=[] uri=[]
+  nc crit=false pdns=[] xdns=[] pip=[] xip=[] pem=[] xem=[] puri=[] xuri=[]
+  policies=[] ids=[] maps=[] iap=0/false ipm=0/false rep=0/false
+  exts=[2.5.29.15/true/4 2.5.29.19/true/5 2.5.29.14/false/22] unhandled=[]
+  raw=7479 tbs=2830 spki=2614 subj=36 iss=36 sigai=13 sig=08783d565efc7b97
+cert 54 (1434 bytes)
+  version=3 serial=203bc53596b34c718f5015066 sigalg=SHA256-RSA pkalg=RSA
+  subject=CN=GTS CA 1C3,O=Google Trust Services LLC,C=US
+  issuer=CN=GTS Root R1,O=Google Trust Services LLC,C=US
+  subject.names=[2.5.4.6=string:US; 2.5.4.10=string:Google Trust Services LLC; 2.5.4.3=string:GTS CA 1C3]
+  cn="GTS CA 1C3" o=["Google Trust Services LLC"] ou=[] c=["US"] l=[] st=[] street=[] pc=[] sn=""
+  validity=1597276842/0..1822262442/0
+  key=RSA n=f588dfe7628c1e37f83742907f6c87d0fb658225fde8cb6ba4ff6de95a23e299f61ce9920399137c090a8afa42d65e5624aa7a33841fd1e969bbb974ec574c66689377375553fe39104db734bb5f2577373b1794ea3ce59dd5bcc3b443eb2ea747efb0441163d8b44185dd413048931bbfb7f6e0450221e0964217cfd92b6556340726040da8fd7dca2eefea487c374d3f009f83dfef75842e79575cfc576e1a96fffc8c9aa699be25d97f962c06f7112a028080eb63183c504987e58aca5f192b59968100a0fb51dbca770b0bc9964fef7049c75c6d20fd99b4b4e2ca2e77fd2ddc0bb66b130c8c192b179698b9f08bf6a027bbb6e38d518fbdaec79bb1899d e=65537
+  ku=97 eku=[serverAuth clientAuth] unknown=[] bc=true ca=true mpl=0 mplz=true
+  skid=8a747faf85cdee95cd3d9cd0e24614f371351d27 akid=e4af2b26711a2b4827852f52662ceff08913713e
+  ocsp=["http://ocsp.pki.goog/gtsr1"] issuers=["http://pki.goog/repo/certs/gtsr1.der"] crl=["http://crl.pki.goog/gtsr1/gtsr1.crl"]
+  dns=[] email=[] ip=[] uri=[]
+  nc crit=false pdns=[] xdns=[] pip=[] xip=[] pem=[] xem=[] puri=[] xuri=[]
+  policies=[1.3.6.1.4.1.11129.2.5.3 2.23.140.1.2.1 2.23.140.1.2.2] ids=[1.3.6.1.4.1.11129.2.5.3 2.23.140.1.2.1 2.23.140.1.2.2] maps=[] iap=0/false ipm=0/false rep=0/false
+  exts=[2.5.29.15/true/4 2.5.29.37/false/22 2.5.29.19/true/8 2.5.29.14/false/22 2.5.29.35/false/24 1.3.6.1.5.5.7.1.1/false/92 2.5.29.31/false/45 2.5.29.32/false/80] unhandled=[]
+  raw=1434 tbs=898 spki=294 subj=72 iss=73 sigai=15 sig=897dac205c0c3cbe
+cert 55 (1371 bytes)
+  version=3 serial=203e5936f31b01349886ba217 sigalg=SHA384-RSA pkalg=RSA
+  subject=CN=GTS Root R1,O=Google Trust Services LLC,C=US
+  issuer=CN=GTS Root R1,O=Google Trust Services LLC,C=US
+  subject.names=[2.5.4.6=string:US; 2.5.4.10=string:Google Trust Services LLC; 2.5.4.3=string:GTS Root R1]
+  cn="GTS Root R1" o=["Google Trust Services LLC"] ou=[] c=["US"] l=[] st=[] street=[] pc=[] sn=""
+  validity=1466553600/0..2097705600/0
+  key=RSA n=b611028b1ee3a1779b3bdcbf943eb795a7403ca1fd82f97d32068271f6f68c7ffbe8dbbc6a2e9797a38c4bf92bf6b1f9ce841db1f9c597deefb9f2a3e9bc12895ea7aa52abf82327cba4b19c63dbd7997ef00a5eeb68a6f4c65a470d4d1033e34eb113a3c8186c4becfc0990df9d6429252307a1b4d23d2e60e0cfd20987bbcd48f04dc2c27a888abbbacf5919d6af8fb007b09e31f182c1c0df2ea66d6c190eb5d87e261a45033db079a49428ad0f7f26e5a808fe96e83c689453ee833a882b159609b2e07a8c2e75d69ceba756648f964f68ae3d97c2848fc0bc40c00b5cbdf687b3356cac18507f84e04ccd92d320e933bc5299af32b529b3252ab448f972e1ca64f7e682108de89dc28a88fa38668afc63f901f978fd7b5c77fa7687faecdfb10e799557b4bd26efd601d1eb160abb8e0bb5c5c58a55abd3acea914b29cc19a432254e2af16544d002ceaace49b4ea9f7c83b0407be743aba76ca38f7d8981fa4ca5ffd58ec3ce4be0b5d8b38e45cf76c0ed402bfd530fb0a7d53b0db18aa203de31adcc77ea6f7b3ed6df912212e6befad832fc1063145172de5dd61693bd296833ef3a66ec078a26df13d757657827de5e491400a2007f9aa821b6a9b195b0a5b90d1611dac76c483c40e07e0d5acd563cd19705b9cb4bed394b9cc43fd255136e24b0d671faf4c1bacced1bf5fe8141d800983d3ac8ae7a9837180595 e=65537
+  ku=97 eku=[] unknown=[] bc=true ca=true mpl=-1 mplz=false
+  skid=e4af2b26711a2b4827852f52662ceff08913713e akid=
+  ocsp=[] issuers=[] crl=[]
+  dns=[] email=[] ip=[] uri=[]
+  nc crit=false pdns=[] xdns=[] pip=[] xip=[] pem=[] xem=[] puri=[] xuri=[]
+  policies=[] ids=[] maps=[] iap=0/false ipm=0/false rep=0/false
+  exts=[2.5.29.15/true/4 2.5.29.19/true/5 2.5.29.14/false/22] unhandled=[]
+  raw=1371 tbs=835 spki=550 subj=73 iss=73 sigai=15 sig=9faa4226db0b9bbe
+cert 56 (1366 bytes)
+  version=3 serial=111991593cd5a33d1231ea33c3644cdc sigalg=SHA256-RSA pkalg=RSA
+  subject=CN=www.google.com
+  issuer=CN=GTS CA 1C3,O=Google Trust Services LLC,C=US
+  subject.names=[2.5.4.3=string:www.google.com]
+  cn="www.google.com" o=[] ou=[] c=[] l=[] st=[] street=[] pc=[] sn=""
+  validity=1672647559/0..1679905158/0
+  key=RSA n=ab7d2876b28c4f9e1326290c28bf12fa5c2808c4f981e3f4bbda568e4e9ac1d07a8b790ef941388a30809a16dc64a78a68b9c6277f307993700756b269b098c97ee10e20bf9d1719538f4b5f9fa8e7990355a367d7860a920da409e5f6e470f14b068eb0d0085ca3d3aa240be4b3ef7384f0865f07639d6184d590ad312b37bef97986e2c4450bbf254bab904b6c23a93e8f27d3f3138d0df692ed6342adc62183090bf45fd955b976817ab7dcec2a579f94037c39d2a9d0c13d3878344f53f7cb26faed3ee7d12a62b076de1b4e8099070a245f60ffd54f26d45fe25d505913c30bee8952acd70b100698844667b4cd3313cc056ffb0d15fac3ca0b29535bd3 e=65537
+  ku=5 eku=[serverAuth] unknown=[] bc=true ca=false mpl=-1 mplz=false
+  skid=19dba23de57fdf976ade28120a3a66d20cafc66e akid=8a747faf85cdee95cd3d9cd0e24614f371351d27
+  ocsp=["http://ocsp.pki.goog/gts1c3"] issuers=["http://pki.goog/repo/certs/gts1c3.der"] crl=["http://crls.pki.goog/gts1c3/QOvJ0N1sT2A.crl"]
+  dns=["www.google.com"] email=[] ip=[] uri=[]
+  nc crit=false pdns=[] xdns=[] pip=[] xip=[] pem=[] xem=[] puri=[] xuri=[]
+  policies=[2.23.140.1.2.1 1.3.6.1.4.1.11129.2.5.3] ids=[2.23.140.1.2.1 1.3.6.1.4.1.11129.2.5.3] maps=[] iap=0/false ipm=0/false rep=0/false
+  exts=[2.5.29.15/true/4 2.5.29.37/false/12 2.5.29.19/true/2 2.5.29.14/false/22 2.5.29.35/false/24 1.3.6.1.5.5.7.1.1/false/94 2.5.29.17/false/18 2.5.29.32/false/26 2.5.29.31/false/53 1.3.6.1.4.1.11129.2.4.2/false/245] unhandled=[]
+  raw=1366 tbs=1086 spki=294 subj=27 iss=72 sigai=15 sig=d9b410bb7d1edce1
+cert 57 (1366 bytes)
+  version=3 serial=111991593cd5a33d1231ea33c3644cdc sigalg=0 pkalg=RSA
+  subject=CN=www.google.com
+  issuer=CN=GTS CA 1C3,O=Google Trust Services LLC,C=US
+  subject.names=[2.5.4.3=string:www.google.com]
+  cn="www.google.com" o=[] ou=[] c=[] l=[] st=[] street=[] pc=[] sn=""
+  validity=1672647559/0..1679905158/0
+  key=RSA n=ab7d2876b28c4f9e1326290c28bf12fa5c2808c4f981e3f4bbda568e4e9ac1d07a8b790ef941388a30809a16dc64a78a68b9c6277f307993700756b269b098c97ee10e20bf9d1719538f4b5f9fa8e7990355a367d7860a920da409e5f6e470f14b068eb0d0085ca3d3aa240be4b3ef7384f0865f07639d6184d590ad312b37bef97986e2c4450bbf254bab904b6c23a93e8f27d3f3138d0df692ed6342adc62183090bf45fd955b976817ab7dcec2a579f94037c39d2a9d0c13d3878344f53f7cb26faed3ee7d12a62b076de1b4e8099070a245f60ffd54f26d45fe25d505913c30bee8952acd70b100698844667b4cd3313cc056ffb0d15fac3ca0b29535bd3 e=65537
+  ku=5 eku=[serverAuth] unknown=[] bc=true ca=false mpl=-1 mplz=false
+  skid=19dba23de57fdf976ade28120a3a66d20cafc66e akid=8a747faf85cdee95cd3d9cd0e24614f371351d27
+  ocsp=["http://ocsp.pki.goog/gts1c3"] issuers=["http://pki.goog/repo/certs/gts1c3.der"] crl=["http://crls.pki.goog/gts1c3/QOvJ0N1sT2A.crl"]
+  dns=["www.google.com"] email=[] ip=[] uri=[]
+  nc crit=false pdns=[] xdns=[] pip=[] xip=[] pem=[] xem=[] puri=[] xuri=[]
+  policies=[2.23.140.1.2.1 1.3.6.1.4.1.11129.2.5.3] ids=[2.23.140.1.2.1 1.3.6.1.4.1.11129.2.5.3] maps=[] iap=0/false ipm=0/false rep=0/false
+  exts=[2.5.29.15/true/4 2.5.29.37/false/12 2.5.29.19/true/2 2.5.29.14/false/22 2.5.29.35/false/24 1.3.6.1.5.5.7.1.1/false/94 2.5.29.17/false/18 2.5.29.32/false/26 2.5.29.31/false/53 1.3.6.1.4.1.11129.2.4.2/false/245] unhandled=[]
+  raw=1366 tbs=1086 spki=294 subj=27 iss=72 sigai=15 sig=d9b410bb7d1edce1
+cert 58 (2112 bytes)
+  version=3 serial=68c0f1152d2938cc5965e381c684c9b6 sigalg=SHA256-RSA pkalg=RSA
+  subject=SERIALNUMBER=99999989Z,CN=CORPORATIVO FICTICIO ACTIVO,OU=Ziurtagiri korporatiboa-Certificado corporativo+OU=Condiciones de uso en www.izenpe.com nola erabili jakiteko,O=IZENPE,2.5.4.4=FICTICIO,2.5.4.42=CORPORATIVO,2.5.4.46=-dni 99999989Z
+  issuer=CN=EAEko Herri Administrazioen CA - CA AAPP Vascas (2),OU=AZZ Ziurtagiri publikoa - Certificado publico SCA,O=IZENPE S.A.,C=ES
+  subject.names=[2.5.4.10=string:IZENPE; 2.5.4.11=string:Ziurtagiri korporatiboa-Certificado corporativo; 2.5.4.11=string:Condiciones de uso en www.izenpe.com nola erabili jakiteko; 2.5.4.46=string:-dni 99999989Z; 2.5.4.3=string:CORPORATIVO FICTICIO ACTIVO; 2.5.4.42=string:CORPORATIVO; 2.5.4.4=string:FICTICIO; 2.5.4.5=string:99999989Z]
+  cn="CORPORATIVO FICTICIO ACTIVO" o=["IZENPE"] ou=["Ziurtagiri korporatiboa-Certificado corporativo" "Condiciones de uso en www.izenpe.com nola erabili jakiteko"] c=[] l=[] st=[] street=[] pc=[] sn="99999989Z"
+  validity=1499849601/0..1626080001/0
+  key=RSA n=c1538cc140df06db07d17bb16276febff2fbef88cc1fcbda957ed13c7f1c9762db4a2a92a3445c856d91180d9dd72b981e5a42842f631a6b745ff83aebf13ffaada150995f26da950c9170b45615e2ed92cb3037277e95e0f4643d0acac40b1bcd9ae2157005d745e0887433f5a55e30c27d18186687df832bc4e6e1c305ea2f25f80b82df929d9e03c5d71d1e6a54d8ad866996910914eec2896e3668b8babd090347647b9e6640e004faf6d7aa056b0ad0367ddff7f41bfdfebe75b0353045d2507a7485e86b3f0e312c872ea1a79a602d32bcdb8c0aff3bf59681b07f06a851aa3250ed48b5e9cb8395d5da590feb90ccecc66b00a31d1417ecdd40dbd751 e=65537
+  ku=7 eku=[clientAuth emailProtection] unknown=[1.3.6.1.4.1.311.20.2.2] bc=false ca=false mpl=0 mplz=false
+  skid=c9ea0e0f87207258ca63426facdb97db068540b0 akid=c0a94af7472587ffbcb5a689ce82d246a889eba3
+  ocsp=["http://ocsp.izenpe.com"] issuers=[] crl=["http://crl.izenpe.com/cgi-bin/crlinterna2"]
+  dns=[] email=["ficticio@izenpe.eus"] ip=[] uri=[]
+  nc crit=false pdns=[] xdns=[] pip=[] xip=[] pem=[] xem=[] puri=[] xuri=[]
+  policies=[1.3.6.1.4.1.14777.1.1.1] ids=[1.3.6.1.4.1.14777.1.1.1] maps=[] iap=0/false ipm=0/false rep=0/false
+  exts=[2.5.29.18/false/191 2.5.29.17/false/23 2.5.29.15/true/4 2.5.29.37/false/34 2.5.29.14/false/22 2.5.29.35/false/24 2.5.29.32/false/286 1.3.6.1.5.5.7.1.1/false/38 2.5.29.31/false/51] unhandled=[]
+  raw=2112 tbs=1576 spki=294 subj=272 iss=160 sigai=15 sig=8cb93d0f94665091
+cert 59 (1851 bytes)
+  version=3 serial=24c5c8aa566f8ee84cbea7055ce164a4 sigalg=SHA256-RSA pkalg=RSA
+  subject=CN=EAEko Herri Administrazioen CA - CA AAPP Vascas (2),OU=AZZ Ziurtagiri publikoa - Certificado publico SCA,O=IZENPE S.A.,C=ES
+  issuer=CN=Izenpe.com,O=IZENPE S.A.,C=ES
+  subject.names=[2.5.4.6=string:ES; 2.5.4.10=string:IZENPE S.A.; 2.5.4.11=string:AZZ Ziurtagiri publikoa - Certificado publico SCA; 2.5.4.3=string:EAEko Herri Administrazioen CA - CA AAPP Vascas (2)]
+  cn="EAEko Herri Administrazioen CA - CA AAPP Vascas (2)" o=["IZENPE S.A."] ou=["AZZ Ziurtagiri publikoa - Certificado publico SCA"] c=["ES"] l=[] st=[] street=[] pc=[] sn=""
+  validity=1287563013/0..2144271600/0
+  key=RSA n=a0833b9c4748d0dd61ad1e53e31b95feeb0a0e83086ac6a22af7cb85bc3168db53b7e6bb5bfeb05796efdecbd0148cb7b145e38ddcd5d671b64e8db0a3f6123d088eb7c7b15af39aa6f2f6d68822a1ffa47a55a75c58d668a248fef4e11d82e021810c8ffcb81ddb54a2323ae3aad9c2ab1be18180a29c209a40df521e633a157621c604dd3809018595923ea392ef4f2da22c1e26ab0078c33d8f1d8a0f1ae1246fd209b9624ec55cb996d5dd78a314010de1d9ef33845dfa5a7f17440ced9235a4498e9921f1746b3c6aa4836cb5437813e9be39dfb8f3f92b720c8277a26ca59a526c182c2a4fba7c984aa3189e640b92365678d72ae367b284a173bda4856655509889a39486b8090d136657aa5b41566e49bfa4307902ac5fa6e470c738219a24e1afa1c7c14cf0806919ffc8f78a54e87cc65ea0b2735778e9dac980363d9976bee980c0245977c5e5ce396da21827f05ea8620ab28b318bf2319cea177407e6ae276f76677a162fada78c1572570e7f94b6aa7cbdddabed285f409cf4d4ab4ce2180a7604a08ed5beb2191554de6783f7cf37ce68bdf007d811d715f1e6427e332ac6272e2b69c1833fed2d47c654fad5c750ecd9e4dcb653604800a0e98499d85e9254f8d160186a492c5c633956bcc6ef1f52eecd539be55be4b49385d1c2f1bc71c324db2ac0d10cd27ce0df5f3c33baa879f368bdaea50e373f27 e=65537
+  ku=96 eku=[] unknown=[] bc=true ca=true mpl=-1 mplz=false
+  skid=c0a94af7472587ffbcb5a689ce82d246a889eba3 akid=1d1c650ea8f2257bb491cfe4b1b1e6bd55746c05
+  ocsp=["http://ocsp.izenpe.com:8094"] issuers=[] crl=["http://crl.izenpe.com/cgi-bin/arl2"]
+  dns=[] email=["info@izenpe.com"] ip=[] uri=["http://www.izenpe.com"]
+  nc crit=false pdns=[] xdns=[] pip=[] xip=[] pem=[] xem=[] puri=[] xuri=[]
+  policies=[2.5.29.32.0] ids=[2.5.29.32.0] maps=[] iap=0/false ipm=0/false rep=0/false
+  exts=[2.5.29.17/false/191 2.5.29.19/true/5 2.5.29.15/true/4 2.5.29.14/false/22 2.5.29.35/false/24 2.5.29.32/false/51 1.3.6.1.5.5.7.1.1/false/43 2.5.29.31/false/44] unhandled=[]
+  raw=1851 tbs=1317 spki=550 subj=160 iss=58 sigai=13 sig=c6e37371ccdc31bd
+cert 60 (1525 bytes)
+  version=3 serial=b0b75a16485fbfe1cbf58bd719e67d sigalg=SHA256-RSA pkalg=RSA
+  subject=CN=Izenpe.com,O=IZENPE S.A.,C=ES
+  issuer=CN=Izenpe.com,O=IZENPE S.A.,C=ES
+  subject.names=[2.5.4.6=string:ES; 2.5.4.10=string:IZENPE S.A.; 2.5.4.3=string:Izenpe.com]
+  cn="Izenpe.com" o=["IZENPE S.A."] ou=[] c=["ES"] l=[] st=[] street=[] pc=[] sn=""
+  validity=1197551308/0..2144305645/0
+  key=RSA n=c9d37aca0f1eaca786e816656ab1c21b45327195d9fe105bccafe7a579018f89c3caf25571f777be7794f372a42c44d89e929b143aa1e724900a0a568ec5d82694e1d948e12d3eda0a72dda39915da81a287f47b6e26778958add6eb0cb2417a736e6ddb7a7841e90888127e872e6611636c54fb3c9d72c0bc2effc2b7dd0d76e33ad7f7b468bea2f5e3816ec1466f5d8de04dc65455891a33310ab157b9a38a98c3ec3b34c59541697e75c23c20c561ba5147a0209093a1904bf34e7c8545549ad1052641b0b54d1d33bec403c8257cc170db3bf4092d542748ac2fe1c4ac3ec8cb924c53393723ecd301f9e009444d4d64c0e10d5a8722bcad1ba3fe26b515f3a7fc8419e9eca188b444698483f389d17406a9cc0bd6c2de27855026ca17b8c97a87562c1a011e6cbe13ad10acb524f53891a1d64bdaf1bbd2de47b5f1bc81f6596bcf1953e98d15cb4acba96f44e51b41cfe186a7cad06a9fbc4c8d06335aa285e59035a0625c164ef0e3a2fa031ab42c71b3582cde7b0bdb1a0febde211f06770603b0c9ef99fcc0b94f0b8628fed2b9eae3daa5c3476912e0dbf0f6198bed7b70d702d6ed8718282c04244c77e4488a1ac63b9ad40fcafa75d201405a8d79bf8bcf4bcfaa16c195e4ad4c8a3e1791d4b162e582e58004a4037e8dbfda7fa20f974f0cd30dfbd7d1e5727e1cc877ff5b9a0fb7ae0546e5f1a816ec47a417 e=65537
+  ku=96 eku=[] unknown=[] bc=true ca=true mpl=-1 mplz=false
+  skid=1d1c650ea8f2257bb491cfe4b1b1e6bd55746c05 akid=
+  ocsp=[] issuers=[] crl=[]
+  dns=[] email=["info@izenpe.com"] ip=[] uri=[]
+  nc crit=false pdns=[] xdns=[] pip=[] xip=[] pem=[] xem=[] puri=[] xuri=[]
+  policies=[] ids=[] maps=[] iap=0/false ipm=0/false rep=0/false
+  exts=[2.5.29.17/false/168 2.5.29.19/true/5 2.5.29.15/true/4 2.5.29.14/false/22] unhandled=[]
+  raw=1525 tbs=989 spki=550 subj=58 iss=58 sigai=15 sig=78a60c164a9f4c88
+cert 61 (1790 bytes)
+  version=3 serial=5a3f606ed3cf919b3ae4de932b2bad46 sigalg=SHA256-RSA pkalg=RSA
+  subject=CN=udctest.ads.vt.edu,O=Virginia Polytechnic Institute and State University,L=Blacksburg,ST=Virginia,C=US
+  issuer=CN=Virginia Tech Global Qualified Server CA,OU=Global Qualified Server CA,O=Virginia Polytechnic Institute and State University,L=Blacksburg,ST=Virginia,C=US
+  subject.names=[2.5.4.6=string:US; 2.5.4.8=string:Virginia; 2.5.4.7=string:Blacksburg; 2.5.4.10=string:Virginia Polytechnic Institute and State University; 2.5.4.3=string:udctest.ads.vt.edu]
+  cn="udctest.ads.vt.edu" o=["Virginia Polytechnic Institute and State University"] ou=[] c=["US"] l=["Blacksburg"] st=["Virginia"] street=[] pc=[] sn=""
+  validity=1524771953/0..1575936000/0
+  key=RSA n=9ca1505e57703375218ccd1587d2db8c565b848feb2ae2bf4fb8b0c101d8238c78b8103f27a53dbf7e039a96cc089d7b2946f152fa9904c13ae6799ec73f34491d41396255f935ce9623c6573d583913a1b2a0ccba80d9402f0aac22f0c2beac4131cdfda06eb23ae1a6417745eacd0d04932b5dce1a3f3eb4b3840c58d3b63872f4a669d9a84d53c584411d463f764ddc7ec21ea480c3b92c51b0d13f3ff308a719bfb953b288b1273e638cb0be37d1267b9c2f0fc5432ac9af6893a65a7fb939e20ec92570e313de953028ccb3322f51df6a7b53dba244cec651bfe105bb426d1d3db88985352ea01cd5031ce538e91215d5ea4982a30bdb4571bafccbea53 e=65537
+  ku=7 eku=[clientAuth serverAuth] unknown=[] bc=true ca=false mpl=-1 mplz=false
+  skid=b30cb5de7b4c1b817a55431bc1402a298500d96d akid=bc626027d5e3354817e94bab456ad0c8a877718c
+  ocsp=["http://vtca.pki.vt.edu:8080/ejbca/publicweb/status/ocsp"] issuers=["http://www.pki.vt.edu/globalqualifiedserver/cacert/globalqualifiedserver_sha256.crt"] crl=["http://www.pki.vt.edu/globalqualifiedserver/crl/cacrl.crl"]
+  dns=["udctest.ads.vt.edu"] email=[] ip=[] uri=[]
+  nc crit=false pdns=[] xdns=[] pip=[] xip=[] pem=[] xem=[] puri=[] xuri=[]
+  policies=[1.3.6.1.4.1.6760.5.2.2.2.1 1.3.6.1.4.1.6760.5.2.2.1.1 1.3.6.1.4.1.6760.5.2.2.3.1] ids=[1.3.6.1.4.1.6760.5.2.2.2.1 1.3.6.1.4.1.6760.5.2.2.1.1 1.3.6.1.4.1.6760.5.2.2.3.1] maps=[] iap=0/false ipm=0/false rep=0/false
+  exts=[1.3.6.1.5.5.7.1.1/false/169 2.5.29.14/false/22 2.5.29.19/true/2 2.5.29.35/false/24 2.5.29.32/false/99 2.5.29.31/false/67 2.5.29.15/true/4 2.5.29.37/false/22 2.5.29.17/false/22] unhandled=[]
+  raw=1790 tbs=1254 spki=294 subj=147 iss=206 sigai=15 sig=0fbf64bb265bc102
+cert 62 (1881 bytes)
+  version=3 serial=1e707cdc68f11e16fbbb5f84d sigalg=SHA256-RSA pkalg=RSA
+  subject=CN=Virginia Tech Global Qualified Server CA,OU=Global Qualified Server CA,O=Virginia Polytechnic Institute and State University,L=Blacksburg,ST=Virginia,C=US
+  issuer=CN=Trusted Root CA SHA256 G2,OU=Trusted Root,O=GlobalSign nv-sa,C=BE
+  subject.names=[2.5.4.6=string:US; 2.5.4.8=string:Virginia; 2.5.4.7=string:Blacksburg; 2.5.4.11=string:Global Qualified Server CA; 2.5.4.10=string:Virginia Polytechnic Institute and State University; 2.5.4.3=string:Virginia Tech Global Qualified Server CA]
+  cn="Virginia Tech Global Qualified Server CA" o=["Virginia Polytechnic Institute and State University"] ou=["Global Qualified Server CA"] c=["US"] l=["Blacksburg"] st=["Virginia"] street=[] pc=[] sn=""
+  validity=1512518400/0..1670284800/0
+  key=RSA n=b80866111aa6d05600306a749e39b9e146ccc5da1879f3371a314757d021a69140d742838730dc0e1d58a31e12060bb6ca7ae5a8b75dfc3ad906aeb34f8a277461815fab8a1a8af35354ce496cefc7c99400d50c8e1f093968b61b2b13509338c8b2f7b8ca1da8b99954e25b199cc699a3bfb7e6e4d85cfae1e0876848cfa9e9af2ab8f79983e7566b51321aa8040de8fc3f5477c0991e76e2f82b8933a3b69d6de2503da571968c5fef92100a14585e390490d34ae7828db01e00aa3256bae144cdd28cfbd00b0260d6778c32f1d2438fd1898c477221f75540eb790ba8f5c0d11eb2c669a18712d9e5b732032d522e3af5377d36308c4b33fa52cba6aab849db10b873ab2a7dc86811c8625acbde901fb73844963a82d7283c36e574370723d9d79e07402f80eb66427d3a40e424bcaa1bae96653179ab8108b3ac8c76bcb0cf4c7b40ff8e5cf26b8d8a5b785b3ab4664216758f15f987091245f3fba7a1f62b85eabef49ec9c77539e52fe4e7b3576c033544024eb8c4e57e7f44b5ff43a6869cf69a08e0b89abfaac1a14424dcddc95aa9d51cdc7f35d0b2275ffa51b28c25466c4ad015825b22ea554fa36f3d1c7384e1fee2c25dd2c9e922cd53a9d35c148a7df27276d907fad79996f06a94b14d34817f41083abf62e0419f9e784201503d539b8bac8e4e101ebd218f0f357d34ef5b376766b67e2a3973c9b726476b e=65537
+  ku=96 eku=[serverAuth clientAuth] unknown=[] bc=true ca=true mpl=0 mplz=true
+  skid=bc626027d5e3354817e94bab456ad0c8a877718c akid=c8639b086954c298c8d9cde333b7505ef8c9019b
+  ocsp=["http://ocsp2.globalsign.com/trustrootsha2g2"] issuers=["http://secure.globalsign.com/cacert/trustrootsha2g2.crt"] crl=["http://crl.globalsign.com/gs/trustrootsha2g2.crl"]
+  dns=[] email=[] ip=[] uri=[]
+  nc crit=false pdns=["bev.net" "vcom.edu" "vt.edu" "vtcgit.com"] xdns=[] pip=[] xip=["00000000/00000000" "00000000000000000000000000000000/00000000000000000000000000000000"] pem=["vt.edu"] xem=[] puri=[] xuri=[]
+  policies=[1.3.6.1.4.1.4146.1.60] ids=[1.3.6.1.4.1.4146.1.60] maps=[] iap=0/false ipm=0/false rep=0/false
+  exts=[2.5.29.15/true/4 2.5.29.37/false/22 2.5.29.19/true/8 2.5.29.14/false/22 2.5.29.35/false/24 1.3.6.1.5.5.7.1.1/false/128 2.5.29.30/false/234 2.5.29.31/false/58 2.5.29.32/false/69] unhandled=[]
+  raw=1881 tbs=1601 spki=550 subj=206 iss=101 sigai=15 sig=2b1e872910a4ef0d
+cert 63 (1120 bytes)
+  version=3 serial=4000000000136e982395d sigalg=SHA256-RSA pkalg=RSA
+  subject=CN=Trusted Root CA SHA256 G2,OU=Trusted Root,O=GlobalSign nv-sa,C=BE
+  issuer=CN=GlobalSign,OU=GlobalSign Root CA - R3,O=GlobalSign
+  subject.names=[2.5.4.6=string:BE; 2.5.4.11=string:Trusted Root; 2.5.4.10=string:GlobalSign nv-sa; 2.5.4.3=string:Trusted Root CA SHA256 G2]
+  cn="Trusted Root CA SHA256 G2" o=["GlobalSign nv-sa"] ou=["Trusted Root"] c=["BE"] l=[] st=[] street=[] pc=[] sn=""
+  validity=1335351600/0..1808650800/0
+  key=RSA n=cfcd3efd0d8f0212ee6307b4e184cb04b18aaf5fc949c1ed0ef018e44f781a31b109b491d7fd5584bf3cd143c9c8df39b5d74ea3164f82d232662c43bef2be0a0a53e7079bc8105ba8afdaa7b6a8072821009ed7e76d1764c470280e9c1166bab6308b587d73b1cc50c46ce0b55e74ae7daec7649aa6808fc4ca4ce3eb69115c1625fdca3f7353fa377d1916975a035e8b924a42ea3d97e7199127aea168a3bda7abe6170b0ae7cfcb030c41dd2be975c833f97b83d0e331a136e1df9f6b66d6c505c2f164ff3d9f83d4a50491db67fe2c400eab2888889b1a7eccf38104f7f34b8dbccfaf044e941509173e9cbb0f88234ad9f0e145799fce9071d866ada1f7 e=65537
+  ku=96 eku=[] unknown=[] bc=true ca=true mpl=-1 mplz=false
+  skid=c8639b086954c298c8d9cde333b7505ef8c9019b akid=8ff04b7fa82e4524ae4d50fa639a8bdee2dd1bbc
+  ocsp=["http://ocsp2.globalsign.com/rootr3"] issuers=[] crl=["http://crl.globalsign.net/root-r3.crl"]
+  dns=[] email=[] ip=[] uri=[]
+  nc crit=false pdns=[] xdns=[] pip=[] xip=[] pem=[] xem=[] puri=[] xuri=[]
+  policies=[2.5.29.32.0] ids=[2.5.29.32.0] maps=[] iap=0/false ipm=0/false rep=0/false
+  exts=[2.5.29.15/true/4 2.5.29.19/true/5 2.5.29.32/false/64 2.5.29.14/false/22 2.5.29.31/false/47 1.3.6.1.5.5.7.1.1/false/50 2.5.29.35/false/24] unhandled=[]
+  raw=1120 tbs=840 spki=294 subj=101 iss=78 sigai=15 sig=5f36cbc018c9898e
+cert 64 (867 bytes)
+  version=3 serial=4000000000121585308a2 sigalg=SHA256-RSA pkalg=RSA
+  subject=CN=GlobalSign,OU=GlobalSign Root CA - R3,O=GlobalSign
+  issuer=CN=GlobalSign,OU=GlobalSign Root CA - R3,O=GlobalSign
+  subject.names=[2.5.4.11=string:GlobalSign Root CA - R3; 2.5.4.10=string:GlobalSign; 2.5.4.3=string:GlobalSign]
+  cn="GlobalSign" o=["GlobalSign"] ou=["GlobalSign Root CA - R3"] c=[] l=[] st=[] street=[] pc=[] sn=""
+  validity=1237370400/0..1868522400/0
+  key=RSA n=cc2576907906782216f5c083b684ca289efd057611c5ad8872fc460243c7b28a9d045f24cb2e4be1608246e152ab0c8147706cdd64d1ebf52ca30f823d0c2bae97d7b614861079bb3b1380778c08e149d26a622f1f5efa9668df892795389f06d73ec9cb26590d73deb0c8e9260e8315c6ef5b8bd20460ca49a628f6693bf6cbc82891e59d8a615737ac7414dc74e03aee722f2e9cfbd0bbbff53d00e10633e8822bae53a63a16738cdd410e203ac0b4a7a1e9b24f902e3260e957cbb904926868e538266075b29f77ff9114efae2049fcad401548d1023161195eb897efad77b7649a7abf5fc113ef9b62fb0d6ce0546916a903da6ee983937176c669858217 e=65537
+  ku=96 eku=[] unknown=[] bc=true ca=true mpl=-1 mplz=false
+  skid=8ff04b7fa82e4524ae4d50fa639a8bdee2dd1bbc akid=
+  ocsp=[] issuers=[] crl=[]
+  dns=[] email=[] ip=[] uri=[]
+  nc crit=false pdns=[] xdns=[] pip=[] xip=[] pem=[] xem=[] puri=[] xuri=[]
+  policies=[] ids=[] maps=[] iap=0/false ipm=0/false rep=0/false
+  exts=[2.5.29.15/true/4 2.5.29.19/true/5 2.5.29.14/false/22] unhandled=[]
+  raw=867 tbs=587 spki=294 subj=78 iss=78 sigai=15 sig=4b40dbc050aafec8
+cert 65 (947 bytes)
+  version=3 serial=83be056904246b1a1756ac95991c74a sigalg=SHA1-RSA pkalg=RSA
+  subject=CN=DigiCert Global Root CA,OU=www.digicert.com,O=DigiCert Inc,C=US
+  issuer=CN=DigiCert Global Root CA,OU=www.digicert.com,O=DigiCert Inc,C=US
+  subject.names=[2.5.4.6=string:US; 2.5.4.10=string:DigiCert Inc; 2.5.4.11=string:www.digicert.com; 2.5.4.3=string:DigiCert Global Root CA]
+  cn="DigiCert Global Root CA" o=["DigiCert Inc"] ou=["www.digicert.com"] c=["US"] l=[] st=[] street=[] pc=[] sn=""
+  validity=1163116800/0..1952035200/0
+  key=RSA n=e23be11172dea8a4d3a357aa50a28f0b7790c9a2a5ee12ce965b010920cc0193a74e30b753f743c46900579de28d22dd870640008109cece1b83bfdfcd3b7146e2d666c705b37627168f7b9e1e957deeb748a308dad6af7a0c3906657f4a5d1fbc17f8abbeee28d7747f7a78995985686e5c23324bbf4ec0e85a6de370bf7710bffc01f685d9a844105832a97518d5d1a2be47e2276af49a33f84908608bd45fb43a84bfa1aa4a4c7d3ecf4f5f6c765ea04b37919edc22e66dce141a8e6acbfecdb3146417c75b299e32bff2eefad30b42d4abb74132da0cd4eff881d5bb8d583fb51be84928a270da3104ddf7b216f24c0a4e07a8ed4a3d5eb57fa390c3af27 e=65537
+  ku=97 eku=[] unknown=[] bc=true ca=true mpl=-1 mplz=false
+  skid=03de503556d14cbb66f0a3e21b1bc397b23dd155 akid=03de503556d14cbb66f0a3e21b1bc397b23dd155
+  ocsp=[] issuers=[] crl=[]
+  dns=[] email=[] ip=[] uri=[]
+  nc crit=false pdns=[] xdns=[] pip=[] xip=[] pem=[] xem=[] puri=[] xuri=[]
+  policies=[] ids=[] maps=[] iap=0/false ipm=0/false rep=0/false
+  exts=[2.5.29.15/true/4 2.5.29.19/true/5 2.5.29.14/false/22 2.5.29.35/false/24] unhandled=[]
+  raw=947 tbs=667 spki=294 subj=99 iss=99 sigai=15 sig=cb9c37aa4813120a
+cert 66 (1019 bytes)
+  version=3 serial=bdeb9a78391e002ab1a5b325b45eb0f sigalg=SHA384-RSA pkalg=ECDSA
+  subject=CN=TrustAsia ECC OV TLS Pro CA,O=TrustAsia Technologies\, Inc.,C=CN
+  issuer=CN=DigiCert Global Root CA,OU=www.digicert.com,O=DigiCert Inc,C=US
+  subject.names=[2.5.4.6=string:CN; 2.5.4.10=string:TrustAsia Technologies, Inc.; 2.5.4.3=string:TrustAsia ECC OV TLS Pro CA]
+  cn="TrustAsia ECC OV TLS Pro CA" o=["TrustAsia Technologies, Inc."] ou=[] c=["CN"] l=[] st=[] street=[] pc=[] sn=""
+  validity=1524832979/0..1840452179/0
+  key=ECDSA P-384 040f2149fbe4ce410902caa0fb12536293af7983321d77bac9c0437f177ca3b38d78b243e5b48a703b99e611c52f9731082f9db0a2804b0a8f712b3c8cceebcb82f55fca76a31a5d6049a7ce56b3d03828bf76341e0e91b9f9769eaf433cb4f0f6
+  ku=97 eku=[serverAuth clientAuth] unknown=[] bc=true ca=true mpl=0 mplz=true
+  skid=2dd472071e87c881fff8b3afb9ec721f9a7fdcfc akid=03de503556d14cbb66f0a3e21b1bc397b23dd155
+  ocsp=["http://ocsp.digicert-cn.com"] issuers=[] crl=["http://crl.digicert-cn.com/DigiCertGlobalRootCA.crl"]
+  dns=[] email=[] ip=[] uri=[]
+  nc crit=false pdns=[] xdns=[] pip=[] xip=[] pem=[] xem=[] puri=[] xuri=[]
+  policies=[2.16.840.1.114412.1.1 2.23.140.1.2.2 2.23.140.1.2.3] ids=[2.16.840.1.114412.1.1 2.23.140.1.2.2 2.23.140.1.2.3] maps=[] iap=0/false ipm=0/false rep=0/false
+  exts=[2.5.29.14/false/22 2.5.29.35/false/24 2.5.29.15/true/4 2.5.29.37/false/22 2.5.29.19/true/8 1.3.6.1.5.5.7.1.1/false/43 2.5.29.31/false/61 2.5.29.32/false/79] unhandled=[]
+  raw=1019 tbs=739 spki=120 subj=92 iss=99 sigai=15 sig=2551b9f61d8fcd71
+cert 67 (1221 bytes)
+  version=3 serial=4e8e89997c77e1833d9b558655b9fd8 sigalg=ECDSA-SHA384 pkalg=ECDSA
+  subject=CN=*.tm.cn,OU=知识产权部,O=厦门叁玖叁科技有限公司,L=厦门市,ST=福建省,C=CN
+  issuer=CN=TrustAsia ECC OV TLS Pro CA,O=TrustAsia Technologies\, Inc.,C=CN
+  subject.names=[2.5.4.6=string:CN; 2.5.4.8=string:福建省; 2.5.4.7=string:厦门市; 2.5.4.10=string:厦门叁玖叁科技有限公司; 2.5.4.11=string:知识产权部; 2.5.4.3=string:*.tm.cn]
+  cn="*.tm.cn" o=["厦门叁玖叁科技有限公司"] ou=["知识产权部"] c=["CN"] l=["厦门市"] st=["福建省"] street=[] pc=[] sn=""
+  validity=1558051200/0..1595937600/0
+  key=ECDSA P-256 0471fcc0d0d281a708b6a0408ce3233e7b8aa158166cf8fd6ea0694e8df861c1933caf414f1a5f4d9091d9534cd60b4c2a06149c470745e56554b1aeaa083e534a
+  ku=1 eku=[serverAuth clientAuth] unknown=[] bc=true ca=false mpl=-1 mplz=false
+  skid=64f27f969d739b265bc36f0d9cae9a62706512c4 akid=2dd472071e87c881fff8b3afb9ec721f9a7fdcfc
+  ocsp=["http://ocsp.digicert-cn.com"] issuers=["http://cacerts.digicert-cn.com/TrustAsiaECCOVTLSProCA.crt"] crl=["http://crl.digicert-cn.com/TrustAsiaECCOVTLSProCA.crl"]
+  dns=["*.tm.cn" "tm.cn"] email=[] ip=[] uri=[]
+  nc crit=false pdns=[] xdns=[] pip=[] xip=[] pem=[] xem=[] puri=[] xuri=[]
+  policies=[2.16.840.1.114412.1.1 2.23.140.1.2.2] ids=[2.16.840.1.114412.1.1 2.23.140.1.2.2] maps=[] iap=0/false ipm=0/false rep=0/false
+  exts=[2.5.29.35/false/24 2.5.29.14/false/22 2.5.29.17/false/18 2.5.29.15/true/4 2.5.29.37/false/22 2.5.29.31/false/63 2.5.29.32/false/69 1.3.6.1.5.5.7.1.1/false/114 2.5.29.19/true/2 1.3.6.1.4.1.11129.2.4.2/false/244] unhandled=[]
+  raw=1221 tbs=1099 spki=91 subj=144 iss=92 sigai=12 sig=306502301e0f099a
+cert 68 (768 bytes)
+  version=3 serial=ad125915668baef1537cf4824818f8f9 sigalg=SHA256-RSA pkalg=RSA
+  subject=O=Acme Co
+  issuer=O=Acme Co
+  subject.names=[2.5.4.10=string:Acme Co]
+  cn="" o=["Acme Co"] ou=[] c=[] l=[] st=[] street=[] pc=[] sn=""
+  validity=1471624427/0..1503160427/0
+  key=RSA n=d6926d64742c31c8a12de8e4e6662b6498b187f1c42ef73eeb51dae15bc956366e248764ae69458fa6c7018dd6b98aa839d5aa0ab96251dabc3a1250e77be5f97a2b76153f33260014f2fdfd94c1636da5597d2f5314e605c344e4d0bba8fcfc8a269667c21b0ffbe8a21908ad7896e7772f1a2ca989d8ca4b7e90c6220c4423235be5d8280e2d035917830a913a2bd58362abca5469d0d89beaaab6ba19fc74b4592ea89c50baa03c6943a53c77021f828165d344a1775860bdc4e1d0808746220ecf34c0d671e1c1ea10cdcbf204c416a5b64e7d534ae3d93ba82327d40fb2e51956368c66eb8e355c6a2c6ba36640f3011842ddf069a6d32e6807e2db4f81 e=65537
+  ku=5 eku=[serverAuth] unknown=[] bc=true ca=false mpl=-1 mplz=false
+  skid= akid=
+  ocsp=[] issuers=[] crl=[]
+  dns=["foo.example"] email=[] ip=[] uri=[]
+  nc crit=false pdns=[] xdns=[] pip=[] xip=[] pem=[] xem=[] puri=[] xuri=[]
+  policies=[] ids=[] maps=[] iap=0/false ipm=0/false rep=0/false
+  exts=[2.5.29.15/true/4 2.5.29.37/false/12 2.5.29.19/true/2 2.5.29.17/false/15] unhandled=[]
+  raw=768 tbs=488 spki=294 subj=20 iss=20 sigai=15 sig=4fbef7e70e1b075a
+cert 69 (548 bytes)
+  version=3 serial=23e42c281e55ae6 sigalg=SHA256-RSA pkalg=RSA
+  subject=CN=Root ca,O=Golang
+  issuer=CN=Root ca,O=Golang
+  subject.names=[2.5.4.10=string:Golang; 2.5.4.3=string:Root ca]
+  cn="Root ca" o=["Golang"] ou=[] c=[] l=[] st=[] street=[] pc=[] sn=""
+  validity=1420070400/0..1735689600/0
+  key=RSA n=e90e7f110ce65ae6868370f651072e027811f5b2249238ee266202c794f13ea1776ac08fd52268b65de24cdae0851135c29272498d81b488976bb7fcb2445bd94d0670f90cc68fe9b3dfa36a846c4359be9db2d0769bc3d7fa9959c3b8e5f35303bd49d6b3cca243feadc20bb901b85629940324a70d282129a9ae945b4af99f e=65537
+  ku=32 eku=[serverAuth clientAuth] unknown=[] bc=true ca=true mpl=-1 mplz=false
+  skid=4037d701fb402fb81c7e5404278c5901 akid=
+  ocsp=[] issuers=[] crl=[]
+  dns=[] email=[] ip=[] uri=[]
+  nc crit=false pdns=[] xdns=[] pip=[] xip=[] pem=[] xem=[] puri=[] xuri=[]
+  policies=[] ids=[] maps=[] iap=0/false ipm=0/false rep=0/false
+  exts=[2.5.29.15/true/4 2.5.29.37/false/22 2.5.29.19/true/5 2.5.29.14/false/18] unhandled=[]
+  raw=548 tbs=397 spki=162 subj=37 iss=37 sigai=15 sig=6f84df49e099d471
+cert 70 (572 bytes)
+  version=3 serial=e8f09d3fe25beaa6 sigalg=SHA256-RSA pkalg=RSA
+  subject=CN=Leaf,O=Golang
+  issuer=CN=Root CA,O=Golang
+  subject.names=[2.5.4.10=string:Golang; 2.5.4.3=string:Leaf]
+  cn="Leaf" o=["Golang"] ou=[] c=[] l=[] st=[] street=[] pc=[] sn=""
+  validity=1420070400/0..1735689600/0
+  key=RSA n=db467d932e12270648bc062821ab7ec4b6a25dfe1e5245887a3647a5080d92425bc281c0be97799840fb4f6d14fd2b138bc2a52e67d8d4099ed62238b74a0b74732bc234f1d193e596d9747bf3589f6c613cc0b041d4d92b2b2423775b1c3bbd755dce2054cfa163871d1e24c4f31d1a508baab61443ed97a77562f414c852d7 e=65537
+  ku=5 eku=[serverAuth clientAuth] unknown=[] bc=true ca=false mpl=-1 mplz=false
+  skid=9f91161f43433e49a6de6db680d79f60 akid=4037d701fb402fb81c7e5404278c5901
+  ocsp=[] issuers=[] crl=[]
+  dns=[] email=[] ip=[] uri=[]
+  nc crit=false pdns=[] xdns=[] pip=[] xip=[] pem=[] xem=[] puri=[] xuri=[]
+  policies=[] ids=[] maps=[] iap=0/false ipm=0/false rep=0/false
+  exts=[2.5.29.15/true/4 2.5.29.37/false/22 2.5.29.19/true/2 2.5.29.14/false/18 2.5.29.35/false/20] unhandled=[]
+  raw=572 tbs=421 spki=162 subj=34 iss=37 sigai=15 sig=8d8605da89f51dc5
+cert 71 (548 bytes)
+  version=3 serial=23e42c281e55ae6 sigalg=SHA256-RSA pkalg=RSA
+  subject=CN=Root CA,O=Golang
+  issuer=CN=Root CA,O=Golang
+  subject.names=[2.5.4.10=string:Golang; 2.5.4.3=string:Root CA]
+  cn="Root CA" o=["Golang"] ou=[] c=[] l=[] st=[] street=[] pc=[] sn=""
+  validity=1420070400/0..1735689600/0
+  key=RSA n=e90e7f110ce65ae6868370f651072e027811f5b2249238ee266202c794f13ea1776ac08fd52268b65de24cdae0851135c29272498d81b488976bb7fcb2445bd94d0670f90cc68fe9b3dfa36a846c4359be9db2d0769bc3d7fa9959c3b8e5f35303bd49d6b3cca243feadc20bb901b85629940324a70d282129a9ae945b4af99f e=65537
+  ku=32 eku=[serverAuth clientAuth] unknown=[] bc=true ca=true mpl=-1 mplz=false
+  skid=4037d701fb402fb81c7e5404278c5901 akid=
+  ocsp=[] issuers=[] crl=[]
+  dns=[] email=[] ip=[] uri=[]
+  nc crit=false pdns=[] xdns=[] pip=[] xip=[] pem=[] xem=[] puri=[] xuri=[]
+  policies=[] ids=[] maps=[] iap=0/false ipm=0/false rep=0/false
+  exts=[2.5.29.15/true/4 2.5.29.37/false/22 2.5.29.19/true/5 2.5.29.14/false/18] unhandled=[]
+  raw=548 tbs=397 spki=162 subj=37 iss=37 sigai=15 sig=708c2a78d52942bf
+cert 72 (462 bytes)
+  version=1 serial=8274432c4fcca4a9 sigalg=SHA256-RSA pkalg=RSA
+  subject=CN=X.509v1 intermediate,O=Golang
+  issuer=CN=Root CA,O=Golang
+  subject.names=[2.5.4.10=string:Golang; 2.5.4.3=string:X.509v1 intermediate]
+  cn="X.509v1 intermediate" o=["Golang"] ou=[] c=[] l=[] st=[] street=[] pc=[] sn=""
+  validity=1420070400/0..1735689600/0
+  key=RSA n=c9d90ca7880393fb960b8de8a710126bdcdb02fd0d9027f54a9a0be9fb1471b8a4c7262566c558a39a9d2f5a0f0059f926b84e29de15d06dba8c939cb1ae4d67eb438d8629b62f8557ae212f084ed7d8e5e14e6065b3951fafb6aa2203cc8a4c2349c097c33f04f2a23c531c808678de270318054f13bb00489927782c11e841 e=65537
+  ku=0 eku=[] unknown=[] bc=false ca=false mpl=0 mplz=false
+  skid= akid=
+  ocsp=[] issuers=[] crl=[]
+  dns=[] email=[] ip=[] uri=[]
+  nc crit=false pdns=[] xdns=[] pip=[] xip=[] pem=[] xem=[] puri=[] xuri=[]
+  policies=[] ids=[] maps=[] iap=0/false ipm=0/false rep=0/false
+  exts=[] unhandled=[]
+  raw=462 tbs=311 spki=162 subj=50 iss=37 sigai=15 sig=869b0d11ba15b17d
+cert 73 (567 bytes)
+  version=3 serial=fa3df66a8926ba49 sigalg=SHA256-RSA pkalg=RSA
+  subject=CN=foo.example.com,O=Golang
+  issuer=CN=X.509v1 intermediate,O=Golang
+  subject.names=[2.5.4.10=string:Golang; 2.5.4.3=string:foo.example.com]
+  cn="foo.example.com" o=["Golang"] ou=[] c=[] l=[] st=[] street=[] pc=[] sn=""
+  validity=1420070400/0..1735689600/0
+  key=RSA n=a5487ad19f9ae7fa0a2711bffc39fc0a2852a360891cd2083b7cc4259d4478d48c642ca768847a0f720f644211f911b6a06b7e7f9104ba400f631c1ab29e9579911ece841627ef7b9cf093e83a702e55a9de2d8c17ca622b647dbf19066799f4f87cd893554cf1ea48ad91545d23064d7f30d72d38d4f5ffc982f16dd1227dd7 e=65537
+  ku=5 eku=[serverAuth clientAuth] unknown=[] bc=true ca=false mpl=-1 mplz=false
+  skid=45a335ded129f30268f2fb553a33f72f akid=
+  ocsp=[] issuers=[] crl=[]
+  dns=[] email=[] ip=[] uri=[]
+  nc crit=false pdns=[] xdns=[] pip=[] xip=[] pem=[] xem=[] puri=[] xuri=[]
+  policies=[] ids=[] maps=[] iap=0/false ipm=0/false rep=0/false
+  exts=[2.5.29.15/true/4 2.5.29.37/false/22 2.5.29.19/true/2 2.5.29.14/false/18] unhandled=[]
+  raw=567 tbs=416 spki=162 subj=45 iss=50 sigai=15 sig=3633614bda4e83bf
+cert 74 (835 bytes)
+  version=3 serial=264cc2c2436b3c73 sigalg=SHA256-RSA pkalg=RSA
+  subject=CN=**Testing** Root CA,O=TESTING
+  issuer=CN=**Testing** Root CA,O=TESTING
+  subject.names=[2.5.4.10=string:TESTING; 2.5.4.3=string:**Testing** Root CA]
+  cn="**Testing** Root CA" o=["TESTING"] ou=[] c=[] l=[] st=[] street=[] pc=[] sn=""
+  validity=1420070400/0..1735689600/0
+  key=RSA n=b86007f962a95719c8a4bdb316b55acd202b7e57f34d5a58f07ef48a760e089e6ee4e81c163facb863e9f8a9260858d53889191da5a8ee7f372dc5008eeadcb5de2c37a9592dcdc0b95c12224baca68918610e09d8550ab26a4546c3d331acfc1d459565b2c52fdc79b2ead53ebf93a4df548b639cf7c0a8185af4b262cd1bf1b28d53c91fd859921e704dd7a97119d8e17b78e2e7c17fcc532bd1db3e1da92b2c8bd57457101409d0a2933c1531e9a1634dcc653729a88ed2305b30591deae563567b9127ec63ba2aa2fcd5b08b0400f8212bf472b31a4c4e17c9c0b076a67663b5c16fb03ac0ab0b4a9643f7f93533950134c97b4be3f3c38c4efa37d3bd55 e=65537
+  ku=37 eku=[serverAuth clientAuth] unknown=[] bc=true ca=true mpl=-1 mplz=false
+  skid=4037d701fb402fb81c7e5404278c5901 akid=
+  ocsp=[] issuers=[] crl=[]
+  dns=[] email=[] ip=[] uri=[]
+  nc crit=false pdns=[] xdns=[] pip=[] xip=[] pem=[] xem=[] puri=[] xuri=[]
+  policies=[] ids=[] maps=[] iap=0/false ipm=0/false rep=0/false
+  exts=[2.5.29.15/true/4 2.5.29.37/false/22 2.5.29.19/true/5 2.5.29.14/false/18] unhandled=[]
+  raw=835 tbs=555 spki=294 subj=50 iss=50 sigai=15 sig=18e9f75e3c47c876
+cert 75 (877 bytes)
+  version=3 serial=e35a92f453c60261 sigalg=SHA256-RSA pkalg=RSA
+  subject=CN=foo.example.com,O=TESTING
+  issuer=CN=**Testing** Root CA,O=TESTING
+  subject.names=[2.5.4.10=string:TESTING; 2.5.4.3=string:foo.example.com]
+  cn="foo.example.com" o=["TESTING"] ou=[] c=[] l=[] st=[] street=[] pc=[] sn=""
+  validity=1420070400/0..1735689600/0
+  key=RSA n=c1aac929f3d57f24c20106a71ab8a48e54b70cc8813fb748e049656bb08e2c92c05369b2ec7cc752ba2da7f9d1d0d5d441bb0de8e20e1f3eb5b04b79cc9d5de96541c49f64cf8b9375c648d36b139b5e028863618a9853f7ac9f6f62a1d3ea64f82bdde4087a117262565b249ced2dc900e85371d0781beb4875024deb713e5d161041f36b9f91d98714283b36a0b87171f991920f836d93a052673e4d7e3a8262a6317be882a53a44118848a62f23a123d29a44cc4f10564b55b68176d8350f4a8cd90633a16742c509ad23ccad6b38bf7501fd4f3c3792e465e178d52a83f724851b06c66a31559f2ce3d76fb82b80fc04b86539cd04a3f17ff06c0ec2f9b1 e=65537
+  ku=5 eku=[serverAuth clientAuth] unknown=[] bc=true ca=false mpl=-1 mplz=false
+  skid=a379a6f6eeafb9a55e378c118034e275 akid=4037d701fb402fb81c7e5404278c5901
+  ocsp=[] issuers=[] crl=[]
+  dns=[] email=[] ip=[7f000001] uri=[]
+  nc crit=false pdns=[] xdns=[] pip=[] xip=[] pem=[] xem=[] puri=[] xuri=[]
+  policies=[] ids=[] maps=[] iap=0/false ipm=0/false rep=0/false
+  exts=[2.5.29.15/true/4 2.5.29.37/false/22 2.5.29.19/true/2 2.5.29.14/false/18 2.5.29.35/false/20 2.5.29.17/false/8] unhandled=[]
+  raw=877 tbs=597 spki=294 subj=46 iss=50 sigai=15 sig=1997d912b4d5c71a
+cert 76 (996 bytes)
+  version=3 serial=d4485b4992787 sigalg=SHA256-RSA pkalg=RSA
+  subject=CN=172.16.0.1,OU=Platform Security (3734515748502696),O=Netflix Inc,L=Los Gatos,ST=California,C=US
+  issuer=CN=Intermediate CA for 3392,OU=Platform Security (3734515562806397),O=Netflix Inc,L=Los Gatos,ST=California,C=US
+  subject.names=[2.5.4.6=string:US; 2.5.4.8=string:California; 2.5.4.7=string:Los Gatos; 2.5.4.10=string:Netflix Inc; 2.5.4.11=string:Platform Security (3734515748502696); 2.5.4.3=string:172.16.0.1]
+  cn="172.16.0.1" o=["Netflix Inc"] ou=["Platform Security (3734515748502696)"] c=["US"] l=["Los Gatos"] st=["California"] street=[] pc=[] sn=""
+  validity=1486588504/0..1518121498/0
+  key=RSA n=99d283f56ccbfa6ce7aa70a6f38a79c6a4d3a97a7840cdd145b2079aeb6ce75ac1f75a0e3ed4c77cb8f0aa95a408b1a2502991dce7478a0f76e0d08a3b73a9311e4050af56fc43b70678adc28dda86dcdc12fda8b3ceb2ca3b02faf77845c30cbb258ec6182be881b8724112a7ea257453dccc9bb6eeffda50555ff0c7cbb4d6edae0252edb63c90e4b264c68e6df1c013155ab174de49f5e63ffd5483893c179e5a5021304ffcec3ecd8b99de4165cc7dc2b423a1384bcd1b702bd4dbcfdc872adf93e51d5f84922e28b6729f8b1c01ca8886a6a081504218d3856b6498f0071934f32ff78d8d81dd52d81a08beaebcb20b122a901ed4a5234f30c5921b8529 e=65537
+  ku=0 eku=[] unknown=[] bc=true ca=false mpl=-1 mplz=false
+  skid= akid=
+  ocsp=[] issuers=[] crl=[]
+  dns=["bender.local"] email=[] ip=[ac100001] uri=[]
+  nc crit=false pdns=[] xdns=[] pip=[] xip=[] pem=[] xem=[] puri=[] xuri=[]
+  policies=[] ids=[] maps=[] iap=0/false ipm=0/false rep=0/false
+  exts=[2.5.29.19/true/2 2.5.29.17/false/22] unhandled=[]
+  raw=996 tbs=716 spki=294 subj=147 iss=161 sigai=15 sig=8b5b724ef0becb28
+cert 77 (977 bytes)
+  version=3 serial=d4485a9879ccc sigalg=SHA256-RSA pkalg=RSA
+  subject=CN=Intermediate CA for 3392,OU=Platform Security (3734515562806397),O=Netflix Inc,L=Los Gatos,ST=California,C=US
+  issuer=CN=Local Root for 3392,OU=Platform Security (3734515479064602),O=Netflix Inc,L=Los Gatos,ST=California,C=US
+  subject.names=[2.5.4.6=string:US; 2.5.4.8=string:California; 2.5.4.7=string:Los Gatos; 2.5.4.10=string:Netflix Inc; 2.5.4.11=string:Platform Security (3734515562806397); 2.5.4.3=string:Intermediate CA for 3392]
+  cn="Intermediate CA for 3392" o=["Netflix Inc"] ou=["Platform Security (3734515562806397)"] c=["US"] l=["Los Gatos"] st=["California"] street=[] pc=[] sn=""
+  validity=1486588504/0..1518121498/0
+  key=RSA n=8ec84b3ab49fedf5e9904ef971dc54bbb894a8bb9aca92ea95c59748b9843e07666f8816149cc453f5b5c30749ec55d299769d2175c85d8b03570c6fc80a25aee3c8e472ffc17729d5c9ac8e4fed293894982da3d8a73071d4f6fd339eb9d5cb7d1926e3e93cf40a15689e8204d40219d2491e6ee719451147774c5b00a5512b25333cde8727b59f8326ae529ed19a50b7e704e6ae6011ac5a2140b94bee8202cbe84841e3cccbdc752d21536cfc59e405145d50b7794002537bcb0a517f5ecf1718779b66951709d3108ce1929ead5e160b851d1d69a1207cb929a62ea9b8bea507f420e1120881002f327a427cfff91943b95412a663dd8c556e4f981381f9 e=65537
+  ku=0 eku=[] unknown=[] bc=true ca=true mpl=-1 mplz=false
+  skid= akid=
+  ocsp=[] issuers=[] crl=[]
+  dns=[] email=[] ip=[] uri=[]
+  nc crit=false pdns=[] xdns=[] pip=[] xip=[] pem=[] xem=[] puri=[] xuri=[]
+  policies=[] ids=[] maps=[] iap=0/false ipm=0/false rep=0/false
+  exts=[2.5.29.19/true/5] unhandled=[]
+  raw=977 tbs=697 spki=294 subj=161 iss=156 sigai=15 sig=3c6b9e6357e60582
+cert 78 (1053 bytes)
+  version=3 serial=d4485a489e7ff sigalg=SHA256-RSA pkalg=RSA
+  subject=CN=Local Root for 3392,OU=Platform Security (3734515479064602),O=Netflix Inc,L=Los Gatos,ST=California,C=US
+  issuer=CN=Name Constraints Test Root CA,OU=Platform Security (3731509437462485),O=Netflix Inc,L=Los Gatos,ST=California,C=US
+  subject.names=[2.5.4.6=string:US; 2.5.4.8=string:California; 2.5.4.7=string:Los Gatos; 2.5.4.10=string:Netflix Inc; 2.5.4.11=string:Platform Security (3734515479064602); 2.5.4.3=string:Local Root for 3392]
+  cn="Local Root for 3392" o=["Netflix Inc"] ou=["Platform Security (3734515479064602)"] c=["US"] l=["Los Gatos"] st=["California"] street=[] pc=[] sn=""
+  validity=1486588504/0..1518121498/0
+  key=RSA n=9ca67275f6f5e91cefe30bcabf10b80ce81d6ce7986743776b084f05918ccf3dff6d5c7651c218a4a950b50d745a7d1c32d6bd8102b71b7ef13bb32a2433eea01eaf31944f5cc8e4c7088c7cb47bf8b8c4891f88188d7930ae07f37d4116d995c7ccf3412b91a0388020052bca9901c5a41c897a7be29a40530f2ca93d91c9200275431c425ef282cd0a8802275e79e7c6fae60d39a7d79be4b83e13df21a0f45341a0f0973dc264f7d34c0d848846489d28bcab3a1d1426d3a495154db895507fc9b558e589b6dbb2675cc793ce44afbc6499212c4879e008da58e5f8b41ffb4e493cb2d8365419ab20046dfe3e14563edc4eb2165376d59bc4f01c91be620b e=65537
+  ku=0 eku=[] unknown=[] bc=true ca=true mpl=-1 mplz=false
+  skid= akid=
+  ocsp=[] issuers=[] crl=[]
+  dns=[] email=[] ip=[] uri=[]
+  nc crit=false pdns=["bender.local"] xdns=["bender.local"] pip=["0a010000/ffff0000"] xip=["0a010000/ffff0000"] pem=[] xem=[] puri=[] xuri=[]
+  policies=[] ids=[] maps=[] iap=0/false ipm=0/false rep=0/false
+  exts=[2.5.29.19/true/5 2.5.29.30/false/62] unhandled=[]
+  raw=1053 tbs=773 spki=294 subj=156 iss=166 sigai=15 sig=0c8db85e7df3f1b5
+cert 79 (282 bytes)
+  version=1 serial=8b2ee2bfa36fbd14 sigalg=ECDSA-SHA256 pkalg=ECDSA
+  subject=OU=Test root
+  issuer=OU=Test root
+  subject.names=[2.5.4.11=string:Test root]
+  cn="" o=[] ou=["Test root"] c=[] l=[] st=[] street=[] pc=[] sn=""
+  validity=1531333955/0..1846693955/0
+  key=ECDSA P-256 045ea80e0320d0b57a6213e341768f5d809cd9c23209daa9d1139492c473d2938b4dce626369eb69485e4540f5bd14677aaec6797395367eee5ce360a0218c8cdc
+  ku=0 eku=[] unknown=[] bc=false ca=false mpl=0 mplz=false
+  skid= akid=
+  ocsp=[] issuers=[] crl=[]
+  dns=[] email=[] ip=[] uri=[]
+  nc crit=false pdns=[] xdns=[] pip=[] xip=[] pem=[] xem=[] puri=[] xuri=[]
+  policies=[] ids=[] maps=[] iap=0/false ipm=0/false rep=0/false
+  exts=[] unhandled=[]
+  raw=282 tbs=193 spki=91 subj=22 iss=22 sigai=12 sig=304402200d28b080
+cert 80 (299 bytes)
+  version=1 serial=7babcb7d9ab0c02fe501d4e15a30de4111614a4 sigalg=ECDSA-SHA256 pkalg=ECDSA
+  subject=CN=foo.example.com
+  issuer=OU=Test root
+  subject.names=[2.5.4.3=string:foo.example.com]
+  cn="foo.example.com" o=[] ou=[] c=[] l=[] st=[] street=[] pc=[] sn=""
+  validity=1531334844/0..1846694844/0
+  key=ECDSA P-256 04a7a67c2233a7477f08932d5f61352eda456776f2977318b001124a1ad5b76f413cbb0569f4065dffeb2ba7850b4cf7454e81407aa9c61dbbbad9b926b3ca5090
+  ku=0 eku=[] unknown=[] bc=false ca=false mpl=0 mplz=false
+  skid= akid=
+  ocsp=[] issuers=[] crl=[]
+  dns=[] email=[] ip=[] uri=[]
+  nc crit=false pdns=[] xdns=[] pip=[] xip=[] pem=[] xem=[] puri=[] xuri=[]
+  policies=[] ids=[] maps=[] iap=0/false ipm=0/false rep=0/false
+  exts=[] unhandled=[]
+  raw=299 tbs=210 spki=91 subj=28 iss=22 sigai=12 sig=30440220536cd7b7
+cert 81 (371 bytes)
+  version=3 serial=78292adc2f12397fc93393ea61397d70 sigalg=ECDSA-SHA256 pkalg=ECDSA
+  subject=O=Acme Co
+  issuer=O=Acme Co
+  subject.names=[2.5.4.10=string:Acme Co]
+  cn="" o=["Acme Co"] ou=[] c=[] l=[] st=[] street=[] pc=[] sn=""
+  validity=1549320994/0..1864680994/0
+  key=ECDSA P-256 0484a68c6953af874b3964fe0424e6d8fcd64639350e92dc48087e025f1e07535cd9e056c58207f6a3e2adf6adbea04e038739670c9c4691686b0e8ef849979d5b
+  ku=37 eku=[serverAuth] unknown=[] bc=true ca=true mpl=-1 mplz=false
+  skid= akid=
+  ocsp=[] issuers=[] crl=[]
+  dns=["example"] email=[] ip=[] uri=[]
+  nc crit=false pdns=[] xdns=[] pip=[] xip=[] pem=[] xem=[] puri=[] xuri=[]
+  policies=[] ids=[] maps=[] iap=0/false ipm=0/false rep=0/false
+  exts=[2.5.29.15/true/4 2.5.29.37/false/12 2.5.29.19/true/5 2.5.29.17/false/11] unhandled=[]
+  raw=371 tbs=280 spki=91 subj=20 iss=20 sigai=12 sig=3046022100c68161
+cert 82 (401 bytes)
+  version=3 serial=f08a62f00384a2cf6963ad713bb65d8c sigalg=ECDSA-SHA256 pkalg=ECDSA
+  subject=O=Acme LLC
+  issuer=O=Acme Co
+  subject.names=[2.5.4.10=string:Acme LLC]
+  cn="" o=["Acme LLC"] ou=[] c=[] l=[] st=[] street=[] pc=[] sn=""
+  validity=1549321612/0..1864681612/0
+  key=ECDSA P-256 045a4e4dfbff17f7b613e82945348139ff8c9cd98c0a9fddb5974c2b20911c4f6bbe532766ec4aad08936d66360c02705d01ca7fc329e94f00bab414ecc5c334b3
+  ku=5 eku=[serverAuth] unknown=[] bc=true ca=false mpl=-1 mplz=false
+  skid= akid=c22b5f9178342609428d6f51b2c5af4c0bde6a42
+  ocsp=[] issuers=[] crl=[]
+  dns=["example"] email=[] ip=[] uri=[]
+  nc crit=false pdns=[] xdns=[] pip=[] xip=[] pem=[] xem=[] puri=[] xuri=[]
+  policies=[] ids=[] maps=[] iap=0/false ipm=0/false rep=0/false
+  exts=[2.5.29.15/true/4 2.5.29.37/false/12 2.5.29.19/true/2 2.5.29.35/false/24 2.5.29.17/false/11] unhandled=[]
+  raw=401 tbs=312 spki=91 subj=21 iss=20 sigai=12 sig=3044022064e0ba56
+cert 83 (326 bytes)
+  version=3 serial=0 sigalg=ECDSA-SHA256 pkalg=ECDSA
+  subject=CN=Root A
+  issuer=CN=Root A
+  subject.names=[2.5.4.3=string:Root A]
+  cn="Root A" o=[] ou=[] c=[] l=[] st=[] street=[] pc=[] sn=""
+  validity=1257894000/0..1573254000/0
+  key=ECDSA P-256 04f2b8a75b97ab6680783b4a0c7228920dab4dc3ccda0ab737d63deb0896ebfee9b812b5f883445bffdc3bdc7a169ce472c1f0fd3ae202acb8b1c93f88302f7fd5
+  ku=0 eku=[anyExtendedKeyUsage] unknown=[] bc=true ca=true mpl=-1 mplz=false
+  skid=010203 akid=
+  ocsp=[] issuers=[] crl=[]
+  dns=[] email=[] ip=[] uri=[]
+  nc crit=false pdns=[] xdns=[] pip=[] xip=[] pem=[] xem=[] puri=[] xuri=[]
+  policies=[] ids=[] maps=[] iap=0/false ipm=0/false rep=0/false
+  exts=[2.5.29.37/false/8 2.5.29.19/true/5 2.5.29.14/false/5] unhandled=[]
+  raw=326 tbs=236 spki=91 subj=19 iss=19 sigai=12 sig=3045022100e0b40a
+cert 84 (312 bytes)
+  version=3 serial=0 sigalg=ECDSA-SHA256 pkalg=ECDSA
+  subject=CN=Root B
+  issuer=CN=Root B
+  subject.names=[2.5.4.3=string:Root B]
+  cn="Root B" o=[] ou=[] c=[] l=[] st=[] street=[] pc=[] sn=""
+  validity=1257894000/0..1573254000/0
+  key=ECDSA P-256 048d584457089645b39bd05d115ac8b04409d9d4faaa25bcfd657d1a8221983b57f521031e8b297340a09be4de0f64185b688cad2e66bcd7b8192c3425ece0fdb3
+  ku=0 eku=[anyExtendedKeyUsage] unknown=[] bc=true ca=true mpl=-1 mplz=false
+  skid= akid=
+  ocsp=[] issuers=[] crl=[]
+  dns=[] email=[] ip=[] uri=[]
+  nc crit=false pdns=[] xdns=[] pip=[] xip=[] pem=[] xem=[] puri=[] xuri=[]
+  policies=[] ids=[] maps=[] iap=0/false ipm=0/false rep=0/false
+  exts=[2.5.29.37/false/8 2.5.29.19/true/5] unhandled=[]
+  raw=312 tbs=222 spki=91 subj=19 iss=19 sigai=12 sig=3045022100ba458e
+cert 85 (313 bytes)
+  version=3 serial=0 sigalg=ECDSA-SHA256 pkalg=ECDSA
+  subject=CN=Leaf
+  issuer=CN=Root B
+  subject.names=[2.5.4.3=string:Leaf]
+  cn="Leaf" o=[] ou=[] c=[] l=[] st=[] street=[] pc=[] sn=""
+  validity=1257894000/0..1573254000/0
+  key=ECDSA P-256 048d584457089645b39bd05d115ac8b04409d9d4faaa25bcfd657d1a8221983b57f521031e8b297340a09be4de0f64185b688cad2e66bcd7b8192c3425ece0fdb3
+  ku=0 eku=[] unknown=[] bc=false ca=false mpl=0 mplz=false
+  skid= akid=010203
+  ocsp=[] issuers=[] crl=[]
+  dns=["example"] email=[] ip=[] uri=[]
+  nc crit=false pdns=[] xdns=[] pip=[] xip=[] pem=[] xem=[] puri=[] xuri=[]
+  policies=[] ids=[] maps=[] iap=0/false ipm=0/false rep=0/false
+  exts=[2.5.29.35/false/7 2.5.29.17/false/11] unhandled=[]
+  raw=313 tbs=222 spki=91 subj=17 iss=19 sigai=12 sig=30460221009d5f57
+cert 86 (782 bytes)
+  version=3 serial=0 sigalg=SHA256-RSA pkalg=RSA
+  subject=CN=test,O=ca
+  issuer=CN=ca,O=ca
+  subject.names=[2.5.4.10=string:ca; 2.5.4.3=string:test]
+  cn="test" o=["ca"] ou=[] c=[] l=[] st=[] street=[] pc=[] sn=""
+  validity=1472404158/0..1630084158/0
+  key=RSA n=e1f9e4f7d1b1bbe671a6df2cb928d70ff2b9aa58fe1935dc2826737584fd9d594adc46895c58810547f67e16fd36d4b2b7a9fd399c0b8315ef1126e76e7602b720687e81790e10393163ffa271d114fb53f8b1fbbf71f11472b1fece97336918872dc1910cee2fc6fb465fa97f542f12ff116f6da694b1317d639576506ab9d4ec11112f9707f86da371b53d1f6f055d88ac86aa55604f4bef1ad7326eb5040c2f18a0748dc556e89761a003927d06db829ec98c896a7335ea52cbf551d3913bf868ac8a09a6dca74efb80463673c966adc9ae9ab3bc323a010196513a0633caf73a67fa5a77b50f1dc0a56a9bfa813e122b56a606fc473ba48bfc9897d869b3 e=65537
+  ku=21 eku=[clientAuth serverAuth] unknown=[] bc=true ca=false mpl=-1 mplz=false
+  skid=00 akid=00
+  ocsp=[] issuers=[] crl=[]
+  dns=[] email=[] ip=[] uri=[]
+  nc crit=false pdns=[] xdns=[] pip=[] xip=[] pem=[] xem=[] puri=[] xuri=[]
+  policies=[] ids=[] maps=[] iap=0/false ipm=0/false rep=0/false
+  exts=[2.5.29.15/true/4 2.5.29.37/false/22 2.5.29.19/true/2 2.5.29.14/false/3 2.5.29.35/false/5] unhandled=[]
+  raw=782 tbs=502 spki=294 subj=30 iss=28 sigai=15 sig=000c5cc169873ab8
+cert 87 (767 bytes)
+  version=3 serial=0 sigalg=SHA256-RSA pkalg=RSA
+  subject=O=ca
+  issuer=CN=ca,O=ca
+  subject.names=[2.5.4.10=string:ca]
+  cn="" o=["ca"] ou=[] c=[] l=[] st=[] street=[] pc=[] sn=""
+  validity=1472408028/0..1630088028/0
+  key=RSA n=be448eb51aec4b4e3315a22204f3a7616542f9dc3ec1b7dbd3b7977b8d1a76e281bf1398d330d8cf148680e377ce299d4e5101fa9df2de53272c3fc9b9c8281375df5436c57fa03d0d1d17232f70efa2d425200b199866898a540d8c5ced510f584b4d819280e5637379e8dcc07077cb95429d0d4ada89d50bcbb4d1b8532f81dbca9ef9914619b8c6ab1f3f094e00f12ce5a5feffc40651f30e6a154525a40d8b4187871c9e5f4155f0ee4c8bd5d88daca362d06dea718d08ac187efa14fe8671045f25ee83c6b4531d7c86813c0faac0af7e2b09997a0167ea5b9c23c26f8de4db36ba0afd53837cb8228960c3c76f60ad76e6d4e3a23356e7294df18b75a3 e=65537
+  ku=21 eku=[clientAuth serverAuth] unknown=[] bc=true ca=false mpl=-1 mplz=false
+  skid=00 akid=00
+  ocsp=[] issuers=[] crl=[]
+  dns=[] email=[] ip=[] uri=[]
+  nc crit=false pdns=[] xdns=[] pip=[] xip=[] pem=[] xem=[] puri=[] xuri=[]
+  policies=[] ids=[] maps=[] iap=0/false ipm=0/false rep=0/false
+  exts=[2.5.29.15/true/4 2.5.29.37/false/22 2.5.29.19/true/2 2.5.29.14/false/3 2.5.29.35/false/5] unhandled=[]
+  raw=767 tbs=487 spki=294 subj=15 iss=28 sigai=15 sig=49f94a0569277ce3
+cert 88 (754 bytes)
+  version=3 serial=0 sigalg=SHA256-RSA pkalg=RSA
+  subject=
+  issuer=CN=ca,O=ca
+  subject.names=[]
+  cn="" o=[] ou=[] c=[] l=[] st=[] street=[] pc=[] sn=""
+  validity=1472408385/0..1630088385/0
+  key=RSA n=a7713e265e83a60ce8807516fe2fc001c08c7e73492ce6a63552851a69b185be174c7c51696a13ceb96ccb320c4b45b38afbc979955eea659bbee3f69196a72a0233df961745347d1dbaa435332ebe7a54112cd6c5b1961368e6b76f9afc99f3f3d152e1621846117b9c8db3f0fbd939fac8da01134d3dad129a05d92e2ca1a61f9b40c1793f0ad3fae880069ffa87944ba57ebf79a245c028a098293491aef64aa64b4c4a3e7d51085563a6245de98352d31662ae361020130506fa12a078da39d809a6d351069ad83cec5527f22dcc67f490f9b33c50b1dad29fc55f472d804f8318be7cfdc8231f1a218b899fcc91796b5810c614d758433de0053791a6fb e=65537
+  ku=21 eku=[clientAuth serverAuth] unknown=[] bc=true ca=false mpl=-1 mplz=false
+  skid=00 akid=00
+  ocsp=[] issuers=[] crl=[]
+  dns=[] email=[] ip=[] uri=[]
+  nc crit=false pdns=[] xdns=[] pip=[] xip=[] pem=[] xem=[] puri=[] xuri=[]
+  policies=[] ids=[] maps=[] iap=0/false ipm=0/false rep=0/false
+  exts=[2.5.29.15/true/4 2.5.29.37/false/22 2.5.29.19/true/2 2.5.29.14/false/3 2.5.29.35/false/5] unhandled=[]
+  raw=754 tbs=474 spki=294 subj=2 iss=28 sigai=15 sig=4d954e15e882a4f3
+cert 89 (431 bytes)
+  version=3 serial=9fa623ff39717029 sigalg=ECDSA-SHA256 pkalg=ECDSA
+  subject=CN=Root,O=Org
+  issuer=CN=Root,O=Org
+  subject.names=[2.5.4.10=string:Org; 2.5.4.3=string:Root]
+  cn="Root" o=["Org"] ou=[] c=[] l=[] st=[] street=[] pc=[] sn=""
+  validity=1420070400/0..1735689600/0
+  key=ECDSA P-256 0491a9f63a221b6412400fb515ccc40c0b16a3ce2b1623f71932fe9feba0712e93c8d89b83332c75b260562f9adf7cb44b32d9c41f98bd4dffe0a4e4f3228b0bed
+  ku=32 eku=[serverAuth clientAuth] unknown=[] bc=true ca=true mpl=-1 mplz=false
+  skid=4037d701fb402fb81c7e5404278c5901 akid=4037d701fb402fb81c7e5404278c5901
+  ocsp=[] issuers=[] crl=[]
+  dns=[] email=[] ip=[] uri=[]
+  nc crit=false pdns=[] xdns=[] pip=[] xip=[] pem=[] xem=[] puri=[] xuri=[]
+  policies=[] ids=[] maps=[] iap=0/false ipm=0/false rep=0/false
+  exts=[2.5.29.15/true/4 2.5.29.37/false/22 2.5.29.19/true/5 2.5.29.14/false/18 2.5.29.35/false/20] unhandled=[]
+  raw=431 tbs=341 spki=91 subj=31 iss=31 sigai=12 sig=304502205792574d
+cert 90 (439 bytes)
+  version=3 serial=bda470664aa7356a sigalg=ECDSA-SHA256 pkalg=ECDSA
+  subject=CN=Intermediate,O=Org
+  issuer=CN=Root,O=Org
+  subject.names=[2.5.4.10=string:Org; 2.5.4.3=string:Intermediate]
+  cn="Intermediate" o=["Org"] ou=[] c=[] l=[] st=[] street=[] pc=[] sn=""
+  validity=1420070400/0..1735689600/0
+  key=ECDSA P-256 044aa56af7688f12ad3570be28f7d5a25c37391998e98cd973312d67ae4f281dc543a78b50451406dc5e00e9d175ae7fcbf76de16b76f47e10cb940bd7641fbb10
+  ku=32 eku=[serverAuth clientAuth] unknown=[] bc=true ca=true mpl=-1 mplz=false
+  skid=8c1a68a8b576db5d577b1f8d14b206a3 akid=4037d701fb402fb81c7e5404278c5901
+  ocsp=[] issuers=[] crl=[]
+  dns=[] email=[] ip=[] uri=[]
+  nc crit=false pdns=[] xdns=[] pip=[] xip=[] pem=[] xem=[] puri=[] xuri=[]
+  policies=[] ids=[] maps=[] iap=0/false ipm=0/false rep=0/false
+  exts=[2.5.29.15/true/4 2.5.29.37/false/22 2.5.29.19/true/5 2.5.29.14/false/18 2.5.29.35/false/20] unhandled=[]
+  raw=439 tbs=349 spki=91 subj=39 iss=31 sigai=12 sig=3045022100e86135
+cert 91 (457 bytes)
+  version=3 serial=964052dc3971c6f5 sigalg=ECDSA-SHA256 pkalg=ECDSA
+  subject=CN=example.com,O=Org
+  issuer=CN=Intermediate,O=Org
+  subject.names=[2.5.4.10=string:Org; 2.5.4.3=string:example.com]
+  cn="example.com" o=["Org"] ou=[] c=[] l=[] st=[] street=[] pc=[] sn=""
+  validity=1420070400/0..1735689600/0
+  key=ECDSA P-256 045dc005adbe07a814ca0e9ac82691416618ffe368e8f71e2ea11abd935479536ecfb6d2ef84e8cbc23b4776c63243206caa4b48f94f4eba00013bde6d35e805a8
+  ku=5 eku=[serverAuth clientAuth] unknown=[] bc=true ca=false mpl=-1 mplz=false
+  skid=5136d04bdafabc9c2577a95a7bc9cc4c akid=8c1a68a8b576db5d577b1f8d14b206a3
+  ocsp=[] issuers=[] crl=[]
+  dns=[] email=[] ip=[] uri=[]
+  nc crit=false pdns=[] xdns=[] pip=[] xip=[] pem=[] xem=[] puri=[] xuri=[]
+  policies=[] ids=[] maps=[] iap=0/false ipm=0/false rep=0/false
+  exts=[2.5.29.15/true/4 2.5.29.37/false/22 2.5.29.19/true/2 2.5.29.14/false/18 2.5.29.35/false/20 2.1.3.4/true/0] unhandled=[2.1.3.4]
+  raw=457 tbs=367 spki=91 subj=38 iss=39 sigai=12 sig=30450220563cbc18
+cert 92 (477 bytes)
+  version=3 serial=403dcdad266d7145 sigalg=ECDSA-SHA256 pkalg=ECDSA
+  subject=CN=Intermediate with Critical Extension,O=Org
+  issuer=CN=Root,O=Org
+  subject.names=[2.5.4.10=string:Org; 2.5.4.3=string:Intermediate with Critical Extension]
+  cn="Intermediate with Critical Extension" o=["Org"] ou=[] c=[] l=[] st=[] street=[] pc=[] sn=""
+  validity=1420070400/0..1735689600/0
+  key=ECDSA P-256 042d9e6cc799c466d746dd0c19c913bc50109db970b08be6892e1298514746677a8ebe9d066292887e5016edb79195dc39acecb78fa05e473a99580c277cc22ff0
+  ku=32 eku=[serverAuth clientAuth] unknown=[] bc=true ca=true mpl=-1 mplz=false
+  skid=2b176f52e419eac3b75ef06cc60359df akid=4037d701fb402fb81c7e5404278c5901
+  ocsp=[] issuers=[] crl=[]
+  dns=[] email=[] ip=[] uri=[]
+  nc crit=false pdns=[] xdns=[] pip=[] xip=[] pem=[] xem=[] puri=[] xuri=[]
+  policies=[] ids=[] maps=[] iap=0/false ipm=0/false rep=0/false
+  exts=[2.5.29.15/true/4 2.5.29.37/false/22 2.5.29.19/true/5 2.5.29.14/false/18 2.5.29.35/false/20 2.1.3.4/true/0] unhandled=[2.1.3.4]
+  raw=477 tbs=386 spki=91 subj=63 iss=31 sigai=12 sig=304602210090cd33
+cert 93 (467 bytes)
+  version=3 serial=da16148961088f4c sigalg=ECDSA-SHA256 pkalg=ECDSA
+  subject=CN=example.com,O=Org
+  issuer=CN=Intermediate with Critical Extension,O=Org
+  subject.names=[2.5.4.10=string:Org; 2.5.4.3=string:example.com]
+  cn="example.com" o=["Org"] ou=[] c=[] l=[] st=[] street=[] pc=[] sn=""
+  validity=1420070400/0..1735689600/0
+  key=ECDSA P-256 046d4b7e1f00d07a3652f64de47d3e38d8a5f5cf23c2d0b4cb4c4865fb72404f85c2bf57c2a1b7ad5da0e0cd611a725af6557d30f1e0f3e6fce478b19b4652c3b4
+  ku=5 eku=[serverAuth clientAuth] unknown=[] bc=true ca=false mpl=-1 mplz=false
+  skid=50d858e0985ecc7f60418aaf0cc5ab58 akid=2b176f52e419eac3b75ef06cc60359df
+  ocsp=[] issuers=[] crl=[]
+  dns=[] email=[] ip=[] uri=[]
+  nc crit=false pdns=[] xdns=[] pip=[] xip=[] pem=[] xem=[] puri=[] xuri=[]
+  policies=[] ids=[] maps=[] iap=0/false ipm=0/false rep=0/false
+  exts=[2.5.29.15/true/4 2.5.29.37/false/22 2.5.29.19/true/2 2.5.29.14/false/18 2.5.29.35/false/20] unhandled=[]
+  raw=467 tbs=377 spki=91 subj=38 iss=63 sigai=12 sig=3045022100a50377
+cert 94 (1660 bytes)
+  version=3 serial=103f4a4018b449c043a2e7c1da680027adc6e6e2 sigalg=SHA256-RSA pkalg=RSA
+  subject=CN=Symantec Class 3 SSP Intermediate CA - G3,OU=Symantec Trust Network,O=Symantec Corporation,C=US
+  issuer=CN=Federal Bridge CA G4,OU=FPKI,O=U.S. Government,C=US
+  subject.names=[2.5.4.6=string:US; 2.5.4.10=string:Symantec Corporation; 2.5.4.11=string:Symantec Trust Network; 2.5.4.3=string:Symantec Class 3 SSP Intermediate CA - G3]
+  cn="Symantec Class 3 SSP Intermediate CA - G3" o=["Symantec Corporation"] ou=["Symantec Trust Network"] c=["US"] l=[] st=[] street=[] pc=[] sn=""
+  validity=1603386259/0..1697994259/0
+  key=RSA n=bda9ef970ca71f3ab12d9a1f8afed28f2bfa6fca4eb3eb92758fd1103d2a9eac7b003390d6bb055c20d233a1c9a9a2bf588f0a7b35d2eb281fdde7c586d72d6179e2f38b45d614ff9dca10f3668248f68a931a4cbb9a45e06084d89b8a45929c09b24bc448b5a0ccb3cb5d17682828f238c5689a98dc2a7bdd950bea62736b6ad0dbdadd8e24bcc0c98edca37b7b9db93b4ba32a1a68792b5fb8bb804ebba6c9cc2a3d531d4b6b7b5255d68865f7ea0ebb2a2de29dde4b1565acc5a28b06f5d5b9e409a91e70ecff98fd831cc1a0ea967f05e27e4e168b5329405c4080448a8773d53044f282f417cb6825f879d22879888196846ce0a76a2dd83f23d793c0a9 e=65537
+  ku=96 eku=[] unknown=[] bc=true ca=true mpl=-1 mplz=false
+  skid=35267d5095e1a1c1bd05d5c39d7742c70c13968c akid=79f00049eb7f77c25d410265348a90239b1e076f
+  ocsp=[] issuers=["http://repo.fpki.gov/bridge/caCertsIssuedTofbcag4.p7c"] crl=["http://repo.fpki.gov/bridge/fbcag4.crl"]
+  dns=[] email=[] ip=[] uri=[]
+  nc crit=false pdns=[] xdns=[] pip=[] xip=[] pem=[] xem=[] puri=[] xuri=[]
+  policies=[2.16.840.1.101.3.2.1.3.3 2.16.840.1.101.3.2.1.3.12 2.16.840.1.101.3.2.1.3.14 2.16.840.1.101.3.2.1.3.15 2.16.840.1.101.3.2.1.3.18 2.16.840.1.101.3.2.1.3.19 2.16.840.1.101.3.2.1.3.20 2.16.840.1.101.3.2.1.3.37 2.16.840.1.101.3.2.1.3.38] ids=[2.16.840.1.101.3.2.1.3.3 2.16.840.1.101.3.2.1.3.12 2.16.840.1.101.3.2.1.3.14 2.16.840.1.101.3.2.1.3.15 2.16.840.1.101.3.2.1.3.18 2.16.840.1.101.3.2.1.3.19 2.16.840.1.101.3.2.1.3.20 2.16.840.1.101.3.2.1.3.37 2.16.840.1.101.3.2.1.3.38] maps=[2.16.840.1.101.3.2.1.3.3>2.16.840.1.113733.1.7.23.3.1.6 2.16.840.1.101.3.2.1.3.12>2.16.840.1.113733.1.7.23.3.1.7 2.16.840.1.101.3.2.1.3.14>2.16.840.1.113733.1.7.23.3.1.14 2.16.840.1.101.3.2.1.3.15>2.16.840.1.113733.1.7.23.3.1.15 2.16.840.1.101.3.2.1.3.18>2.16.840.1.113733.1.7.23.3.1.18 2.16.840.1.101.3.2.1.3.19>2.16.840.1.113733.1.7.23.3.1.17 2.16.840.1.101.3.2.1.3.20>2.16.840.1.113733.1.7.23.3.1.20 2.16.840.1.101.3.2.1.3.37>2.16.840.1.113733.1.7.23.3.1.8 2.16.840.1.101.3.2.1.3.38>2.16.840.1.113733.1.7.23.3.1.36] iap=0/true ipm=0/true rep=0/true
+  exts=[2.5.29.14/false/22 2.5.29.35/false/24 2.5.29.15/true/4 2.5.29.19/true/5 2.5.29.32/false/128 2.5.29.33/false/265 1.3.6.1.5.5.7.1.11/false/84 2.5.29.36/false/8 2.5.29.54/false/3 1.3.6.1.5.5.7.1.1/false/69 2.5.29.31/false/48] unhandled=[]
+  raw=1660 tbs=1380 spki=294 subj=132 iss=87 sigai=15 sig=03be754f2702d5ff
+cert 95 (461 bytes)
+  error: x509: invalid basic constraints
+cert 96 (461 bytes)
+  error: x509: invalid basic constraints
+cert 97 (543 bytes)
+  version=3 serial=865fb7b8f2dd1729 sigalg=ECDSA-SHA256 pkalg=ECDSA
+  subject=1.2.840.113554.4.1.72585.2.10=#0101ff,1.2.840.113554.4.1.72585.2.9=#170d3235303930323138343331375a,1.2.840.113554.4.1.72585.2.8=#030500aabbccdd,1.2.840.113554.4.1.72585.2.7=#060d2a864886f712040184b7090207,1.2.840.113554.4.1.72585.2.6=#02012a,1.2.840.113554.4.1.72585.2.5=#30020102,1.2.840.113554.4.1.72585.2.4=\<nil\>,1.2.840.113554.4.1.72585.2.3=#0d050102030405,1.2.840.113554.4.1.72585.2.2=#040c6f637465742d737472696e67,1.2.840.113554.4.1.72585.2.1=utf8-string🦊
+  issuer=CN=Test
+  subject.names=[1.2.840.113554.4.1.72585.2.1=string:utf8-string🦊; 1.2.840.113554.4.1.72585.2.2=[]uint8:[111 99 116 101 116 45 115 116 114 105 110 103]; 1.2.840.113554.4.1.72585.2.3=asn1.RawValue:{0 13 false [1 2 3 4 5] [13 5 1 2 3 4 5]}; 1.2.840.113554.4.1.72585.2.4=<nil>:<nil>; 1.2.840.113554.4.1.72585.2.5=asn1.RawValue:{0 16 true [1 2] [48 2 1 2]}; 1.2.840.113554.4.1.72585.2.6=int64:42; 1.2.840.113554.4.1.72585.2.7=asn1.ObjectIdentifier:1.2.840.113554.4.1.72585.2.7; 1.2.840.113554.4.1.72585.2.8=asn1.BitString:{[170 187 204 221] 32}; 1.2.840.113554.4.1.72585.2.9=time.Time:2025-09-02 18:43:17 +0000 UTC; 1.2.840.113554.4.1.72585.2.10=bool:true]
+  cn="" o=[] ou=[] c=[] l=[] st=[] street=[] pc=[] sn=""
+  validity=1756838597/0..1759430597/0
+  key=ECDSA P-256 04ecce33a2a42d5dbbc6b2e74a68ce6077c7a6c7293af001538c8614e0f3b502d8985f7c322fcf64c1b1e3c60be687ff5a060d4b3a3ea47ec248c542d4994a5dcd
+  ku=0 eku=[] unknown=[] bc=false ca=false mpl=0 mplz=false
+  skid= akid=
+  ocsp=[] issuers=[] crl=[]
+  dns=[] email=[] ip=[] uri=[]
+  nc crit=false pdns=[] xdns=[] pip=[] xip=[] pem=[] xem=[] puri=[] xuri=[]
+  policies=[] ids=[] maps=[] iap=0/false ipm=0/false rep=0/false
+  exts=[] unhandled=[]
+  raw=543 tbs=453 spki=91 subj=281 iss=17 sigai=12 sig=304502206f2b3de8
+cert 98 (1032 bytes)
+  version=3 serial=23a69 sigalg=SHA1-RSA pkalg=RSA
+  subject=CN=Google Internet Authority G2,O=Google Inc,C=US
+  issuer=CN=GeoTrust Global CA,O=GeoTrust Inc.,C=US
+  subject.names=[2.5.4.6=string:US; 2.5.4.10=string:Google Inc; 2.5.4.3=string:Google Internet Authority G2]
+  cn="Google Internet Authority G2" o=["Google Inc"] ou=[] c=["US"] l=[] st=[] street=[] pc=[] sn=""
+  validity=1365174955/0..1428160555/0
+  key=RSA n=9c2a04775cd850913a06a382e0d85048bc893ff119701a88467ee08fc5f189ce21ee5afe610db7324489a0740b534f55a4ce826295eeeb595fc6e1058012c45e943fbc5b4838f453f724e6fb91e915c4cff4530df44afc9f54de7dbea06b6f87c0d0501f28300340da0873516c7fff3a3ca737068ebd4b1104eb7d24dee6f9fc3171fb94d560f32e4aaf42d2cbeac46a1ab2cc53dd154b8b1fc819611fcd9da83e632b8435696584c819c54622f85395bee3804a10c62aecba972011c739991004a0f0617a95258c4e5275e2b6ed08ca14fcce226ab34ecf46039797037ec0b1de7baf4533cfba3e71b7def42525c20d35899d9dfb0e1179891e37c5af8e7269 e=65537
+  ku=96 eku=[] unknown=[] bc=true ca=true mpl=0 mplz=true
+  skid=4add06161bbcf668b576f581b6bb621aba5a812f akid=c07a98688d89fbab05640c117daa7d65b8cacc4e
+  ocsp=["http://gtglobal-ocsp.geotrust.com"] issuers=[] crl=["http://crl.geotrust.com/crls/gtglobal.crl"]
+  dns=[] email=[] ip=[] uri=[]
+  nc crit=false pdns=[] xdns=[] pip=[] xip=[] pem=[] xem=[] puri=[] xuri=[]
+  policies=[1.3.6.1.4.1.11129.2.5.1] ids=[1.3.6.1.4.1.11129.2.5.1] maps=[] iap=0/false ipm=0/false rep=0/false
+  exts=[2.5.29.35/false/24 2.5.29.14/false/22 2.5.29.19/true/8 2.5.29.15/true/4 2.5.29.31/false/51 1.3.6.1.5.5.7.1.1/false/49 2.5.29.32/false/16] unhandled=[]
+  raw=1032 tbs=752 spki=294 subj=75 iss=68 sigai=15 sig=36d706801127ad2a
+cert 99 (958 bytes)
+  version=3 serial=137d4565568f5d35 sigalg=SHA1-RSA pkalg=ECDSA
+  subject=CN=mail.google.com,O=Google Inc,L=Mountain View,ST=California,C=US
+  issuer=CN=Google Internet Authority G2,O=Google Inc,C=US
+  subject.names=[2.5.4.6=string:US; 2.5.4.8=string:California; 2.5.4.7=string:Mountain View; 2.5.4.10=string:Google Inc; 2.5.4.3=string:mail.google.com]
+  cn="mail.google.com" o=["Google Inc"] ou=[] c=["US"] l=["Mountain View"] st=["California"] street=[] pc=[] sn=""
+  validity=1391002063/0..1401321600/0
+  key=ECDSA P-256 047d1ace6ee496e53eeae429d212a79f126b47e020afebee44724bab88daf50a37d5beacf07c0868a5790baeae391109bcbe499fed6f7a5c9842ed93347588b5fe
+  ku=1 eku=[serverAuth clientAuth] unknown=[] bc=true ca=false mpl=-1 mplz=false
+  skid=889c6d8a602e4dfc1bf9a52d067e5460aade2af3 akid=4add06161bbcf668b576f581b6bb621aba5a812f
+  ocsp=["http://clients1.google.com/ocsp"] issuers=["http://pki.google.com/GIAG2.crt"] crl=["http://pki.google.com/GIAG2.crl"]
+  dns=["mail.google.com"] email=[] ip=[] uri=[]
+  nc crit=false pdns=[] xdns=[] pip=[] xip=[] pem=[] xem=[] puri=[] xuri=[]
+  policies=[1.3.6.1.4.1.11129.2.5.1] ids=[1.3.6.1.4.1.11129.2.5.1] maps=[] iap=0/false ipm=0/false rep=0/false
+  exts=[2.5.29.37/false/22 2.5.29.17/false/19 2.5.29.15/false/4 1.3.6.1.5.5.7.1.1/false/92 2.5.29.14/false/22 2.5.29.19/true/2 2.5.29.35/false/24 2.5.29.32/false/16 2.5.29.31/false/41] unhandled=[]
+  raw=958 tbs=678 spki=91 subj=107 iss=75 sigai=15 sig=1fa4581f11dd706a
+ParseCertificates: 2 <nil>
+trailing: x509: trailing data
+mut 0.0 @600=39: ok 1 SERIALNUMBER=SN-1,CN=Kite Root CA,OU=Unit A+OU=Unit\+B,O=Kite Test\, Inc.,POSTALCODE=94000,STREET=1 Main St,L=Somewhere,ST=CA,C=US 3 RSA n=ad790859f41b8b
+mut 0.1 @454=150: x509: invalid RSA modulus
+mut 0.2 @50=98: x509: invalid RDNSequence: invalid attribute
+mut 0.3 @1063=173: ok 1 SERIALNUMBER=SN-1,CN=Kite Root CA,OU=Unit A+OU=Unit\+B,O=Kite Test\, Inc.,POSTALCODE=94000,STREET=1 Main St,L=Somewhere,ST=CA,C=US 3 RSA n=ad790859f41b8b
+mut 0.4 @825=51: ok 1 SERIALNUMBER=SN-1,CN=Kite Root CA,OU=Unit A+OU=Unit\+B,O=Kite Test\, Inc.,POSTALCODE=94000,STREET=1 Main St,L=Somewhere,ST=CA,C=US 3 RSA n=ad790859f41b8b
+mut 0.5 @772=175: ok 1 SERIALNUMBER=SN-1,CN=Kite Root CA,OU=Unit A+OU=Unit\+B,O=Kite Test\, Inc.,POSTALCODE=94000,STREET=1 Main St,L=Somewhere,ST=CA,C=US 3 RSA n=ad790859f41b8b
+mut 0.6 @588=54: ok 1 SERIALNUMBER=SN-1,CN=Kite Root CA,OU=Unit A+OU=Unit\+B,O=Kite Test\, Inc.,POSTALCODE=94000,STREET=1 Main St,L=Somewhere,ST=CA,C=US 3 RSA n=ad790859f41b8b
+mut 0.7 @1047=153: ok 1 SERIALNUMBER=SN-1,CN=Kite Root CA,OU=Unit A+OU=Unit\+B,O=Kite Test\, Inc.,POSTALCODE=94000,STREET=1 Main St,L=Somewhere,ST=CA,C=US 3 RSA n=ad790859f41b8b
+mut 0.8 @941=198: ok 1 SERIALNUMBER=SN-1,CN=Kite Root CA,OU=Unit A+OU=Unit\+B,O=Kite Test\, Inc.,POSTALCODE=94000,STREET=1 Main St,L=Somewhere,ST=CA,C=US 3 RSA n=ad790859f41b8b
+mut 0.9 @542=39: ok 1 SERIALNUMBER=SN-1,CN=Kite Root CA,OU=Unit A+OU=Unit\+B,O=Kite Test\, Inc.,POSTALCODE=94000,STREET=1 Main St,L=Somewhere,ST=CA,C=US 3 RSA n=ad790859f41b8b
+mut 0.10 @262=0: x509: invalid RDNSequence: invalid attribute
+mut 0.11 @646=212: ok 1 SERIALNUMBER=SN-1,CN=Kite Root CA,OU=Unit A+OU=Unit\+B,O=Kite Test\, Inc.,POSTALCODE=94000,STREET=1 Main St,L=Somewhere,ST=CA,C=US 3 RSA n=ad790859f41b8b
+trunc 0.0: x509: malformed certificate
+trunc 0.1: x509: malformed certificate
+trunc 0.2: x509: malformed certificate
+trunc 0.10: x509: malformed certificate
+trunc 0.533: x509: malformed certificate
+trunc 0.1065: x509: malformed certificate
+mut 3.0 @382=192: P384 point not on curve
+mut 3.1 @70=222: x509: invalid RDNSequence: invalid attribute value: invalid ASN.1 element
+mut 3.2 @108=162: x509: invalid RDNSequence: invalid attribute type
+mut 3.3 @658=63: x509: inner and outer signature algorithm identifiers don't match
+mut 3.4 @263=1: x509: invalid RDNSequence: invalid attribute
+mut 3.5 @480=179: x509: invalid extended key usages
+mut 3.6 @291=250: x509: malformed public key algorithm identifier
+mut 3.7 @33=184: x509: invalid RDNSequence
+mut 3.8 @632=105: ok 4 CN=leaf.example.com,O=Kite 4 ECDSA P-384 0419259d
+mut 3.9 @313=136: P384 point not on curve
+mut 3.10 @298=234: ok 4 CN=leaf.example.com,O=Kite 4 nil
+mut 3.11 @263=32: x509: invalid RDNSequence: invalid attribute
+trunc 3.0: x509: malformed certificate
+trunc 3.1: x509: malformed certificate
+trunc 3.2: x509: malformed certificate
+trunc 3.10: x509: malformed certificate
+trunc 3.466: x509: malformed certificate
+trunc 3.931: x509: malformed certificate
+mut 6.0 @740=216: ok 7 CN=extra CN,OU=\#hash\<\>\;\"\\,O=\ lead\,trail#\ ,1.2.3.6=#06022a03,1.2.3.5=#0101ff,1.2.3.4=#02012a,1.2.840.113549.1.9.1=mail@example.com 7 Ed25519 cbef0c79e7ff
+mut 6.1 @722=60: ok 7 CN=extra CN,OU=\#hash\<\>\;\"\\,O=\ lead\,trail#\ ,1.2.3.6=#06022a03,1.2.3.5=#0101ff,1.2.3.4=#02012a,1.2.840.113549.1.9.1=mail@example.com 7 Ed25519 cbef0c79e7ff
+mut 6.2 @839=80: ok 7 CN=extra CN,OU=\#hash\<\>\;\"\\,O=\ lead\,trail#\ ,1.2.3.6=#06022a03,1.2.3.5=#0101ff,1.2.3.4=#02012a,1.2.840.113549.1.9.1=mail@example.com 7 Ed25519 cbef0c79e7ff
+mut 6.3 @588=87: x509: malformed extension
+mut 6.4 @683=46: ok 7 CN=extra CN,OU=\#hash\<\>\;\"\\,O=\ lead\,trail#\ ,1.2.3.6=#06022a03,1.2.3.5=#0101ff,1.2.3.4=#02012a,1.2.840.113549.1.9.1=mail@example.com 7 Ed25519 cbef0c79e7ff
+mut 6.5 @781=174: ok 7 CN=extra CN,OU=\#hash\<\>\;\"\\,O=\ lead\,trail#\ ,1.2.3.6=#06022a03,1.2.3.5=#0101ff,1.2.3.4=#02012a,1.2.840.113549.1.9.1=mail@example.com 7 Ed25519 cbef0c79e7ff
+mut 6.6 @441=14: x509: malformed extension value field
+mut 6.7 @622=61: ok 7 CN=extra CN,OU=\#hash\<\>\;\"\\,O=\ lead\,trail#\ ,1.2.3.6=#06022a03,1.2.3.5=#0101ff,1.2.3.4=#02012a,1.2.840.113549.1.9.1=mail@example.com 7 Ed25519 cbef0c79e7ff
+mut 6.8 @845=75: ok 7 CN=extra CN,OU=\#hash\<\>\;\"\\,O=\ lead\,trail#\ ,1.2.3.6=#06022a03,1.2.3.5=#0101ff,1.2.3.4=#02012a,1.2.840.113549.1.9.1=mail@example.com 7 Ed25519 cbef0c79e7ff
+mut 6.9 @648=192: ok 7 CN=extra CN,OU=\#hash\<\>\;\"\\,O=\ lead\,trail#\ ,1.2.3.6=#06022a03,1.2.3.5=#0101ff,1.2.3.4=#02012a,1.2.840.113549.1.9.1=mail@example.com 7 Ed25519 cbef0c79e7ff
+mut 6.10 @873=2: ok 7 CN=extra CN,OU=\#hash\<\>\;\"\\,O=\ lead\,trail#\ ,1.2.3.6=#06022a03,1.2.3.5=#0101ff,1.2.3.4=#02012a,1.2.840.113549.1.9.1=mail@example.com 7 Ed25519 cbef0c79e7ff
+mut 6.11 @663=179: ok 7 CN=extra CN,OU=\#hash\<\>\;\"\\,O=\ lead\,trail#\ ,1.2.3.6=#06022a03,1.2.3.5=#0101ff,1.2.3.4=#02012a,1.2.840.113549.1.9.1=mail@example.com 7 Ed25519 cbef0c79e7ff
+trunc 6.0: x509: malformed certificate
+trunc 6.1: x509: malformed certificate
+trunc 6.2: x509: malformed certificate
+trunc 6.10: x509: malformed certificate
+trunc 6.439: x509: malformed certificate
+trunc 6.877: x509: malformed certificate
+mut 9.0 @433=15: ok 14 CN=SHA256-RSA 0 RSA n=ad790859f41b8b
+mut 9.1 @258=81: ok 14 CN=SHA256-RSA 0 RSA n=ad790859f41b8b
+mut 9.2 @373=14: ok 14 CN=SHA256-RSA 0 RSA n=ad790859f41b8b
+mut 9.3 @512=151: ok 14 CN=SHA256-RSA 0 RSA n=ad790859f41b8b
+mut 9.4 @286=90: ok 14 CN=SHA256-RSA 0 RSA n=ad790859f41b8b
+mut 9.5 @480=65: ok 14 CN=SHA256-RSA 0 RSA n=ad790859f41b8b
+mut 9.6 @543=16: ok 14 CN=SHA256-RSA 0 RSA n=ad790859f41b8b
+mut 9.7 @624=202: ok 14 CN=SHA256-RSA 0 RSA n=ad790859f41b8b
+mut 9.8 @313=12: ok 14 CN=SHA256-RSA 0 RSA n=ad790859f41b8b
+mut 9.9 @438=111: ok 14 CN=SHA256-RSA 0 RSA n=ad790859f41b8b
+mut 9.10 @477=234: ok 14 CN=SHA256-RSA 0 RSA n=ad790859f41b8b
+mut 9.11 @633=44: ok 14 CN=SHA256-RSA 0 RSA n=ad790859f41b8b
+trunc 9.0: x509: malformed certificate
+trunc 9.1: x509: malformed certificate
+trunc 9.2: x509: malformed certificate
+trunc 9.10: x509: malformed certificate
+trunc 9.339: x509: malformed certificate
+trunc 9.678: x509: malformed certificate
+mut 12.0 @697=5: ok 17 CN=SHA256-RSAPSS 0 RSA n=ad790859f41b8b
+mut 12.1 @159=189: x509: invalid RDNSequence: invalid attribute value: invalid PrintableString
+mut 12.2 @328=122: ok 17 CN=SHA256-RSAPSS 0 RSA n=ad790859f41b8b
+mut 12.3 @229=158: ok 17 CN=SHA256-RSAPSS 0 RSA n=ad790859f41b8b
+mut 12.4 @98=37: x509: invalid RDNSequence: invalid attribute value: invalid PrintableString
+mut 12.5 @287=10: ok 17 CN=SHA256-RSAPSS 0 RSA n=ad790859f41b8b
+mut 12.6 @652=162: ok 17 CN=SHA256-RSAPSS 0 RSA n=ad790859f41b8b
+mut 12.7 @312=254: ok 17 CN=SHA256-RSAPSS 0 RSA n=ad790859f41b8b
+mut 12.8 @620=76: ok 17 CN=SHA256-RSAPSS 0 RSA n=ad790859f41b8b
+mut 12.9 @168=54: x509: malformed public key algorithm identifier
+mut 12.10 @79=64: x509: inner and outer signature algorithm identifiers don't match
+mut 12.11 @177=45: ok 17 CN=SHA256-RSAPSS 0 nil
+trunc 12.0: x509: malformed certificate
+trunc 12.1: x509: malformed certificate
+trunc 12.2: x509: malformed certificate
+trunc 12.10: x509: malformed certificate
+trunc 12.394: x509: malformed certificate
+trunc 12.788: x509: malformed certificate
+mut 15.0 @239=90: ok 1a CN=ECDSA-SHA256 0 ECDSA P-256 04e52324
+mut 15.1 @239=32: ok 1a CN=ECDSA-SHA256 0 ECDSA P-256 04e52324
+mut 15.2 @131=54: x509: unsupported elliptic curve
+mut 15.3 @89=11: x509: invalid RDNSequence: invalid attribute value: invalid ASN.1 element
+mut 15.4 @242=47: ok 1a CN=ECDSA-SHA256 0 ECDSA P-256 04e52324
+mut 15.5 @36=170: ok 1a CN=ECDSA-SHA256 0 ECDSA P-256 04e52324
+mut 15.6 @171=98: P256 point not on curve
+mut 15.7 @108=120: ok 1a CN=ECDSA-SHA25x 0 ECDSA P-256 04e52324
+mut 15.8 @161=171: P256 point not on curve
+mut 15.9 @177=179: P256 point not on curve
+mut 15.10 @187=165: P256 point not on curve
+mut 15.11 @99=85: ok 1a CN=ECUSA-SHA256 0 ECDSA P-256 04e52324
+trunc 15.0: x509: malformed certificate
+trunc 15.1: x509: malformed certificate
+trunc 15.2: x509: malformed certificate
+trunc 15.10: x509: malformed certificate
+trunc 15.142: x509: malformed certificate
+trunc 15.284: x509: malformed certificate
+mut 18.0 @120=174: ok 1d CN=Ed25519 0 Ed25519 cbef0c79e7ff
+mut 18.1 @205=26: ok 1d CN=Ed25519 0 Ed25519 cbef0c79e7ff
+mut 18.2 @95=224: x509: malformed public key algorithm identifier
+mut 18.3 @121=128: ok 1d CN=Ed25519 0 Ed25519 cbef0c79e7ff
+mut 18.4 @70=24: x509: malformed UTCTime
+mut 18.5 @28=193: x509: invalid RDNSequence: invalid attribute type
+mut 18.6 @28=241: x509: invalid RDNSequence: invalid attribute type
+mut 18.7 @51=218: x509: malformed UTCTime
+mut 18.8 @0=201: x509: malformed certificate
+mut 18.9 @184=135: ok 1d CN=Ed25519 0 Ed25519 cbef0c79e7ff
+mut 18.10 @183=186: ok 1d CN=Ed25519 0 Ed25519 cbef0c79e7ff
+mut 18.11 @85=67: x509: invalid RDNSequence: invalid attribute value: invalid ASN.1 element
+trunc 18.0: x509: malformed certificate
+trunc 18.1: x509: malformed certificate
+trunc 18.2: x509: malformed certificate
+trunc 18.10: x509: malformed certificate
+trunc 18.105: x509: malformed certificate
+trunc 18.210: x509: malformed certificate
+mut 21.0 @10=161: x509: malformed version
+mut 21.1 @212=76: ok 20 CN=ECDSA-SHA1 0 ECDSA P-256 04e52324
+mut 21.2 @115=25: ok 20 CN=ECDSA-SHA1 0 nil
+mut 21.3 @217=156: ok 20 CN=ECDSA-SHA1 0 ECDSA P-256 04e52324
+mut 21.4 @65=128: x509: malformed UTCTime
+mut 21.5 @258=239: ok 20 CN=ECDSA-SHA1 0 ECDSA P-256 04e52324
+mut 21.6 @128=240: x509: malformed subjectPublicKey
+mut 21.7 @243=195: ok 20 CN=ECDSA-SHA1 0 ECDSA P-256 04e52324
+mut 21.8 @91=70: ok 20 2.5.4.70=ECDSA-SHA1 0 ECDSA P-256 04e52324
+mut 21.9 @214=82: ok 20 CN=ECDSA-SHA1 0 ECDSA P-256 04e52324
+mut 21.10 @259=29: ok 20 CN=ECDSA-SHA1 0 ECDSA P-256 04e52324
+mut 21.11 @48=153: x509: invalid RDNSequence: invalid attribute value: invalid PrintableString
+trunc 21.0: x509: malformed certificate
+trunc 21.1: x509: malformed certificate
+trunc 21.2: x509: malformed certificate
+trunc 21.10: x509: malformed certificate
+trunc 21.140: x509: malformed certificate
+trunc 21.280: x509: malformed certificate
+mut 24.0 @348=211: x509: invalid RDNSequence: invalid attribute value: invalid IA5String
+mut 24.1 @560=84: ok e37bf9e8ee65e457 CN=www.google.com,O=Google\, Inc,L=Mountain View,ST=California,C=US,1.2.840.113549.1.9.1=golang-dev@gmail.com 0 ECDSA P-384 0451bb34
+mut 24.2 @162=130: x509: invalid RDNSequence: invalid attribute value: invalid IA5String
+mut 24.3 @9=254: x509: malformed serial number
+mut 24.4 @561=7: ok e37bf9e8ee65e457 CN=www.google.com,O=Google\, Inc,L=Mountain View,ST=California,C=US,1.2.840.113549.1.9.1=golang-dev@gmail.com 0 ECDSA P-384 0451bb34
+mut 24.5 @199=212: x509: malformed UTCTime
+mut 24.6 @297=253: ok e37bf9e8ee65e457 O=Google\, Inc,L=Mountain View,ST=California,C=US,1.2.840.113549.1.9.1=golang-dev@gmail.com,2.15924.3=www.google.com 0 ECDSA P-384 0451bb34
+mut 24.7 @75=210: ok e37bf9e8ee65e457 CN=www.google.com,O=Google\, Inc,L=Mountain View,ST=California,C=US,1.2.840.113549.1.9.1=golang-dev@gmail.com 0 ECDSA P-384 0451bb34
+mut 24.8 @55=194: x509: invalid RDNSequence: invalid attribute type
+mut 24.9 @260=180: x509: invalid RDNSequence: invalid attribute value: invalid UTF-8 string
+mut 24.10 @294=112: x509: invalid RDNSequence: invalid attribute
+mut 24.11 @184=246: x509: malformed UTCTime
+trunc 24.0: x509: malformed certificate
+trunc 24.1: x509: malformed certificate
+trunc 24.2: x509: malformed certificate
+trunc 24.10: x509: malformed certificate
+trunc 24.295: x509: malformed certificate
+trunc 24.589: x509: malformed certificate
+mut 27.0 @138=228: x509: invalid RDNSequence: invalid attribute value: invalid ASN.1 element
+mut 27.1 @147=211: x509: invalid RDNSequence: invalid attribute value: invalid UTF-8 string
+mut 27.2 @880=185: ok 76 CN=e-passportCSCA,OU=The Ministry of Foreign Affairs,O=Japanese Government,C=JP 4 RSA n=c7f13759157170
+mut 27.3 @438=72: ok 76 CN=e-passportCSCA,OU=The Ministry of Foreign Affairs,O=Japanese Government,C=JP 4 RSA n=c7f13759157170
+mut 27.4 @1536=76: ok 76 CN=e-passportCSCA,OU=The Ministry of Foreign Affairs,O=Japanese Government,C=JP 4 RSA n=c7f13759157170
+mut 27.5 @1508=17: ok 76 CN=e-passportCSCA,OU=The Ministry of Foreign Affairs,O=Japanese Government,C=JP 4 RSA n=c7f13759157170
+mut 27.6 @658=186: ok 76 CN=e-passportCSCA,OU=The Ministry of Foreign Affairs,O=Japanese Government,C=JP 4 RSA n=c7f13759157170
+mut 27.7 @777=169: ok 76 CN=e-passportCSCA,OU=The Ministry of Foreign Affairs,O=Japanese Government,C=JP 4 RSA n=c7f13759157170
+mut 27.8 @184=220: x509: invalid RDNSequence: invalid attribute value: invalid UTF-8 string
+mut 27.9 @721=77: ok 76 CN=e-passportCSCA,OU=The Ministry of Foreign Affairs,O=Japanese Government,C=JP 4 RSA n=c7f13759157170
+mut 27.10 @200=81: x509: malformed UTCTime
+mut 27.11 @537=249: ok 76 CN=e-passportCSCA,OU=The Ministry of Foreign Affairs,O=Japanese Government,C=JP 4 RSA n=c7f13759157170
+trunc 27.0: x509: malformed certificate
+trunc 27.1: x509: malformed certificate
+trunc 27.2: x509: malformed certificate
+trunc 27.10: x509: malformed certificate
+trunc 27.785: x509: malformed certificate
+trunc 27.1569: x509: malformed certificate
+mut 30.0 @90=115: x509: malformed UTCTime
+mut 30.1 @232=105: ok a42492b171d53fdd801fc6a3fc41339b O=Acme Co 4 RSA n=c0a09b631bb33a
+mut 30.2 @229=96: ok a42492b171d53fdd801fc6a3fc41339b O=Acme Co 4 RSA n=c0a09b631bb33a
+mut 30.3 @196=25: ok a42492b171d53fdd801fc6a3fc41339b O=Acme Co 4 RSA n=c0a09b631bb33a
+mut 30.4 @84=241: x509: unsupported time format
+mut 30.5 @93=68: x509: malformed UTCTime
+mut 30.6 @684=197: ok a42492b171d53fdd801fc6a3fc41339b O=Acme Co 4 RSA n=c0a09b631bb33a
+mut 30.7 @238=231: ok a42492b171d53fdd801fc6a3fc41339b O=Acme Co 4 RSA n=c0a09b631bb33a
+mut 30.8 @466=54: x509: invalid basic constraints
+mut 30.9 @754=189: ok a42492b171d53fdd801fc6a3fc41339b O=Acme Co 4 RSA n=c0a09b631bb33a
+mut 30.10 @726=97: ok a42492b171d53fdd801fc6a3fc41339b O=Acme Co 4 RSA n=c0a09b631bb33a
+mut 30.11 @33=68: x509: inner and outer signature algorithm identifiers don't match
+trunc 30.0: x509: malformed certificate
+trunc 30.1: x509: malformed certificate
+trunc 30.2: x509: malformed certificate
+trunc 30.10: x509: malformed certificate
+trunc 30.386: x509: malformed certificate
+trunc 30.772: x509: malformed certificate
+mut 33.0 @117=34: x509: invalid RDNSequence: invalid attribute value: invalid PrintableString
+mut 33.1 @359=182: x509: inner and outer signature algorithm identifiers don't match
+mut 33.2 @386=21: x509: RSA key missing NULL parameters
+mut 33.3 @357=16: x509: inner and outer signature algorithm identifiers don't match
+mut 33.4 @486=149: x509: RSA key missing NULL parameters
+mut 33.5 @69=14: x509: malformed validity
+mut 33.6 @71=191: x509: unsupported time format
+mut 33.7 @59=43: x509: invalid RDNSequence: invalid attribute value: invalid ASN.1 element
+mut 33.8 @167=111: x509: RSA key missing NULL parameters
+mut 33.9 @137=165: x509: invalid RDNSequence: invalid attribute value: invalid PrintableString
+mut 33.10 @484=65: x509: RSA key missing NULL parameters
+mut 33.11 @227=118: x509: RSA key missing NULL parameters
+trunc 33.0: x509: malformed certificate
+trunc 33.1: x509: malformed certificate
+trunc 33.2: x509: malformed certificate
+trunc 33.10: x509: malformed certificate
+trunc 33.248: x509: malformed certificate
+trunc 33.496: x509: malformed certificate
+mut 36.0 @542=144: ok d5cce48de08eea837d3a7f3d8aecfaef O=Acme Co 4 RSA n=cafbd9b7ae3b0e
+mut 36.1 @421=90: ok d5cce48de08eea837d3a7f3d8aecfaef O=Acme Co 4 RSA n=cafbd9b7ae3b0e
+mut 36.2 @654=121: ok d5cce48de08eea837d3a7f3d8aecfaef O=Acme Co 4 RSA n=cafbd9b7ae3b0e
+mut 36.3 @256=207: ok d5cce48de08eea837d3a7f3d8aecfaef O=Acme Co 4 RSA n=cafbd9b7ae3b0e
+mut 36.4 @235=216: ok d5cce48de08eea837d3a7f3d8aecfaef O=Acme Co 4 RSA n=cafbd9b7ae3b0e
+mut 36.5 @36=15: x509: inner and outer signature algorithm identifiers don't match
+mut 36.6 @549=73: ok d5cce48de08eea837d3a7f3d8aecfaef O=Acme Co 4 RSA n=cafbd9b7ae3b0e
+mut 36.7 @652=23: ok d5cce48de08eea837d3a7f3d8aecfaef O=Acme Co 4 RSA n=cafbd9b7ae3b0e
+mut 36.8 @215=39: ok d5cce48de08eea837d3a7f3d8aecfaef O=Acme Co 4 RSA n=cafbd9b7ae3b0e
+mut 36.9 @79=163: x509: malformed UTCTime
+mut 36.10 @120=143: x509: malformed spki
+mut 36.11 @153=46: ok d5cce48de08eea837d3a7f3d8aecfaef O=Acme Co 4 RSA n=ca2ed9b7ae3b0e
+trunc 36.0: x509: malformed certificate
+trunc 36.1: x509: malformed certificate
+trunc 36.2: x509: malformed certificate
+trunc 36.10: x509: malformed certificate
+trunc 36.389: x509: malformed certificate
+trunc 36.777: x509: malformed certificate
+mut 39.0 @193=93: x509: IP constraint contained invalid mask ffff0100
+mut 39.1 @579=245: x509: IP constraint contained invalid mask ffff0100
+mut 39.2 @242=45: x509: IP constraint contained invalid mask ffff0100
+mut 39.3 @361=244: x509: IP constraint contained invalid mask ffff0100
+mut 39.4 @535=90: x509: IP constraint contained invalid mask ffff0100
+mut 39.5 @234=231: x509: IP constraint contained invalid mask ffff0100
+mut 39.6 @524=1: x509: IP constraint contained invalid mask ffff0100
+mut 39.7 @563=74: x509: IP constraint contained invalid mask ffff0100
+mut 39.8 @660=254: x509: IP constraint contained invalid mask ffff0100
+mut 39.9 @470=88: x509: IP constraint contained invalid mask ffff0100
+mut 39.10 @555=237: x509: IP constraint contained invalid mask ffff0100
+mut 39.11 @721=14: x509: IP constraint contained invalid mask ffff0100
+trunc 39.0: x509: malformed certificate
+trunc 39.1: x509: malformed certificate
+trunc 39.2: x509: malformed certificate
+trunc 39.10: x509: malformed certificate
+trunc 39.361: x509: malformed certificate
+trunc 39.722: x509: malformed certificate
+mut 42.0 @458=41: ok 1dd43aa013287bf3090000000041f399 CN=*.google.com 10 ECDSA P-256 0441587a
+mut 42.1 @1254=40: ok 1dd43aa013287bf3090000000041f399 CN=*.google.com 10 ECDSA P-256 0441587a
+mut 42.2 @2053=207: ok 1dd43aa013287bf3090000000041f399 CN=*.google.com 10 ECDSA P-256 0441587a
+mut 42.3 @80=33: x509: invalid RDNSequence: invalid attribute value: invalid PrintableString
+mut 42.4 @1315=187: x509: SAN dNSName is malformed
+mut 42.5 @308=54: ok 1dd43aa013287bf3090000000041f399 CN=*.google.com 10 ECDSA P-256 0441587a
+mut 42.6 @1442=137: x509: SAN dNSName is malformed
+mut 42.7 @1642=99: ok 1dd43aa013287bf3090000000041f399 CN=*.google.com 10 ECDSA P-256 0441587a
+mut 42.8 @349=148: ok 1dd43aa013287bf3090000000041f399 CN=*.google.com 10 ECDSA P-256 0441587a
+mut 42.9 @734=100: ok 1dd43aa013287bf3090000000041f399 CN=*.google.com 10 ECDSA P-256 0441587a
+mut 42.10 @1055=249: x509: SAN dNSName is malformed
+mut 42.11 @789=181: x509: SAN dNSName is malformed
+trunc 42.0: x509: malformed certificate
+trunc 42.1: x509: malformed certificate
+trunc 42.2: x509: malformed certificate
+trunc 42.10: x509: malformed certificate
+trunc 42.1053: x509: malformed certificate
+trunc 42.2105: x509: malformed certificate
+mut 45.0 @121=148: x509: inner and outer signature algorithm identifiers don't match
+mut 45.1 @205=145: x509: inner and outer signature algorithm identifiers don't match
+mut 45.2 @189=1: x509: inner and outer signature algorithm identifiers don't match
+mut 45.3 @267=245: x509: inner and outer signature algorithm identifiers don't match
+mut 45.4 @70=155: x509: inner and outer signature algorithm identifiers don't match
+mut 45.5 @181=157: x509: malformed algorithm identifier
+mut 45.6 @179=127: x509: inner and outer signature algorithm identifiers don't match
+mut 45.7 @215=4: x509: inner and outer signature algorithm identifiers don't match
+mut 45.8 @166=137: x509: inner and outer signature algorithm identifiers don't match
+mut 45.9 @144=103: x509: inner and outer signature algorithm identifiers don't match
+mut 45.10 @222=85: x509: inner and outer signature algorithm identifiers don't match
+mut 45.11 @98=194: x509: inner and outer signature algorithm identifiers don't match
+trunc 45.0: x509: malformed certificate
+trunc 45.1: x509: malformed certificate
+trunc 45.2: x509: malformed certificate
+trunc 45.10: x509: malformed certificate
+trunc 45.134: x509: malformed certificate
+trunc 45.268: x509: malformed certificate
+mut 48.0 @1302=62: ok 2cec82d7275a7d93 CN=mail.sthonorehotelresort.com,OU=sthonorehotelresort,O=sthonorehotelresort,L=Indonesia,ST=jakarta,C=ID 7 RSA n=afbaed2aa48f8a
+mut 48.1 @324=209: x509: invalid RDNSequence: invalid attribute value: invalid PrintableString
+mut 48.2 @401=97: x509: invalid RSA modulus
+mut 48.3 @1079=15: ok 2cec82d7275a7d93 CN=mail.sthonorehotelresort.com,OU=sthonorehotelresort,O=sthonorehotelresort,L=Indonesia,ST=jakarta,C=ID 7 RSA n=afbaed2aa48f8a
+mut 48.4 @1003=154: ok 2cec82d7275a7d93 CN=mail.sthonorehotelresort.com,OU=sthonorehotelresort,O=sthonorehotelresort,L=Indonesia,ST=jakarta,C=ID 7 RSA n=afbaed2aa48f8a
+mut 48.5 @497=186: ok 2cec82d7275a7d93 CN=mail.sthonorehotelresort.com,OU=sthonorehotelresort,O=sthonorehotelresort,L=Indonesia,ST=jakarta,C=ID 7 RSA n=afbaed2aa48f8a
+mut 48.6 @363=132: x509: invalid RDNSequence: invalid attribute value: invalid PrintableString
+mut 48.7 @269=204: x509: invalid RDNSequence
+mut 48.8 @35=125: x509: inner and outer signature algorithm identifiers don't match
+mut 48.9 @912=1: ok 2cec82d7275a7d93 CN=mail.sthonorehotelresort.com,OU=sthonorehotelresort,O=sthonorehotelresort,L=Indonesia,ST=jakarta,C=ID 7 RSA n=afbaed2aa48f8a
+mut 48.10 @824=159: x509: SAN dNSName is malformed
+mut 48.11 @542=215: ok 2cec82d7275a7d93 CN=mail.sthonorehotelresort.com,OU=sthonorehotelresort,O=sthonorehotelresort,L=Indonesia,ST=jakarta,C=ID 7 RSA n=afbaed2aa48f8a
+trunc 48.0: x509: malformed certificate
+trunc 48.1: x509: malformed certificate
+trunc 48.2: x509: malformed certificate
+trunc 48.10: x509: malformed certificate
+trunc 48.730: x509: malformed certificate
+trunc 48.1459: x509: malformed certificate
+mut 51.0 @362=199: ok 159ffe6f22fd5cc42c524df6fd5e28d0de38f34e CN=LAMPS WG,O=IETF 3 MLDSA ML-DSA-44 1312
+mut 51.1 @2435=136: ok 159ffe6f22fd5cc42c524df6fd5e28d0de38f34e CN=LAMPS WG,O=IETF 3 MLDSA ML-DSA-44 1312
+mut 51.2 @57=144: ok 159ffe6f22fd5cc42c524df6fd5e28d0de38f34e CN=LAMPS WG,O=IETF 3 MLDSA ML-DSA-44 1312
+mut 51.3 @1906=17: ok 159ffe6f22fd5cc42c524df6fd5e28d0de38f34e CN=LAMPS WG,O=IETF 3 MLDSA ML-DSA-44 1312
+mut 51.4 @1356=88: ok 159ffe6f22fd5cc42c524df6fd5e28d0de38f34e CN=LAMPS WG,O=IETF 3 MLDSA ML-DSA-44 1312
+mut 51.5 @3253=46: ok 159ffe6f22fd5cc42c524df6fd5e28d0de38f34e CN=LAMPS WG,O=IETF 3 MLDSA ML-DSA-44 1312
+mut 51.6 @3152=57: ok 159ffe6f22fd5cc42c524df6fd5e28d0de38f34e CN=LAMPS WG,O=IETF 3 MLDSA ML-DSA-44 1312
+mut 51.7 @717=90: ok 159ffe6f22fd5cc42c524df6fd5e28d0de38f34e CN=LAMPS WG,O=IETF 3 MLDSA ML-DSA-44 1312
+mut 51.8 @2633=16: ok 159ffe6f22fd5cc42c524df6fd5e28d0de38f34e CN=LAMPS WG,O=IETF 3 MLDSA ML-DSA-44 1312
+mut 51.9 @409=211: ok 159ffe6f22fd5cc42c524df6fd5e28d0de38f34e CN=LAMPS WG,O=IETF 3 MLDSA ML-DSA-44 1312
+mut 51.10 @898=120: ok 159ffe6f22fd5cc42c524df6fd5e28d0de38f34e CN=LAMPS WG,O=IETF 3 MLDSA ML-DSA-44 1312
+mut 51.11 @2628=147: ok 159ffe6f22fd5cc42c524df6fd5e28d0de38f34e CN=LAMPS WG,O=IETF 3 MLDSA ML-DSA-44 1312
+trunc 51.0: x509: malformed certificate
+trunc 51.1: x509: malformed certificate
+trunc 51.2: x509: malformed certificate
+trunc 51.10: x509: malformed certificate
+trunc 51.1996: x509: malformed certificate
+trunc 51.3991: x509: malformed certificate
+mut 54.0 @447=207: ok 203bc53596b34c718f5015066 CN=GTS CA 1C3,O=Google Trust Services LLC,C=US 8 RSA n=f588dfe7628c1e
+mut 54.1 @129=86: x509: malformed UTCTime
+mut 54.2 @364=47: ok 203bc53596b34c718f5015066 CN=GTS CA 1C3,O=Google Trust Services LLC,C=US 8 RSA n=f588dfe7628c1e
+mut 54.3 @1211=154: ok 203bc53596b34c718f5015066 CN=GTS CA 1C3,O=Google Trust Services LLC,C=US 8 RSA n=f588dfe7628c1e
+mut 54.4 @367=117: ok 203bc53596b34c718f5015066 CN=GTS CA 1C3,O=Google Trust Services LLC,C=US 8 RSA n=f588dfe7628c1e
+mut 54.5 @315=153: ok 203bc53596b34c718f5015066 CN=GTS CA 1C3,O=Google Trust Services LLC,C=US 8 RSA n=f588dfe7628c1e
+mut 54.6 @698=60: ok 203bc53596b34c718f5015066 CN=GTS CA 1C3,O=Google Trust Services LLC,C=US 8 RSA n=f588dfe7628c1e
+mut 54.7 @515=80: x509: malformed extensions
+mut 54.8 @1021=226: ok 203bc53596b34c718f5015066 CN=GTS CA 1C3,O=Google Trust Services LLC,C=US 8 RSA n=f588dfe7628c1e
+mut 54.9 @1183=123: ok 203bc53596b34c718f5015066 CN=GTS CA 1C3,O=Google Trust Services LLC,C=US 8 RSA n=f588dfe7628c1e
+mut 54.10 @1265=129: ok 203bc53596b34c718f5015066 CN=GTS CA 1C3,O=Google Trust Services LLC,C=US 8 RSA n=f588dfe7628c1e
+mut 54.11 @838=149: ok 203bc53596b34c718f5015066 CN=GTS CA 1C3,O=Google Trust Services LLC,C=US 8 RSA n=f588dfe7628c1e
+trunc 54.0: x509: malformed certificate
+trunc 54.1: x509: malformed certificate
+trunc 54.2: x509: malformed certificate
+trunc 54.10: x509: malformed certificate
+trunc 54.717: x509: malformed certificate
+trunc 54.1433: x509: malformed certificate
+mut 57.0 @516=246: x509: malformed extension
+mut 57.1 @562=219: x509: malformed extension
+mut 57.2 @784=220: ok 111991593cd5a33d1231ea33c3644cdc CN=www.google.com 10 RSA n=ab7d2876b28c4f
+mut 57.3 @146=73: x509: malformed UTCTime
+mut 57.4 @306=145: ok 111991593cd5a33d1231ea33c3644cdc CN=www.google.com 10 RSA n=ab7d2876b28c4f
+mut 57.5 @1273=155: ok 111991593cd5a33d1231ea33c3644cdc CN=www.google.com 10 RSA n=ab7d2876b28c4f
+mut 57.6 @765=47: x509: malformed extension value field
+mut 57.7 @1047=77: ok 111991593cd5a33d1231ea33c3644cdc CN=www.google.com 10 RSA n=ab7d2876b28c4f
+mut 57.8 @899=147: ok 111991593cd5a33d1231ea33c3644cdc CN=www.google.com 10 RSA n=ab7d2876b28c4f
+mut 57.9 @546=154: ok 111991593cd5a33d1231ea33c3644cdc CN=www.google.com 10 RSA n=ab7d2876b28c4f
+mut 57.10 @285=88: ok 111991593cd5a33d1231ea33c3644cdc CN=www.google.com 10 RSA n=ab7d2876b28c4f
+mut 57.11 @1233=127: ok 111991593cd5a33d1231ea33c3644cdc CN=www.google.com 10 RSA n=ab7d2876b28c4f
+trunc 57.0: x509: malformed certificate
+trunc 57.1: x509: malformed certificate
+trunc 57.2: x509: malformed certificate
+trunc 57.10: x509: malformed certificate
+trunc 57.683: x509: malformed certificate
+trunc 57.1365: x509: malformed certificate
+mut 60.0 @1277=219: ok b0b75a16485fbfe1cbf58bd719e67d CN=Izenpe.com,O=IZENPE S.A.,C=ES 4 RSA n=c9d37aca0f1eac
+mut 60.1 @899=184: ok b0b75a16485fbfe1cbf58bd719e67d CN=Izenpe.com,O=IZENPE S.A.,C=ES 4 RSA n=c9d37aca0f1eac
+mut 60.2 @1272=57: ok b0b75a16485fbfe1cbf58bd719e67d CN=Izenpe.com,O=IZENPE S.A.,C=ES 4 RSA n=c9d37aca0f1eac
+mut 60.3 @533=192: ok b0b75a16485fbfe1cbf58bd719e67d CN=Izenpe.com,O=IZENPE S.A.,C=ES 4 RSA n=c9d37aca0f1eac
+mut 60.4 @36=75: x509: inner and outer signature algorithm identifiers don't match
+mut 60.5 @1443=212: ok b0b75a16485fbfe1cbf58bd719e67d CN=Izenpe.com,O=IZENPE S.A.,C=ES 4 RSA n=c9d37aca0f1eac
+mut 60.6 @632=176: ok b0b75a16485fbfe1cbf58bd719e67d CN=Izenpe.com,O=IZENPE S.A.,C=ES 4 RSA n=c9d37aca0f1eac
+mut 60.7 @189=240: x509: invalid RDNSequence: invalid attribute value: invalid UTF-8 string
+mut 60.8 @1420=194: ok b0b75a16485fbfe1cbf58bd719e67d CN=Izenpe.com,O=IZENPE S.A.,C=ES 4 RSA n=c9d37aca0f1eac
+mut 60.9 @936=208: x509: malformed extension value field
+mut 60.10 @1096=159: ok b0b75a16485fbfe1cbf58bd719e67d CN=Izenpe.com,O=IZENPE S.A.,C=ES 4 RSA n=c9d37aca0f1eac
+mut 60.11 @307=240: ok b0b75a16485fbfe1cbf58bd719e67d CN=Izenpe.com,O=IZENPE S.A.,C=ES 4 RSA n=c9d37aca0f1eac
+trunc 60.0: x509: malformed certificate
+trunc 60.1: x509: malformed certificate
+trunc 60.2: x509: malformed certificate
+trunc 60.10: x509: malformed certificate
+trunc 60.762: x509: malformed certificate
+trunc 60.1524: x509: malformed certificate
+mut 63.0 @686=32: ok 4000000000136e982395d CN=Trusted Root CA SHA256 G2,OU=Trusted Root,O=GlobalSign nv-sa,C=BE 7 RSA n=cfcd3efd0d8f02
+mut 63.1 @116=139: x509: invalid RDNSequence: invalid attribute value: invalid PrintableString
+mut 63.2 @1071=228: ok 4000000000136e982395d CN=Trusted Root CA SHA256 G2,OU=Trusted Root,O=GlobalSign nv-sa,C=BE 7 RSA n=cfcd3efd0d8f02
+mut 63.3 @262=158: ok 4000000000136e982395d CN=Trusted Root CA SHA256 G2,OU=Trusted Root,O=GlobalSign nv-sa,C=BE 7 nil
+mut 63.4 @300=69: ok 4000000000136e982395d CN=Trusted Root CA SHA256 G2,OU=Trusted Root,O=GlobalSign nv-sa,C=BE 7 RSA n=cfcd3efd0d8f02
+mut 63.5 @162=228: ok 4000000000136e982395d CN=Trusted Root CA SHA256 G2,OU=Trusted Root,O=GlobalSign nv-sa 7 RSA n=cfcd3efd0d8f02
+mut 63.6 @274=96: x509: malformed subjectPublicKey
+mut 63.7 @565=219: x509: malformed extension value field
+mut 63.8 @621=17: ok 4000000000136e982395d CN=Trusted Root CA SHA256 G2,OU=Trusted Root,O=GlobalSign nv-sa,C=BE 7 RSA n=cfcd3efd0d8f02
+mut 63.9 @1098=189: ok 4000000000136e982395d CN=Trusted Root CA SHA256 G2,OU=Trusted Root,O=GlobalSign nv-sa,C=BE 7 RSA n=cfcd3efd0d8f02
+mut 63.10 @1032=244: ok 4000000000136e982395d CN=Trusted Root CA SHA256 G2,OU=Trusted Root,O=GlobalSign nv-sa,C=BE 7 RSA n=cfcd3efd0d8f02
+mut 63.11 @79=135: x509: invalid RDNSequence: invalid attribute
+trunc 63.0: x509: malformed certificate
+trunc 63.1: x509: malformed certificate
+trunc 63.2: x509: malformed certificate
+trunc 63.10: x509: malformed certificate
+trunc 63.560: x509: malformed certificate
+trunc 63.1119: x509: malformed certificate
+mut 66.0 @553=100: ok bdeb9a78391e002ab1a5b325b45eb0f CN=TrustAsia ECC OV TLS Pro CA,O=TrustAsia Technologies\, Inc.,C=CN 8 ECDSA P-384 040f2149
+mut 66.1 @254=245: x509: invalid RDNSequence: invalid attribute value: invalid PrintableString
+mut 66.2 @790=126: ok bdeb9a78391e002ab1a5b325b45eb0f CN=TrustAsia ECC OV TLS Pro CA,O=TrustAsia Technologies\, Inc.,C=CN 8 ECDSA P-384 040f2149
+mut 66.3 @371=130: P384 point not on curve
+mut 66.4 @458=30: ok bdeb9a78391e002ab1a5b325b45eb0f CN=TrustAsia ECC OV TLS Pro CA,O=TrustAsia Technologies\, Inc.,C=CN 8 ECDSA P-384 040f2149
+mut 66.5 @464=108: x509: malformed extension OID field
+mut 66.6 @16=224: ok be0b9a78391e002ab1a5b325b45eb0f CN=TrustAsia ECC OV TLS Pro CA,O=TrustAsia Technologies\, Inc.,C=CN 8 ECDSA P-384 040f2149
+mut 66.7 @864=173: ok bdeb9a78391e002ab1a5b325b45eb0f CN=TrustAsia ECC OV TLS Pro CA,O=TrustAsia Technologies\, Inc.,C=CN 8 ECDSA P-384 040f2149
+mut 66.8 @725=31: x509: invalid certificate policies
+mut 66.9 @11=1: ok bdeb9a78391e002ab1a5b325b45eb0f CN=TrustAsia ECC OV TLS Pro CA,O=TrustAsia Technologies\, Inc.,C=CN 8 ECDSA P-384 040f2149
+mut 66.10 @647=248: ok bdeb9a78391e002ab1a5b325b45eb0f CN=TrustAsia ECC OV TLS Pro CA,O=TrustAsia Technologies\, Inc.,C=CN 8 ECDSA P-384 040f2149
+mut 66.11 @185=230: ok bdeb9a78391e002ab1a5b325b45eb0f CN=TrustAsia ECC OV TLS Pro CA,O=TrustAsia Technologies\, Inc.,2.12980.6=CN 8 ECDSA P-384 040f2149
+trunc 66.0: x509: malformed certificate
+trunc 66.1: x509: malformed certificate
+trunc 66.2: x509: malformed certificate
+trunc 66.10: x509: malformed certificate
+trunc 66.509: x509: malformed certificate
+trunc 66.1018: x509: malformed certificate
+mut 69.0 @154=71: ok 23e42c281e55ae6 CN=Root ca,O=Golang 4 nil
+mut 69.1 @247=150: ok 23e42c281e55ae6 CN=Root ca,O=Golang 4 RSA n=e90e7f110ce65a
+mut 69.2 @136=168: x509: invalid RDNSequence: invalid attribute value: invalid ASN.1 element
+mut 69.3 @485=14: ok 23e42c281e55ae6 CN=Root ca,O=Golang 4 RSA n=e90e7f110ce65a
+mut 69.4 @86=118: x509: malformed UTCTime
+mut 69.5 @126=10: x509: invalid RDNSequence
+mut 69.6 @41=206: x509: invalid RDNSequence
+mut 69.7 @78=5: x509: malformed UTCTime
+mut 69.8 @425=140: ok 23e42c281e55ae6 CN=Root ca,O=Golang 4 RSA n=e90e7f110ce65a
+mut 69.9 @185=60: ok 23e42c281e55ae6 CN=Root ca,O=Golang 4 RSA n=e90e7f110ce65a
+mut 69.10 @37=76: x509: inner and outer signature algorithm identifiers don't match
+mut 69.11 @370=171: x509: invalid basic constraints
+trunc 69.0: x509: malformed certificate
+trunc 69.1: x509: malformed certificate
+trunc 69.2: x509: malformed certificate
+trunc 69.10: x509: malformed certificate
+trunc 69.274: x509: malformed certificate
+trunc 69.547: x509: malformed certificate
+mut 72.0 @231=105: ok 8274432c4fcca4a9 CN=X.509v1 intermediate,O=Golang 0 RSA n=c9d90ca7880393
+mut 72.1 @356=14: ok 8274432c4fcca4a9 CN=X.509v1 intermediate,O=Golang 0 RSA n=c9d90ca7880393
+mut 72.2 @447=0: ok 8274432c4fcca4a9 CN=X.509v1 intermediate,O=Golang 0 RSA n=c9d90ca7880393
+mut 72.3 @449=225: ok 8274432c4fcca4a9 CN=X.509v1 intermediate,O=Golang 0 RSA n=c9d90ca7880393
+mut 72.4 @172=237: x509: malformed subjectPublicKey
+mut 72.5 @247=95: ok 8274432c4fcca4a9 CN=X.509v1 intermediate,O=Golang 0 RSA n=c9d90ca7880393
+mut 72.6 @445=204: ok 8274432c4fcca4a9 CN=X.509v1 intermediate,O=Golang 0 RSA n=c9d90ca7880393
+mut 72.7 @233=133: ok 8274432c4fcca4a9 CN=X.509v1 intermediate,O=Golang 0 RSA n=c9d90ca7880393
+mut 72.8 @163=248: ok 8274432c4fcca4a9 CN=X.509v1 intermediate,O=Golang 0 nil
+mut 72.9 @125=15: x509: invalid RDNSequence: invalid attribute value: invalid ASN.1 element
+mut 72.10 @432=142: ok 8274432c4fcca4a9 CN=X.509v1 intermediate,O=Golang 0 RSA n=c9d90ca7880393
+mut 72.11 @311=120: x509: invalid RSA public exponent
+trunc 72.0: x509: malformed certificate
+trunc 72.1: x509: malformed certificate
+trunc 72.2: x509: malformed certificate
+trunc 72.10: x509: malformed certificate
+trunc 72.231: x509: malformed certificate
+trunc 72.461: x509: malformed certificate
+mut 75.0 @34=106: x509: inner and outer signature algorithm identifiers don't match
+mut 75.1 @634=253: ok e35a92f453c60261 CN=foo.example.com,O=TESTING 6 RSA n=c1aac929f3d57f
+mut 75.2 @775=40: ok e35a92f453c60261 CN=foo.example.com,O=TESTING 6 RSA n=c1aac929f3d57f
+mut 75.3 @424=154: ok e35a92f453c60261 CN=foo.example.com,O=TESTING 6 RSA n=c1aac929f3d57f
+mut 75.4 @30=35: x509: inner and outer signature algorithm identifiers don't match
+mut 75.5 @36=11: ok e35a92f453c60261 CN=foo.example.com,O=TESTING 6 RSA n=c1aac929f3d57f
+mut 75.6 @80=120: ok e35a92f453c60261 CN=foo.example.com,O=TESTING 6 RSA n=c1aac929f3d57f
+mut 75.7 @4=204: x509: malformed tbs certificate
+mut 75.8 @76=3: x509: invalid RDNSequence: invalid attribute value: invalid PrintableString
+mut 75.9 @240=24: ok e35a92f453c60261 CN=foo.example.com,O=TESTING 6 RSA n=c1aac929f3d57f
+mut 75.10 @531=96: x509: malformed extension OID field
+mut 75.11 @766=236: ok e35a92f453c60261 CN=foo.example.com,O=TESTING 6 RSA n=c1aac929f3d57f
+trunc 75.0: x509: malformed certificate
+trunc 75.1: x509: malformed certificate
+trunc 75.2: x509: malformed certificate
+trunc 75.10: x509: malformed certificate
+trunc 75.438: x509: malformed certificate
+trunc 75.876: x509: malformed certificate
+mut 78.0 @641=234: ok d4485a489e7ff CN=Local Root for 3392,OU=Platform Security (3734515479064602),O=Netflix Inc,L=Los Gatos,ST=California,C=US 2 RSA n=9ca67275f6f5e9
+mut 78.1 @645=4: ok d4485a489e7ff CN=Local Root for 3392,OU=Platform Security (3734515479064602),O=Netflix Inc,L=Los Gatos,ST=California,C=US 2 RSA n=9ca67275f6f5e9
+mut 78.2 @649=190: ok d4485a489e7ff CN=Local Root for 3392,OU=Platform Security (3734515479064602),O=Netflix Inc,L=Los Gatos,ST=California,C=US 2 RSA n=9ca67275f6f5e9
+mut 78.3 @67=219: x509: invalid RDNSequence: invalid attribute value: invalid UTF-8 string
+mut 78.4 @318=184: x509: invalid RDNSequence: invalid attribute type
+mut 78.5 @270=174: x509: invalid RDNSequence: invalid attribute value: invalid UTF-8 string
+mut 78.6 @247=116: ok d4485a489e7ff CN=Local Root for 3392,OU=Platform Security (3734515479064602),O=Netflix Inc,L=Los Gatos,ST=California 2 RSA n=9ca67275f6f5e9
+mut 78.7 @67=121: ok d4485a489e7ff CN=Local Root for 3392,OU=Platform Security (3734515479064602),O=Netflix Inc,L=Los Gatos,ST=California,C=US 2 RSA n=9ca67275f6f5e9
+mut 78.8 @804=77: ok d4485a489e7ff CN=Local Root for 3392,OU=Platform Security (3734515479064602),O=Netflix Inc,L=Los Gatos,ST=California,C=US 2 RSA n=9ca67275f6f5e9
+mut 78.9 @286=248: x509: invalid RDNSequence: invalid attribute value: invalid UTF-8 string
+mut 78.10 @603=96: ok d4485a489e7ff CN=Local Root for 3392,OU=Platform Security (3734515479064602),O=Netflix Inc,L=Los Gatos,ST=California,C=US 2 RSA n=9ca67275f6f5e9
+mut 78.11 @321=166: ok d4485a489e7ff CN=Local Root for 3392,O=Netflix Inc,L=Los Gatos,ST=California,C=US,2.5.4875=Platform Security (3734515479064602) 2 RSA n=9ca67275f6f5e9
+trunc 78.0: x509: malformed certificate
+trunc 78.1: x509: malformed certificate
+trunc 78.2: x509: malformed certificate
+trunc 78.10: x509: malformed certificate
+trunc 78.526: x509: malformed certificate
+trunc 78.1052: x509: malformed certificate
+mut 81.0 @260=137: x509: invalid basic constraints
+mut 81.1 @193=193: P256 point not on curve
+mut 81.2 @130=99: x509: unsupported elliptic curve
+mut 81.3 @242=67: ok 78292adc2f12397fc93393ea61397d70 O=Acme Co 4 ECDSA P-256 0484a68c
+mut 81.4 @101=76: x509: invalid RDNSequence: invalid attribute type
+mut 81.5 @202=232: P256 point not on curve
+mut 81.6 @18=94: ok 78292a5e2f12397fc93393ea61397d70 O=Acme Co 4 ECDSA P-256 0484a68c
+mut 81.7 @193=46: P256 point not on curve
+mut 81.8 @336=118: ok 78292adc2f12397fc93393ea61397d70 O=Acme Co 4 ECDSA P-256 0484a68c
+mut 81.9 @27=79: ok 78292adc2f12397fc93393ea4f397d70 O=Acme Co 4 ECDSA P-256 0484a68c
+mut 81.10 @13=47: x509: malformed serial number
+mut 81.11 @296=72: x509: malformed signature
+trunc 81.0: x509: malformed certificate
+trunc 81.1: x509: malformed certificate
+trunc 81.2: x509: malformed certificate
+trunc 81.10: x509: malformed certificate
+trunc 81.185: x509: malformed certificate
+trunc 81.370: x509: malformed certificate
+mut 84.0 @239=231: x509: malformed signature
+mut 84.1 @184=213: P256 point not on curve
+mut 84.2 @267=184: ok 0 CN=Root B 2 ECDSA P-256 048d5844
+mut 84.3 @176=113: P256 point not on curve
+mut 84.4 @28=127: x509: invalid RDNSequence
+mut 84.5 @132=90: P256 point not on curve
+mut 84.6 @141=215: P256 point not on curve
+mut 84.7 @47=138: x509: malformed validity
+mut 84.8 @164=30: P256 point not on curve
+mut 84.9 @36=189: ok 0 CN=Root B 2 ECDSA P-256 048d5844
+mut 84.10 @219=110: x509: malformed extension value field
+mut 84.11 @288=113: ok 0 CN=Root B 2 ECDSA P-256 048d5844
+trunc 84.0: x509: malformed certificate
+trunc 84.1: x509: malformed certificate
+trunc 84.2: x509: malformed certificate
+trunc 84.10: x509: malformed certificate
+trunc 84.156: x509: malformed certificate
+trunc 84.311: x509: malformed certificate
+mut 87.0 @136=164: x509: invalid RSA modulus
+mut 87.1 @192=224: ok 0 O=ca 5 RSA n=be448eb51aec4b
+mut 87.2 @227=91: ok 0 O=ca 5 RSA n=be448eb51aec4b
+mut 87.3 @105=7: x509: invalid RDNSequence: invalid attribute value: invalid PrintableString
+mut 87.4 @205=241: ok 0 O=ca 5 RSA n=be448eb51aec4b
+mut 87.5 @196=162: ok 0 O=ca 5 RSA n=be448eb51aec4b
+mut 87.6 @363=128: ok 0 O=ca 5 RSA n=be448eb51aec4b
+mut 87.7 @729=44: ok 0 O=ca 5 RSA n=be448eb51aec4b
+mut 87.8 @759=229: ok 0 O=ca 5 RSA n=be448eb51aec4b
+mut 87.9 @565=226: ok 0 O=ca 5 RSA n=be448eb51aec4b
+mut 87.10 @661=187: ok 0 O=ca 5 RSA n=be448eb51aec4b
+mut 87.11 @7=192: x509: malformed algorithm identifier
+trunc 87.0: x509: malformed certificate
+trunc 87.1: x509: malformed certificate
+trunc 87.2: x509: malformed certificate
+trunc 87.10: x509: malformed certificate
+trunc 87.383: x509: malformed certificate
+trunc 87.766: x509: malformed certificate
+mut 90.0 @206=96: P256 point not on curve
+mut 90.1 @285=130: ok bda470664aa7356a CN=Intermediate,O=Org 5 ECDSA P-256 044aa56a
+mut 90.2 @285=238: ok bda470664aa7356a CN=Intermediate,O=Org 5 ECDSA P-256 044aa56a
+mut 90.3 @274=164: ok bda470664aa7356a CN=Intermediate,O=Org 5 ECDSA P-256 044aa56a
+mut 90.4 @159=66: x509: unsupported elliptic curve
+mut 90.5 @306=97: x509: invalid subject key identifier
+mut 90.6 @292=247: x509: invalid basic constraints
+mut 90.7 @138=182: x509: malformed spki
+mut 90.8 @324=106: x509: malformed extension
+mut 90.9 @152=95: x509: malformed parameters
+mut 90.10 @411=184: ok bda470664aa7356a CN=Intermediate,O=Org 5 ECDSA P-256 044aa56a
+mut 90.11 @173=215: P256 point not on curve
+trunc 90.0: x509: malformed certificate
+trunc 90.1: x509: malformed certificate
+trunc 90.2: x509: malformed certificate
+trunc 90.10: x509: malformed certificate
+trunc 90.219: x509: malformed certificate
+trunc 90.438: x509: malformed certificate
+mut 93.0 @281=186: x509: malformed extension
+mut 93.1 @21=91: ok da161489615b8f4c CN=example.com,O=Org 5 ECDSA P-256 046d4b7e
+mut 93.2 @245=15: P256 point not on curve
+mut 93.3 @42=231: x509: invalid RDNSequence: invalid attribute type
+mut 93.4 @261=17: x509: malformed extensions
+mut 93.5 @316=55: ok da16148961088f4c CN=example.com,O=Org 5 ECDSA P-256 046d4b7e
+mut 93.6 @432=222: ok da16148961088f4c CN=example.com,O=Org 5 ECDSA P-256 046d4b7e
+mut 93.7 @445=199: ok da16148961088f4c CN=example.com,O=Org 5 ECDSA P-256 046d4b7e
+mut 93.8 @100=79: x509: malformed issuer
+mut 93.9 @192=210: x509: malformed subjectPublicKey
+mut 93.10 @400=3: ok da16148961088f4c CN=example.com,O=Org 5 ECDSA P-256 046d4b7e
+mut 93.11 @197=85: P256 point not on curve
+trunc 93.0: x509: malformed certificate
+trunc 93.1: x509: malformed certificate
+trunc 93.2: x509: malformed certificate
+trunc 93.10: x509: malformed certificate
+trunc 93.233: x509: malformed certificate
+trunc 93.466: x509: malformed certificate
+mut 96.0 @349=84: x509: invalid basic constraints
+mut 96.1 @35=11: x509: invalid RDNSequence: invalid attribute
+mut 96.2 @382=95: x509: invalid basic constraints
+mut 96.3 @134=114: x509: invalid basic constraints
+mut 96.4 @270=0: x509: malformed extension value field
+mut 96.5 @319=196: x509: inner and outer signature algorithm identifiers don't match
+mut 96.6 @307=211: x509: invalid basic constraints
+mut 96.7 @280=254: ok 1 CN=TEST 2 RSA n=b1a1e0945b9289
+mut 96.8 @110=51: x509: invalid basic constraints
+mut 96.9 @106=220: x509: invalid basic constraints
+mut 96.10 @77=61: x509: malformed UTCTime
+mut 96.11 @167=217: x509: invalid basic constraints
+trunc 96.0: x509: malformed certificate
+trunc 96.1: x509: malformed certificate
+trunc 96.2: x509: malformed certificate
+trunc 96.10: x509: malformed certificate
+trunc 96.230: x509: malformed certificate
+trunc 96.460: x509: malformed certificate
+mut 99.0 @823=205: ok 137d4565568f5d35 CN=mail.google.com,O=Google Inc,L=Mountain View,ST=California,C=US 9 ECDSA P-256 047d1ace
+mut 99.1 @715=51: ok 137d4565568f5d35 CN=mail.google.com,O=Google Inc,L=Mountain View,ST=California,C=US 9 ECDSA P-256 047d1ace
+mut 99.2 @461=127: ok 137d4565568f5d35 CN=mail.google.com,O=Google Inc,L=Mountain View,ST=California,C=US 9 ECDSA P-256 047d1ace
+mut 99.3 @515=228: ok 137d4565568f5d35 CN=mail.google.com,O=Google Inc,L=Mountain View,ST=California,C=US 9 ECDSA P-256 047d1ace
+mut 99.4 @90=174: x509: invalid RDNSequence: invalid attribute value: invalid PrintableString
+mut 99.5 @273=168: x509: unsupported elliptic curve
+mut 99.6 @554=119: ok 137d4565568f5d35 CN=mail.google.com,O=Google Inc,L=Mountain View,ST=California,C=US 9 ECDSA P-256 047d1ace
+mut 99.7 @728=253: ok 137d4565568f5d35 CN=mail.google.com,O=Google Inc,L=Mountain View,ST=California,C=US 9 ECDSA P-256 047d1ace
+mut 99.8 @957=182: ok 137d4565568f5d35 CN=mail.google.com,O=Google Inc,L=Mountain View,ST=California,C=US 9 ECDSA P-256 047d1ace
+mut 99.9 @586=29: x509: invalid authority key identifier
+mut 99.10 @649=7: ok 137d4565568f5d35 CN=mail.google.com,O=Google Inc,L=Mountain View,ST=California,C=US 9 ECDSA P-256 047d1ace
+mut 99.11 @330=5: P256 point not on curve
+trunc 99.0: x509: malformed certificate
+trunc 99.1: x509: malformed certificate
+trunc 99.2: x509: malformed certificate
+trunc 99.10: x509: malformed certificate
+trunc 99.479: x509: malformed certificate
+trunc 99.957: x509: malformed certificate
+crl 0 issuer=SERIALNUMBER=SN-1,CN=Kite Root CA,OU=Unit A+OU=Unit\+B,O=Kite Test\, Inc.,POSTALCODE=94000,STREET=1 Main St,L=Somewhere,ST=CA,C=US sigalg=SHA256-RSA this=1577934245/0 next=2524607999/0 num=1 akid=3109b2ec7dd3fc37b8cc1588b645adf6b075859e exts=[2.5.29.35/false/24 2.5.29.20/false/3] raw=562/282/181/15 sig=256
+  revoked 0
+  mut 0 @67=197: x509: invalid RDNSequence: invalid attribute value: invalid PrintableString
+  mut 1 @497=113: ok 0
+  mut 2 @112=13: x509: invalid RDNSequence: invalid attribute
+  mut 3 @285=220: ok 0
+  mut 4 @20=187: x509: inner and outer signature algorithm identifiers don't match
+  mut 5 @56=131: x509: invalid RDNSequence
+  mut 6 @118=107: ok 0
+  mut 7 @41=98: ok 0
+  mut 8 @374=120: ok 0
+  mut 9 @559=53: ok 0
+  mut 10 @196=255: x509: invalid RDNSequence: invalid attribute type
+  mut 11 @284=120: x509: malformed crl number
+  mut 12 @537=220: ok 0
+  mut 13 @262=102: ok 0
+  mut 14 @110=171: x509: invalid RDNSequence: invalid attribute value: invalid PrintableString
+  mut 15 @296=252: x509: inner and outer signature algorithm identifiers don't match
+  mut 16 @128=199: x509: invalid RDNSequence: invalid attribute value: invalid PrintableString
+  mut 17 @294=246: x509: inner and outer signature algorithm identifiers don't match
+  mut 18 @155=77: x509: invalid RDNSequence: invalid attribute
+  mut 19 @428=207: ok 0
+crl 1 issuer=SERIALNUMBER=SN-1,CN=Kite Root CA,OU=Unit A+OU=Unit\+B,O=Kite Test\, Inc.,POSTALCODE=94000,STREET=1 Main St,L=Somewhere,ST=CA,C=US sigalg=SHA256-RSA this=1577934245/0 next=2524607999/0 num=2 akid=3109b2ec7dd3fc37b8cc1588b645adf6b075859e exts=[2.5.29.35/false/24 2.5.29.20/false/3 1.2.3.9/false/3] raw=686/406/181/15 sig=256
+  entry serial=64 time=1577934245/0 reason=1 exts=[2.5.29.21/false/3] raw=34
+  entry serial=65 time=2524607999/0 reason=0 exts=[] raw=20
+  entry serial=10000000000000000000000000 time=1577934245/0 reason=6 exts=[1.2.3/false/2 2.5.29.21/false/3] raw=56
+  revoked 3
+  mut 0 @119=25: ok 3
+  mut 1 @522=196: ok 3
+  mut 2 @248=199: x509: malformed UTCTime
+  mut 3 @68=209: x509: invalid RDNSequence: invalid attribute value: invalid PrintableString
+  mut 4 @469=178: ok 3
+  mut 5 @0=178: x509: malformed crl
+  mut 6 @21=247: x509: inner and outer signature algorithm identifiers don't match
+  mut 7 @563=227: ok 3
+  mut 8 @14=114: x509: inner and outer signature algorithm identifiers don't match
+  mut 9 @52=159: x509: invalid RDNSequence: invalid attribute value: invalid ASN.1 element
+  mut 10 @540=191: ok 3
+  mut 11 @163=227: x509: invalid RDNSequence: invalid attribute value: invalid PrintableString
+  mut 12 @426=57: ok 3
+  mut 13 @428=107: x509: malformed signature
+  mut 14 @683=253: ok 3
+  mut 15 @508=178: ok 3
+  mut 16 @441=231: ok 3
+  mut 17 @413=245: x509: inner and outer signature algorithm identifiers don't match
+  mut 18 @3=147: x509: malformed signature
+  mut 19 @632=48: ok 3
+crl 2 issuer=SERIALNUMBER=SN-1,CN=Kite Root CA,OU=Unit A+OU=Unit\+B,O=Kite Test\, Inc.,POSTALCODE=94000,STREET=1 Main St,L=Somewhere,ST=CA,C=US sigalg=SHA256-RSA this=2840140800/0 next=2871763200/0 num=700000000000000000000 akid=3109b2ec7dd3fc37b8cc1588b645adf6b075859e exts=[2.5.29.35/false/24 2.5.29.20/false/13] raw=576/296/181/15 sig=256
+  revoked 0
+  mut 0 @140=92: x509: invalid RDNSequence: invalid attribute
+  mut 1 @566=31: ok 0
+  mut 2 @379=95: ok 0
+  mut 3 @17=61: x509: inner and outer signature algorithm identifiers don't match
+  mut 4 @573=120: ok 0
+  mut 5 @239=200: x509: malformed GeneralizedTime
+  mut 6 @353=66: ok 0
+  mut 7 @59=186: x509: invalid RDNSequence: invalid attribute type
+  mut 8 @305=27: x509: inner and outer signature algorithm identifiers don't match
+  mut 9 @162=207: x509: invalid RDNSequence: invalid attribute value: invalid ASN.1 element
+  mut 10 @570=29: ok 0
+  mut 11 @528=133: ok 0
+  mut 12 @392=37: ok 0
+  mut 13 @369=22: ok 0
+  mut 14 @295=206: ok 0
+  mut 15 @48=127: ok 0
+  mut 16 @98=118: x509: invalid RDNSequence: invalid attribute
+  mut 17 @315=124: x509: malformed signature
+  mut 18 @6=55: x509: malformed tbs crl
+  mut 19 @251=136: x509: malformed extension OID field
+pkix 0: RSA n=ad790859f41b8bedf950f23616e059d50841f480ea5a5ee7e8a3b0ec001fce51323b1afd3b4688a939979eb87ee5a1dbc4ea7cdc49ffe36dc53ec1190754cde1f35a0be1875a400b1bbfd8016813619eb00afe3fcc4bea2f68d75da876bb31200249d5b8aa707a27e48164874fbdb19eb091a6332c068c3e724c346a29d6c5a53f434c311aecc1f8101e6901e0eaf34b593c2398466f6074ec5b66b25c4d255730e603ebde2bfec96bd78ca636e35eda55a18f3116c289bb5dfb9f1b4b5d9ecb415130ef41137e27fa8c35b724749c85b99c3a45347d93f69e4b95b3e878dad3914986cf827d3bcbff2af38426bcc297e4b03ea036ec72af14ae4799de5bd8e9 e=65537 <nil>
+pkix 1: ECDSA P-256 04e523247115f5a070ff39a04292501cb8d7cdf2e20bcb18dbcd767533a943728144e6863d7d373a6d7c51e2ffda266e4638721948bddf95517cb28fe4dfb80ff0 <nil>
+pkix 2: ECDSA P-384 0419259dced19196dcc4a800dce15bc8c83877799ff8c49e419a0588d07af6e94fcfb4ff1a6a919ca377734a684b9be612622ecfe77a056a39e4d483621ba9c04980fcbe810860143cc50493fa8bdfa27a6b53fe866367f58cf479bfc7a22b0422 <nil>
+pkix 3: ECDSA P-521 0401b3c495a48a057d7936e30f8a58d86be3e01e9e94c7afbafa61e66665380810c193681d95ca55a4f791b70c880f57673ef049252d09a159ce155f893d87a3c434ac003a1045b8a5538a4e3935d735cc84f6cd60617342631f384a86d7af8fa3da7be1af59da69106a45d394562de55bb7ef82b50b9efd0a5c3537adaaf1ff0a8bbc0e51 <nil>
+pkix 4: Ed25519 cbef0c79e7ffdf5292a356c3c8c3e15f066df18420a81fa50e98ba7f0aa44ee3 <nil>
+pkix 5: X25519 d4e83be3c75dad9fc5b4d1d16e19b9673288fd13155be724276cc634a5f78c3e <nil>
+pkix 6: MLDSA ML-DSA-44 1312 <nil>
+pkix 7: nil x509: failed to parse public key (use ParsePKCS1PublicKey instead for this key format)
+pkix "": nil asn1: syntax error: sequence truncated
+pkix "3000": nil asn1: syntax error: sequence truncated
+pkix "300d06092a864886f70d0101010500": nil asn1: structure error: tags don't match (16 vs {class:0 tag:6 length:9 isCompound:false}) {optional:false explicit:false application:false private:false defaultValue:<nil> tag:<nil> stringType:0 timeType:0 set:false omitEmpty:false} AlgorithmIdentifier @2
+pkix "3003020101": nil asn1: structure error: tags don't match (16 vs {class:0 tag:2 length:1 isCompound:false}) {optional:false explicit:false application:false private:false defaultValue:<nil> tag:<nil> stringType:0 timeType:0 set:false omitEmpty:false} AlgorithmIdentifier @2
+pkix "30050603550403": nil asn1: structure error: tags don't match (16 vs {class:0 tag:6 length:3 isCompound:false}) {optional:false explicit:false application:false private:false defaultValue:<nil> tag:<nil> stringType:0 timeType:0 set:false omitEmpty:false} AlgorithmIdentifier @2
+oid "1.2.3": 1.2.3 2a03
+oid "0.39": 0.39 27
+oid "0.40": invalid oid
+oid "1.39.5": 1.39.5 4f05
+oid "2.999.1": 2.999.1 883701
+oid "2.18446744073709551616.1": 2.18446744073709551616.1 8280808080808080805001
+oid "3.1": invalid oid
+oid "1": invalid oid
+oid "1.": invalid oid
+oid ".1": invalid oid
+oid "1..2": invalid oid
+oid "1.2.a": invalid oid
+oid "1.2.340282366920938463463374607431768211456": 1.2.340282366920938463463374607431768211456 2a84808080808080808080808080808080808000
+oid "2.5.29.32.0": 2.5.29.32.0 551d2000
+oid "00.01.002": 0.1.2 0102
+ints [1 2 3] 1.2.3 true
+ints [2 100 9223372036854775808] 2.100.9223372036854775808 false
+ints [0 39] 0.39 false
+ints [1 40] invalid oid
+ints [3 0] invalid oid
+ints [2] invalid oid
+ints [2 18446744073709551615] 1.39 false
+der 2a03: <nil> 1.2.3
+der 8001: invalid oid 
+der 2a80: invalid oid 
+der : invalid oid 
+der 2a8f: invalid oid 
+der 883703: <nil> 2.999.3
+der ffffffffffffffffff01: <nil> 2.1180591620717411303217

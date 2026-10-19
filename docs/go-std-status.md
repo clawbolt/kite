@@ -37,9 +37,12 @@ image/color/palette、path/filepath、go/constant、net/http/cookiejar、crypto/
 ## 第二批（进行中）
 - debug/elf（2026-10-19 完成；tests/go/testdata/elf 里 27 个 Go 测试 ELF；不含 DWARF() / 重定位 / zstd）
 - text/template/parse（2026-10-19 完成；std.text.template.parse，1540 行对拍输出与 Go 逐字节一致；出错时不返回部分树集）
+- crypto/x509（进行中）：第一步完成（2026-10-19）——std.crypto.cryptobyte（x/crypto/cryptobyte 读取部分）、std.crypto.x509.pkix、
+  std.crypto.x509 的证书 / CRL / PKIX 公钥解析和 OID；tests/go/x509 对 100 张证书（生成器造的 + Go 测试源码里的）、3 个 CRL、
+  8 个公钥、约 500 个变异 / 截断输入，2199 行与 Go 逐字节一致。下一步：CSR、PKCS#1/#8/SEC1、签名校验、链验证与名称约束、签发
 
 ## 可以做（纯数据 / 算法，计划后续批次）
-- crypto/x509、crypto/x509/pkix、crypto/hpke
+- crypto/hpke
 - encoding/gob（值用类似 fmt.Arg 的枚举表示）
 - debug/dwarf、debug/macho、debug/pe、debug/plan9obj
 - html/template（上下文转义）

@@ -1,0 +1,1773 @@
+// std.crypto.x509：对齐 Go 1.27 的 crypto/x509（第一部分：解析）
+//   parse_certificate(der) / parse_certificates(der) -> Certificate、parse_revocation_list(der) -> RevocationList、
+//   parse_pkix_public_key(der) -> PublicKey；OID（parse_oid、oid_from_ints、oid_from_asn1_oid、oid_string、
+//   oid_equal_asn1_oid、oid_to_asn1）；算法名 signature_algorithm_string / public_key_algorithm_string
+//   公钥是枚举 PublicKey：RSAKey(rsa.PublicKey)、DSAKey、ECDSAKey(ecdsa.PublicKey，curve 0 表示 P-224)、Ed25519Key(字节)、
+//     X25519Key(ecdh.PublicKey)、MLDSAKey、NoKey（未知算法）
+//   时间是 asn1.Time；IP 地址是字节列表（4 或 16 字节），IPNet = { ip, mask }；URI 是 std.net.url 的 URL
+//   错误文字与 Go 相同
+// 与 Go 的差别：Kite 的 Str 必须是合法 UTF-8，DER 里不合法的字节串（CRL 分发点、OCSP 地址等）按 U+FFFD 替换
+use std.encoding.asn1
+use std.encoding.asn1.{ Val, Ty, Time, RawValue, BitString }
+use std.crypto.cryptobyte as cb
+use std.crypto.x509.pkix
+use std.crypto.x509.pkix.{
+  Name,
+  Extension,
+  AttributeTypeAndValue,
+  AlgorithmIdentifier,
+  RevokedCertificate,
+}
+use std.crypto.rsa
+use std.crypto.dsa
+use std.crypto.ecdsa
+use std.crypto.ecdh
+use std.crypto.mldsa
+use std.crypto.internal.nistec
+use std.math.big
+use std.math.big.{ BigInt }
+use std.net.url
+use std.net.netip
+use std.strconv
+use std.math.bits
+
+// ───────── 算法 ─────────
+
+pub const UNKNOWN_SIGNATURE_ALGORITHM: Int = 0
+pub const MD2_WITH_RSA: Int = 1
+pub const MD5_WITH_RSA: Int = 2
+pub const SHA1_WITH_RSA: Int = 3
+pub const SHA256_WITH_RSA: Int = 4
+pub const SHA384_WITH_RSA: Int = 5
+pub const SHA512_WITH_RSA: Int = 6
+pub const DSA_WITH_SHA1: Int = 7
+pub const DSA_WITH_SHA256: Int = 8
+pub const ECDSA_WITH_SHA1: Int = 9
+pub const ECDSA_WITH_SHA256: Int = 10
+pub const ECDSA_WITH_SHA384: Int = 11
+pub const ECDSA_WITH_SHA512: Int = 12
+pub const SHA256_WITH_RSAPSS: Int = 13
+pub const SHA384_WITH_RSAPSS: Int = 14
+pub const SHA512_WITH_RSAPSS: Int = 15
+pub const PURE_ED25519: Int = 16
+pub const MLDSA44: Int = 17
+pub const MLDSA65: Int = 18
+pub const MLDSA87: Int = 19
+
+pub const UNKNOWN_PUBLIC_KEY_ALGORITHM: Int = 0
+pub const RSA: Int = 1
+pub const DSA: Int = 2
+pub const ECDSA: Int = 3
+pub const ED25519: Int = 4
+pub const MLDSA: Int = 5
+
+pub const KEY_USAGE_DIGITAL_SIGNATURE: Int = 1
+pub const KEY_USAGE_CONTENT_COMMITMENT: Int = 2
+pub const KEY_USAGE_KEY_ENCIPHERMENT: Int = 4
+pub const KEY_USAGE_DATA_ENCIPHERMENT: Int = 8
+pub const KEY_USAGE_KEY_AGREEMENT: Int = 16
+pub const KEY_USAGE_CERT_SIGN: Int = 32
+pub const KEY_USAGE_CRL_SIGN: Int = 64
+pub const KEY_USAGE_ENCIPHER_ONLY: Int = 128
+pub const KEY_USAGE_DECIPHER_ONLY: Int = 256
+
+pub const EXT_KEY_USAGE_ANY: Int = 0
+pub const EXT_KEY_USAGE_SERVER_AUTH: Int = 1
+pub const EXT_KEY_USAGE_CLIENT_AUTH: Int = 2
+pub const EXT_KEY_USAGE_CODE_SIGNING: Int = 3
+pub const EXT_KEY_USAGE_EMAIL_PROTECTION: Int = 4
+pub const EXT_KEY_USAGE_IPSEC_END_SYSTEM: Int = 5
+pub const EXT_KEY_USAGE_IPSEC_TUNNEL: Int = 6
+pub const EXT_KEY_USAGE_IPSEC_USER: Int = 7
+pub const EXT_KEY_USAGE_TIME_STAMPING: Int = 8
+pub const EXT_KEY_USAGE_OCSP_SIGNING: Int = 9
+pub const EXT_KEY_USAGE_MICROSOFT_SERVER_GATED_CRYPTO: Int = 10
+pub const EXT_KEY_USAGE_NETSCAPE_SERVER_GATED_CRYPTO: Int = 11
+pub const EXT_KEY_USAGE_MICROSOFT_COMMERCIAL_CODE_SIGNING: Int = 12
+pub const EXT_KEY_USAGE_MICROSOFT_KERNEL_CODE_SIGNING: Int = 13
+
+const OID_RSA: List<Int> = [1, 2, 840, 113549, 1, 1, 1]
+const OID_DSA: List<Int> = [1, 2, 840, 10040, 4, 1]
+const OID_ECDSA: List<Int> = [1, 2, 840, 10045, 2, 1]
+const OID_X25519: List<Int> = [1, 3, 101, 110]
+const OID_ED25519: List<Int> = [1, 3, 101, 112]
+const OID_MLDSA44: List<Int> = [2, 16, 840, 1, 101, 3, 4, 3, 17]
+const OID_MLDSA65: List<Int> = [2, 16, 840, 1, 101, 3, 4, 3, 18]
+const OID_MLDSA87: List<Int> = [2, 16, 840, 1, 101, 3, 4, 3, 19]
+const OID_RSAPSS: List<Int> = [1, 2, 840, 113549, 1, 1, 10]
+const OID_SHA256: List<Int> = [2, 16, 840, 1, 101, 3, 4, 2, 1]
+const OID_SHA384: List<Int> = [2, 16, 840, 1, 101, 3, 4, 2, 2]
+const OID_SHA512: List<Int> = [2, 16, 840, 1, 101, 3, 4, 2, 3]
+const OID_MGF1: List<Int> = [1, 2, 840, 113549, 1, 1, 8]
+const NULL_BYTES: List<Int> = [5, 0]
+
+// (算法, 名字, OID, 公钥算法, 哈希, 是否 PSS)
+pub type SigDetail = { algo: Int, name: Str, oid: List<Int>, pub_algo: Int, hash: Int, pss: Bool }
+
+fn sd(algo: Int, name: Str, oid: List<Int>, pub_algo: Int, hash: Int, pss: Bool) -> SigDetail {
+  SigDetail { algo: algo, name: name, oid: oid, pub_algo: pub_algo, hash: hash, pss: pss }
+}
+
+pub fn signature_algorithm_details() -> List<SigDetail> {
+  [
+    sd(MD5_WITH_RSA, "MD5-RSA", [1, 2, 840, 113549, 1, 1, 4], RSA, 2, false),
+    sd(SHA1_WITH_RSA, "SHA1-RSA", [1, 2, 840, 113549, 1, 1, 5], RSA, 3, false),
+    sd(SHA1_WITH_RSA, "SHA1-RSA", [1, 3, 14, 3, 2, 29], RSA, 3, false),
+    sd(SHA256_WITH_RSA, "SHA256-RSA", [1, 2, 840, 113549, 1, 1, 11], RSA, 5, false),
+    sd(SHA384_WITH_RSA, "SHA384-RSA", [1, 2, 840, 113549, 1, 1, 12], RSA, 6, false),
+    sd(SHA512_WITH_RSA, "SHA512-RSA", [1, 2, 840, 113549, 1, 1, 13], RSA, 7, false),
+    sd(SHA256_WITH_RSAPSS, "SHA256-RSAPSS", OID_RSAPSS, RSA, 5, true),
+    sd(SHA384_WITH_RSAPSS, "SHA384-RSAPSS", OID_RSAPSS, RSA, 6, true),
+    sd(SHA512_WITH_RSAPSS, "SHA512-RSAPSS", OID_RSAPSS, RSA, 7, true),
+    sd(DSA_WITH_SHA1, "DSA-SHA1", [1, 2, 840, 10040, 4, 3], DSA, 3, false),
+    sd(DSA_WITH_SHA256, "DSA-SHA256", [2, 16, 840, 1, 101, 3, 4, 3, 2], DSA, 5, false),
+    sd(ECDSA_WITH_SHA1, "ECDSA-SHA1", [1, 2, 840, 10045, 4, 1], ECDSA, 3, false),
+    sd(ECDSA_WITH_SHA256, "ECDSA-SHA256", [1, 2, 840, 10045, 4, 3, 2], ECDSA, 5, false),
+    sd(ECDSA_WITH_SHA384, "ECDSA-SHA384", [1, 2, 840, 10045, 4, 3, 3], ECDSA, 6, false),
+    sd(ECDSA_WITH_SHA512, "ECDSA-SHA512", [1, 2, 840, 10045, 4, 3, 4], ECDSA, 7, false),
+    sd(PURE_ED25519, "Ed25519", OID_ED25519, ED25519, 0, false),
+    sd(MLDSA44, "ML-DSA-44", OID_MLDSA44, MLDSA, 0, false),
+    sd(MLDSA65, "ML-DSA-65", OID_MLDSA65, MLDSA, 0, false),
+    sd(MLDSA87, "ML-DSA-87", OID_MLDSA87, MLDSA, 0, false),
+  ]
+}
+
+pub fn signature_algorithm_string(algo: Int) -> Str {
+  for d in signature_algorithm_details() { if d.algo == algo { return d.name } }
+  "{algo}"
+}
+
+pub fn public_key_algorithm_string(algo: Int) -> Str {
+  let names = ["", "RSA", "DSA", "ECDSA", "Ed25519", "ML-DSA"]
+  if algo > 0 && algo < len(names) { names[algo] } else { "{algo}" }
+}
+
+const EKU_OIDS: List<List<Int>> = [
+  [2, 5, 29, 37, 0],
+  [1, 3, 6, 1, 5, 5, 7, 3, 1],
+  [1, 3, 6, 1, 5, 5, 7, 3, 2],
+  [1, 3, 6, 1, 5, 5, 7, 3, 3],
+  [1, 3, 6, 1, 5, 5, 7, 3, 4],
+  [1, 3, 6, 1, 5, 5, 7, 3, 5],
+  [1, 3, 6, 1, 5, 5, 7, 3, 6],
+  [1, 3, 6, 1, 5, 5, 7, 3, 7],
+  [1, 3, 6, 1, 5, 5, 7, 3, 8],
+  [1, 3, 6, 1, 5, 5, 7, 3, 9],
+  [1, 3, 6, 1, 4, 1, 311, 10, 3, 3],
+  [2, 16, 840, 1, 113730, 4, 1],
+  [1, 3, 6, 1, 4, 1, 311, 2, 1, 22],
+  [1, 3, 6, 1, 4, 1, 311, 61, 1, 1],
+]
+
+pub fn ext_key_usage_string(e: Int) -> Str {
+  let names = [
+    "anyExtendedKeyUsage",
+    "serverAuth",
+    "clientAuth",
+    "codeSigning",
+    "emailProtection",
+    "ipsecEndSystem",
+    "ipsecTunnel",
+    "ipsecUser",
+    "timeStamping",
+    "OCSPSigning",
+    "msSGC",
+    "nsSGC",
+    "msCodeCom",
+    "msKernelCode",
+  ]
+  if e >= 0 && e < len(names) { names[e] } else { "ExtKeyUsage({e})" }
+}
+
+pub fn key_usage_string(k: Int) -> Str {
+  let names = [
+    "digitalSignature",
+    "contentCommitment",
+    "keyEncipherment",
+    "dataEncipherment",
+    "keyAgreement",
+    "keyCertSign",
+    "cRLSign",
+    "encipherOnly",
+    "decipherOnly",
+  ]
+  var i = 0
+  while i < len(names) {
+    if k == (1 << i) { return names[i] }
+    i += 1
+  }
+  "KeyUsage({k})"
+}
+
+pub fn ext_key_usage_from_oid(oid: List<Int>) -> Int? {
+  var i = 0
+  while i < len(EKU_OIDS) {
+    if EKU_OIDS[i] == oid { return Some(i) }
+    i += 1
+  }
+  None
+}
+
+pub fn oid_from_ext_key_usage(eku: Int) -> List<Int>? {
+  if eku >= 0 && eku < len(EKU_OIDS) { Some(EKU_OIDS[eku]) } else { None }
+}
+
+// ───────── OID（oid.go）─────────
+
+pub type OID = { der: List<Int> }
+
+fn new_oid_from_der(der: List<Int>) -> OID? {
+  if len(der) == 0 || der[len(der) - 1] & 0x80 != 0 { return None }
+  var start = 0
+  var i = 0
+  for v in der {
+    if i == start && v == 0x80 { return None }
+    if v & 0x80 == 0 { start = i + 1 }
+    i += 1
+  }
+  Some(OID { der: der })
+}
+
+fn low7(n: BigInt) -> Int {
+  let b = n.bytes()
+  if len(b) == 0 { 0 } else { b[len(b) - 1] & 0x7f }
+}
+
+fn low7big(n: BigInt) -> Int {
+  var v = 0
+  for b in n.bytes() { v = (v << 8) | b }
+  v
+}
+
+fn append_base128_big(dst: List<Int>, n: BigInt) -> List<Int> {
+  if n.sign() == 0 { return push(dst, 0) }
+  let l = (n.bit_len() + 6) / 7
+  var out = dst
+  var i = l - 1
+  while i >= 0 {
+    var o = low7(n.rsh(i * 7))
+    if i != 0 { o = o | 0x80 }
+    out = push(out, o)
+    i -= 1
+  }
+  out
+}
+
+pub fn oid_from_ints(oid: List<Int>) -> Result<OID, Str> {
+  // 分量是 uint64（以 Int 位模式给出）
+  if len(oid) < 2
+    || big.new_uint64(oid[0]).cmp(big.new_int(2)) > 0
+    || (oid[0] >= 0 && oid[0] < 2 && big.new_uint64(oid[1]).cmp(big.new_int(40)) >= 0) {
+    return Err("invalid oid")
+  }
+  // 同 Go：第一个分量 oid[0]*40+oid[1] 按 uint64 回绕
+  var der = append_base128_big([], big.new_uint64(bits.wadd(bits.wmul(oid[0], 40), oid[1])))
+  var i = 2
+  while i < len(oid) {
+    der = append_base128_big(der, big.new_uint64(oid[i]))
+    i += 1
+  }
+  Ok(OID { der: der })
+}
+
+pub fn oid_from_asn1_oid(o: List<Int>) -> Result<OID, Str> {
+  for c in o { if c < 0 { return Err("x509: OID components must be non-negative") } }
+  oid_from_ints(o)
+}
+
+fn all_digits(s: Str) -> Bool {
+  if s == "" { return false }
+  for c in chars(s) { if c < "0" || c > "9" { return false } }
+  true
+}
+
+pub fn parse_oid(s: Str) -> Result<OID, Str> {
+  for c in chars(s) { if !(c >= "0" && c <= "9") && c != "." { return Err("invalid oid") } }
+  let parts = split(s, ".")
+  if len(parts) < 2 { return Err("invalid oid") }
+  for p in parts { if !all_digits(p) { return Err("invalid oid") } }
+  let first = unwrap(big.parse(parts[0], 10))
+  let second = unwrap(big.parse(parts[1], 10))
+  let two = big.new_int(2)
+  if first.cmp(two) > 0 || (first.cmp(two) < 0 && second.cmp(big.new_int(40)) >= 0) {
+    return Err("invalid oid")
+  }
+  var der = append_base128_big([], first.mul(big.new_int(40)).add(second))
+  var i = 2
+  while i < len(parts) {
+    der = append_base128_big(der, unwrap(big.parse(parts[i], 10)))
+    i += 1
+  }
+  Ok(OID { der: der })
+}
+
+pub fn oid_from_der(b: List<Int>) -> Result<OID, Str> {
+  match new_oid_from_der(b) {
+    Some(o) => Ok(o),
+    None => Err("invalid oid"),
+  }
+}
+
+pub fn oid_equal(a: OID, b: OID) -> Bool { a.der == b.der }
+
+pub fn oid_string(o: OID) -> Str {
+  var out = ""
+  var v = big.zero()
+  var first = true
+  for b in o.der {
+    v = v.lsh(7).or(big.new_int(b & 0x7f))
+    if b & 0x80 == 0 {
+      if first {
+        if v.cmp(big.new_int(80)) < 0 {
+          let x = low7big(v)
+          out = "{x / 40}.{x % 40}"
+        } else {
+          out = "2." + v.sub(big.new_int(80)).string()
+        }
+        first = false
+      } else {
+        out = out + "." + v.string()
+      }
+      v = big.zero()
+    }
+  }
+  out
+}
+
+pub fn oid_to_asn1(o: OID) -> List<Int>? {
+  var out: List<Int> = []
+  var val = 0
+  for v in o.der {
+    if val > (1 << 24) - 1 { return None }
+    val = (val << 7) | (v & 0x7f)
+    if v & 0x80 == 0 {
+      if len(out) == 0 {
+        if val < 80 { out = [val / 40, val % 40] } else { out = [2, val - 80] }
+      } else {
+        out = push(out, val)
+      }
+      val = 0
+    }
+  }
+  Some(out)
+}
+
+pub fn oid_equal_asn1_oid(o: OID, other: List<Int>) -> Bool {
+  match oid_to_asn1(o) {
+    Some(x) => x == other && len(other) >= 2,
+    None => false,
+  }
+}
+
+// ───────── 证书 ─────────
+
+pub enum PublicKey {
+  NoKey
+  RSAKey(rsa.PublicKey)
+  DSAKey(dsa.PublicKey)
+  ECDSAKey(ecdsa.PublicKey)
+  Ed25519Key(List<Int>)
+  X25519Key(ecdh.PublicKey)
+  MLDSAKey(mldsa.PublicKey)
+}
+
+pub type IPNet = { ip: List<Int>, mask: List<Int> }
+
+pub type PolicyMapping = { issuer_domain_policy: OID, subject_domain_policy: OID }
+
+pub type Certificate = {
+  raw: List<Int>,
+  raw_tbs_certificate: List<Int>,
+  raw_subject_public_key_info: List<Int>,
+  raw_subject: List<Int>,
+  raw_issuer: List<Int>,
+  raw_signature_algorithm: List<Int>,
+  signature: List<Int>,
+  signature_algorithm: Int,
+  public_key_algorithm: Int,
+  public_key: PublicKey,
+  version: Int,
+  serial_number: BigInt,
+  issuer: Name,
+  subject: Name,
+  not_before: Time,
+  not_after: Time,
+  key_usage: Int,
+  extensions: List<Extension>,
+  unhandled_critical_extensions: List<List<Int>>,
+  ext_key_usage: List<Int>,
+  unknown_ext_key_usage: List<List<Int>>,
+  basic_constraints_valid: Bool,
+  is_ca: Bool,
+  max_path_len: Int,
+  max_path_len_zero: Bool,
+  subject_key_id: List<Int>,
+  authority_key_id: List<Int>,
+  ocsp_server: List<Str>,
+  issuing_certificate_url: List<Str>,
+  dns_names: List<Str>,
+  email_addresses: List<Str>,
+  ip_addresses: List<List<Int>>,
+  uris: List<url.URL>,
+  permitted_dns_domains_critical: Bool,
+  permitted_dns_domains: List<Str>,
+  excluded_dns_domains: List<Str>,
+  permitted_ip_ranges: List<IPNet>,
+  excluded_ip_ranges: List<IPNet>,
+  permitted_email_addresses: List<Str>,
+  excluded_email_addresses: List<Str>,
+  permitted_uri_domains: List<Str>,
+  excluded_uri_domains: List<Str>,
+  crl_distribution_points: List<Str>,
+  policy_identifiers: List<List<Int>>,
+  policies: List<OID>,
+  inhibit_any_policy: Int,
+  inhibit_any_policy_zero: Bool,
+  inhibit_policy_mapping: Int,
+  inhibit_policy_mapping_zero: Bool,
+  require_explicit_policy: Int,
+  require_explicit_policy_zero: Bool,
+  policy_mappings: List<PolicyMapping>,
+}
+
+const ZERO_TIME: Time = Time { unix: -62135596800, nsec: 0, offset: 0 }
+
+pub fn zero_time() -> Time { Time { unix: -62135596800, nsec: 0, offset: 0 } }
+
+pub fn empty_certificate() -> Certificate {
+  Certificate {
+    raw: [],
+    raw_tbs_certificate: [],
+    raw_subject_public_key_info: [],
+    raw_subject: [],
+    raw_issuer: [],
+    raw_signature_algorithm: [],
+    signature: [],
+    signature_algorithm: 0,
+    public_key_algorithm: 0,
+    public_key: PublicKey.NoKey,
+    version: 0,
+    serial_number: big.zero(),
+    issuer: pkix.empty_name(),
+    subject: pkix.empty_name(),
+    not_before: zero_time(),
+    not_after: zero_time(),
+    key_usage: 0,
+    extensions: [],
+    unhandled_critical_extensions: [],
+    ext_key_usage: [],
+    unknown_ext_key_usage: [],
+    basic_constraints_valid: false,
+    is_ca: false,
+    max_path_len: 0,
+    max_path_len_zero: false,
+    subject_key_id: [],
+    authority_key_id: [],
+    ocsp_server: [],
+    issuing_certificate_url: [],
+    dns_names: [],
+    email_addresses: [],
+    ip_addresses: [],
+    uris: [],
+    permitted_dns_domains_critical: false,
+    permitted_dns_domains: [],
+    excluded_dns_domains: [],
+    permitted_ip_ranges: [],
+    excluded_ip_ranges: [],
+    permitted_email_addresses: [],
+    excluded_email_addresses: [],
+    permitted_uri_domains: [],
+    excluded_uri_domains: [],
+    crl_distribution_points: [],
+    policy_identifiers: [],
+    policies: [],
+    inhibit_any_policy: 0,
+    inhibit_any_policy_zero: false,
+    inhibit_policy_mapping: 0,
+    inhibit_policy_mapping_zero: false,
+    require_explicit_policy: 0,
+    require_explicit_policy_zero: false,
+    policy_mappings: [],
+  }
+}
+
+// ───────── 字符串 ─────────
+
+fn bstr(b: List<Int>) -> Str {
+  match __from_bytes(b) {
+    Some(s) => s,
+    None => {
+      var out = ""
+      for x in b { out = out + (if x < 128 { __chr(x) } else { __chr(65533) }) }
+      out
+    },
+  }
+}
+
+fn qbytes(b: List<Int>) -> Str { strconv.quote_bytes_with(b, 34, false, false) }
+
+fn is_ia5(b: List<Int>) -> Bool { all(b, (x) => x < 128) }
+
+fn ia5_err(b: List<Int>) -> Str { "x509: " + qbytes(b) + " cannot be encoded as an IA5String" }
+
+fn is_printable(b: Int) -> Bool {
+  (b >= 97 && b <= 122)
+    || (b >= 65 && b <= 90)
+    || (b >= 48 && b <= 57)
+    || (b >= 39 && b <= 41)
+    || (b >= 43 && b <= 47)
+    || b == 32
+    || b == 58
+    || b == 61
+    || b == 63
+    || b == 42
+    || b == 38
+}
+
+fn parse_asn1_string(tag: Int, value0: List<Int>) -> Result<Str, Str> {
+  if tag == cb.T61_STRING { return Ok(join(map(value0, (v) => __chr(v)), "")) }
+  if tag == cb.PRINTABLE_STRING {
+    if !all(value0, is_printable) { return Err("invalid PrintableString") }
+    return Ok(bstr(value0))
+  }
+  if tag == cb.UTF8_STRING {
+    return match __from_bytes(value0) {
+      Some(s) => Ok(s),
+      None => Err("invalid UTF-8 string"),
+    }
+  }
+  if tag == 30 {
+    var value = value0
+    if len(value) % 2 != 0 { return Err("invalid BMPString") }
+    let l = len(value)
+    if l >= 2 && value[l - 1] == 0 && value[l - 2] == 0 { value = value[..l - 2] }
+    var out = ""
+    var i = 0
+    while i < len(value) {
+      let p = (value[i] << 8) + value[i + 1]
+      if p == 0xfffe
+        || p == 0xffff
+        || (p >= 0xfdd0 && p <= 0xfdef)
+        || (p >= 0xd800 && p <= 0xdfff) {
+        return Err("invalid BMPString")
+      }
+      out = out + __chr(p)
+      i += 2
+    }
+    return Ok(out)
+  }
+  if tag == cb.IA5_STRING {
+    if !is_ia5(value0) { return Err("invalid IA5String") }
+    return Ok(bstr(value0))
+  }
+  if tag == 18 {
+    if !all(value0, (b) => (b >= 48 && b <= 57) || b == 32) { return Err("invalid NumericString") }
+    return Ok(bstr(value0))
+  }
+  Err("unsupported string type: {tag}")
+}
+
+fn read_asn1_any(der: List<Int>) -> Result<(Val, List<Int>), Str> {
+  let Some((full, tag, rest)) = cb.read_any_asn1_element(der) else {
+    return Err("invalid ASN.1 element")
+  }
+  if tag == cb.T61_STRING
+    || tag == cb.PRINTABLE_STRING
+    || tag == cb.UTF8_STRING
+    || tag == 30
+    || tag == cb.IA5_STRING
+    || tag == 18 {
+    let Some((raw, _)) = cb.read_asn1(full, tag) else { return Err("invalid ASN.1 element") }
+    return Ok((Val.VStr(parse_asn1_string(tag, raw)?), rest))
+  }
+  if tag == cb.INTEGER {
+    let Some((i, _)) = cb.read_asn1_int64(full) else { return Err("invalid ASN.1 integer") }
+    return Ok((Val.VInt(i), rest))
+  }
+  if tag == cb.BIT_STRING {
+    let Some((bs, _)) = cb.read_asn1_bit_string(full) else {
+      return Err("invalid ASN.1 BIT STRING")
+    }
+    return Ok((Val.VBits(bs), rest))
+  }
+  if tag == cb.OCTET_STRING {
+    let Some((s, _)) = cb.read_asn1(full, cb.OCTET_STRING) else {
+      return Err("invalid ASN.1 OCTET STRING")
+    }
+    return Ok((Val.VBytes(s), rest))
+  }
+  if tag == cb.OBJECT_IDENTIFIER {
+    let Some((o, _)) = cb.read_asn1_oid(full) else { return Err("invalid ASN.1 OBJECT IDENTIFIER") }
+    return Ok((Val.VOid(o), rest))
+  }
+  if tag == cb.UTC_TIME || tag == cb.GENERALIZED_TIME {
+    let (t, _) = read_asn1_time(full)?
+    return Ok((Val.VTime(t), rest))
+  }
+  if tag == cb.BOOLEAN {
+    let Some((b, _)) = cb.read_asn1_boolean(full) else { return Err("invalid ASN.1 BOOLEAN") }
+    return Ok((Val.VBool(b), rest))
+  }
+  if tag == cb.NULL { return Ok((Val.VNil, rest)) }
+  let Some((inner, _, _)) = cb.read_any_asn1(full) else { return Err("invalid ASN.1 element") }
+  Ok(
+    (
+      Val.VRaw(RawValue {
+        class: tag >> 6,
+        tag: tag & 0x1f,
+        is_compound: tag & 0x20 == 0x20,
+        bytes: inner,
+        full_bytes: full,
+      }),
+      rest,
+    ),
+  )
+}
+
+pub fn parse_name(raw: List<Int>) -> Result<List<List<AttributeTypeAndValue>>, Str> {
+  let Some((seq0, _)) = cb.read_asn1(raw, cb.SEQUENCE) else {
+    return Err("x509: invalid RDNSequence")
+  }
+  var seq = seq0
+  var out: List<List<AttributeTypeAndValue>> = []
+  while len(seq) > 0 {
+    let Some((set0, r1)) = cb.read_asn1(seq, cb.SET) else {
+      return Err("x509: invalid RDNSequence")
+    }
+    seq = r1
+    var set_ = set0
+    var rdn: List<AttributeTypeAndValue> = []
+    while len(set_) > 0 {
+      let Some((atav, r2)) = cb.read_asn1(set_, cb.SEQUENCE) else {
+        return Err("x509: invalid RDNSequence: invalid attribute")
+      }
+      set_ = r2
+      let Some((typ, r3)) = cb.read_asn1_oid(atav) else {
+        return Err("x509: invalid RDNSequence: invalid attribute type")
+      }
+      let (v, _) = match read_asn1_any(r3) {
+        Ok(x) => x,
+        Err(e) => { return Err("x509: invalid RDNSequence: invalid attribute value: " + e) },
+      }
+      rdn = push(rdn, AttributeTypeAndValue { typ: typ, value: v })
+    }
+    out = push(out, rdn)
+  }
+  Ok(out)
+}
+
+fn parse_ai(der: List<Int>) -> Result<AlgorithmIdentifier, Str> {
+  let Some((alg, rest)) = cb.read_asn1_oid(der) else { return Err("x509: malformed OID") }
+  if len(rest) == 0 {
+    return Ok(AlgorithmIdentifier { algorithm: alg, parameters: pkix.empty_raw() })
+  }
+  let Some((params, tag, _)) = cb.read_any_asn1_element(rest) else {
+    return Err("x509: malformed parameters")
+  }
+  Ok(AlgorithmIdentifier {
+    algorithm: alg,
+    parameters: RawValue { tag: tag, full_bytes: params, ..pkix.empty_raw() },
+  })
+}
+
+fn read_asn1_time(der: List<Int>) -> Result<(Time, List<Int>), Str> {
+  if cb.peek_asn1_tag(der, cb.UTC_TIME) {
+    return match cb.read_asn1_utc_time(der) {
+      Some(x) => Ok(x),
+      None => Err("x509: malformed UTCTime"),
+    }
+  }
+  if cb.peek_asn1_tag(der, cb.GENERALIZED_TIME) {
+    return match cb.read_asn1_generalized_time(der) {
+      Some(x) => Ok(x),
+      None => Err("x509: malformed GeneralizedTime"),
+    }
+  }
+  Err("x509: unsupported time format")
+}
+
+fn parse_extension(der: List<Int>) -> Result<Extension, Str> {
+  let Some((id, r1)) = cb.read_asn1_oid(der) else {
+    return Err("x509: malformed extension OID field")
+  }
+  var rest = r1
+  var crit = false
+  if cb.peek_asn1_tag(rest, cb.BOOLEAN) {
+    let Some((c, r2)) = cb.read_asn1_boolean(rest) else {
+      return Err("x509: malformed extension critical field")
+    }
+    crit = c
+    rest = r2
+  }
+  let Some((val, _)) = cb.read_asn1(rest, cb.OCTET_STRING) else {
+    return Err("x509: malformed extension value field")
+  }
+  Ok(Extension { id: id, critical: crit, value: val })
+}
+
+fn right_align(b: BitString) -> List<Int> {
+  let shift = 8 - (b.bit_length % 8)
+  if shift == 8 || len(b.bytes) == 0 { return b.bytes }
+  var out: List<Int> = []
+  var i = 0
+  while i < len(b.bytes) {
+    var x = b.bytes[i] >> shift
+    if i > 0 { x = x | ((b.bytes[i - 1] << (8 - shift)) & 0xff) }
+    out = push(out, x)
+    i += 1
+  }
+  out
+}
+
+fn bit_at(b: BitString, i: Int) -> Int {
+  if i < 0 || i >= b.bit_length { return 0 }
+  (b.bytes[i / 8] >> (7 - i % 8)) & 1
+}
+
+fn named_curve(oid: List<Int>) -> Int {
+  if oid == [1, 3, 132, 0, 33] { return 0 }
+  if oid == [1, 2, 840, 10045, 3, 1, 7] { return 1 }
+  if oid == [1, 3, 132, 0, 34] { return 2 }
+  if oid == [1, 3, 132, 0, 35] { return 3 }
+  -1
+}
+
+fn mldsa_params(oid: List<Int>) -> mldsa.Parameters? {
+  if oid == OID_MLDSA44 { return Some(mldsa.mldsa44()) }
+  if oid == OID_MLDSA65 { return Some(mldsa.mldsa65()) }
+  if oid == OID_MLDSA87 { return Some(mldsa.mldsa87()) }
+  None
+}
+
+fn parse_public_key(ai: AlgorithmIdentifier, bits: BitString) -> Result<PublicKey, Str> {
+  let oid = ai.algorithm
+  let params = ai.parameters
+  let data = right_align(bits)
+  if oid == OID_RSA {
+    if params.full_bytes != NULL_BYTES { return Err("x509: RSA key missing NULL parameters") }
+    let Some((seq, _)) = cb.read_asn1(data, cb.SEQUENCE) else {
+      return Err("x509: invalid RSA public key")
+    }
+    let Some((n, r1)) = cb.read_asn1_big_int(seq) else { return Err("x509: invalid RSA modulus") }
+    let Some((e, _)) = cb.read_asn1_int64(r1) else {
+      return Err("x509: invalid RSA public exponent")
+    }
+    if n.sign() <= 0 { return Err("x509: RSA modulus is not a positive number") }
+    if e <= 0 { return Err("x509: RSA public exponent is not a positive number") }
+    return Ok(PublicKey.RSAKey(rsa.PublicKey { n: n, e: e }))
+  }
+  if oid == OID_ECDSA {
+    let Some((curve_oid, _)) = cb.read_asn1_oid(params.full_bytes) else {
+      return Err("x509: invalid ECDSA parameters")
+    }
+    let c = named_curve(curve_oid)
+    if c < 0 { return Err("x509: unsupported elliptic curve") }
+    if c == 0 {
+      if len(data) < 1 || data[0] != 4 { return Err("ecdsa: invalid uncompressed public key") }
+      let _ = nistec.decode(nistec.p224(), data)?
+      return Ok(PublicKey.ECDSAKey(ecdsa.PublicKey { curve: 0, q: data }))
+    }
+    return Ok(PublicKey.ECDSAKey(ecdsa.parse_uncompressed_public_key(c, data)?))
+  }
+  if oid == OID_ED25519 {
+    if len(params.full_bytes) != 0 {
+      return Err("x509: Ed25519 key encoded with illegal parameters")
+    }
+    if len(data) != 32 { return Err("x509: wrong Ed25519 public key size") }
+    return Ok(PublicKey.Ed25519Key(data))
+  }
+  if oid == OID_MLDSA44 || oid == OID_MLDSA65 || oid == OID_MLDSA87 {
+    if len(params.full_bytes) != 0 {
+      return Err("x509: ML-DSA key encoded with illegal parameters")
+    }
+    let Some(p) = mldsa_params(oid) else { return Err("x509: unsupported ML-DSA parameters") }
+    return Ok(PublicKey.MLDSAKey(mldsa.new_public_key(p, data)?))
+  }
+  if oid == OID_X25519 {
+    if len(params.full_bytes) != 0 {
+      return Err("x509: X25519 key encoded with illegal parameters")
+    }
+    return Ok(PublicKey.X25519Key(ecdh.new_public_key(0, data)?))
+  }
+  if oid == OID_DSA {
+    let Some((y, _)) = cb.read_asn1_big_int(data) else {
+      return Err("x509: invalid DSA public key")
+    }
+    let bad = "x509: invalid DSA parameters"
+    let Some((ps, _)) = cb.read_asn1(params.full_bytes, cb.SEQUENCE) else { return Err(bad) }
+    let Some((p, r1)) = cb.read_asn1_big_int(ps) else { return Err(bad) }
+    let Some((q, r2)) = cb.read_asn1_big_int(r1) else { return Err(bad) }
+    let Some((g, _)) = cb.read_asn1_big_int(r2) else { return Err(bad) }
+    if y.sign() <= 0 || p.sign() <= 0 || q.sign() <= 0 || g.sign() <= 0 {
+      return Err("x509: zero or negative DSA parameter")
+    }
+    return Ok(PublicKey.DSAKey(dsa.PublicKey { params: dsa.Parameters { p: p, q: q, g: g }, y: y }))
+  }
+  Err("x509: unknown public key algorithm")
+}
+
+fn sig_algo_from_ai(ai: AlgorithmIdentifier) -> Int {
+  let a = ai.algorithm
+  if a == OID_ED25519 || a == OID_MLDSA44 || a == OID_MLDSA65 || a == OID_MLDSA87 {
+    if len(ai.parameters.full_bytes) != 0 { return UNKNOWN_SIGNATURE_ALGORITHM }
+  }
+  if a != OID_RSAPSS {
+    for d in signature_algorithm_details() { if a == d.oid { return d.algo } }
+    return UNKNOWN_SIGNATURE_ALGORITHM
+  }
+  match pss_params(ai.parameters.full_bytes) {
+    Some(x) => x,
+    None => UNKNOWN_SIGNATURE_ALGORITHM,
+  }
+}
+
+fn ai_ty() -> Ty {
+  Ty.TStruct("AlgorithmIdentifier", [asn1.field(Ty.TOid, ""), asn1.field(Ty.TRaw, "optional")])
+}
+
+fn ai_of(v: Val) -> (List<Int>, List<Int>) {
+  match v {
+    VStruct(fs) => {
+      let o = match fs[0] {
+        VOid(x) => x,
+        _ => [],
+      }
+      let p = match fs[1] {
+        VRaw(r) => r.full_bytes,
+        _ => [],
+      }
+      (o, p)
+    },
+    _ => ([], []),
+  }
+}
+
+fn pss_params(fb: List<Int>) -> Int? {
+  let ty = Ty.TStruct("pssParameters", [
+    asn1.field(ai_ty(), "explicit,tag:0"),
+    asn1.field(ai_ty(), "explicit,tag:1"),
+    asn1.field(Ty.TInt, "explicit,tag:2"),
+    asn1.field(Ty.TInt, "optional,explicit,tag:3,default:1"),
+  ])
+  let (v, _) = match asn1.unmarshal(fb, ty) {
+    Ok(x) => x,
+    Err(_) => { return None },
+  }
+  let fs = match v {
+    VStruct(x) => x,
+    _ => { return None },
+  }
+  let (hash_alg, hash_params) = ai_of(fs[0])
+  let (mgf_alg, mgf_params) = ai_of(fs[1])
+  let salt = match fs[2] {
+    VInt(n) => n,
+    _ => 0,
+  }
+  let trailer = match fs[3] {
+    VInt(n) => n,
+    _ => 0,
+  }
+  let (m, _) = match asn1.unmarshal(mgf_params, ai_ty()) {
+    Ok(x) => x,
+    Err(_) => { return None },
+  }
+  let (m_alg, m_params) = ai_of(m)
+  if (len(hash_params) != 0 && hash_params != NULL_BYTES)
+    || mgf_alg != OID_MGF1
+    || m_alg != hash_alg
+    || (len(m_params) != 0 && m_params != NULL_BYTES)
+    || trailer != 1 {
+    return None
+  }
+  if hash_alg == OID_SHA256 && salt == 32 { return Some(SHA256_WITH_RSAPSS) }
+  if hash_alg == OID_SHA384 && salt == 48 { return Some(SHA384_WITH_RSAPSS) }
+  if hash_alg == OID_SHA512 && salt == 64 { return Some(SHA512_WITH_RSAPSS) }
+  None
+}
+
+fn pub_algo_from_oid(oid: List<Int>) -> Int {
+  if oid == OID_RSA { return RSA }
+  if oid == OID_DSA { return DSA }
+  if oid == OID_ECDSA { return ECDSA }
+  if oid == OID_ED25519 { return ED25519 }
+  if oid == OID_MLDSA44 || oid == OID_MLDSA65 || oid == OID_MLDSA87 { return MLDSA }
+  UNKNOWN_PUBLIC_KEY_ALGORITHM
+}
+
+// ───────── 扩展 ─────────
+
+pub fn domain_name_valid(s0: Str, constraint: Bool) -> Bool {
+  var s = __bytes(s0)
+  if len(s) == 0 { return true }
+  if s[len(s) - 1] == 46 { return false }
+  var last_dot = -1
+  if constraint && s[0] == 46 { s = s[1..] }
+  var i = 0
+  while i <= len(s) {
+    if i < len(s) && (s[i] < 33 || s[i] > 126) { return false }
+    if i == len(s) || s[i] == 46 {
+      var label = i
+      if last_dot >= 0 { label -= last_dot + 1 }
+      if label == 0 { return false }
+      last_dot = i
+    }
+    i += 1
+  }
+  true
+}
+
+fn domain_valid_b(b: List<Int>, constraint: Bool) -> Bool {
+  // 不合法 UTF-8 的字节一定 > 126，同样判为无效
+  if !all(b, (x) => x < 128) {
+    return false
+  }
+  domain_name_valid(bstr(b), constraint)
+}
+
+pub fn parse_rfc2821_mailbox(inp: Str) -> (Str, Str)? {
+  var s = __bytes(inp)
+  if len(s) == 0 { return None }
+  var local: List<Int> = []
+  if s[0] == 34 {
+    s = s[1..]
+    while true {
+      if len(s) == 0 { return None }
+      let c = s[0]
+      s = s[1..]
+      if c == 34 { break }
+      if c == 92 {
+        if len(s) == 0 { return None }
+        let d = s[0]
+        if d == 11 || d == 12 || (d >= 1 && d <= 9) || (d >= 14 && d <= 127) {
+          local = push(local, d)
+          s = s[1..]
+        } else {
+          return None
+        }
+      } else if c == 11
+        || c == 12
+        || c == 32
+        || c == 33
+        || c == 127
+        || (c >= 1 && c <= 8)
+        || (c >= 14 && c <= 31)
+        || (c >= 35 && c <= 91)
+        || (c >= 93 && c <= 126) {
+        local = push(local, c)
+      } else {
+        return None
+      }
+    }
+  } else {
+    while len(s) > 0 {
+      var c = s[0]
+      if c == 92 {
+        s = s[1..]
+        if len(s) == 0 { return None }
+        local = push(local, s[0])
+        s = s[1..]
+        continue
+      }
+      if (c >= 48 && c <= 57)
+        || (c >= 97 && c <= 122)
+        || (c >= 65 && c <= 90)
+        || contains(__bytes("!#$%&'*+-/=?^_`\{|}~."), c) {
+        local = push(local, s[0])
+        s = s[1..]
+      } else {
+        break
+      }
+    }
+    if len(local) == 0 { return None }
+    if local[0] == 46 || local[len(local) - 1] == 46 { return None }
+    var i = 0
+    while i + 1 < len(local) {
+      if local[i] == 46 && local[i + 1] == 46 { return None }
+      i += 1
+    }
+  }
+  if len(s) == 0 || s[0] != 64 { return None }
+  s = s[1..]
+  if !domain_valid_b(s, false) { return None }
+  if contains(s, 64) { return None }
+  Some((bstr(local), bstr(s)))
+}
+
+fn is_v4_mapped(ip: List<Int>) -> Bool {
+  if len(ip) != 16 { return false }
+  var i = 0
+  while i < 10 {
+    if ip[i] != 0 { return false }
+    i += 1
+  }
+  ip[10] == 0xff && ip[11] == 0xff
+}
+
+// net.ParseIP 是否成功
+fn is_ip(s: Str) -> Bool {
+  if contains(s, "%") { return false }
+  is_ok(netip.parse_addr(s))
+}
+
+type SAN = { dns: List<Str>, emails: List<Str>, ips: List<List<Int>>, uris: List<url.URL> }
+
+fn parse_san(der: List<Int>) -> Result<SAN, Str> {
+  let Some((seq0, _)) = cb.read_asn1(der, cb.SEQUENCE) else {
+    return Err("x509: invalid subject alternative names")
+  }
+  var seq = seq0
+  var out = SAN { dns: [], emails: [], ips: [], uris: [] }
+  while len(seq) > 0 {
+    let Some((data, tag0, rest)) = cb.read_any_asn1(seq) else {
+      return Err("x509: invalid subject alternative name")
+    }
+    seq = rest
+    let tag = tag0 ^ 0x80
+    if tag == 1 {
+      if !is_ia5(data) { return Err("x509: SAN rfc822Name is malformed") }
+      out = SAN { emails: push(out.emails, bstr(data)), ..out }
+    } else if tag == 2 {
+      if !is_ia5(data) { return Err("x509: SAN dNSName is malformed") }
+      out = SAN { dns: push(out.dns, bstr(data)), ..out }
+    } else if tag == 6 {
+      if !is_ia5(data) { return Err("x509: SAN uniformResourceIdentifier is malformed") }
+      let s = bstr(data)
+      let u = match url.parse(s) {
+        Ok(x) => x,
+        Err(e) => { return Err("x509: cannot parse URI " + strconv.quote_go(s) + ": " + e) },
+      }
+      if len(u.host) > 0 && !domain_name_valid(u.host, false) {
+        return Err("x509: cannot parse URI " + strconv.quote_go(s) + ": invalid domain")
+      }
+      out = SAN { uris: push(out.uris, u), ..out }
+    } else if tag == 7 {
+      if len(data) == 16 {
+        if is_v4_mapped(data) {
+          return Err("x509: SAN iPAddress contains IPv4-mapped IPv6 address")
+        }
+        out = SAN { ips: push(out.ips, data), ..out }
+      } else if len(data) == 4 {
+        out = SAN { ips: push(out.ips, data), ..out }
+      } else {
+        return Err("x509: cannot parse IP address of length {len(data)}")
+      }
+    }
+  }
+  Ok(out)
+}
+
+fn parse_akid(e: Extension) -> Result<List<Int>, Str> {
+  if e.critical { return Err("x509: authority key identifier incorrectly marked critical") }
+  let Some((akid, _)) = cb.read_asn1(e.value, cb.SEQUENCE) else {
+    return Err("x509: invalid authority key identifier")
+  }
+  if cb.peek_asn1_tag(akid, 0x80) {
+    let Some((v, _)) = cb.read_asn1(akid, 0x80) else {
+      return Err("x509: invalid authority key identifier")
+    }
+    return Ok(v)
+  }
+  Ok([])
+}
+
+fn is_valid_ip_mask(mask: List<Int>) -> Bool {
+  var seen_zero = false
+  for b in mask {
+    if seen_zero {
+      if b != 0 { return false }
+      continue
+    }
+    if contains([0x00, 0x80, 0xc0, 0xe0, 0xf0, 0xf8, 0xfc, 0xfe], b) {
+      seen_zero = true
+    } else if b != 0xff {
+      return false
+    }
+  }
+  true
+}
+
+type NCV = { dns: List<Str>, ips: List<IPNet>, emails: List<Str>, uris: List<Str>, unhandled: Bool }
+
+fn nc_values(sub0: List<Int>) -> Result<NCV, Str> {
+  var sub = sub0
+  var out = NCV { dns: [], ips: [], emails: [], uris: [], unhandled: false }
+  while len(sub) > 0 {
+    let Some((seq, r1)) = cb.read_asn1(sub, cb.SEQUENCE) else {
+      return Err("x509: invalid NameConstraints extension")
+    }
+    sub = r1
+    let Some((value, tag, _)) = cb.read_any_asn1(seq) else {
+      return Err("x509: invalid NameConstraints extension")
+    }
+    if tag == 0x82 {
+      if !is_ia5(value) { return Err("x509: invalid constraint value: " + ia5_err(value)) }
+      let d = bstr(value)
+      if !domain_name_valid(d, true) {
+        return Err("x509: failed to parse dnsName constraint " + strconv.quote_go(d))
+      }
+      out = NCV { dns: push(out.dns, d), ..out }
+    } else if tag == 0x87 {
+      let l = len(value)
+      var ip: List<Int> = []
+      var mask: List<Int> = []
+      if l == 8 {
+        ip = value[..4]
+        mask = value[4..]
+      } else if l == 32 {
+        ip = value[..16]
+        mask = value[16..]
+      } else {
+        return Err("x509: IP constraint contained value of length {l}")
+      }
+      if !is_valid_ip_mask(mask) {
+        return Err(
+          "x509: IP constraint contained invalid mask " + join(
+            map(mask, (b) => strconv.format_int(b + 256, 16)[1..]),
+            "",
+          ),
+        )
+      }
+      if len(ip) == 16 && is_v4_mapped(ip) {
+        return Err("x509: IP constraint contained IPv4-mapped IPv6 address")
+      }
+      out = NCV { ips: push(out.ips, IPNet { ip: ip, mask: mask }), ..out }
+    } else if tag == 0x81 {
+      if !is_ia5(value) { return Err("x509: invalid constraint value: " + ia5_err(value)) }
+      let c = bstr(value)
+      if contains(c, "@") {
+        if parse_rfc2821_mailbox(c) == None {
+          return Err("x509: failed to parse rfc822Name constraint " + strconv.quote_go(c))
+        }
+      } else if !domain_name_valid(c, true) {
+        return Err("x509: failed to parse rfc822Name constraint " + strconv.quote_go(c))
+      }
+      out = NCV { emails: push(out.emails, c), ..out }
+    } else if tag == 0x86 {
+      if !is_ia5(value) { return Err("x509: invalid constraint value: " + ia5_err(value)) }
+      let d = bstr(value)
+      if is_ip(d) {
+        return Err(
+          "x509: failed to parse URI constraint " + strconv.quote_go(d) + ": cannot be IP address",
+        )
+      }
+      if !domain_name_valid(d, true) {
+        return Err("x509: failed to parse URI constraint " + strconv.quote_go(d))
+      }
+      out = NCV { uris: push(out.uris, d), ..out }
+    } else {
+      out = NCV { unhandled: true, ..out }
+    }
+  }
+  Ok(out)
+}
+
+fn parse_name_constraints(c: Certificate, e: Extension) -> Result<(Certificate, Bool), Str> {
+  let bad = "x509: invalid NameConstraints extension"
+  let Some((top, r0)) = cb.read_asn1(e.value, cb.SEQUENCE) else { return Err(bad) }
+  if len(r0) != 0 { return Err(bad) }
+  let Some((permitted, r1)) = cb.read_optional_asn1(top, 0xa0) else { return Err(bad) }
+  let Some((excluded, r2)) = cb.read_optional_asn1(r1, 0xa1) else { return Err(bad) }
+  if len(r2) != 0 { return Err(bad) }
+  let p = unwrap_or(permitted, [])
+  let x = unwrap_or(excluded, [])
+  if (permitted == None && excluded == None) || (len(p) == 0 && len(x) == 0) {
+    return Err("x509: empty name constraints extension")
+  }
+  let pv = nc_values(p)?
+  let xv = nc_values(x)?
+  Ok(
+    (
+      Certificate {
+        permitted_dns_domains: pv.dns,
+        permitted_ip_ranges: pv.ips,
+        permitted_email_addresses: pv.emails,
+        permitted_uri_domains: pv.uris,
+        excluded_dns_domains: xv.dns,
+        excluded_ip_ranges: xv.ips,
+        excluded_email_addresses: xv.emails,
+        excluded_uri_domains: xv.uris,
+        permitted_dns_domains_critical: e.critical,
+        ..c
+      },
+      pv.unhandled || xv.unhandled,
+    ),
+  )
+}
+
+fn parse_policies(der: List<Int>) -> Result<List<OID>, Str> {
+  let bad = "x509: invalid certificate policies"
+  let Some((seq0, _)) = cb.read_asn1(der, cb.SEQUENCE) else { return Err(bad) }
+  var seq = seq0
+  var out: List<OID> = []
+  var seen: List<List<Int>> = []
+  while len(seq) > 0 {
+    let Some((cp, r1)) = cb.read_asn1(seq, cb.SEQUENCE) else { return Err(bad) }
+    seq = r1
+    let Some((ob, _)) = cb.read_asn1(cp, cb.OBJECT_IDENTIFIER) else { return Err(bad) }
+    if contains(seen, ob) { return Err(bad) }
+    seen = push(seen, ob)
+    let Some(o) = new_oid_from_der(ob) else { return Err(bad) }
+    out = push(out, o)
+  }
+  Ok(out)
+}
+
+const OID_AIA: List<Int> = [1, 3, 6, 1, 5, 5, 7, 1, 1]
+const OID_AIA_OCSP: List<Int> = [1, 3, 6, 1, 5, 5, 7, 48, 1]
+const OID_AIA_ISSUERS: List<Int> = [1, 3, 6, 1, 5, 5, 7, 48, 2]
+
+fn process_extensions(c0: Certificate) -> Result<Certificate, Str> {
+  var c = c0
+  for e in c0.extensions {
+    var unhandled = false
+    let id = e.id
+    if len(id) == 4 && id[0] == 2 && id[1] == 5 && id[2] == 29 {
+      let k = id[3]
+      if k == 15 {
+        let Some((bits, _)) = cb.read_asn1_bit_string(e.value) else {
+          return Err("x509: invalid key usage")
+        }
+        var u = 0
+        var i = 0
+        while i < 9 {
+          if bit_at(bits, i) != 0 { u = u | (1 << i) }
+          i += 1
+        }
+        c = Certificate { key_usage: u, ..c }
+      } else if k == 19 {
+        let bad = "x509: invalid basic constraints"
+        let Some((seq0, _)) = cb.read_asn1(e.value, cb.SEQUENCE) else { return Err(bad) }
+        var seq = seq0
+        var is_ca = false
+        if cb.peek_asn1_tag(seq, cb.BOOLEAN) {
+          let Some((b, r)) = cb.read_asn1_boolean(seq) else { return Err(bad) }
+          is_ca = b
+          seq = r
+        }
+        var mpl = -1
+        if cb.peek_asn1_tag(seq, cb.INTEGER) {
+          let Some((u, _)) = cb.read_asn1_uint64(seq) else { return Err(bad) }
+          if u < 0 { return Err(bad) }
+          mpl = u
+        }
+        c = Certificate {
+          is_ca: is_ca,
+          max_path_len: mpl,
+          basic_constraints_valid: true,
+          max_path_len_zero: mpl == 0,
+          ..c
+        }
+      } else if k == 17 {
+        let s = parse_san(e.value)?
+        c = Certificate {
+          dns_names: s.dns,
+          email_addresses: s.emails,
+          ip_addresses: s.ips,
+          uris: s.uris,
+          ..c
+        }
+        if len(s.dns) == 0 && len(s.emails) == 0 && len(s.ips) == 0 && len(s.uris) == 0 {
+          unhandled = true
+        }
+      } else if k == 30 {
+        let (c2, u) = parse_name_constraints(c, e)?
+        c = c2
+        unhandled = u
+      } else if k == 31 {
+        let Some((v0, _)) = cb.read_asn1(e.value, cb.SEQUENCE) else {
+          return Err("x509: invalid CRL distribution points")
+        }
+        var v = v0
+        while len(v) > 0 {
+          let Some((dp, r1)) = cb.read_asn1(v, cb.SEQUENCE) else {
+            return Err("x509: invalid CRL distribution point")
+          }
+          v = r1
+          let Some((name0, _)) = cb.read_optional_asn1(dp, 0xa0) else {
+            return Err("x509: invalid CRL distribution point")
+          }
+          let Some(nm) = name0 else { continue }
+          let Some((dn0, _)) = cb.read_asn1(nm, 0xa0) else {
+            return Err("x509: invalid CRL distribution point")
+          }
+          var dn = dn0
+          while len(dn) > 0 {
+            if !cb.peek_asn1_tag(dn, 0x86) { break }
+            let Some((u, r2)) = cb.read_asn1(dn, 0x86) else {
+              return Err("x509: invalid CRL distribution point")
+            }
+            dn = r2
+            c = Certificate {
+              crl_distribution_points: push(c.crl_distribution_points, bstr(u)),
+              ..c
+            }
+          }
+        }
+      } else if k == 35 {
+        c = Certificate { authority_key_id: parse_akid(e)?, ..c }
+      } else if k == 36 {
+        let bad = "x509: invalid policy constraints extension"
+        let Some((v0, _)) = cb.read_asn1(e.value, cb.SEQUENCE) else { return Err(bad) }
+        var v = v0
+        if cb.peek_asn1_tag(v, 0x80) {
+          let Some((x, r)) = cb.read_asn1_int64_with_tag(v, 0x80) else { return Err(bad) }
+          v = r
+          c = Certificate { require_explicit_policy: x, require_explicit_policy_zero: x == 0, ..c }
+        }
+        if cb.peek_asn1_tag(v, 0x81) {
+          let Some((x, _)) = cb.read_asn1_int64_with_tag(v, 0x81) else { return Err(bad) }
+          c = Certificate { inhibit_policy_mapping: x, inhibit_policy_mapping_zero: x == 0, ..c }
+        }
+      } else if k == 37 {
+        let bad = "x509: invalid extended key usages"
+        let Some((v0, _)) = cb.read_asn1(e.value, cb.SEQUENCE) else { return Err(bad) }
+        var v = v0
+        var ekus: List<Int> = []
+        var unknown: List<List<Int>> = []
+        while len(v) > 0 {
+          let Some((o, r)) = cb.read_asn1_oid(v) else { return Err(bad) }
+          v = r
+          match ext_key_usage_from_oid(o) {
+            Some(x) => { ekus = push(ekus, x) },
+            None => { unknown = push(unknown, o) },
+          }
+        }
+        c = Certificate { ext_key_usage: ekus, unknown_ext_key_usage: unknown, ..c }
+      } else if k == 14 {
+        if e.critical { return Err("x509: subject key identifier incorrectly marked critical") }
+        let Some((skid, _)) = cb.read_asn1(e.value, cb.OCTET_STRING) else {
+          return Err("x509: invalid subject key identifier")
+        }
+        c = Certificate { subject_key_id: skid, ..c }
+      } else if k == 32 {
+        let ps = parse_policies(e.value)?
+        var ids: List<List<Int>> = []
+        for p in ps { if let Some(o) = oid_to_asn1(p) { ids = push(ids, o) } }
+        c = Certificate { policies: ps, policy_identifiers: ids, ..c }
+      } else if k == 33 {
+        let bad = "x509: invalid policy mappings extension"
+        let Some((v0, _)) = cb.read_asn1(e.value, cb.SEQUENCE) else { return Err(bad) }
+        var v = v0
+        while len(v) > 0 {
+          let Some((s, r)) = cb.read_asn1(v, cb.SEQUENCE) else { return Err(bad) }
+          v = r
+          let Some((iss, r2)) = cb.read_asn1(s, cb.OBJECT_IDENTIFIER) else { return Err(bad) }
+          let Some((sub, _)) = cb.read_asn1(r2, cb.OBJECT_IDENTIFIER) else { return Err(bad) }
+          c = Certificate {
+            policy_mappings: push(c.policy_mappings, PolicyMapping {
+              issuer_domain_policy: OID { der: iss },
+              subject_domain_policy: OID { der: sub },
+            }),
+            ..c
+          }
+        }
+      } else if k == 54 {
+        let Some((x, _)) = cb.read_asn1_int64(e.value) else {
+          return Err("x509: invalid inhibit any policy extension")
+        }
+        c = Certificate { inhibit_any_policy: x, inhibit_any_policy_zero: x == 0, ..c }
+      } else {
+        unhandled = true
+      }
+    } else if id == OID_AIA {
+      if e.critical { return Err("x509: authority info access incorrectly marked critical") }
+      let bad = "x509: invalid authority info access"
+      let Some((v0, _)) = cb.read_asn1(e.value, cb.SEQUENCE) else { return Err(bad) }
+      var v = v0
+      while len(v) > 0 {
+        let Some((aia, r)) = cb.read_asn1(v, cb.SEQUENCE) else { return Err(bad) }
+        v = r
+        let Some((method, r2)) = cb.read_asn1_oid(aia) else { return Err(bad) }
+        if !cb.peek_asn1_tag(r2, 0x86) { continue }
+        let Some((loc, _)) = cb.read_asn1(r2, 0x86) else { return Err(bad) }
+        if method == OID_AIA_OCSP {
+          c = Certificate { ocsp_server: push(c.ocsp_server, bstr(loc)), ..c }
+        } else if method == OID_AIA_ISSUERS {
+          c = Certificate {
+            issuing_certificate_url: push(c.issuing_certificate_url, bstr(loc)),
+            ..c
+          }
+        }
+      }
+    } else {
+      unhandled = true
+    }
+    if e.critical && unhandled {
+      c = Certificate {
+        unhandled_critical_extensions: push(c.unhandled_critical_extensions, e.id),
+        ..c
+      }
+    }
+  }
+  Ok(c)
+}
+
+// ───────── 解析证书 ─────────
+
+fn parse_certificate_prefix(der: List<Int>) -> Result<Certificate, Str> {
+  var c = empty_certificate()
+  let Some((raw, _)) = cb.read_asn1_element(der, cb.SEQUENCE) else {
+    return Err("x509: malformed certificate")
+  }
+  c = Certificate { raw: raw, ..c }
+  let Some((inp0, _)) = cb.read_asn1(raw, cb.SEQUENCE) else {
+    return Err("x509: malformed certificate")
+  }
+  let Some((tbs_raw, inp1)) = cb.read_asn1_element(inp0, cb.SEQUENCE) else {
+    return Err("x509: malformed tbs certificate")
+  }
+  c = Certificate { raw_tbs_certificate: tbs_raw, ..c }
+  let Some((tbs0, _)) = cb.read_asn1(tbs_raw, cb.SEQUENCE) else {
+    return Err("x509: malformed tbs certificate")
+  }
+  let Some((ver, tbs1)) = cb.read_optional_asn1_int64(tbs0, 0xa0, 0) else {
+    return Err("x509: malformed version")
+  }
+  if ver < 0 { return Err("x509: malformed version") }
+  let version = ver + 1
+  if version > 3 { return Err("x509: invalid version") }
+  c = Certificate { version: version, ..c }
+  let Some((serial, tbs2)) = cb.read_asn1_big_int(tbs1) else {
+    return Err("x509: malformed serial number")
+  }
+  if serial.sign() == -1 { return Err("x509: negative serial number") }
+  c = Certificate { serial_number: serial, ..c }
+  let Some((sig_ai_raw, tbs3)) = cb.read_asn1_element(tbs2, cb.SEQUENCE) else {
+    return Err("x509: malformed signature algorithm identifier")
+  }
+  c = Certificate { raw_signature_algorithm: sig_ai_raw, ..c }
+  let Some((sig_ai, _)) = cb.read_asn1(sig_ai_raw, cb.SEQUENCE) else {
+    return Err("x509: malformed signature algorithm identifier")
+  }
+  let Some((outer, inp2)) = cb.read_asn1(inp1, cb.SEQUENCE) else {
+    return Err("x509: malformed algorithm identifier")
+  }
+  if outer != sig_ai {
+    return Err("x509: inner and outer signature algorithm identifiers don't match")
+  }
+  let ai = parse_ai(sig_ai)?
+  c = Certificate { signature_algorithm: sig_algo_from_ai(ai), ..c }
+  let Some((iss_raw, tbs4)) = cb.read_asn1_element(tbs3, cb.SEQUENCE) else {
+    return Err("x509: malformed issuer")
+  }
+  let iss = parse_name(iss_raw)?
+  c = Certificate { raw_issuer: iss_raw, issuer: pkix.fill_from_rdn_sequence(c.issuer, iss), ..c }
+  let Some((validity, tbs5)) = cb.read_asn1(tbs4, cb.SEQUENCE) else {
+    return Err("x509: malformed validity")
+  }
+  let (nb, v1) = read_asn1_time(validity)?
+  let (na, _) = read_asn1_time(v1)?
+  c = Certificate { not_before: nb, not_after: na, ..c }
+  let Some((sub_raw, tbs6)) = cb.read_asn1_element(tbs5, cb.SEQUENCE) else {
+    return Err("x509: malformed issuer")
+  }
+  let sub = parse_name(sub_raw)?
+  c = Certificate {
+    raw_subject: sub_raw,
+    subject: pkix.fill_from_rdn_sequence(c.subject, sub),
+    ..c
+  }
+  let Some((spki_raw, tbs7)) = cb.read_asn1_element(tbs6, cb.SEQUENCE) else {
+    return Err("x509: malformed spki")
+  }
+  c = Certificate { raw_subject_public_key_info: spki_raw, ..c }
+  let Some((spki, _)) = cb.read_asn1(spki_raw, cb.SEQUENCE) else {
+    return Err("x509: malformed spki")
+  }
+  let Some((pk_ai_seq, spki2)) = cb.read_asn1(spki, cb.SEQUENCE) else {
+    return Err("x509: malformed public key algorithm identifier")
+  }
+  let pk_ai = parse_ai(pk_ai_seq)?
+  let pka = pub_algo_from_oid(pk_ai.algorithm)
+  c = Certificate { public_key_algorithm: pka, ..c }
+  let Some((spk, _)) = cb.read_asn1_bit_string(spki2) else {
+    return Err("x509: malformed subjectPublicKey")
+  }
+  if pka != UNKNOWN_PUBLIC_KEY_ALGORITHM {
+    c = Certificate { public_key: parse_public_key(pk_ai, spk)?, ..c }
+  }
+  var tbs = tbs7
+  if version > 1 {
+    let Some(t1) = cb.skip_optional_asn1(tbs, 0x81) else {
+      return Err("x509: malformed issuerUniqueID")
+    }
+    let Some(t2) = cb.skip_optional_asn1(t1, 0x82) else {
+      return Err("x509: malformed subjectUniqueID")
+    }
+    tbs = t2
+    if version == 3 {
+      let Some((exts0, _)) = cb.read_optional_asn1(tbs, 0xa3) else {
+        return Err("x509: malformed extensions")
+      }
+      if let Some(ex) = exts0 {
+        let Some((exts1, _)) = cb.read_asn1(ex, cb.SEQUENCE) else {
+          return Err("x509: malformed extensions")
+        }
+        var exts = exts1
+        var seen: List<Str> = []
+        var list: List<Extension> = []
+        while len(exts) > 0 {
+          let Some((one, r)) = cb.read_asn1(exts, cb.SEQUENCE) else {
+            return Err("x509: malformed extension")
+          }
+          exts = r
+          let e = parse_extension(one)?
+          let s = asn1.oid_string(e.id)
+          if contains(seen, s) {
+            return Err(
+              "x509: certificate contains duplicate extension with OID " + strconv.quote_go(s),
+            )
+          }
+          seen = push(seen, s)
+          list = push(list, e)
+        }
+        c = process_extensions(Certificate { extensions: list, ..c })?
+      }
+    }
+  }
+  let Some((sig, _)) = cb.read_asn1_bit_string(inp2) else {
+    return Err("x509: malformed signature")
+  }
+  Ok(Certificate { signature: right_align(sig), ..c })
+}
+
+pub fn parse_certificate(der: List<Int>) -> Result<Certificate, Str> {
+  let c = parse_certificate_prefix(der)?
+  if len(der) != len(c.raw) { return Err("x509: trailing data") }
+  Ok(c)
+}
+
+pub fn parse_certificates(der0: List<Int>) -> Result<List<Certificate>, Str> {
+  var der = der0
+  var out: List<Certificate> = []
+  while len(der) > 0 {
+    let c = parse_certificate_prefix(der)?
+    out = push(out, c)
+    der = der[len(c.raw)..]
+  }
+  Ok(out)
+}
+
+// ───────── CRL ─────────
+
+pub type RevocationListEntry = {
+  raw: List<Int>,
+  serial_number: BigInt,
+  revocation_time: Time,
+  reason_code: Int,
+  extensions: List<Extension>,
+}
+
+pub type RevocationList = {
+  raw: List<Int>,
+  raw_tbs_revocation_list: List<Int>,
+  raw_issuer: List<Int>,
+  raw_signature_algorithm: List<Int>,
+  issuer: Name,
+  authority_key_id: List<Int>,
+  signature: List<Int>,
+  signature_algorithm: Int,
+  revoked_certificate_entries: List<RevocationListEntry>,
+  revoked_certificates: List<RevokedCertificate>,
+  number: BigInt?,
+  this_update: Time,
+  next_update: Time,
+  extensions: List<Extension>,
+}
+
+const OID_REASON_CODE: List<Int> = [2, 5, 29, 21]
+const OID_AKID: List<Int> = [2, 5, 29, 35]
+const OID_CRL_NUMBER: List<Int> = [2, 5, 29, 20]
+
+pub fn parse_revocation_list(der: List<Int>) -> Result<RevocationList, Str> {
+  let Some((raw, _)) = cb.read_asn1_element(der, cb.SEQUENCE) else {
+    return Err("x509: malformed crl")
+  }
+  let Some((inp0, _)) = cb.read_asn1(raw, cb.SEQUENCE) else { return Err("x509: malformed crl") }
+  let Some((tbs_raw, inp1)) = cb.read_asn1_element(inp0, cb.SEQUENCE) else {
+    return Err("x509: malformed tbs crl")
+  }
+  let Some((tbs0, _)) = cb.read_asn1(tbs_raw, cb.SEQUENCE) else {
+    return Err("x509: malformed tbs crl")
+  }
+  if !cb.peek_asn1_tag(tbs0, cb.INTEGER) { return Err("x509: unsupported crl version") }
+  let Some((version, tbs1)) = cb.read_asn1_int64(tbs0) else { return Err("x509: malformed crl") }
+  if version != 1 { return Err("x509: unsupported crl version: {version}") }
+  let Some((sig_ai_raw, tbs2)) = cb.read_asn1_element(tbs1, cb.SEQUENCE) else {
+    return Err("x509: malformed signature algorithm identifier")
+  }
+  let Some((sig_ai, _)) = cb.read_asn1(sig_ai_raw, cb.SEQUENCE) else {
+    return Err("x509: malformed signature algorithm identifier")
+  }
+  let Some((outer, inp2)) = cb.read_asn1(inp1, cb.SEQUENCE) else {
+    return Err("x509: malformed algorithm identifier")
+  }
+  if outer != sig_ai {
+    return Err("x509: inner and outer signature algorithm identifiers don't match")
+  }
+  let ai = parse_ai(sig_ai)?
+  let Some((sig, _)) = cb.read_asn1_bit_string(inp2) else {
+    return Err("x509: malformed signature")
+  }
+  let Some((iss_raw, tbs3)) = cb.read_asn1_element(tbs2, cb.SEQUENCE) else {
+    return Err("x509: malformed issuer")
+  }
+  let iss = parse_name(iss_raw)?
+  let (this_update, tbs4) = read_asn1_time(tbs3)?
+  var tbs = tbs4
+  var next_update = zero_time()
+  if cb.peek_asn1_tag(tbs, cb.GENERALIZED_TIME) || cb.peek_asn1_tag(tbs, cb.UTC_TIME) {
+    let (nu, r) = read_asn1_time(tbs)?
+    next_update = nu
+    tbs = r
+  }
+  var entries: List<RevocationListEntry> = []
+  var revoked: List<RevokedCertificate> = []
+  if cb.peek_asn1_tag(tbs, cb.SEQUENCE) {
+    let Some((rs0, r)) = cb.read_asn1(tbs, cb.SEQUENCE) else { return Err("x509: malformed crl") }
+    tbs = r
+    var rs = rs0
+    while len(rs) > 0 {
+      let Some((cert_raw, r1)) = cb.read_asn1_element(rs, cb.SEQUENCE) else {
+        return Err("x509: malformed crl")
+      }
+      rs = r1
+      let Some((cs0, _)) = cb.read_asn1(cert_raw, cb.SEQUENCE) else {
+        return Err("x509: malformed crl")
+      }
+      let Some((serial, cs1)) = cb.read_asn1_big_int(cs0) else {
+        return Err("x509: malformed serial number")
+      }
+      let (rt, cs2) = read_asn1_time(cs1)?
+      let Some((exts0, _)) = cb.read_optional_asn1(cs2, cb.SEQUENCE) else {
+        return Err("x509: malformed extensions")
+      }
+      var reason = 0
+      var list: List<Extension> = []
+      if let Some(ex) = exts0 {
+        var exts = ex
+        while len(exts) > 0 {
+          let Some((one, r2)) = cb.read_asn1(exts, cb.SEQUENCE) else {
+            return Err("x509: malformed extension")
+          }
+          exts = r2
+          let e = parse_extension(one)?
+          if e.id == OID_REASON_CODE {
+            let Some((rc, _)) = cb.read_asn1_enum(e.value) else {
+              return Err("x509: malformed reasonCode extension")
+            }
+            reason = rc
+          }
+          list = push(list, e)
+        }
+      }
+      entries = push(entries, RevocationListEntry {
+        raw: cert_raw,
+        serial_number: serial,
+        revocation_time: rt,
+        reason_code: reason,
+        extensions: list,
+      })
+      revoked = push(revoked, RevokedCertificate {
+        serial_number: serial,
+        revocation_time: rt,
+        extensions: list,
+      })
+    }
+  }
+  var akid: List<Int> = []
+  var number: BigInt? = None
+  var list: List<Extension> = []
+  let Some((exts0, _)) = cb.read_optional_asn1(tbs, 0xa0) else {
+    return Err("x509: malformed extensions")
+  }
+  if let Some(ex) = exts0 {
+    let Some((exts1, _)) = cb.read_asn1(ex, cb.SEQUENCE) else {
+      return Err("x509: malformed extensions")
+    }
+    var exts = exts1
+    while len(exts) > 0 {
+      let Some((one, r)) = cb.read_asn1(exts, cb.SEQUENCE) else {
+        return Err("x509: malformed extension")
+      }
+      exts = r
+      let e = parse_extension(one)?
+      if e.id == OID_AKID {
+        akid = parse_akid(e)?
+      } else if e.id == OID_CRL_NUMBER {
+        let Some((n, _)) = cb.read_asn1_big_int(e.value) else {
+          return Err("x509: malformed crl number")
+        }
+        number = Some(n)
+      }
+      list = push(list, e)
+    }
+  }
+  Ok(RevocationList {
+    raw: raw,
+    raw_tbs_revocation_list: tbs_raw,
+    raw_issuer: iss_raw,
+    raw_signature_algorithm: sig_ai_raw,
+    issuer: pkix.fill_from_rdn_sequence(pkix.empty_name(), iss),
+    authority_key_id: akid,
+    signature: right_align(sig),
+    signature_algorithm: sig_algo_from_ai(ai),
+    revoked_certificate_entries: entries,
+    revoked_certificates: revoked,
+    number: number,
+    this_update: this_update,
+    next_update: next_update,
+    extensions: list,
+  })
+}
+
+// ───────── PKIX 公钥 ─────────
+
+fn spki_ty() -> Ty {
+  Ty.TStruct("publicKeyInfo", [
+    asn1.field(Ty.TRawContent, ""),
+    asn1.field(ai_ty(), ""),
+    asn1.field(Ty.TBits, ""),
+  ])
+}
+
+fn pkcs1_pub_ty() -> Ty {
+  Ty.TStruct("pkcs1PublicKey", [asn1.field(Ty.TBig, ""), asn1.field(Ty.TInt, "")])
+}
+
+pub fn parse_pkix_public_key(der: List<Int>) -> Result<PublicKey, Str> {
+  match asn1.unmarshal(der, spki_ty()) {
+    Err(e) => {
+      if is_ok(asn1.unmarshal(der, pkcs1_pub_ty())) {
+        return Err(
+          "x509: failed to parse public key (use ParsePKCS1PublicKey instead for this key format)",
+        )
+      }
+      Err(e)
+    },
+    Ok((v, rest)) => {
+      if len(rest) != 0 { return Err("x509: trailing data after ASN.1 of public-key") }
+      let fs = match v {
+        VStruct(x) => x,
+        _ => [],
+      }
+      let alg = match fs[1] {
+        VStruct(a) => a,
+        _ => [],
+      }
+      let oid = match alg[0] {
+        VOid(o) => o,
+        _ => [],
+      }
+      let params = match alg[1] {
+        VRaw(r) => r,
+        _ => pkix.empty_raw(),
+      }
+      let bits = match fs[2] {
+        VBits(b) => b,
+        _ => BitString { bytes: [], bit_length: 0 },
+      }
+      parse_public_key(AlgorithmIdentifier { algorithm: oid, parameters: params }, bits)
+    },
+  }
+}

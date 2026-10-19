@@ -1,0 +1,250 @@
+// std.crypto.x509.pkix：对齐 Go 1.27 的 crypto/x509/pkix
+//   属性值（Go 的 any）用 std.encoding.asn1 的 Val 表示：字符串 VStr、整数 VInt、VBits、VBytes、VOid、VTime、VBool、VNil、VRaw
+//   Name、RDNSequence（List<List<AttributeTypeAndValue>>）、fill_from_rdn_sequence、to_rdn_sequence、
+//   name_string / rdn_string（同 String()，含转义和未知类型的 #十六进制）、AlgorithmIdentifier、Extension、RevokedCertificate
+use std.encoding.asn1
+use std.encoding.asn1.{ Val, Ty, Time, RawValue }
+use std.encoding.hex
+use std.math.big.{ BigInt }
+
+pub type AttributeTypeAndValue = { typ: List<Int>, value: Val }
+
+pub type AlgorithmIdentifier = { algorithm: List<Int>, parameters: RawValue }
+
+pub type Extension = { id: List<Int>, critical: Bool, value: List<Int> }
+
+pub type RevokedCertificate = {
+  serial_number: BigInt,
+  revocation_time: Time,
+  extensions: List<Extension>,
+}
+
+pub type Name = {
+  country: List<Str>,
+  organization: List<Str>,
+  organizational_unit: List<Str>,
+  locality: List<Str>,
+  province: List<Str>,
+  street_address: List<Str>,
+  postal_code: List<Str>,
+  serial_number: Str,
+  common_name: Str,
+  names: List<AttributeTypeAndValue>,
+  extra_names: Option<List<AttributeTypeAndValue>>,
+}
+
+pub fn empty_raw() -> RawValue {
+  RawValue { class: 0, tag: 0, is_compound: false, bytes: [], full_bytes: [] }
+}
+
+pub fn empty_name() -> Name {
+  Name {
+    country: [],
+    organization: [],
+    organizational_unit: [],
+    locality: [],
+    province: [],
+    street_address: [],
+    postal_code: [],
+    serial_number: "",
+    common_name: "",
+    names: [],
+    extra_names: None,
+  }
+}
+
+fn attr_name(oid: Str) -> Str? {
+  match oid {
+    "2.5.4.6" => Some("C"),
+    "2.5.4.10" => Some("O"),
+    "2.5.4.11" => Some("OU"),
+    "2.5.4.3" => Some("CN"),
+    "2.5.4.5" => Some("SERIALNUMBER"),
+    "2.5.4.7" => Some("L"),
+    "2.5.4.8" => Some("ST"),
+    "2.5.4.9" => Some("STREET"),
+    "2.5.4.17" => Some("POSTALCODE"),
+    _ => None,
+  }
+}
+
+fn two(v: Int) -> Str { if v < 10 { "0{v}" } else { "{v}" } }
+
+fn zone(off: Int) -> Str {
+  let z = if off < 0 { -off } else { off }
+  let s = (if off < 0 { "-" } else { "+" }) + two(z / 3600) + two(z % 3600 / 60)
+  if z % 60 != 0 { s + two(z % 60) } else { s }
+}
+
+// time.Time.String()
+pub fn time_string(t: Time) -> Str {
+  let (y, mo, d, h, mi, s) = asn1.civil(t)
+  var ys = "{y}"
+  while len(ys) < 4 { ys = "0" + ys }
+  var frac = ""
+  if t.nsec != 0 {
+    var digits = "{t.nsec + 1000000000}"
+    digits = __str_slice(digits, 1, len(digits))
+    while ends_with(digits, "0") { digits = __str_slice(digits, 0, len(digits) - 1) }
+    frac = "." + digits
+  }
+  let zn = if t.offset == 0 { "+0000 UTC" } else { zone(t.offset) + " " + zone(t.offset) }
+  "{ys}-{two(mo)}-{two(d)} {two(h)}:{two(mi)}:{two(s)}{frac} {zn}"
+}
+
+fn ints(xs: List<Int>) -> Str { "[" + join(map(xs, (x) => "{x}"), " ") + "]" }
+
+// fmt.Sprint(value)
+pub fn sprint(v: Val) -> Str {
+  match v {
+    VStr(s) => s,
+    VInt(n) => "{n}",
+    VBool(b) => if b { "true" } else { "false" },
+    VBytes(b) => ints(b),
+    VOid(o) => asn1.oid_string(o),
+    VTime(t) => time_string(t),
+    VBits(b) => "\{" + ints(b.bytes) + " {b.bit_length}}",
+    VRaw(r) => "\{{r.class} {r.tag} {r.is_compound} " + ints(r.bytes) + " " + ints(
+      r.full_bytes,
+    ) + "}",
+    VBig(Some(b)) => b.string(),
+    VBig(None) => "<nil>",
+    VNil => "<nil>",
+    _ => "?",
+  }
+}
+
+fn is_str(v: Val) -> Bool {
+  match v {
+    VStr(_) => true,
+    _ => false,
+  }
+}
+
+// RDNSequence.String()
+pub fn rdn_string(r: List<List<AttributeTypeAndValue>>) -> Str {
+  var out = ""
+  var i = 0
+  while i < len(r) {
+    let rdn = r[len(r) - 1 - i]
+    if i > 0 { out = out + "," }
+    var j = 0
+    for tv in rdn {
+      if j > 0 { out = out + "+" }
+      j += 1
+      let oid_s = asn1.oid_string(tv.typ)
+      var type_name = ""
+      match attr_name(oid_s) {
+        Some(n) => { type_name = n },
+        None => {
+          if !is_str(tv.value) {
+            if let Ok(der) = asn1.marshal(tv.value, Ty.TAny) {
+              out = out + oid_s + "=#" + hex.encode_bytes(der)
+              continue
+            }
+          }
+          type_name = oid_s
+        },
+      }
+      let vs = chars(sprint(tv.value))
+      var esc = ""
+      var k = 0
+      for c in vs {
+        var e = false
+        if c == "," || c == "+" || c == "\"" || c == "\\" || c == "<" || c == ">" || c == ";" {
+          e = true
+        } else if c == " " {
+          e = k == 0 || k == len(vs) - 1
+        } else if c == "#" {
+          e = k == 0
+        }
+        esc = esc + (if e { "\\" + c } else { c })
+        k += 1
+      }
+      out = out + type_name + "=" + esc
+    }
+    i += 1
+  }
+  out
+}
+
+fn is_254(t: List<Int>) -> Bool { len(t) == 4 && t[0] == 2 && t[1] == 5 && t[2] == 4 }
+
+pub fn fill_from_rdn_sequence(n0: Name, rdns: List<List<AttributeTypeAndValue>>) -> Name {
+  var n = n0
+  for rdn in rdns {
+    for atv in rdn {
+      n = Name { names: push(n.names, atv), ..n }
+      let value = match atv.value {
+        VStr(s) => s,
+        _ => { continue },
+      }
+      let t = atv.typ
+      if is_254(t) {
+        let k = t[3]
+        if k == 3 {
+          n = Name { common_name: value, ..n }
+        } else if k == 5 {
+          n = Name { serial_number: value, ..n }
+        } else if k == 6 {
+          n = Name { country: push(n.country, value), ..n }
+        } else if k == 7 {
+          n = Name { locality: push(n.locality, value), ..n }
+        } else if k == 8 {
+          n = Name { province: push(n.province, value), ..n }
+        } else if k == 9 {
+          n = Name { street_address: push(n.street_address, value), ..n }
+        } else if k == 10 {
+          n = Name { organization: push(n.organization, value), ..n }
+        } else if k == 11 {
+          n = Name { organizational_unit: push(n.organizational_unit, value), ..n }
+        } else if k == 17 {
+          n = Name { postal_code: push(n.postal_code, value), ..n }
+        }
+      }
+    }
+  }
+  n
+}
+
+fn in_atvs(oid: List<Int>, atv: List<AttributeTypeAndValue>) -> Bool {
+  any(atv, (a) => a.typ == oid)
+}
+
+fn append_rdns(
+  n: Name,
+  inp: List<List<AttributeTypeAndValue>>,
+  values: List<Str>,
+  oid: List<Int>,
+) -> List<List<AttributeTypeAndValue>> {
+  if len(values) == 0 || in_atvs(oid, unwrap_or(n.extra_names, [])) { return inp }
+  push(inp, map(values, (v) => AttributeTypeAndValue { typ: oid, value: Val.VStr(v) }))
+}
+
+pub fn to_rdn_sequence(n: Name) -> List<List<AttributeTypeAndValue>> {
+  var r: List<List<AttributeTypeAndValue>> = []
+  r = append_rdns(n, r, n.country, [2, 5, 4, 6])
+  r = append_rdns(n, r, n.province, [2, 5, 4, 8])
+  r = append_rdns(n, r, n.locality, [2, 5, 4, 7])
+  r = append_rdns(n, r, n.street_address, [2, 5, 4, 9])
+  r = append_rdns(n, r, n.postal_code, [2, 5, 4, 17])
+  r = append_rdns(n, r, n.organization, [2, 5, 4, 10])
+  r = append_rdns(n, r, n.organizational_unit, [2, 5, 4, 11])
+  if len(n.common_name) > 0 { r = append_rdns(n, r, [n.common_name], [2, 5, 4, 3]) }
+  if len(n.serial_number) > 0 { r = append_rdns(n, r, [n.serial_number], [2, 5, 4, 5]) }
+  for atv in unwrap_or(n.extra_names, []) { r = push(r, [atv]) }
+  r
+}
+
+// Name.String()
+pub fn name_string(n: Name) -> Str {
+  var rdns: List<List<AttributeTypeAndValue>> = []
+  if n.extra_names == None {
+    for atv in n.names {
+      let t = atv.typ
+      if is_254(t) && contains([3, 5, 6, 7, 8, 9, 10, 11, 17], t[3]) { continue }
+      rdns = push(rdns, [atv])
+    }
+  }
+  rdn_string(rdns + to_rdn_sequence(n))
+}

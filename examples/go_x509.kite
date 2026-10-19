@@ -1,0 +1,265 @@
+// crypto/x509 解析对拍（tests/go/x509.go）
+use std.fs
+use std.encoding.pem
+use std.encoding.hex
+use std.encoding.asn1
+use std.encoding.asn1.{ Val, Time }
+use std.strconv
+use std.crypto.x509
+use std.crypto.x509.{ Certificate, PublicKey, OID }
+use std.crypto.x509.pkix
+use std.crypto.x509.pkix.{ Name, Extension }
+use std.net.url
+
+fn read_pem(path: Str) -> List<List<Int>> {
+  var data = unwrap(fs.read(path))
+  var out: List<List<Int>> = []
+  while true {
+    let (b, rest) = pem.decode(data)
+    match b {
+      Some(blk) => { out = push(out, blk.bytes) },
+      None => { return out },
+    }
+    data = rest
+  }
+  out
+}
+
+fn tm(t: Time) -> Str { "{t.unix}/{t.offset}" }
+
+fn hx(b: List<Int>) -> Str { hex.encode_bytes(b) }
+
+fn q(s: Str) -> Str { strconv.quote_go(s) }
+
+fn ql(xs: List<Str>) -> Str { "[" + join(map(xs, q), " ") + "]" }
+
+fn sl(xs: List<Str>) -> Str { "[" + join(xs, " ") + "]" }
+
+fn b(x: Bool) -> Str { if x { "true" } else { "false" } }
+
+fn oids(xs: List<OID>) -> Str { sl(map(xs, x509.oid_string)) }
+
+fn aoids(xs: List<List<Int>>) -> Str { sl(map(xs, asn1.oid_string)) }
+
+fn curve_name(c: Int) -> Str { ["P-224", "P-256", "P-384", "P-521"][c] }
+
+fn key(k: PublicKey) -> Str {
+  match k {
+    NoKey => "nil",
+    RSAKey(r) => "RSA n={r.n.text(16)} e={r.e}",
+    ECDSAKey(e) => "ECDSA {curve_name(e.curve)} {hx(e.q)}",
+    Ed25519Key(e) => "Ed25519 " + hx(e),
+    X25519Key(e) => "X25519 " + hx(e.q),
+    MLDSAKey(m) => "MLDSA {m.params.name} {len(m.raw)}",
+    DSAKey(_) => "*dsa.PublicKey",
+  }
+}
+
+fn go_type(v: Val) -> Str {
+  match v {
+    VStr(_) => "string",
+    VInt(_) => "int64",
+    VBool(_) => "bool",
+    VOid(_) => "asn1.ObjectIdentifier",
+    VBytes(_) => "[]uint8",
+    VBits(_) => "asn1.BitString",
+    VTime(_) => "time.Time",
+    VRaw(_) => "asn1.RawValue",
+    _ => "<nil>",
+  }
+}
+
+fn names(n: Name) -> Str {
+  "[" + join(
+    map(
+      n.names,
+      (a) => asn1.oid_string(a.typ) + "=" + go_type(a.value) + ":" + pkix.sprint(a.value),
+    ),
+    "; ",
+  ) + "]"
+}
+
+fn exts(es: List<Extension>) -> Str {
+  sl(map(es, (e) => asn1.oid_string(e.id) + "/" + b(e.critical) + "/{len(e.value)}"))
+}
+
+fn prefix(s: Str, n: Int) -> Str { if len(s) <= n { s } else { __str_slice(s, 0, n) } }
+
+fn dump_cert(c: Certificate) {
+  print(
+    "  version={c.version} serial={c.serial_number.text(16)} sigalg={x509.signature_algorithm_string(c.signature_algorithm)} pkalg={x509.public_key_algorithm_string(c.public_key_algorithm)}",
+  )
+  print("  subject={pkix.name_string(c.subject)}\n  issuer={pkix.name_string(c.issuer)}")
+  print("  subject.names={names(c.subject)}")
+  let s = c.subject
+  print(
+    "  cn={q(s.common_name)} o={ql(s.organization)} ou={ql(s.organizational_unit)} c={ql(s.country)} l={ql(s.locality)} st={ql(s.province)} street={ql(s.street_address)} pc={ql(s.postal_code)} sn={q(s.serial_number)}",
+  )
+  print("  validity={tm(c.not_before)}..{tm(c.not_after)}")
+  print("  key={key(c.public_key)}")
+  print(
+    "  ku={c.key_usage} eku={sl(map(c.ext_key_usage, x509.ext_key_usage_string))} unknown={aoids(c.unknown_ext_key_usage)} bc={b(c.basic_constraints_valid)} ca={b(c.is_ca)} mpl={c.max_path_len} mplz={b(c.max_path_len_zero)}",
+  )
+  print("  skid={hx(c.subject_key_id)} akid={hx(c.authority_key_id)}")
+  print(
+    "  ocsp={ql(c.ocsp_server)} issuers={ql(c.issuing_certificate_url)} crl={ql(c.crl_distribution_points)}",
+  )
+  print(
+    "  dns={ql(c.dns_names)} email={ql(c.email_addresses)} ip={sl(map(c.ip_addresses, hx))} uri={ql(map(c.uris, url.to_str))}",
+  )
+  let pr = map(c.permitted_ip_ranges, (n) => hx(n.ip) + "/" + hx(n.mask))
+  let er = map(c.excluded_ip_ranges, (n) => hx(n.ip) + "/" + hx(n.mask))
+  print(
+    "  nc crit={b(c.permitted_dns_domains_critical)} pdns={ql(c.permitted_dns_domains)} xdns={ql(c.excluded_dns_domains)} pip={ql(pr)} xip={ql(er)} pem={ql(c.permitted_email_addresses)} xem={ql(c.excluded_email_addresses)} puri={ql(c.permitted_uri_domains)} xuri={ql(c.excluded_uri_domains)}",
+  )
+  let pm = map(
+    c.policy_mappings,
+    (m) => x509.oid_string(m.issuer_domain_policy) + ">" + x509.oid_string(m.subject_domain_policy),
+  )
+  print(
+    "  policies={oids(c.policies)} ids={aoids(c.policy_identifiers)} maps={sl(pm)} iap={c.inhibit_any_policy}/{b(c.inhibit_any_policy_zero)} ipm={c.inhibit_policy_mapping}/{b(c.inhibit_policy_mapping_zero)} rep={c.require_explicit_policy}/{b(c.require_explicit_policy_zero)}",
+  )
+  print("  exts={exts(c.extensions)} unhandled={aoids(c.unhandled_critical_extensions)}")
+  print(
+    "  raw={len(c.raw)} tbs={len(c.raw_tbs_certificate)} spki={len(c.raw_subject_public_key_info)} subj={len(c.raw_subject)} iss={len(c.raw_issuer)} sigai={len(c.raw_signature_algorithm)} sig={hx(take(c.signature, 8))}",
+  )
+}
+
+fn lcg(s: Int) -> Int { (s * 1103515245 + 12345) & 0x7fffffff }
+
+fn set_at(xs: List<Int>, p: Int, v: Int) -> List<Int> { xs[..p] + [v] + xs[p + 1..] }
+
+fn main() {
+  var seed = 12345
+  let certs = read_pem("tests/go/testdata/x509/certs.pem")
+  var i = 0
+  for der in certs {
+    print("cert {i} ({len(der)} bytes)")
+    match x509.parse_certificate(der) {
+      Ok(c) => dump_cert(c),
+      Err(e) => print("  error: " + e),
+    }
+    i += 1
+  }
+  let all = certs[0] + certs[1]
+  match x509.parse_certificates(all) {
+    Ok(cs) => print("ParseCertificates: {len(cs)} <nil>"),
+    Err(e) => print("ParseCertificates: 0 " + e),
+  }
+  match x509.parse_certificate(all) {
+    Ok(_) => print("trailing: <nil>"),
+    Err(e) => print("trailing: " + e),
+  }
+  i = 0
+  for der in certs {
+    if i % 3 != 0 {
+      i += 1
+      continue
+    }
+    var k = 0
+    while k < 12 {
+      seed = lcg(seed)
+      let p = (seed >> 8) % len(der)
+      seed = lcg(seed)
+      let v = (seed >> 8) % 256
+      let m = set_at(der, p, v)
+      match x509.parse_certificate(m) {
+        Err(e) => print("mut {i}.{k} @{p}={v}: " + e),
+        Ok(c) => print(
+          "mut {i}.{k} @{p}={v}: ok {c.serial_number.text(16)} {pkix.name_string(c.subject)} {len(c.extensions)} {prefix(key(c.public_key), 20)}",
+        ),
+      }
+      k += 1
+    }
+    for l in [0, 1, 2, 10, len(der) / 2, len(der) - 1] {
+      match x509.parse_certificate(take(der, l)) {
+        Ok(_) => print("trunc {i}.{l}: <nil>"),
+        Err(e) => print("trunc {i}.{l}: " + e),
+      }
+    }
+    i += 1
+  }
+  i = 0
+  for der in read_pem("tests/go/testdata/x509/crls.pem") {
+    match x509.parse_revocation_list(der) {
+      Err(e) => print("crl {i} error: " + e),
+      Ok(rl) => {
+        let num = match rl.number {
+          Some(n) => n.text(16),
+          None => "nil",
+        }
+        print(
+          "crl {i} issuer={pkix.name_string(rl.issuer)} sigalg={x509.signature_algorithm_string(rl.signature_algorithm)} this={tm(rl.this_update)} next={tm(rl.next_update)} num={num} akid={hx(rl.authority_key_id)} exts={exts(rl.extensions)} raw={len(rl.raw)}/{len(rl.raw_tbs_revocation_list)}/{len(rl.raw_issuer)}/{len(rl.raw_signature_algorithm)} sig={len(rl.signature)}",
+        )
+        for e in rl.revoked_certificate_entries {
+          print(
+            "  entry serial={e.serial_number.text(16)} time={tm(e.revocation_time)} reason={e.reason_code} exts={exts(e.extensions)} raw={len(e.raw)}",
+          )
+        }
+        print("  revoked {len(rl.revoked_certificates)}")
+        var k = 0
+        while k < 20 {
+          seed = lcg(seed)
+          let p = (seed >> 8) % len(der)
+          seed = lcg(seed)
+          let v = (seed >> 8) % 256
+          match x509.parse_revocation_list(set_at(der, p, v)) {
+            Err(e) => print("  mut {k} @{p}={v}: " + e),
+            Ok(r2) => print("  mut {k} @{p}={v}: ok {len(r2.revoked_certificate_entries)}"),
+          }
+          k += 1
+        }
+      },
+    }
+    i += 1
+  }
+  i = 0
+  for der in read_pem("tests/go/testdata/x509/pubkeys.pem") {
+    match x509.parse_pkix_public_key(der) {
+      Ok(k) => print("pkix {i}: {key(k)} <nil>"),
+      Err(e) => print("pkix {i}: nil " + e),
+    }
+    i += 1
+  }
+  for s in ["", "3000", "300d06092a864886f70d0101010500", "3003020101", "30050603550403"] {
+    match x509.parse_pkix_public_key(unwrap(hex.decode(s))) {
+      Ok(k) => print("pkix {q(s)}: {key(k)} <nil>"),
+      Err(e) => print("pkix {q(s)}: nil " + e),
+    }
+  }
+  for s in [
+    "1.2.3",
+    "0.39",
+    "0.40",
+    "1.39.5",
+    "2.999.1",
+    "2.18446744073709551616.1",
+    "3.1",
+    "1",
+    "1.",
+    ".1",
+    "1..2",
+    "1.2.a",
+    "1.2.340282366920938463463374607431768211456",
+    "2.5.29.32.0",
+    "00.01.002",
+  ] {
+    match x509.parse_oid(s) {
+      Err(e) => print("oid {q(s)}: " + e),
+      Ok(o) => print("oid {q(s)}: {x509.oid_string(o)} {hx(o.der)}"),
+    }
+  }
+  for xs in [[1, 2, 3], [2, 100, 1 << 63], [0, 39], [1, 40], [3, 0], [2], [2, -1]] {
+    let shown = sl(map(xs, (x) => strconv.format_uint(x, 10)))
+    match x509.oid_from_ints(xs) {
+      Err(e) => print("ints", shown, e),
+      Ok(o) => print("ints", shown, x509.oid_string(o), b(x509.oid_equal_asn1_oid(o, [1, 2, 3]))),
+    }
+  }
+  for h in ["2a03", "8001", "2a80", "", "2a8f", "883703", "ffffffffffffffffff01"] {
+    match x509.oid_from_der(unwrap(hex.decode(h))) {
+      Err(e) => print("der {h}: {e} "),
+      Ok(o) => print("der {h}: <nil> {x509.oid_string(o)}"),
+    }
+  }
+}

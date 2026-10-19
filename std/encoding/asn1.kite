@@ -552,7 +552,7 @@ fn perr(layout: Str, value: List<Int>, lelem: Str, velem: List<Int>, msg: Str) -
 }
 
 // layout 已拆好的元素："06" "2006" "01" "02" "15" "04" "05" ".999999999" "Z0700"
-fn parse_time(layout: Str, chunks: List<Str>, value: List<Int>) -> Result<Time, Str> {
+pub fn parse_time(layout: Str, chunks: List<Str>, value: List<Int>) -> Result<Time, Str> {
   var v = value
   var year = 0
   var month = -1
@@ -687,7 +687,7 @@ fn four(v: Int) -> Str {
   if v < 10 { "000{v}" } else if v < 100 { "00{v}" } else if v < 1000 { "0{v}" } else { "{v}" }
 }
 
-fn format_time(t: Time, chunks: List<Str>) -> Str {
+pub fn format_time(t: Time, chunks: List<Str>) -> Str {
   let (y, mo, d, h, mi, s) = civil(t)
   var out = ""
   for c in chunks {

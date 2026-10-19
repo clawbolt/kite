@@ -1,0 +1,221 @@
+// 生成 tests/go/testdata/x509 的测试证书（一次性工具，结果提交进仓库）
+package main
+
+import (
+	"crypto"
+	"crypto/ecdsa"
+	"crypto/ecdh"
+	"crypto/ed25519"
+	"crypto/elliptic"
+	"crypto/mldsa"
+	"crypto/rand"
+	"crypto/rsa"
+	"crypto/x509"
+	"crypto/x509/pkix"
+	"encoding/asn1"
+	"encoding/pem"
+	"math/big"
+	"net"
+	"net/url"
+	"os"
+	"regexp"
+	"time"
+)
+
+func must[T any](v T, err error) T {
+	if err != nil {
+		panic(err)
+	}
+	return v
+}
+
+var out []byte
+
+func emit(typ string, der []byte) {
+	out = append(out, pem.EncodeToMemory(&pem.Block{Type: typ, Bytes: der})...)
+}
+
+func main() {
+	rsa2048 := must(rsa.GenerateKey(rand.Reader, 2048))
+	rsa1024 := must(rsa.GenerateKey(rand.Reader, 1024))
+	p256 := must(ecdsa.GenerateKey(elliptic.P256(), rand.Reader))
+	p384 := must(ecdsa.GenerateKey(elliptic.P384(), rand.Reader))
+	p521 := must(ecdsa.GenerateKey(elliptic.P521(), rand.Reader))
+	p224 := must(ecdsa.GenerateKey(elliptic.P224(), rand.Reader))
+	_, edk := must2(ed25519.GenerateKey(rand.Reader))
+	x25519 := must(ecdh.X25519().GenerateKey(rand.Reader))
+	ml := must(mldsa.GenerateKey(mldsa.MLDSA44()))
+
+	nb := time.Date(2020, 1, 2, 3, 4, 5, 0, time.UTC)
+	na := time.Date(2049, 12, 31, 23, 59, 59, 0, time.UTC)
+	root := &x509.Certificate{
+		SerialNumber: big.NewInt(1),
+		Subject: pkix.Name{Country: []string{"US"}, Organization: []string{"Kite Test, Inc."}, CommonName: "Kite Root CA",
+			OrganizationalUnit: []string{"Unit A", "Unit+B"}, Locality: []string{"Somewhere"}, Province: []string{"CA"},
+			StreetAddress: []string{"1 Main St"}, PostalCode: []string{"94000"}, SerialNumber: "SN-1"},
+		NotBefore: nb, NotAfter: na, IsCA: true, BasicConstraintsValid: true, MaxPathLen: 2,
+		KeyUsage: x509.KeyUsageCertSign | x509.KeyUsageCRLSign | x509.KeyUsageDigitalSignature,
+	}
+	rootDER := must(x509.CreateCertificate(rand.Reader, root, root, &rsa2048.PublicKey, rsa2048))
+	rootCert := must(x509.ParseCertificate(rootDER))
+	emit("CERTIFICATE", rootDER)
+
+	u1 := must(url.Parse("https://example.com/path?q=1#frag"))
+	u2 := must(url.Parse("spiffe://trust.example/ns/default"))
+	leaf := func(serial int64, pub any, mod func(c *x509.Certificate)) *x509.Certificate {
+		c := &x509.Certificate{
+			SerialNumber: big.NewInt(serial),
+			Subject:      pkix.Name{CommonName: "leaf.example.com", Organization: []string{"Kite"}},
+			NotBefore:    nb, NotAfter: time.Date(2030, 6, 1, 0, 0, 0, 0, time.UTC),
+			KeyUsage:     x509.KeyUsageDigitalSignature | x509.KeyUsageKeyEncipherment,
+			ExtKeyUsage:  []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth, x509.ExtKeyUsageClientAuth},
+			DNSNames:     []string{"leaf.example.com", "*.example.com"},
+		}
+		if mod != nil {
+			mod(c)
+		}
+		emit("CERTIFICATE", must(x509.CreateCertificate(rand.Reader, c, rootCert, pub, rsa2048)))
+		return c
+	}
+	leaf(2, &rsa1024.PublicKey, nil)
+	leaf(3, &p256.PublicKey, func(c *x509.Certificate) {
+		c.EmailAddresses = []string{"a@example.com", "b@example.org"}
+		c.IPAddresses = []net.IP{net.ParseIP("192.0.2.1"), net.ParseIP("2001:db8::1")}
+		c.URIs = []*url.URL{u1, u2}
+		c.OCSPServer = []string{"http://ocsp.example.com"}
+		c.IssuingCertificateURL = []string{"http://ca.example.com/root.crt"}
+		c.CRLDistributionPoints = []string{"http://crl.example.com/a.crl", "ldap://crl.example.com/b"}
+	})
+	leaf(4, &p384.PublicKey, func(c *x509.Certificate) {
+		c.ExtKeyUsage = []x509.ExtKeyUsage{x509.ExtKeyUsageAny, x509.ExtKeyUsageCodeSigning, x509.ExtKeyUsageEmailProtection,
+			x509.ExtKeyUsageIPSECEndSystem, x509.ExtKeyUsageIPSECTunnel, x509.ExtKeyUsageIPSECUser, x509.ExtKeyUsageTimeStamping,
+			x509.ExtKeyUsageOCSPSigning, x509.ExtKeyUsageMicrosoftServerGatedCrypto, x509.ExtKeyUsageNetscapeServerGatedCrypto,
+			x509.ExtKeyUsageMicrosoftCommercialCodeSigning, x509.ExtKeyUsageMicrosoftKernelCodeSigning}
+		c.UnknownExtKeyUsage = []asn1.ObjectIdentifier{{1, 2, 3, 4, 5}, {2, 999, 1}}
+		c.KeyUsage = 0x1ff
+	})
+	leaf(5, &p521.PublicKey, func(c *x509.Certificate) {
+		c.IsCA = true
+		c.BasicConstraintsValid = true
+		c.MaxPathLen = 0
+		c.MaxPathLenZero = true
+		c.PermittedDNSDomainsCritical = true
+		c.PermittedDNSDomains = []string{".example.com", "example.org"}
+		c.ExcludedDNSDomains = []string{"bad.example.com"}
+		_, n1, _ := net.ParseCIDR("10.0.0.0/8")
+		_, n2, _ := net.ParseCIDR("2001:db8::/32")
+		_, n3, _ := net.ParseCIDR("192.168.1.0/24")
+		c.PermittedIPRanges = []*net.IPNet{n1, n2}
+		c.ExcludedIPRanges = []*net.IPNet{n3}
+		c.PermittedEmailAddresses = []string{"foo@example.com", ".example.net", "example.org"}
+		c.ExcludedEmailAddresses = []string{"bar@example.com"}
+		c.PermittedURIDomains = []string{".example.com"}
+		c.ExcludedURIDomains = []string{"evil.example.com"}
+	})
+	leaf(6, &p224.PublicKey, func(c *x509.Certificate) {
+		c.Policies = []x509.OID{must(x509.ParseOID("1.2.3.4")), must(x509.ParseOID("2.5.29.32.0")),
+			must(x509.ParseOID("1.2.99999999999999999999999.1")), must(x509.ParseOID("2.999.18446744073709551616"))}
+		c.PolicyMappings = []x509.PolicyMapping{{IssuerDomainPolicy: must(x509.ParseOID("1.2.3")), SubjectDomainPolicy: must(x509.ParseOID("1.2.4"))}}
+		c.InhibitAnyPolicy = 3
+		c.InhibitPolicyMapping = 0
+		c.InhibitPolicyMappingZero = true
+		c.RequireExplicitPolicy = 7
+	})
+	leaf(7, edk.Public(), func(c *x509.Certificate) {
+		c.Subject = pkix.Name{ExtraNames: []pkix.AttributeTypeAndValue{
+			{Type: asn1.ObjectIdentifier{2, 5, 4, 3}, Value: "extra CN"},
+			{Type: asn1.ObjectIdentifier{1, 2, 840, 113549, 1, 9, 1}, Value: "mail@example.com"},
+			{Type: asn1.ObjectIdentifier{1, 2, 3, 4}, Value: 42},
+			{Type: asn1.ObjectIdentifier{1, 2, 3, 5}, Value: true},
+			{Type: asn1.ObjectIdentifier{1, 2, 3, 6}, Value: asn1.ObjectIdentifier{1, 2, 3}},
+			{Type: asn1.ObjectIdentifier{2, 5, 4, 10}, Value: " lead,trail# "},
+			{Type: asn1.ObjectIdentifier{2, 5, 4, 11}, Value: "#hash<>;\"\\"},
+		}}
+		c.ExtraExtensions = []pkix.Extension{
+			{Id: asn1.ObjectIdentifier{1, 2, 3, 4, 5, 6}, Critical: true, Value: []byte{5, 0}},
+			{Id: asn1.ObjectIdentifier{1, 2, 3, 4, 5, 7}, Critical: false, Value: []byte{4, 2, 1, 2}},
+		}
+		c.SubjectKeyId = []byte{1, 2, 3, 4, 5}
+	})
+	leaf(9, ml.PublicKey(), func(c *x509.Certificate) {
+		c.SerialNumber = new(big.Int).Lsh(big.NewInt(1), 150)
+		c.NotBefore = time.Date(1950, 1, 1, 0, 0, 0, 0, time.UTC)
+		c.NotAfter = time.Date(2100, 1, 1, 0, 0, 0, 0, time.UTC)
+	})
+	leaf(10, &rsa2048.PublicKey, func(c *x509.Certificate) {
+		c.NotBefore = time.Date(1949, 12, 31, 23, 59, 59, 0, time.UTC)
+		c.NotAfter = time.Date(2050, 1, 1, 0, 0, 0, 0, time.UTC)
+		c.Subject = pkix.Name{CommonName: "日本語 名前", Country: []string{"JP"}}
+		c.DNSNames = nil
+	})
+
+	// 不同签名算法的自签名证书
+	self := func(serial int64, pub any, priv crypto.Signer, alg x509.SignatureAlgorithm) {
+		c := &x509.Certificate{SerialNumber: big.NewInt(serial), Subject: pkix.Name{CommonName: alg.String()},
+			NotBefore: nb, NotAfter: na, SignatureAlgorithm: alg}
+		emit("CERTIFICATE", must(x509.CreateCertificate(rand.Reader, c, c, pub, priv)))
+	}
+	self(20, &rsa2048.PublicKey, rsa2048, x509.SHA256WithRSA)
+	self(21, &rsa2048.PublicKey, rsa2048, x509.SHA384WithRSA)
+	self(22, &rsa2048.PublicKey, rsa2048, x509.SHA512WithRSA)
+	self(23, &rsa2048.PublicKey, rsa2048, x509.SHA256WithRSAPSS)
+	self(24, &rsa2048.PublicKey, rsa2048, x509.SHA384WithRSAPSS)
+	self(25, &rsa2048.PublicKey, rsa2048, x509.SHA512WithRSAPSS)
+	self(26, &p256.PublicKey, p256, x509.ECDSAWithSHA256)
+	self(27, &p384.PublicKey, p384, x509.ECDSAWithSHA384)
+	self(28, &p521.PublicKey, p521, x509.ECDSAWithSHA512)
+	self(29, edk.Public(), edk, x509.PureEd25519)
+	self(30, ml.PublicKey(), ml, x509.MLDSA44)
+	self(31, &rsa2048.PublicKey, rsa2048, x509.SHA1WithRSA)
+	self(32, &p256.PublicKey, p256, x509.ECDSAWithSHA1)
+
+	// Go 测试源码里的 PEM 证书
+	re := regexp.MustCompile(`(?s)-----BEGIN CERTIFICATE-----.*?-----END CERTIFICATE-----`)
+	for _, f := range []string{"x509_test.go", "verify_test.go", "parser_test.go", "example_test.go"} {
+		src := must(os.ReadFile("/tmp/go/src/crypto/x509/" + f))
+		for _, m := range re.FindAll(src, -1) {
+			b, _ := pem.Decode(m)
+			if b != nil {
+				emit("CERTIFICATE", b.Bytes)
+			}
+		}
+	}
+	must(0, os.WriteFile(os.Args[1]+"/certs.pem", out, 0o644))
+
+	// CRL
+	out = nil
+	crl := func(num int64, mod func(t *x509.RevocationList)) {
+		t := &x509.RevocationList{Number: big.NewInt(num), ThisUpdate: nb, NextUpdate: na}
+		if mod != nil {
+			mod(t)
+		}
+		emit("X509 CRL", must(x509.CreateRevocationList(rand.Reader, t, rootCert, rsa2048)))
+	}
+	crl(1, nil)
+	crl(2, func(t *x509.RevocationList) {
+		t.RevokedCertificateEntries = []x509.RevocationListEntry{
+			{SerialNumber: big.NewInt(100), RevocationTime: nb, ReasonCode: 1},
+			{SerialNumber: big.NewInt(101), RevocationTime: na, ReasonCode: 0},
+			{SerialNumber: new(big.Int).Lsh(big.NewInt(1), 100), RevocationTime: nb, ReasonCode: 6,
+				ExtraExtensions: []pkix.Extension{{Id: asn1.ObjectIdentifier{1, 2, 3}, Value: []byte{5, 0}}}},
+		}
+		t.ExtraExtensions = []pkix.Extension{{Id: asn1.ObjectIdentifier{1, 2, 3, 9}, Value: []byte{1, 1, 0xff}}}
+	})
+	crl(3, func(t *x509.RevocationList) { t.ThisUpdate = time.Date(2060, 1, 1, 0, 0, 0, 0, time.UTC); t.NextUpdate = time.Date(2061, 1, 1, 0, 0, 0, 0, time.UTC); t.Number = new(big.Int).Lsh(big.NewInt(7), 80) })
+	must(0, os.WriteFile(os.Args[1]+"/crls.pem", out, 0o644))
+
+	// 公钥（PKIX）
+	out = nil
+	for _, k := range []any{&rsa2048.PublicKey, &p256.PublicKey, &p384.PublicKey, &p521.PublicKey, edk.Public(), x25519.PublicKey(), ml.PublicKey()} {
+		emit("PUBLIC KEY", must(x509.MarshalPKIXPublicKey(k)))
+	}
+	emit("RSA PUBLIC KEY", x509.MarshalPKCS1PublicKey(&rsa2048.PublicKey))
+	must(0, os.WriteFile(os.Args[1]+"/pubkeys.pem", out, 0o644))
+}
+
+func must2[A, B any](a A, b B, err error) (A, B) {
+	if err != nil {
+		panic(err)
+	}
+	return a, b
+}

@@ -1,0 +1,286 @@
+// std.crypto.cryptobyte：对齐 golang.org/x/crypto/cryptobyte 的读取部分（Go 标准库内部 vendor 的那份，crypto/x509 用它解析 DER）
+//   String 就是字节列表；Go 里 (*String).ReadX(&out) bool 改成 read_x(s) -> Option<(out, 剩下的 s)>，规则逐条照搬：
+//   read_asn1(s, tag) / read_any_asn1(s) -> (内容, tag) / read_any_asn1_element(s) -> (含头部的整个元素, tag)、
+//   read_asn1_element、peek_asn1_tag、skip_asn1、read_optional_asn1(s, tag) -> (Option<内容>, s)、skip_optional_asn1、
+//   read_asn1_boolean、read_asn1_int64 / read_asn1_uint64 / read_asn1_big_int / read_asn1_int_bytes、read_asn1_int64_with_tag、
+//   read_asn1_enum、read_asn1_oid、read_asn1_utc_time / read_asn1_generalized_time（asn1.Time）、
+//   read_asn1_bit_string / read_asn1_bit_string_as_bytes、read_optional_asn1_octet_string、read_optional_asn1_boolean、
+//   read_optional_asn1_int64
+//   标签常量同 cryptobyte/asn1：BOOLEAN INTEGER BIT_STRING OCTET_STRING NULL OBJECT_IDENTIFIER ENUM UTF8String SEQUENCE SET
+//   PrintableString T61String IA5String UTCTime GeneralizedTime；context_specific(n)、constructed(t)
+use std.encoding.asn1
+use std.encoding.asn1.{ BitString, Time }
+use std.math.big
+use std.math.big.{ BigInt }
+
+pub const BOOLEAN: Int = 1
+pub const INTEGER: Int = 2
+pub const BIT_STRING: Int = 3
+pub const OCTET_STRING: Int = 4
+pub const NULL: Int = 5
+pub const OBJECT_IDENTIFIER: Int = 6
+pub const ENUM: Int = 10
+pub const UTF8_STRING: Int = 12
+pub const SEQUENCE: Int = 0x30
+pub const SET: Int = 0x31
+pub const PRINTABLE_STRING: Int = 19
+pub const T61_STRING: Int = 20
+pub const IA5_STRING: Int = 22
+pub const UTC_TIME: Int = 23
+pub const GENERALIZED_TIME: Int = 24
+pub const GENERAL_STRING: Int = 27
+
+pub fn context_specific(t: Int) -> Int { t | 0x80 }
+
+pub fn constructed(t: Int) -> Int { t | 0x20 }
+
+fn read_raw(s: List<Int>, skip_header: Bool) -> Option<(List<Int>, Int, List<Int>)> {
+  if len(s) < 2 { return None }
+  let tag = s[0]
+  let lb = s[1]
+  if tag & 0x1f == 0x1f { return None }
+  var length = 0
+  var header = 0
+  if lb & 0x80 == 0 {
+    length = lb + 2
+    header = 2
+  } else {
+    let ll = lb & 0x7f
+    if ll == 0 || ll > 4 || len(s) < 2 + ll { return None }
+    var l32 = 0
+    var i = 0
+    while i < ll {
+      l32 = (l32 << 8) | s[2 + i]
+      i += 1
+    }
+    if l32 < 128 { return None }
+    if l32 >> ((ll - 1) * 8) == 0 { return None }
+    header = 2 + ll
+    if header + l32 > 0xffffffff { return None }
+    length = header + l32
+  }
+  if length > len(s) { return None }
+  let out = if skip_header { s[header..length] } else { s[..length] }
+  Some((out, tag, s[length..]))
+}
+
+pub fn read_any_asn1(s: List<Int>) -> Option<(List<Int>, Int, List<Int>)> { read_raw(s, true) }
+
+pub fn read_any_asn1_element(s: List<Int>) -> Option<(List<Int>, Int, List<Int>)> {
+  read_raw(s, false)
+}
+
+pub fn read_asn1(s: List<Int>, tag: Int) -> Option<(List<Int>, List<Int>)> {
+  let (out, t, rest) = read_raw(s, true)?
+  if t != tag { return None }
+  Some((out, rest))
+}
+
+pub fn read_asn1_element(s: List<Int>, tag: Int) -> Option<(List<Int>, List<Int>)> {
+  let (out, t, rest) = read_raw(s, false)?
+  if t != tag { return None }
+  Some((out, rest))
+}
+
+pub fn peek_asn1_tag(s: List<Int>, tag: Int) -> Bool { len(s) > 0 && s[0] == tag }
+
+pub fn skip_asn1(s: List<Int>, tag: Int) -> Option<List<Int>> {
+  let (_, rest) = read_asn1(s, tag)?
+  Some(rest)
+}
+
+pub fn read_optional_asn1(s: List<Int>, tag: Int) -> Option<(Option<List<Int>>, List<Int>)> {
+  if !peek_asn1_tag(s, tag) { return Some((None, s)) }
+  let (out, rest) = read_asn1(s, tag)?
+  Some((Some(out), rest))
+}
+
+pub fn skip_optional_asn1(s: List<Int>, tag: Int) -> Option<List<Int>> {
+  if !peek_asn1_tag(s, tag) { return Some(s) }
+  skip_asn1(s, tag)
+}
+
+pub fn read_asn1_boolean(s: List<Int>) -> Option<(Bool, List<Int>)> {
+  let (b, rest) = read_asn1(s, BOOLEAN)?
+  if len(b) != 1 { return None }
+  if b[0] == 0 { return Some((false, rest)) }
+  if b[0] == 0xff { return Some((true, rest)) }
+  None
+}
+
+pub fn check_asn1_integer(b: List<Int>) -> Bool {
+  if len(b) == 0 { return false }
+  if len(b) == 1 { return true }
+  !((b[0] == 0 && b[1] & 0x80 == 0) || (b[0] == 0xff && b[1] & 0x80 == 0x80))
+}
+
+fn signed(n: List<Int>) -> Option<Int> {
+  if len(n) > 8 { return None }
+  var v = 0
+  for b in n { v = (v << 8) | b }
+  if len(n) < 8 && len(n) > 0 && n[0] & 0x80 != 0 { v = v - (1 << (len(n) * 8)) }
+  Some(v)
+}
+
+pub fn read_asn1_int64(s: List<Int>) -> Option<(Int, List<Int>)> {
+  read_asn1_int64_with_tag(s, INTEGER)
+}
+
+pub fn read_asn1_int64_with_tag(s: List<Int>, tag: Int) -> Option<(Int, List<Int>)> {
+  let (b, rest) = read_asn1(s, tag)?
+  if !check_asn1_integer(b) { return None }
+  let v = signed(b)?
+  Some((v, rest))
+}
+
+// uint64 以 Int 的位模式返回
+pub fn read_asn1_uint64(s: List<Int>) -> Option<(Int, List<Int>)> {
+  let (n, rest) = read_asn1(s, INTEGER)?
+  if !check_asn1_integer(n) { return None }
+  if len(n) > 9 || (len(n) == 9 && n[0] != 0) { return None }
+  if n[0] & 0x80 != 0 { return None }
+  var v = 0
+  for b in n { v = (v << 8) | b }
+  Some((v, rest))
+}
+
+pub fn read_asn1_big_int(s: List<Int>) -> Option<(BigInt, List<Int>)> {
+  let (b, rest) = read_asn1(s, INTEGER)?
+  if !check_asn1_integer(b) { return None }
+  if b[0] & 0x80 == 0x80 {
+    let nb = map(b, (x) => (~x) & 0xff)
+    return Some((big.set_bytes(nb).add(big.one()).negate(), rest))
+  }
+  Some((big.set_bytes(b), rest))
+}
+
+// ReadASN1Integer(*[]byte)：非负整数的大端字节（去掉前导 0）
+pub fn read_asn1_int_bytes(s: List<Int>) -> Option<(List<Int>, List<Int>)> {
+  let (b0, rest) = read_asn1(s, INTEGER)?
+  if !check_asn1_integer(b0) || b0[0] & 0x80 == 0x80 { return None }
+  var b = b0
+  while len(b) > 1 && b[0] == 0 { b = b[1..] }
+  Some((b, rest))
+}
+
+pub fn read_asn1_enum(s: List<Int>) -> Option<(Int, List<Int>)> {
+  let (b, rest) = read_asn1(s, ENUM)?
+  if !check_asn1_integer(b) { return None }
+  let v = signed(b)?
+  Some((v, rest))
+}
+
+fn base128(s: List<Int>, i0: Int) -> Option<(Int, Int)> {
+  var ret = 0
+  var i = 0
+  var k = i0
+  while k < len(s) {
+    if i == 5 { return None }
+    if ret >= (1 << 24) { return None }
+    ret = ret << 7
+    let b = s[k]
+    k += 1
+    if i == 0 && b == 0x80 { return None }
+    ret = ret | (b & 0x7f)
+    if b & 0x80 == 0 { return Some((ret, k)) }
+    i += 1
+  }
+  None
+}
+
+pub fn read_asn1_oid(s: List<Int>) -> Option<(List<Int>, List<Int>)> {
+  let (b, rest) = read_asn1(s, OBJECT_IDENTIFIER)?
+  if len(b) == 0 { return None }
+  let (v, k0) = base128(b, 0)?
+  var out = if v < 80 { [v / 40, v % 40] } else { [2, v - 80] }
+  var k = k0
+  while k < len(b) {
+    let (x, k2) = base128(b, k)?
+    out = push(out, x)
+    k = k2
+  }
+  Some((out, rest))
+}
+
+pub fn read_asn1_generalized_time(s: List<Int>) -> Option<(Time, List<Int>)> {
+  let (b, rest) = read_asn1(s, GENERALIZED_TIME)?
+  let ch = ["2006", "01", "02", "15", "04", "05", "Z0700"]
+  let t = match asn1.parse_time("20060102150405Z0700", ch, b) {
+    Ok(x) => x,
+    Err(_) => { return None },
+  }
+  if __bytes(asn1.format_time(t, ch)) != b { return None }
+  Some((t, rest))
+}
+
+pub fn read_asn1_utc_time(s: List<Int>) -> Option<(Time, List<Int>)> {
+  let (b, rest) = read_asn1(s, UTC_TIME)?
+  var ch = ["06", "01", "02", "15", "04", "05", "Z0700"]
+  var r = asn1.parse_time("060102150405Z0700", ch, b)
+  if is_err(r) {
+    ch = ["06", "01", "02", "15", "04", "Z0700"]
+    r = asn1.parse_time("0601021504Z0700", ch, b)
+  }
+  let t = match r {
+    Ok(x) => x,
+    Err(_) => { return None },
+  }
+  if __bytes(asn1.format_time(t, ch)) != b { return None }
+  let (y, mo, d, h, mi, sec) = asn1.civil(t)
+  if y >= 2050 { return Some((asn1.make_time(y - 100, mo, d, h, mi, sec, t.nsec, t.offset), rest)) }
+  Some((t, rest))
+}
+
+pub fn read_asn1_bit_string(s: List<Int>) -> Option<(BitString, List<Int>)> {
+  let (b0, rest) = read_asn1(s, BIT_STRING)?
+  if len(b0) == 0 { return None }
+  let pad = b0[0]
+  let b = b0[1..]
+  if pad > 7 || (len(b) == 0 && pad != 0) || (len(b) > 0 && b[len(b) - 1] & ((1 << pad) - 1) != 0) {
+    return None
+  }
+  Some((BitString { bytes: b, bit_length: len(b) * 8 - pad }, rest))
+}
+
+pub fn read_asn1_bit_string_as_bytes(s: List<Int>) -> Option<(List<Int>, List<Int>)> {
+  let (b, rest) = read_asn1(s, BIT_STRING)?
+  if len(b) == 0 || b[0] != 0 { return None }
+  Some((b[1..], rest))
+}
+
+pub fn read_optional_asn1_octet_string(s: List<Int>, tag: Int) -> Option<(
+  Option<List<Int>>, List<Int>
+)> {
+  let (child, rest) = read_optional_asn1(s, tag)?
+  match child {
+    None => Some((None, rest)),
+    Some(c) => {
+      let (oct, r2) = read_asn1(c, OCTET_STRING)?
+      if len(r2) != 0 { return None }
+      Some((Some(oct), rest))
+    },
+  }
+}
+
+pub fn read_optional_asn1_boolean(s: List<Int>, tag: Int, dflt: Bool) -> Option<(Bool, List<Int>)> {
+  let (child, rest) = read_optional_asn1(s, tag)?
+  match child {
+    None => Some((dflt, rest)),
+    Some(c) => {
+      let (v, _) = read_asn1_boolean(c)?
+      Some((v, rest))
+    },
+  }
+}
+
+pub fn read_optional_asn1_int64(s: List<Int>, tag: Int, dflt: Int) -> Option<(Int, List<Int>)> {
+  let (child, rest) = read_optional_asn1(s, tag)?
+  match child {
+    None => Some((dflt, rest)),
+    Some(c) => {
+      let (v, r2) = read_asn1_int64(c)?
+      if len(r2) != 0 { return None }
+      Some((v, rest))
+    },
+  }
+}
