@@ -36,12 +36,13 @@ image/color/palette、path/filepath、go/constant、net/http/cookiejar、crypto/
 
 ## 第二批（进行中）
 - debug/elf（2026-10-19 完成；tests/go/testdata/elf 里 27 个 Go 测试 ELF；不含 DWARF() / 重定位 / zstd）
+- text/template/parse（2026-10-19 完成；std.text.template.parse，1540 行对拍输出与 Go 逐字节一致；出错时不返回部分树集）
 
 ## 可以做（纯数据 / 算法，计划后续批次）
 - crypto/x509、crypto/x509/pkix、crypto/hpke
 - encoding/gob（值用类似 fmt.Arg 的枚举表示）
 - debug/dwarf、debug/macho、debug/pe、debug/plan9obj
-- text/template/parse（导出语法树；Go 模板语法本身是通用的，照 Go 对拍）、html/template（上下文转义）
+- html/template（上下文转义）
 - net/http/httptest（ResponseRecorder）、net/http/httputil（Dump*、反向代理的纯逻辑部分）、net/smtp（协议层）、net/rpc/jsonrpc（编解码）
 - io/fs（ValidPath / Glob / WalkDir 的纯逻辑）、testing/fstest（MapFS）、testing/iotest
 - hash/maphash（种子随机，只能对拍确定性的部分）、expvar、time/tzdata（时区数据）

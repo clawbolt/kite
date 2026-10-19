@@ -1045,6 +1045,7 @@ Go 1.27 的 encoding/json（v1）改由 v2 实现，语法错误、Compact/Inden
 | `std.net.http.cookiejar` | net/http/cookiejar | RFC 6265 Jar（可注入时间）、PublicSuffixList、Cookie 解析与 String、punycode/IDNA |
 | `std.path.filepath` | path/filepath | Unix 语义的全部导出函数：clean join rel match glob eval_symlinks walk walk_dir is_local localize 等 |
 | `std.image.color.palette` | image/color/palette | plan9（256 色）、web_safe（216 色） |
+| `std.text.template.parse` | text/template/parse | 模板语法树：parse / tree_parse（PARSE_COMMENTS、SKIP_FUNC_CHECK、自定义定界符、define / block 树集）、全部节点（枚举 Node，变体名同 Go）、string、is_empty_tree、error_context；词法、数字常量（int/uint/float/complex）和全部错误信息与 Go 逐字节相同 |
 | `std.debug.elf` | debug/elf | new_file/open、头部/节/段、Section.data（含 zlib 压缩节）、symbols、dynamic_symbols、imported_symbols/libraries、dyn_string/dyn_value、版本表；全部常量及 String/GoString（不含 DWARF、重定位、zstd） |
 | `std.index.suffixarray` | index/suffixarray | 后缀数组、lookup、与 Go 逐字节相同的 write/read 序列化（暂无 FindAllIndex） |
 | `std.text.scanner` | text/scanner | 完整的 Go 记号扫描器：模式、空白集合、自定义标识符字符、错误与位置 |

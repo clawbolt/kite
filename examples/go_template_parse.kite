@@ -1,0 +1,524 @@
+// text/template/parse 对拍（tests/go/template_parse.go）
+use std.strconv
+use std.text.template.parse
+use std.text.template.parse.{ Node, Tree }
+
+fn q(s: Str) -> Str { strconv.quote_go(s) }
+
+fn f64(f: Float) -> Str { strconv.format_float_go(f, "g", -1, 64) }
+
+fn ql(xs: List<Str>) -> Str { "[" + join(map(xs, q), " ") + "]" }
+
+fn b(x: Bool) -> Str { if x { "true" } else { "false" } }
+
+fn dump(n: Node, ind: Str) {
+  let p = parse.position(n)
+  let t = parse.node_type(n)
+  match n {
+    ListNode { nodes, .. } => {
+      print("{ind}List@{p} t={t} n={len(nodes)}")
+      for c in nodes { dump(c, ind + "  ") }
+    },
+    TextNode { text, .. } => print("{ind}Text@{p} t={t} {q(text)}"),
+    CommentNode { text, .. } => print("{ind}Comment@{p} t={t} {q(text)}"),
+    ActionNode { line, pipe, .. } => {
+      print("{ind}Action@{p} t={t} L{line}")
+      dump(pipe, ind + "  ")
+    },
+    PipeNode { line, is_assign, decl, cmds, .. } => {
+      print("{ind}Pipe@{p} t={t} L{line} assign={b(is_assign)} decl={len(decl)} cmds={len(cmds)}")
+      for d in decl { dump(d, ind + "  ") }
+      for c in cmds { dump(c, ind + "  ") }
+    },
+    CommandNode { args, .. } => {
+      print("{ind}Command@{p} t={t} args={len(args)}")
+      for a in args { dump(a, ind + "  ") }
+    },
+    IdentifierNode { ident, .. } => print("{ind}Identifier@{p} t={t} {ident}"),
+    VariableNode { ident, .. } => print("{ind}Variable@{p} t={t} {ql(ident)}"),
+    DotNode { .. } => print("{ind}Dot@{p} t={t}"),
+    NilNode { .. } => print("{ind}Nil@{p} t={t}"),
+    FieldNode { ident, .. } => print("{ind}Field@{p} t={t} {ql(ident)}"),
+    ChainNode { node, field, .. } => {
+      print("{ind}Chain@{p} t={t} {ql(field)}")
+      dump(node, ind + "  ")
+    },
+    BoolNode { val, .. } => print("{ind}Bool@{p} t={t} {b(val)}"),
+    NumberNode { num, .. } => print(
+      "{ind}Number@{p} t={t} {num.text} int={b(num.is_int)}:{num.int64} uint={b(num.is_uint)}:{strconv.format_uint(num.uint64, 10)} float={b(num.is_float)}:{f64(num.float64)} complex={b(num.is_complex)}:{f64(num.re)},{f64(num.im)}",
+    ),
+    StringNode { quoted, text, .. } => print("{ind}String@{p} t={t} {quoted} {q(text)}"),
+    IfNode { line, pipe, list, else_list, .. } => {
+      print("{ind}If@{p} t={t} L{line}")
+      branch(pipe, list, else_list, ind)
+    },
+    RangeNode { line, pipe, list, else_list, .. } => {
+      print("{ind}Range@{p} t={t} L{line}")
+      branch(pipe, list, else_list, ind)
+    },
+    WithNode { line, pipe, list, else_list, .. } => {
+      print("{ind}With@{p} t={t} L{line}")
+      branch(pipe, list, else_list, ind)
+    },
+    BreakNode { line, .. } => print("{ind}Break@{p} t={t} L{line}"),
+    ContinueNode { line, .. } => print("{ind}Continue@{p} t={t} L{line}"),
+    TemplateNode { line, name, pipe, .. } => {
+      print("{ind}Template@{p} t={t} L{line} {q(name)}")
+      match pipe {
+        Some(x) => dump(x, ind + "  "),
+        None => print("{ind}  nil pipe"),
+      }
+    },
+    _ => print("{ind}??"),
+  }
+}
+
+fn branch(pipe: Node, list: Node, el: Node?, ind: Str) {
+  dump(pipe, ind + "  ")
+  dump(list, ind + "  ")
+  if let Some(e) = el {
+    print("{ind}  else:")
+    dump(e, ind + "  ")
+  }
+}
+
+const BUILTINS: List<Str> = ["printf", "contains"]
+
+fn root_of(t: Tree) -> Node { unwrap(t.root) }
+
+fn nodes_of(n: Node) -> List<Node> {
+  match n {
+    ListNode { nodes, .. } => nodes,
+    _ => [],
+  }
+}
+
+fn show(name: Str, input: Str, mode: Int, ld: Str, rd: Str, funcs: List<Str>) {
+  let tr = Tree { mode: mode, ..parse.new(name) }
+  print("== {name} {q(input)}")
+  match parse.tree_parse(tr, input, ld, rd, Map(), funcs) {
+    Err(e) => print("error: {e}"),
+    Ok((tmpl, set)) => {
+      print("string: {q(parse.tree_string(tmpl))}")
+      print(
+        "name={tmpl.name} parse_name={tmpl.parse_name} empty={b(parse.is_empty_tree(tmpl.root))}",
+      )
+      dump(root_of(tmpl), "")
+      for k in sort(keys(set)) {
+        if k == name { continue }
+        let st = unwrap(get(set, k))
+        print("tree {q(k)}: {q(parse.tree_string(st))}")
+        dump(root_of(st), "  ")
+      }
+      let ns = nodes_of(root_of(tmpl))
+      if len(ns) > 0 {
+        let (loc, ctx) = parse.error_context(tmpl, ns[len(ns) - 1])
+        print("context: {loc} {q(ctx)}")
+      }
+    },
+  }
+}
+
+const PARSE_TESTS: List<(Str, Str)> = [
+  ("empty", ""),
+  ("comment", "\{\{/*\n\n\n*/\}\}"),
+  ("spaces", " \t\n"),
+  ("text", "some text"),
+  ("emptyAction", "\{\{\}\}"),
+  ("field", "\{\{.X\}\}"),
+  ("simple command", "\{\{printf\}\}"),
+  ("$ invocation", "\{\{$\}\}"),
+  ("variable invocation", "\{\{with $x := 3\}\}\{\{$x 23\}\}\{\{end\}\}"),
+  ("variable with fields", "\{\{$.I\}\}"),
+  ("multi-word command", "\{\{printf `%d` 23\}\}"),
+  ("pipeline", "\{\{.X|.Y\}\}"),
+  ("pipeline with decl", "\{\{$x := .X|.Y\}\}"),
+  ("nested pipeline", "\{\{.X (.Y .Z) (.A | .B .C) (.E)\}\}"),
+  ("field applied to parentheses", "\{\{(.Y .Z).Field\}\}"),
+  ("simple if", "\{\{if .X\}\}hello\{\{end\}\}"),
+  ("if with else", "\{\{if .X\}\}true\{\{else\}\}false\{\{end\}\}"),
+  ("if with else if", "\{\{if .X\}\}true\{\{else if .Y\}\}false\{\{end\}\}"),
+  ("if else chain", "+\{\{if .X\}\}X\{\{else if .Y\}\}Y\{\{else if .Z\}\}Z\{\{end\}\}+"),
+  ("simple range", "\{\{range .X\}\}hello\{\{end\}\}"),
+  ("chained field range", "\{\{range .X.Y.Z\}\}hello\{\{end\}\}"),
+  ("nested range", "\{\{range .X\}\}hello\{\{range .Y\}\}goodbye\{\{end\}\}\{\{end\}\}"),
+  ("range with else", "\{\{range .X\}\}true\{\{else\}\}false\{\{end\}\}"),
+  ("range over pipeline", "\{\{range .X|.M\}\}true\{\{else\}\}false\{\{end\}\}"),
+  ("range []int", "\{\{range .SI\}\}\{\{.\}\}\{\{end\}\}"),
+  ("range 1 var", "\{\{range $x := .SI\}\}\{\{.\}\}\{\{end\}\}"),
+  ("range 2 vars", "\{\{range $x, $y := .SI\}\}\{\{.\}\}\{\{end\}\}"),
+  ("range with break", "\{\{range .SI\}\}\{\{.\}\}\{\{break\}\}\{\{end\}\}"),
+  ("range with continue", "\{\{range .SI\}\}\{\{.\}\}\{\{continue\}\}\{\{end\}\}"),
+  ("constants", "\{\{range .SI 1 -3.2i true false 'a' nil\}\}\{\{end\}\}"),
+  ("template", "\{\{template `x`\}\}"),
+  ("template with arg", "\{\{template `x` .Y\}\}"),
+  ("with", "\{\{with .X\}\}hello\{\{end\}\}"),
+  ("with with else", "\{\{with .X\}\}hello\{\{else\}\}goodbye\{\{end\}\}"),
+  ("with with else with", "\{\{with .X\}\}hello\{\{else with .Y\}\}goodbye\{\{end\}\}"),
+  ("with else chain", "\{\{with .X\}\}X\{\{else with .Y\}\}Y\{\{else with .Z\}\}Z\{\{end\}\}"),
+  ("trim left", "x \r\n\t\{\{- 3\}\}"),
+  ("trim right", "\{\{3 -\}\}\n\n\ty"),
+  ("trim left and right", "x \r\n\t\{\{- 3 -\}\}\n\n\ty"),
+  ("trim with extra spaces", "x\n\{\{-  3   -\}\}\ny"),
+  ("comment trim left", "x \r\n\t\{\{- /* hi */\}\}"),
+  ("comment trim right", "\{\{/* hi */ -\}\}\n\n\ty"),
+  ("comment trim left and right", "x \r\n\t\{\{- /* */ -\}\}\n\n\ty"),
+  ("block definition", "\{\{block \"foo\" .\}\}hello\{\{end\}\}"),
+  ("newline in assignment", "\{\{ $x \n := \n 1 \n \}\}"),
+  ("newline in empty action", "\{\{\n\}\}"),
+  ("newline in pipeline", "\{\{\n\"x\"\n|\nprintf\n\}\}"),
+  ("newline in comment", "\{\{/*\nhello\n*/\}\}"),
+  ("newline in comment 2", "\{\{-\n/*\nhello\n*/\n-\}\}"),
+  ("spaces around continue", "\{\{range .SI\}\}\{\{.\}\}\{\{ continue \}\}\{\{end\}\}"),
+  ("spaces around break", "\{\{range .SI\}\}\{\{.\}\}\{\{ break \}\}\{\{end\}\}"),
+  ("unclosed action", "hello\{\{range"),
+  ("unmatched end", "\{\{end\}\}"),
+  ("unmatched else", "\{\{else\}\}"),
+  ("unmatched else after if", "\{\{if .X\}\}hello\{\{end\}\}\{\{else\}\}"),
+  ("multiple else", "\{\{if .X\}\}1\{\{else\}\}2\{\{else\}\}3\{\{end\}\}"),
+  ("missing end", "hello\{\{range .x\}\}"),
+  ("missing end after else", "hello\{\{range .x\}\}\{\{else\}\}"),
+  ("undefined function", "hello\{\{undefined\}\}"),
+  ("undefined variable", "\{\{$x\}\}"),
+  ("variable undefined after end", "\{\{with $x := 4\}\}\{\{end\}\}\{\{$x\}\}"),
+  ("variable undefined in template", "\{\{template $v\}\}"),
+  ("declare with field", "\{\{with $x.Y := 4\}\}\{\{end\}\}"),
+  ("template with field ref", "\{\{template .X\}\}"),
+  ("template with var", "\{\{template $v\}\}"),
+  ("invalid punctuation", "\{\{printf 3, 4\}\}"),
+  ("multidecl outside range", "\{\{with $v, $u := 3\}\}\{\{end\}\}"),
+  ("too many decls in range", "\{\{range $u, $v, $w := 3\}\}\{\{end\}\}"),
+  ("dot applied to parentheses", "\{\{printf (printf .).\}\}"),
+  ("adjacent args", "\{\{printf 3`x`\}\}"),
+  ("adjacent args with .", "\{\{printf `x`.\}\}"),
+  ("extra end after if", "\{\{if .X\}\}a\{\{else if .Y\}\}b\{\{end\}\}\{\{end\}\}"),
+  ("break outside range", "\{\{range .\}\}\{\{end\}\} \{\{break\}\}"),
+  ("continue outside range", "\{\{range .\}\}\{\{end\}\} \{\{continue\}\}"),
+  ("break in range else", "\{\{range .\}\}\{\{else\}\}\{\{break\}\}\{\{end\}\}"),
+  ("continue in range else", "\{\{range .\}\}\{\{else\}\}\{\{continue\}\}\{\{end\}\}"),
+  ("bug0a", "\{\{$x := 0\}\}\{\{$x\}\}"),
+  ("bug0b", "\{\{$x += 1\}\}\{\{$x\}\}"),
+  ("bug0c", "\{\{$x ! 2\}\}\{\{$x\}\}"),
+  ("bug0d", "\{\{$x % 3\}\}\{\{$x\}\}"),
+  ("bug0e", "\{\{range $x := $y := 3\}\}\{\{end\}\}"),
+  ("bug1a", "\{\{$x:=.\}\}\{\{$x!2\}\}"),
+  ("bug1b", "\{\{$x:=.\}\}\{\{$x+2\}\}"),
+  ("bug1c", "\{\{$x:=.\}\}\{\{$x +2\}\}"),
+  ("bug2a", "\{\{range $x := 0\}\}\{\{$x\}\}\{\{end\}\}"),
+  ("bug2b", "\{\{range $x = 0\}\}\{\{$x\}\}\{\{end\}\}"),
+  ("dot after integer", "\{\{1.E\}\}"),
+  ("dot after float", "\{\{0.1.E\}\}"),
+  ("dot after boolean", "\{\{true.E\}\}"),
+  ("dot after char", "\{\{'a'.any\}\}"),
+  ("dot after string", "\{\{\"hello\".guys\}\}"),
+  ("dot after dot", "\{\{..E\}\}"),
+  ("dot after nil", "\{\{nil.E\}\}"),
+  ("wrong pipeline dot", "\{\{12|.\}\}"),
+  ("wrong pipeline number", "\{\{.|12|printf\}\}"),
+  ("wrong pipeline string", "\{\{.|printf|\"error\"\}\}"),
+  ("wrong pipeline char", "\{\{12|printf|'e'\}\}"),
+  ("wrong pipeline boolean", "\{\{.|true\}\}"),
+  ("wrong pipeline nil", "\{\{'c'|nil\}\}"),
+  ("empty pipeline", "\{\{printf \"%d\" ( ) \}\}"),
+  ("block definition 2", "\{\{block \"foo\"\}\}hello\{\{end\}\}"),
+  ("paren nesting normal", "\{\{ (( 1 )) \}\}"),
+  ("paren nesting deeper", "\{\{ ((((( 1 ))))) | printf \}\}"),
+  ("paren nesting with other constructs", "\{\{ if ((( true ))) \}\}YES\{\{ end \}\}"),
+  ("unclosed1", "line1\n\{\{"),
+  ("unclosed2", "line1\n\{\{define `x`\}\}line2\n\{\{"),
+  ("unclosed3", "line1\n\{\{\"x\"\n\"y\"\n"),
+  ("unclosed4", "\{\{\n\n\n\n\n"),
+  ("var1", "line1\n\{\{\nx\n\}\}"),
+  ("function", "\{\{foo\}\}"),
+  ("comment1", "\{\{/*\}\}"),
+  ("comment2", "\{\{/*\nhello\n\}\}"),
+  ("comment3", "\{\{/* x */ .\}\}"),
+  ("lparen", "\{\{.X (1 2 3\}\}"),
+  ("rparen", "\{\{.X 1 2 3 ) \}\}"),
+  ("rparen2", "\{\{(.X 1 2 3"),
+  ("space", "\{\{`x`3\}\}"),
+  ("idchar", "\{\{a#\}\}"),
+  ("charconst", "\{\{'a\}\}"),
+  ("stringconst", "\{\{\"a\}\}"),
+  ("rawstringconst", "\{\{`a\}\}"),
+  ("number", "\{\{0xi\}\}"),
+  ("multidefine", "\{\{define `a`\}\}a\{\{end\}\}\{\{define `a`\}\}b\{\{end\}\}"),
+  ("eof", "\{\{range .X\}\}"),
+  ("variable", "\{\{$x := 23\}\}\{\{with $x.y := 3\}\}\{\{$x 23\}\}\{\{end\}\}"),
+  ("multidecl", "\{\{$a,$b,$c := 23\}\}"),
+  ("undefvar", "\{\{$a\}\}"),
+  ("wrongdot", "\{\{true.any\}\}"),
+  ("wrongpipeline", "\{\{12|false\}\}"),
+  ("emptypipeline", "\{\{ ( ) \}\}"),
+  ("multilinerawstring", "\{\{ $v := `\n` \}\} \{\{"),
+  ("rangeundefvar", "\{\{range $k\}\}\{\{end\}\}"),
+  ("rangeundefvars", "\{\{range $k, $v\}\}\{\{end\}\}"),
+  ("rangemissingvalue1", "\{\{range $k,\}\}\{\{end\}\}"),
+  ("rangemissingvalue2", "\{\{range $k, $v := \}\}\{\{end\}\}"),
+  ("rangenotvariable1", "\{\{range $k, .\}\}\{\{end\}\}"),
+  ("rangenotvariable2", "\{\{range $k, 123 := .\}\}\{\{end\}\}"),
+  ("block", "a\{\{block \"inner\" .\}\}bar\{\{.\}\}baz\{\{end\}\}b"),
+  (
+    "defines",
+    "\{\{define `x`\}\}X\{\{.\}\}\{\{end\}\}\nmid\n\{\{define \"y\"\}\}Y\{\{template `x` .\}\}\{\{end\}\}tail",
+  ),
+  ("empty define then real", "\{\{define `t`\}\} \{\{end\}\}\{\{define `t`\}\}real\{\{end\}\}"),
+  ("real then empty define", "\{\{define `t`\}\}real\{\{end\}\}\{\{define `t`\}\} \{\{end\}\}"),
+  ("define bad name", "\{\{define \"a\\q\"\}\}x\{\{end\}\}"),
+  ("define no name", "\{\{define x\}\}x\{\{end\}\}"),
+  ("define else", "\{\{define `x`\}\}x\{\{else\}\}y\{\{end\}\}"),
+  ("block else", "\{\{block `x` .\}\}x\{\{else\}\}y\{\{end\}\}"),
+  ("unicode text", "héllo \{\{.Nàme\}\} 世界 \{\{printf \"日本\"\}\}\n\{\{/* ü */\}\}x"),
+  ("unicode bad char", "\{\{.X ü\}\}"),
+  ("unicode bad char 2", "\{\{.X 世\}\}"),
+  ("bad char in action", "\{\{.X \u{1}\}\}"),
+  ("bad char after ident", "\{\{.X€\}\}"),
+  ("strings", "\{\{printf \"a\\tb\\u00e9\\x41\" `raw\\n` \"\"\}\}"),
+  ("bad string escape", "\{\{printf \"\\q\"\}\}"),
+  ("chain on var", "\{\{$x := .\}\}\{\{$x.A.B\}\}\{\{($x).C\}\}\{\{(.X).Y.Z\}\}"),
+  ("chain on paren nil", "\{\{(nil).X\}\}"),
+  ("chain on ident", "\{\{printf.X\}\}"),
+  ("colon", "\{\{$x :- 1\}\}"),
+  ("long item", "\{\{printf \"abcdefghijklmnop\" | 12345678901234\}\}"),
+  ("long item 2", "\{\{printf | \"abcdefghijklmnop\"\}\}"),
+  ("keyword in error", "\{\{if\}\}"),
+  ("else with", "\{\{with .X\}\}\{\{else with .Y\}\}y\{\{else\}\}n\{\{end\}\}"),
+  (
+    "if with decls",
+    "\{\{if $a := .X\}\}\{\{$a\}\}\{\{else if $b := .Y\}\}\{\{$a\}\}\{\{$b\}\}\{\{end\}\}\{\{$a\}\}",
+  ),
+  ("assign outer", "\{\{$a := 1\}\}\{\{if true\}\}\{\{$a = 2\}\}\{\{end\}\}\{\{$a\}\}"),
+  ("range assign", "\{\{$i := 0\}\}\{\{$v := 0\}\}\{\{range $i, $v = .\}\}\{\{end\}\}"),
+  ("template pipe decl", "\{\{template `x` $y := .\}\}\{\{$y\}\}"),
+  (
+    "number forms",
+    "\{\{printf 0 -0 7_3 0b1001001 073 0o73 0x73 0x7_3 -73 +73 1e9 -1.2 1e19 -1e19 0x_1p4 0x_1p-4 4i -1.2+4.2i 073i 0i -1.2+0i -12+0i 13+0i 0xdeadbeef 18446744073709551615 9223372036854775808 -9223372036854775808 1.5e300 .5 1. 0xef\}\}",
+  ),
+  (
+    "char forms",
+    "\{\{printf 'a' '\\n' '\\\\' '\\'' '\\xFF' 'パ' '\\u30d1' '\\U000030d1' '\\377'\}\}",
+  ),
+  ("bad number +-2", "\{\{+-2\}\}"),
+  ("bad number 0x123.", "\{\{0x123.\}\}"),
+  ("bad number 1e.", "\{\{1e.\}\}"),
+  ("bad number 1+2.", "\{\{1+2.\}\}"),
+  ("bad char xx", "\{\{'xx'\}\}"),
+  ("bad char long", "\{\{'433937734937734969526500969526500'\}\}"),
+  ("bad number 089", "\{\{089\}\}"),
+  ("bad number overflow", "\{\{123456789012345678901234567890\}\}"),
+  ("bad number 1__2", "\{\{1__2\}\}"),
+  ("bad number 0x", "\{\{0x\}\}"),
+  ("bad number .", "\{\{. 1e\}\}"),
+  ("line numbers", "\{\{printf 1234\}\}\n\{\{printf 1234\}\}\n\{\{printf 1234\}\}\n"),
+  ("comment no delim", "\{\{/* x */x\}\}"),
+  ("trim marker no space", "\{\{-3\}\}\{\{3-\}\}"),
+  ("right trim then delim", "\{\{.X -\}\}"),
+  ("spaces then trim", "\{\{.X  -\}\} y"),
+  ("pipe after decl", "\{\{$x := printf | printf\}\}"),
+  ("range comma eof", "\{\{range $x,"),
+  ("paren in template", "\{\{template `x` (printf .)\}\}"),
+  ("nested parens chain", "\{\{((.X).Y).Z\}\}"),
+  ("empty command", "\{\{printf |\}\}"),
+  ("error in nested define", "a\{\{define `b`\}\}\{\{if\}\}\{\{end\}\}"),
+  ("multi errors line", "x\ny\n\{\{if .X\}\}\n\{\{else\}\}\n\{\{end\}\}\{\{end\}\}"),
+]
+
+fn walk(tr: Tree, n: Node) {
+  let (loc, ctx) = parse.error_context(tr, n)
+  print("ctx {loc} {q(ctx)}")
+  match n {
+    ListNode { nodes, .. } => { for c in nodes { walk(tr, c) } },
+    IfNode { pipe, list, .. } => {
+      walk(tr, pipe)
+      walk(tr, list)
+    },
+    ActionNode { pipe, .. } => walk(tr, pipe),
+    PipeNode { decl, cmds, .. } => {
+      for d in decl { walk(tr, d) }
+      for c in cmds {
+        walk(tr, c)
+        match c {
+          CommandNode { args, .. } => { for a in args { walk(tr, a) } },
+          _ => (),
+        }
+      }
+    },
+    _ => (),
+  }
+}
+
+fn errs(e: Str) -> Str { if e == "" { "<nil>" } else { e } }
+
+fn main() {
+  for (n, i) in PARSE_TESTS { show(n, i, 0, "", "", BUILTINS) }
+  for i in [
+    "\{\{/*\n\n\n*/\}\}",
+    "x \r\n\t\{\{- /* hi */\}\}",
+    "\{\{/* hi */ -\}\}\n\n\ty",
+    "x \r\n\t\{\{- /* */ -\}\}\n\n\ty",
+    "\{\{define `x`\}\}\{\{/* c */\}\}\{\{end\}\}\{\{/* d */\}\}",
+  ] {
+    show("comments", i, parse.PARSE_COMMENTS, "", "", [])
+  }
+  for i in [
+    "[[.X]]",
+    "[[/* a comment */]]",
+    "[[if .X]]y[[else]]z[[end]]",
+    "[[range .X]][[break]][[continue]][[end]]",
+    "[[with .X]]y[[end]]",
+    "[[template \"name\" .]]",
+    "\{\{.X\}\} [[- .Y -]] \{\{.Z\}\}",
+    "[[.X]",
+  ] {
+    show("delims", i, parse.PARSE_COMMENTS, "[[", "]]", [])
+  }
+  show("delims2", "<%if .X%>a<%- else -%>b<%end%>", 0, "<%", "%>", [])
+  show("delims3", "$\{.X\}\}", 0, "$", "\}", [])
+  show("skip func check", "\{\{fn 1 2\}\}", parse.SKIP_FUNC_CHECK, "", "", [])
+  show(
+    "skip func check 2",
+    "\{\{if fn\}\}\{\{fn | g\}\}\{\{end\}\}",
+    parse.SKIP_FUNC_CHECK,
+    "",
+    "",
+    [],
+  )
+  show("break func", "\{\{range .X\}\}\{\{break 20\}\}\{\{end\}\}", 0, "", "", ["break"])
+  show("break no func", "\{\{range .X\}\}\{\{break 20\}\}\{\{end\}\}", 0, "", "", [])
+  show("continue func", "\{\{continue 1\}\}\{\{range .\}\}\{\{continue\}\}\{\{end\}\}", 0, "", "", [
+    "continue",
+  ])
+  show("nil func", "\{\{nilfn\}\}", 0, "", "", ["continue"])
+  show("two maps", "\{\{a\}\}\{\{b\}\}", 0, "", "", ["a", "b"])
+  match parse.parse(
+    "top",
+    "\{\{define `a`\}\}A\{\{end\}\}top\{\{template `a`\}\}",
+    "",
+    "",
+    BUILTINS,
+  ) {
+    Ok(set) => {
+      let names = sort(keys(set))
+      print("Parse: [" + join(names, " ") + "] <nil>")
+      for k in names {
+        let st = unwrap(get(set, k))
+        print("  {k}: {q(parse.tree_string(st))} {st.parse_name}")
+      }
+    },
+    Err(e) => print("Parse:", e),
+  }
+  match parse.parse("bad", "\{\{define `a`\}\}A\{\{end\}\}\{\{.X", "", "", []) {
+    Ok(_) => print("Parse bad: <nil>"),
+    Err(e) => print("Parse bad: " + e),
+  }
+  var ts: Map<Str, Tree> = Map()
+  var line = ""
+  match parse.tree_parse(
+    parse.new("one"),
+    "\{\{define `shared`\}\}S1\{\{end\}\}one",
+    "",
+    "",
+    ts,
+    [],
+  ) {
+    Ok((_, s)) => {
+      ts = s
+      line = "true <nil>"
+    },
+    Err(e) => { line = "false " + e },
+  }
+  match parse.tree_parse(
+    parse.new("two"),
+    "\{\{define `shared`\}\}S2\{\{end\}\}two",
+    "",
+    "",
+    ts,
+    [],
+  ) {
+    Ok((_, s)) => {
+      ts = s
+      line = line + " true <nil>"
+    },
+    Err(e) => { line = line + " false " + e },
+  }
+  print(line)
+  match parse.tree_parse(
+    parse.new("three"),
+    "\{\{define `x`\}\} \{\{end\}\}three",
+    "",
+    "",
+    ts,
+    [],
+  ) {
+    Ok((_, s)) => {
+      ts = s
+      print("true <nil> " + parse.tree_string(unwrap(get(ts, "shared"))) + " {len(keys(ts))}")
+    },
+    Err(e) => print("false", e),
+  }
+  print(b(parse.is_empty_tree(None)))
+  for i in [
+    "",
+    "hello",
+    " \t\n \t\n",
+    "\{\{/* comment */\}\}",
+    "\{\{define \"x\"\}\}something\{\{end\}\}",
+    "\{\{define `x`\}\}something\{\{end\}\}\n\n\{\{define `y`\}\}something\{\{end\}\}\n\n",
+    "\{\{define `x`\}\}something\{\{end\}\}\nx\n\{\{define `y`\}\}something\{\{end\}\}\ny\n",
+    "\{\{define `x`\}\}something\{\{end\}\}\{\{if 3\}\}foo\{\{end\}\}",
+    "\{\{.\}\}",
+    "\{\{range .\}\}\{\{end\}\}",
+    "\{\{with .\}\}\{\{end\}\}",
+    "\{\{template `x`\}\}",
+    "\u{a0}\u{2003}\u{b}\u{c}",
+    "\u{200b}",
+  ] {
+    match parse.tree_parse(parse.new("root"), i, "", "", Map(), []) {
+      Ok((tr, _)) => print("empty {q(i)}: {b(parse.is_empty_tree(tr.root))} <nil>"),
+      Err(e) => print("empty {q(i)}: {e}"),
+    }
+  }
+  let (tr, _) = unwrap(
+    parse.tree_parse(
+      parse.new("ctx"),
+      "ab\ncd\{\{if .X\}\}\n  \{\{.Y | printf \"%d\"\}\}\{\{end\}\}\n\{\{$z := 1\}\}",
+      "",
+      "",
+      Map(),
+      BUILTINS,
+    ),
+  )
+  walk(tr, root_of(tr))
+  print(tr.name, tr.parse_name, "true")
+  print(
+    "{parse.NODE_TEXT} {parse.NODE_ACTION} {parse.NODE_BOOL} {parse.NODE_CHAIN} {parse.NODE_COMMAND} {parse.NODE_DOT} {parse.NODE_FIELD} {parse.NODE_IDENTIFIER} {parse.NODE_IF} {parse.NODE_LIST} {parse.NODE_NIL} {parse.NODE_NUMBER} {parse.NODE_PIPE} {parse.NODE_RANGE} {parse.NODE_STRING} {parse.NODE_TEMPLATE} {parse.NODE_VARIABLE} {parse.NODE_WITH} {parse.NODE_COMMENT} {parse.NODE_BREAK} {parse.NODE_CONTINUE} {parse.PARSE_COMMENTS} {parse.SKIP_FUNC_CHECK}",
+  )
+  let id = match parse.new_identifier("foo") {
+    IdentifierNode { ident, .. } => Node.IdentifierNode { pos: 7, ident: ident },
+    x => x,
+  }
+  print(parse.string(id, "", ""), parse.position(id), parse.node_type(id))
+  var sb = ""
+  var k = 0
+  while k < 200 {
+    sb = sb + "line {k} \{\{if .A{k}\}\}\{\{.B | printf \"%d\" {k}\}\}\{\{else\}\}x\{\{end\}\}\n"
+    k += 1
+  }
+  match parse.tree_parse(parse.new("big"), sb, "", "", Map(), BUILTINS) {
+    Ok((tb, _)) => {
+      let ns = nodes_of(root_of(tb))
+      print("<nil> {len(ns)} {b(parse.tree_string(tb) == sb)}")
+      match ns[len(ns) - 2] {
+        IfNode { line, pos, pipe, .. } => {
+          let pl = match pipe {
+            PipeNode { line, .. } => line,
+            _ => 0,
+          }
+          print(line, pos, pl)
+        },
+        _ => print("?"),
+      }
+    },
+    Err(e) => print(e),
+  }
+}

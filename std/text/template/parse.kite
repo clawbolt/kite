@@ -1,0 +1,1768 @@
+// std.text.template.parse：对齐 Go 1.27 的 text/template/parse（模板语法树，逐行移植 lex.go / node.go / parse.go）
+//   parse(name, text, left, right, funcs) -> Result<Map<Str, Tree>, Str>：同 Parse；funcs 是已定义的函数名
+//     （Go 里是 []map[string]any，值为 nil 的函数不算定义；这里直接给名字列表）
+//   new(name) -> Tree，tree_parse(t, text, left, right, tree_set, funcs) -> Result<(Tree, Map<Str, Tree>), Str>：
+//     同 (*Tree).Parse；t.mode 取 PARSE_COMMENTS / SKIP_FUNC_CHECK 的组合
+//   节点是枚举 Node（变体名同 Go 类型名：ListNode、TextNode、ActionNode、PipeNode、CommandNode、IfNode …）；
+//     string(n, left, right) 同 Node.String()（定界符取自所在的树，tree_string(t) = t.root 的 String）、
+//     node_type(n)、position(n)、is_empty_tree(n)、error_context(t, n) -> (位置, 上下文)
+//   位置 pos 是字节偏移，line 从 1 开始；错误文字与 Go 相同（"template: 名字:行: …"）
+// 与 Go 的差别：
+//   - 值语义：没有 Copy（不需要）、节点里没有指向树的指针；ChainNode.Add / SetPos 之类直接构造新值
+//   - 出错时 Go 的 Parse 返回已加入的部分树集，这里只返回错误
+//   - TextNode.text 是 Str（Go 是 []byte）；字符串常量解出的内容不是合法 UTF-8（如 "\xff"）时报 invalid syntax
+//   - 括号嵌套上限同 Go（10000 层）
+use std.strconv
+use std.unicode
+use std.math.bits
+
+// ───────── 节点 ─────────
+
+pub const NODE_TEXT: Int = 0
+pub const NODE_ACTION: Int = 1
+pub const NODE_BOOL: Int = 2
+pub const NODE_CHAIN: Int = 3
+pub const NODE_COMMAND: Int = 4
+pub const NODE_DOT: Int = 5
+const NODE_ELSE: Int = 6
+const NODE_END: Int = 7
+pub const NODE_FIELD: Int = 8
+pub const NODE_IDENTIFIER: Int = 9
+pub const NODE_IF: Int = 10
+pub const NODE_LIST: Int = 11
+pub const NODE_NIL: Int = 12
+pub const NODE_NUMBER: Int = 13
+pub const NODE_PIPE: Int = 14
+pub const NODE_RANGE: Int = 15
+pub const NODE_STRING: Int = 16
+pub const NODE_TEMPLATE: Int = 17
+pub const NODE_VARIABLE: Int = 18
+pub const NODE_WITH: Int = 19
+pub const NODE_COMMENT: Int = 20
+pub const NODE_BREAK: Int = 21
+pub const NODE_CONTINUE: Int = 22
+
+pub const PARSE_COMMENTS: Int = 1
+pub const SKIP_FUNC_CHECK: Int = 2
+
+// 数字常量：按所有能表示它的类型保存（Go 的 NumberNode）；uint64 以 Int 的位模式保存
+pub type Num = {
+  is_int: Bool,
+  is_uint: Bool,
+  is_float: Bool,
+  is_complex: Bool,
+  int64: Int,
+  uint64: Int,
+  float64: Float,
+  re: Float,
+  im: Float,
+  text: Str,
+}
+
+pub enum Node {
+  ListNode { pos: Int, nodes: List<Node> }
+  TextNode { pos: Int, text: Str }
+  CommentNode { pos: Int, text: Str }
+  PipeNode { pos: Int, line: Int, is_assign: Bool, decl: List<Node>, cmds: List<Node> }
+  ActionNode { pos: Int, line: Int, pipe: Node }
+  CommandNode { pos: Int, args: List<Node> }
+  IdentifierNode { pos: Int, ident: Str }
+  VariableNode { pos: Int, ident: List<Str> }
+  DotNode { pos: Int }
+  NilNode { pos: Int }
+  FieldNode { pos: Int, ident: List<Str> }
+  ChainNode { pos: Int, node: Node, field: List<Str> }
+  BoolNode { pos: Int, val: Bool }
+  NumberNode { pos: Int, num: Num }
+  StringNode { pos: Int, quoted: Str, text: Str }
+  EndNode { pos: Int }
+  ElseNode { pos: Int, line: Int }
+  IfNode { pos: Int, line: Int, pipe: Node, list: Node, else_list: Node? }
+  RangeNode { pos: Int, line: Int, pipe: Node, list: Node, else_list: Node? }
+  WithNode { pos: Int, line: Int, pipe: Node, list: Node, else_list: Node? }
+  BreakNode { pos: Int, line: Int }
+  ContinueNode { pos: Int, line: Int }
+  TemplateNode { pos: Int, line: Int, name: Str, pipe: Node? }
+}
+
+pub type Tree = {
+  name: Str,
+  parse_name: Str,
+  root: Node?,
+  mode: Int,
+  text: Str,
+  left_delim: Str,
+  right_delim: Str,
+}
+
+pub fn new_identifier(ident: Str) -> Node { Node.IdentifierNode { pos: 0, ident: ident } }
+
+pub fn node_type(n: Node) -> Int {
+  match n {
+    ListNode { .. } => NODE_LIST,
+    TextNode { .. } => NODE_TEXT,
+    CommentNode { .. } => NODE_COMMENT,
+    PipeNode { .. } => NODE_PIPE,
+    ActionNode { .. } => NODE_ACTION,
+    CommandNode { .. } => NODE_COMMAND,
+    IdentifierNode { .. } => NODE_IDENTIFIER,
+    VariableNode { .. } => NODE_VARIABLE,
+    DotNode { .. } => NODE_DOT,
+    NilNode { .. } => NODE_NIL,
+    FieldNode { .. } => NODE_FIELD,
+    ChainNode { .. } => NODE_CHAIN,
+    BoolNode { .. } => NODE_BOOL,
+    NumberNode { .. } => NODE_NUMBER,
+    StringNode { .. } => NODE_STRING,
+    EndNode { .. } => NODE_END,
+    ElseNode { .. } => NODE_ELSE,
+    IfNode { .. } => NODE_IF,
+    RangeNode { .. } => NODE_RANGE,
+    WithNode { .. } => NODE_WITH,
+    BreakNode { .. } => NODE_BREAK,
+    ContinueNode { .. } => NODE_CONTINUE,
+    TemplateNode { .. } => NODE_TEMPLATE,
+  }
+}
+
+pub fn position(n: Node) -> Int {
+  match n {
+    ListNode { pos, .. } => pos,
+    TextNode { pos, .. } => pos,
+    CommentNode { pos, .. } => pos,
+    PipeNode { pos, .. } => pos,
+    ActionNode { pos, .. } => pos,
+    CommandNode { pos, .. } => pos,
+    IdentifierNode { pos, .. } => pos,
+    VariableNode { pos, .. } => pos,
+    DotNode { pos } => pos,
+    NilNode { pos } => pos,
+    FieldNode { pos, .. } => pos,
+    ChainNode { pos, .. } => pos,
+    BoolNode { pos, .. } => pos,
+    NumberNode { pos, .. } => pos,
+    StringNode { pos, .. } => pos,
+    EndNode { pos } => pos,
+    ElseNode { pos, .. } => pos,
+    IfNode { pos, .. } => pos,
+    RangeNode { pos, .. } => pos,
+    WithNode { pos, .. } => pos,
+    BreakNode { pos, .. } => pos,
+    ContinueNode { pos, .. } => pos,
+    TemplateNode { pos, .. } => pos,
+  }
+}
+
+fn branch_str(name: Str, pipe: Node, list: Node, el: Node?, ld: Str, rd: Str) -> Str {
+  var s = ld + name + " " + string(pipe, ld, rd) + rd + string(list, ld, rd)
+  if let Some(e) = el { s = s + ld + "else" + rd + string(e, ld, rd) }
+  s + ld + "end" + rd
+}
+
+fn is_pipe(n: Node) -> Bool {
+  match n {
+    PipeNode { .. } => true,
+    _ => false,
+  }
+}
+
+// Node.String()；ld / rd 是所在树的定界符
+pub fn string(n: Node, ld: Str, rd: Str) -> Str {
+  match n {
+    ListNode { nodes, .. } => join(map(nodes, (x) => string(x, ld, rd)), ""),
+    TextNode { text, .. } => text,
+    CommentNode { text, .. } => ld + text + rd,
+    PipeNode { is_assign, decl, cmds, .. } => {
+      var s = ""
+      if len(decl) > 0 {
+        s = join(map(decl, (v) => string(v, ld, rd)), ", ") + (if is_assign {
+          " = "
+        } else {
+          " := "
+        })
+      }
+      s + join(map(cmds, (c) => string(c, ld, rd)), " | ")
+    },
+    ActionNode { pipe, .. } => ld + string(pipe, ld, rd) + rd,
+    CommandNode { args, .. } => join(
+      map(args, (a) => if is_pipe(a) { "(" + string(a, ld, rd) + ")" } else { string(a, ld, rd) }),
+      " ",
+    ),
+    IdentifierNode { ident, .. } => ident,
+    VariableNode { ident, .. } => join(ident, "."),
+    DotNode { .. } => ".",
+    NilNode { .. } => "nil",
+    FieldNode { ident, .. } => join(map(ident, (x) => "." + x), ""),
+    ChainNode { node, field, .. } => {
+      let head = if is_pipe(node) { "(" + string(node, ld, rd) + ")" } else { string(node, ld, rd) }
+      head + join(map(field, (x) => "." + x), "")
+    },
+    BoolNode { val, .. } => if val { "true" } else { "false" },
+    NumberNode { num, .. } => num.text,
+    StringNode { quoted, .. } => quoted,
+    EndNode { .. } => ld + "end" + rd,
+    ElseNode { .. } => ld + "else" + rd,
+    IfNode { pipe, list, else_list, .. } => branch_str("if", pipe, list, else_list, ld, rd),
+    RangeNode { pipe, list, else_list, .. } => branch_str("range", pipe, list, else_list, ld, rd),
+    WithNode { pipe, list, else_list, .. } => branch_str("with", pipe, list, else_list, ld, rd),
+    BreakNode { .. } => ld + "break" + rd,
+    ContinueNode { .. } => ld + "continue" + rd,
+    TemplateNode { name, pipe, .. } => {
+      var s = ld + "template " + strconv.quote_go(name)
+      if let Some(p) = pipe { s = s + " " + string(p, ld, rd) }
+      s + rd
+    },
+  }
+}
+
+pub fn tree_string(t: Tree) -> Str {
+  match t.root {
+    Some(r) => string(r, t.left_delim, t.right_delim),
+    None => "",
+  }
+}
+
+// bytes.TrimSpace 之后是否为空
+fn blank(s: Str) -> Bool {
+  for c in chars(s) { if !unicode.is_space(c) { return false } }
+  true
+}
+
+// IsEmptyTree：只有空白和注释（以及 define）
+pub fn is_empty_tree(n: Node?) -> Bool {
+  match n {
+    None => true,
+    Some(x) => match x {
+      CommentNode { .. } => true,
+      ListNode { nodes, .. } => all(nodes, (y) => is_empty_tree(Some(y))),
+      TextNode { text, .. } => blank(text),
+      ActionNode { .. } => false,
+      IfNode { .. } => false,
+      RangeNode { .. } => false,
+      TemplateNode { .. } => false,
+      WithNode { .. } => false,
+      _ => panic("unknown node: " + string(x, "\{\{", "\}\}")),
+    },
+  }
+}
+
+// ErrorContext：返回 ("名字:行:列", 节点的 String)；列的算法同 Go（第一行时就是字节偏移）
+pub fn error_context(t: Tree, n: Node) -> (Str, Str) {
+  let pos = position(n)
+  let bs = __bytes(t.text)
+  var last = -1
+  var lines = 0
+  var i = 0
+  while i < pos && i < len(bs) {
+    if bs[i] == 10 {
+      last = i
+      lines += 1
+    }
+    i += 1
+  }
+  let byte_num = if last == -1 { pos } else { pos - (last + 1) }
+  ("{t.parse_name}:{1 + lines}:{byte_num}", string(n, t.left_delim, t.right_delim))
+}
+
+// ───────── 词法 ─────────
+
+const I_ERROR: Int = 0
+const I_BOOL: Int = 1
+const I_CHAR: Int = 2
+const I_CHAR_CONSTANT: Int = 3
+const I_COMMENT: Int = 4
+const I_COMPLEX: Int = 5
+const I_ASSIGN: Int = 6
+const I_DECLARE: Int = 7
+const I_EOF: Int = 8
+const I_FIELD: Int = 9
+const I_IDENTIFIER: Int = 10
+const I_LEFT_DELIM: Int = 11
+const I_LEFT_PAREN: Int = 12
+const I_NUMBER: Int = 13
+const I_PIPE: Int = 14
+const I_RAW_STRING: Int = 15
+const I_RIGHT_DELIM: Int = 16
+const I_RIGHT_PAREN: Int = 17
+const I_SPACE: Int = 18
+const I_STRING: Int = 19
+const I_TEXT: Int = 20
+const I_VARIABLE: Int = 21
+const I_KEYWORD: Int = 22
+const I_BLOCK: Int = 23
+const I_BREAK: Int = 24
+const I_CONTINUE: Int = 25
+const I_DOT: Int = 26
+const I_DEFINE: Int = 27
+const I_ELSE: Int = 28
+const I_END: Int = 29
+const I_IF: Int = 30
+const I_NIL: Int = 31
+const I_RANGE: Int = 32
+const I_TEMPLATE: Int = 33
+const I_WITH: Int = 34
+
+fn keyword(w: Str) -> Int {
+  match w {
+    "." => I_DOT,
+    "block" => I_BLOCK,
+    "break" => I_BREAK,
+    "continue" => I_CONTINUE,
+    "define" => I_DEFINE,
+    "else" => I_ELSE,
+    "end" => I_END,
+    "if" => I_IF,
+    "range" => I_RANGE,
+    "nil" => I_NIL,
+    "template" => I_TEMPLATE,
+    "with" => I_WITH,
+    _ => 0,
+  }
+}
+
+type Item = { typ: Int, pos: Int, val: Str, line: Int }
+
+fn item_string(i: Item) -> Str {
+  if i.typ == I_EOF { return "EOF" }
+  if i.typ == I_ERROR { return i.val }
+  if i.typ > I_KEYWORD { return "<" + i.val + ">" }
+  let cs = chars(i.val)
+  if len(cs) > 10 { return strconv.quote_go(join(take(cs, 10), "")) + "..." }
+  strconv.quote_go(i.val)
+}
+
+type L = {
+  input: List<Int>,
+  n: Int,
+  ld: List<Int>,
+  rd: List<Int>,
+  pos: Int,
+  start: Int,
+  at_eof: Bool,
+  paren_depth: Int,
+  line: Int,
+  start_line: Int,
+  item: Item,
+  inside: Bool,
+  emit_comment: Bool,
+  break_ok: Bool,
+  continue_ok: Bool,
+}
+
+const EOF: Int = -1
+
+// 状态（Go 的 stateFn）；DONE 表示 nil：item 已经准备好
+const DONE: Int = 0
+const S_TEXT: Int = 1
+const S_LEFT: Int = 2
+const S_COMMENT: Int = 3
+const S_RIGHT: Int = 4
+const S_INSIDE: Int = 5
+const S_SPACE: Int = 6
+const S_IDENT: Int = 7
+const S_FIELD: Int = 8
+const S_VAR: Int = 9
+const S_CHAR: Int = 10
+const S_NUMBER: Int = 11
+const S_QUOTE: Int = 12
+const S_RAW: Int = 13
+
+fn new_lexer(input: Str, left: Str, right: Str) -> L {
+  let bs = __bytes(input)
+  L {
+    input: bs,
+    n: len(bs),
+    ld: __bytes(if left == "" { "\{\{" } else { left }),
+    rd: __bytes(if right == "" { "\}\}" } else { right }),
+    pos: 0,
+    start: 0,
+    at_eof: false,
+    paren_depth: 0,
+    line: 1,
+    start_line: 1,
+    item: Item { typ: I_EOF, pos: 0, val: "EOF", line: 1 },
+    inside: false,
+    emit_comment: false,
+    break_ok: false,
+    continue_ok: false,
+  }
+}
+
+fn sub(l: L, a: Int, b: Int) -> Str {
+  if b <= a { return "" }
+  unwrap_or(__from_bytes(l.input[a..b]), "")
+}
+
+// UTF-8 解码（输入来自合法的 Str）
+fn decode(p: List<Int>, i: Int, n: Int) -> (Int, Int) {
+  let b0 = p[i]
+  if b0 < 128 { return (b0, 1) }
+  if b0 < 0xE0 && i + 1 < n { return (((b0 & 0x1F) << 6) | (p[i + 1] & 0x3F), 2) }
+  if b0 < 0xF0 && i + 2 < n {
+    return (((b0 & 0x0F) << 12) | ((p[i + 1] & 0x3F) << 6) | (p[i + 2] & 0x3F), 3)
+  }
+  if i + 3 < n {
+    return (
+      ((b0 & 0x07) << 18) | ((p[i + 1] & 0x3F) << 12) | ((p[i + 2] & 0x3F) << 6) | (
+        p[i + 3] & 0x3F
+      ),
+      4,
+    )
+  }
+  (65533, 1)
+}
+
+fn next(l: L) -> (L, Int) {
+  if l.pos >= l.n { return (L { at_eof: true, ..l }, EOF) }
+  let (r, w) = decode(l.input, l.pos, l.n)
+  (L { pos: l.pos + w, line: if r == 10 { l.line + 1 } else { l.line }, ..l }, r)
+}
+
+fn backup(l: L) -> L {
+  if !l.at_eof && l.pos > 0 {
+    var i = l.pos - 1
+    while i > 0 && l.input[i] & 0xC0 == 0x80 { i -= 1 }
+    let r = l.input[i]
+    return L { pos: i, line: if r == 10 { l.line - 1 } else { l.line }, ..l }
+  }
+  l
+}
+
+fn peek(l: L) -> Int {
+  let (_, r) = next(l)
+  r
+}
+
+fn peek_s(l: L) -> (L, Int) {
+  let (l2, r) = next(l)
+  (backup(l2), r)
+}
+
+fn count_nl(l: L, a: Int, b: Int) -> Int {
+  var c = 0
+  var i = a
+  while i < b {
+    if l.input[i] == 10 { c += 1 }
+    i += 1
+  }
+  c
+}
+
+fn this_item(l: L, t: Int) -> (L, Item) {
+  let i = Item { typ: t, pos: l.start, val: sub(l, l.start, l.pos), line: l.start_line }
+  (L { start: l.pos, start_line: l.line, ..l }, i)
+}
+
+fn emit(l: L, t: Int) -> (L, Int) {
+  let (l2, i) = this_item(l, t)
+  (L { item: i, ..l2 }, DONE)
+}
+
+fn emit_item(l: L, i: Item) -> (L, Int) { (L { item: i, ..l }, DONE) }
+
+fn ignore(l: L) -> L {
+  let ln = l.line + count_nl(l, l.start, l.pos)
+  L { start: l.pos, line: ln, start_line: ln, ..l }
+}
+
+fn in_set(valid: Str, r: Int) -> Bool { r >= 0 && contains(__bytes(valid), r) }
+
+fn accept(l: L, valid: Str) -> (L, Bool) {
+  let (l2, r) = next(l)
+  if in_set(valid, r) { return (l2, true) }
+  (backup(l2), false)
+}
+
+fn accept_run(l0: L, valid: Str) -> L {
+  var l = l0
+  while true {
+    let (l2, r) = next(l)
+    l = l2
+    if !in_set(valid, r) { break }
+  }
+  backup(l)
+}
+
+fn errorf(l: L, msg: Str) -> (L, Int) {
+  let i = Item { typ: I_ERROR, pos: l.start, val: msg, line: l.start_line }
+  (L { item: i, start: 0, pos: 0, n: 0, ..l }, DONE)
+}
+
+fn next_item(l0: L) -> (L, Item) {
+  var l = L { item: Item { typ: I_EOF, pos: l0.pos, val: "EOF", line: l0.start_line }, ..l0 }
+  var st = if l.inside { S_INSIDE } else { S_TEXT }
+  while true {
+    let (l2, s2) = step(l, st)
+    l = l2
+    st = s2
+    if st == DONE { return (l, l.item) }
+  }
+  (l, l.item)
+}
+
+fn step(l: L, st: Int) -> (L, Int) {
+  if st == S_TEXT { return lex_text(l) }
+  if st == S_LEFT { return lex_left_delim(l) }
+  if st == S_COMMENT { return lex_comment(l) }
+  if st == S_RIGHT { return lex_right_delim(l) }
+  if st == S_INSIDE { return lex_inside_action(l) }
+  if st == S_SPACE { return lex_space(l) }
+  if st == S_IDENT { return lex_identifier(l) }
+  if st == S_FIELD { return lex_field_or_variable(l, I_FIELD) }
+  if st == S_VAR { return lex_variable(l) }
+  if st == S_CHAR { return lex_quoted(l, 39, "unterminated character constant", I_CHAR_CONSTANT) }
+  if st == S_NUMBER { return lex_number(l) }
+  if st == S_QUOTE { return lex_quoted(l, 34, "unterminated quoted string", I_STRING) }
+  lex_raw_quote(l)
+}
+
+fn has_at(l: L, at: Int, pat: List<Int>) -> Bool {
+  if at < 0 || at + len(pat) > l.n { return false }
+  var i = 0
+  while i < len(pat) {
+    if l.input[at + i] != pat[i] { return false }
+    i += 1
+  }
+  true
+}
+
+fn index_from(l: L, at: Int, pat: List<Int>) -> Int {
+  var i = at
+  while i + len(pat) <= l.n {
+    if has_at(l, i, pat) { return i - at }
+    i += 1
+  }
+  -1
+}
+
+fn is_space_b(b: Int) -> Bool { b == 32 || b == 9 || b == 13 || b == 10 }
+
+fn has_left_trim(l: L, at: Int) -> Bool {
+  at + 2 <= l.n && l.input[at] == 45 && is_space_b(l.input[at + 1])
+}
+
+fn has_right_trim(l: L, at: Int) -> Bool {
+  at + 2 <= l.n && is_space_b(l.input[at]) && l.input[at + 1] == 45
+}
+
+fn right_trim_length(l: L, a: Int, b: Int) -> Int {
+  var i = b
+  while i > a && is_space_b(l.input[i - 1]) { i -= 1 }
+  b - i
+}
+
+fn left_trim_length(l: L, a: Int) -> Int {
+  var i = a
+  while i < l.n && is_space_b(l.input[i]) { i += 1 }
+  i - a
+}
+
+fn lex_text(l0: L) -> (L, Int) {
+  var l = l0
+  let x = index_from(l, l.pos, l.ld)
+  if x >= 0 {
+    if x > 0 {
+      l = L { pos: l.pos + x, ..l }
+      var trim = 0
+      let delim_end = l.pos + len(l.ld)
+      if has_left_trim(l, delim_end) { trim = right_trim_length(l, l.start, l.pos) }
+      l = L { pos: l.pos - trim, ..l }
+      l = L { line: l.line + count_nl(l, l.start, l.pos), ..l }
+      let (l2, i) = this_item(l, I_TEXT)
+      l = ignore(L { pos: l2.pos + trim, ..l2 })
+      if len(i.val) > 0 { return emit_item(l, i) }
+    }
+    return (l, S_LEFT)
+  }
+  l = L { pos: l.n, ..l }
+  if l.pos > l.start {
+    l = L { line: l.line + count_nl(l, l.start, l.pos), ..l }
+    return emit(l, I_TEXT)
+  }
+  emit(l, I_EOF)
+}
+
+fn at_right_delim(l: L) -> (Bool, Bool) {
+  if has_right_trim(l, l.pos) && has_at(l, l.pos + 2, l.rd) { return (true, true) }
+  if has_at(l, l.pos, l.rd) { return (true, false) }
+  (false, false)
+}
+
+fn lex_left_delim(l0: L) -> (L, Int) {
+  var l = L { pos: l0.pos + len(l0.ld), ..l0 }
+  let trim = has_left_trim(l, l.pos)
+  let after = if trim { 2 } else { 0 }
+  if has_at(l, l.pos + after, [47, 42]) {
+    l = ignore(L { pos: l.pos + after, ..l })
+    return (l, S_COMMENT)
+  }
+  let (l2, i) = this_item(l, I_LEFT_DELIM)
+  l = ignore(L { inside: true, pos: l2.pos + after, ..l2 })
+  l = L { paren_depth: 0, ..l }
+  emit_item(l, i)
+}
+
+fn lex_comment(l0: L) -> (L, Int) {
+  var l = L { pos: l0.pos + 2, ..l0 }
+  let x = index_from(l, l.pos, [42, 47])
+  if x < 0 { return errorf(l, "unclosed comment") }
+  l = L { pos: l.pos + x + 2, ..l }
+  let (delim, trim) = at_right_delim(l)
+  if !delim { return errorf(l, "comment ends before closing delimiter") }
+  l = L { line: l.line + count_nl(l, l.start, l.pos), ..l }
+  let (l2, i) = this_item(l, I_COMMENT)
+  l = l2
+  if trim { l = L { pos: l.pos + 2, ..l } }
+  l = L { pos: l.pos + len(l.rd), ..l }
+  if trim { l = L { pos: l.pos + left_trim_length(l, l.pos), ..l } }
+  l = ignore(l)
+  if l.emit_comment { return emit_item(l, i) }
+  (l, S_TEXT)
+}
+
+fn lex_right_delim(l0: L) -> (L, Int) {
+  var l = l0
+  let (_, trim) = at_right_delim(l)
+  if trim { l = ignore(L { pos: l.pos + 2, ..l }) }
+  l = L { pos: l.pos + len(l.rd), ..l }
+  let (l2, i) = this_item(l, I_RIGHT_DELIM)
+  l = l2
+  if trim { l = ignore(L { pos: l.pos + left_trim_length(l, l.pos), ..l }) }
+  emit_item(L { inside: false, ..l }, i)
+}
+
+fn is_space(r: Int) -> Bool { r == 32 || r == 9 || r == 13 || r == 10 }
+
+fn is_alnum(r: Int) -> Bool {
+  if r < 0 { return false }
+  if r < 128 {
+    return r == 95 || (r >= 48 && r <= 57) || (r >= 65 && r <= 90) || (r >= 97 && r <= 122)
+  }
+  unicode.is_letter(__chr(r)) || unicode.is_digit(__chr(r))
+}
+
+// %#U
+fn fmt_u(r: Int) -> Str {
+  var h = unicode.upper(strconv.format_uint(r, 16))
+  while len(h) < 4 { h = "0" + h }
+  if r >= 0 && r <= 0x10FFFF && strconv.is_print(r) { "U+{h} '{__chr(r)}'" } else { "U+{h}" }
+}
+
+fn lex_inside_action(l0: L) -> (L, Int) {
+  let (delim, _) = at_right_delim(l0)
+  if delim {
+    if l0.paren_depth == 0 { return (l0, S_RIGHT) }
+    return errorf(l0, "unclosed left paren")
+  }
+  let (l, r) = next(l0)
+  if r == EOF { return errorf(l, "unclosed action") }
+  if is_space(r) { return (backup(l), S_SPACE) }
+  if r == 61 { return emit(l, I_ASSIGN) }
+  if r == 58 {
+    let (l2, r2) = next(l)
+    if r2 != 61 { return errorf(l2, "expected :=") }
+    return emit(l2, I_DECLARE)
+  }
+  if r == 124 { return emit(l, I_PIPE) }
+  if r == 34 { return (l, S_QUOTE) }
+  if r == 96 { return (l, S_RAW) }
+  if r == 36 { return (l, S_VAR) }
+  if r == 39 { return (l, S_CHAR) }
+  if r == 46 {
+    if l.pos < l.n {
+      let c = l.input[l.pos]
+      if c < 48 || 57 < c { return (l, S_FIELD) }
+    }
+    return (backup(l), S_NUMBER)
+  }
+  if r == 43 || r == 45 || (r >= 48 && r <= 57) { return (backup(l), S_NUMBER) }
+  if is_alnum(r) { return (backup(l), S_IDENT) }
+  if r == 40 { return emit(L { paren_depth: l.paren_depth + 1, ..l }, I_LEFT_PAREN) }
+  if r == 41 {
+    let l2 = L { paren_depth: l.paren_depth - 1, ..l }
+    if l2.paren_depth < 0 { return errorf(l2, "unexpected right paren") }
+    return emit(l2, I_RIGHT_PAREN)
+  }
+  if r < 128 && r >= 32 && r < 127 { return emit(l, I_CHAR) }
+  errorf(l, "unrecognized character in action: " + fmt_u(r))
+}
+
+fn lex_space(l0: L) -> (L, Int) {
+  var l = l0
+  var num = 0
+  while true {
+    let (lp, r) = peek_s(l)
+    l = lp
+    if !is_space(r) { break }
+    let (l2, _) = next(l)
+    l = l2
+    num += 1
+  }
+  if has_right_trim(l, l.pos - 1) && has_at(l, l.pos - 1 + 2, l.rd) {
+    l = backup(l)
+    if num == 1 { return (l, S_RIGHT) }
+  }
+  emit(l, I_SPACE)
+}
+
+fn lex_identifier(l0: L) -> (L, Int) {
+  var l = l0
+  while true {
+    let (l2, r) = next(l)
+    l = l2
+    if is_alnum(r) { continue }
+    l = backup(l)
+    let word = sub(l, l.start, l.pos)
+    if !at_terminator(l) { return errorf(l, "bad character " + fmt_u(r)) }
+    let k = keyword(word)
+    if k > I_KEYWORD {
+      if (k == I_BREAK && !l.break_ok) || (k == I_CONTINUE && !l.continue_ok) {
+        return emit(l, I_IDENTIFIER)
+      }
+      return emit(l, k)
+    }
+    if starts_with(word, ".") { return emit(l, I_FIELD) }
+    if word == "true" || word == "false" { return emit(l, I_BOOL) }
+    return emit(l, I_IDENTIFIER)
+  }
+  (l, DONE)
+}
+
+fn lex_variable(l: L) -> (L, Int) {
+  if at_terminator(l) { return emit(l, I_VARIABLE) }
+  lex_field_or_variable(l, I_VARIABLE)
+}
+
+fn lex_field_or_variable(l0: L, typ: Int) -> (L, Int) {
+  if at_terminator(l0) {
+    if typ == I_VARIABLE { return emit(l0, I_VARIABLE) }
+    return emit(l0, I_DOT)
+  }
+  var l = l0
+  var r = 0
+  while true {
+    let (l2, r2) = next(l)
+    l = l2
+    r = r2
+    if !is_alnum(r) {
+      l = backup(l)
+      break
+    }
+  }
+  if !at_terminator(l) { return errorf(l, "bad character " + fmt_u(r)) }
+  emit(l, typ)
+}
+
+fn at_terminator(l: L) -> Bool {
+  let r = peek(l)
+  if is_space(r) { return true }
+  if r == EOF || r == 46 || r == 44 || r == 124 || r == 58 || r == 41 || r == 40 { return true }
+  has_at(l, l.pos, l.rd)
+}
+
+// lexChar / lexQuote：q 是结束引号
+fn lex_quoted(l0: L, q: Int, msg: Str, typ: Int) -> (L, Int) {
+  var l = l0
+  while true {
+    let (l2, r) = next(l)
+    l = l2
+    if r == 92 {
+      let (l3, r2) = next(l)
+      l = l3
+      if r2 != EOF && r2 != 10 { continue }
+      return errorf(l, msg)
+    }
+    if r == EOF || r == 10 { return errorf(l, msg) }
+    if r == q { break }
+  }
+  emit(l, typ)
+}
+
+fn lex_raw_quote(l0: L) -> (L, Int) {
+  var l = l0
+  while true {
+    let (l2, r) = next(l)
+    l = l2
+    if r == EOF { return errorf(l, "unterminated raw quoted string") }
+    if r == 96 { break }
+  }
+  emit(l, I_RAW_STRING)
+}
+
+fn lex_number(l0: L) -> (L, Int) {
+  let (l, ok) = scan_number(l0)
+  if !ok { return errorf(l, "bad number syntax: " + strconv.quote_go(sub(l, l.start, l.pos))) }
+  let sign = peek(l)
+  if sign == 43 || sign == 45 {
+    let (l2, ok2) = scan_number(l)
+    if !ok2 || l2.input[l2.pos - 1] != 105 {
+      return errorf(l2, "bad number syntax: " + strconv.quote_go(sub(l2, l2.start, l2.pos)))
+    }
+    return emit(l2, I_COMPLEX)
+  }
+  emit(l, I_NUMBER)
+}
+
+fn scan_number(l0: L) -> (L, Bool) {
+  var l = l0
+  let (l1, _) = accept(l, "+-")
+  l = l1
+  var digits = "0123456789_"
+  let (l2, z) = accept(l, "0")
+  l = l2
+  if z {
+    let (l3, x) = accept(l, "xX")
+    l = l3
+    if x {
+      digits = "0123456789abcdefABCDEF_"
+    } else {
+      let (l4, o) = accept(l, "oO")
+      l = l4
+      if o {
+        digits = "01234567_"
+      } else {
+        let (l5, b) = accept(l, "bB")
+        l = l5
+        if b { digits = "01_" }
+      }
+    }
+  }
+  l = accept_run(l, digits)
+  let (l6, dot) = accept(l, ".")
+  l = l6
+  if dot { l = accept_run(l, digits) }
+  if len(digits) == 11 {
+    let (l7, e) = accept(l, "eE")
+    l = l7
+    if e {
+      let (l8, _) = accept(l, "+-")
+      l = accept_run(l8, "0123456789_")
+    }
+  }
+  if len(digits) == 23 {
+    let (l7, p) = accept(l, "pP")
+    l = l7
+    if p {
+      let (l8, _) = accept(l, "+-")
+      l = accept_run(l8, "0123456789_")
+    }
+  }
+  let (l9, _) = accept(l, "i")
+  l = l9
+  if is_alnum(peek(l)) {
+    let (l10, _) = next(l)
+    return (l10, false)
+  }
+  (l, true)
+}
+
+// ───────── 数字（newNumber） ─────────
+
+fn lower_b(c: Int) -> Int { c | 32 }
+
+fn underscore_ok(s0: List<Int>) -> Bool {
+  var saw = 94
+  var i = 0
+  var s = s0
+  if len(s) >= 1 && (s[0] == 45 || s[0] == 43) { s = s[1..] }
+  var hex = false
+  if len(s) >= 2
+    && s[0] == 48
+    && (lower_b(s[1]) == 98 || lower_b(s[1]) == 111 || lower_b(s[1]) == 120) {
+    i = 2
+    saw = 48
+    hex = lower_b(s[1]) == 120
+  }
+  while i < len(s) {
+    let c = s[i]
+    if (c >= 48 && c <= 57) || (hex && lower_b(c) >= 97 && lower_b(c) <= 102) {
+      saw = 48
+      i += 1
+      continue
+    }
+    if c == 95 {
+      if saw != 48 { return false }
+      saw = 95
+      i += 1
+      continue
+    }
+    if saw == 95 { return false }
+    saw = 33
+    i += 1
+  }
+  saw != 95
+}
+
+// strconv.ParseUint(s, 0, 64)：(值, 错误 0 无 / 1 语法 / 2 越界)
+fn parse_uint0(s0: List<Int>) -> (Int, Int) {
+  if len(s0) == 0 { return (0, 1) }
+  var s = s0
+  var base = 10
+  if s[0] == 48 {
+    if len(s) >= 3 && lower_b(s[1]) == 98 {
+      base = 2
+      s = s[2..]
+    } else if len(s) >= 3 && lower_b(s[1]) == 111 {
+      base = 8
+      s = s[2..]
+    } else if len(s) >= 3 && lower_b(s[1]) == 120 {
+      base = 16
+      s = s[2..]
+    } else {
+      base = 8
+      s = s[1..]
+    }
+  }
+  let cutoff = bits.wadd(bits.udiv(-1, base), 1)
+  var underscores = false
+  var n = 0
+  for c in s {
+    var d = 0
+    if c == 95 {
+      underscores = true
+      continue
+    } else if c >= 48 && c <= 57 {
+      d = c - 48
+    } else if lower_b(c) >= 97 && lower_b(c) <= 122 {
+      d = lower_b(c) - 97 + 10
+    } else {
+      return (0, 1)
+    }
+    if d >= base { return (0, 1) }
+    if !bits.ult(n, cutoff) { return (-1, 2) }
+    n = bits.wmul(n, base)
+    let n1 = bits.wadd(n, d)
+    if bits.ult(n1, n) { return (-1, 2) }
+    n = n1
+  }
+  if underscores && !underscore_ok(s0) { return (0, 1) }
+  (n, 0)
+}
+
+fn parse_int0(s0: List<Int>) -> (Int, Bool) {
+  if len(s0) == 0 { return (0, false) }
+  var s = s0
+  var neg = false
+  if s[0] == 43 {
+    s = s[1..]
+  } else if s[0] == 45 {
+    s = s[1..]
+    neg = true
+  }
+  let (un, e) = parse_uint0(s)
+  if e == 1 { return (0, false) }
+  let cutoff = I64_MIN
+  if !neg && !bits.ult(un, cutoff) { return (0, false) }
+  if neg && bits.ult(cutoff, un) { return (0, false) }
+  if e != 0 { return (0, false) }
+  (if neg { bits.wneg(un) } else { un }, true)
+}
+
+const I64_MIN: Int = 1 << 63
+const TWO63: Float = 9223372036854775808.0
+const TWO64: Float = 18446744073709551616.0
+
+// arm64 上 int64(f) / uint64(f) 的饱和转换
+fn f2i(f: Float) -> Int {
+  if f != f { return 0 }
+  if f >= TWO63 { return 9223372036854775807 }
+  if f < 0.0 - TWO63 { return I64_MIN }
+  int(f)
+}
+
+fn f2u(f: Float) -> Int {
+  if f != f || f <= 0.0 { return 0 }
+  if f >= TWO64 { return -1 }
+  if f < TWO63 { return int(f) }
+  int(f - TWO63) | I64_MIN
+}
+
+fn i2f(i: Int) -> Float { float(i) }
+
+fn u2f(u: Int) -> Float {
+  if u >= 0 { return float(u) }
+  float(bits.shr(u, 1) | (u & 1)) * 2.0
+}
+
+fn simplify_complex(n: Num) -> Num {
+  if n.im != 0.0 { return Num { is_float: false, ..n } }
+  let f = n.re
+  let ii = f2i(f)
+  let is_i = i2f(ii) == f
+  let uu = f2u(f)
+  let is_u = u2f(uu) == f
+  Num {
+    is_float: true,
+    float64: f,
+    is_int: is_i,
+    int64: if is_i { ii } else { n.int64 },
+    is_uint: is_u,
+    uint64: if is_u { uu } else { n.uint64 },
+    ..n
+  }
+}
+
+// fmt.Sscan 读复数（实部 符号 虚部 i）
+fn scan_complex(text: Str) -> Result<(Float, Float), Str> {
+  let bs = __bytes(text)
+  var s = 0
+  if len(bs) > 0 && (bs[0] == 43 || bs[0] == 45) { s = 1 }
+  let hex = s + 1 < len(bs) && bs[s] == 48 && lower_b(bs[s + 1]) == 120
+  var i = s + 1
+  var split = -1
+  while i < len(bs) {
+    let c = bs[i]
+    if c == 43 || c == 45 {
+      let p = lower_b(bs[i - 1])
+      let is_exp = if hex { p == 112 } else { p == 101 }
+      if !is_exp {
+        split = i
+        break
+      }
+    }
+    i += 1
+  }
+  if split < 0 { return Err("expected sign") }
+  let re_s = unwrap_or(__from_bytes(bs[..split]), "")
+  let im_s = unwrap_or(__from_bytes(bs[split..len(bs) - 1]), "")
+  let (re, e1) = strconv.parse_float_go(re_s, 64)
+  if e1 != "" { return Err(e1) }
+  let (im, e2) = strconv.parse_float_go(im_s, 64)
+  if e2 != "" { return Err(e2) }
+  Ok((re, im))
+}
+
+fn contains_any(s: Str, cs: Str) -> Bool {
+  for c in chars(s) { if contains(cs, c) { return true } }
+  false
+}
+
+fn new_number(text: Str, typ: Int) -> Result<Num, Str> {
+  var n = Num {
+    is_int: false,
+    is_uint: false,
+    is_float: false,
+    is_complex: false,
+    int64: 0,
+    uint64: 0,
+    float64: 0.0,
+    re: 0.0,
+    im: 0.0,
+    text: text,
+  }
+  if typ == I_CHAR_CONSTANT {
+    let bs = __bytes(text)
+    let (r, _, tail) = strconv.unquote_char(unwrap_or(__from_bytes(bs[1..]), ""), bs[0])?
+    if tail != "'" { return Err("malformed character constant: " + text) }
+    return Ok(Num {
+      int64: r,
+      is_int: true,
+      uint64: r,
+      is_uint: true,
+      float64: float(r),
+      is_float: true,
+      ..n
+    })
+  }
+  if typ == I_COMPLEX {
+    let (re, im) = scan_complex(text)?
+    return Ok(simplify_complex(Num { is_complex: true, re: re, im: im, ..n }))
+  }
+  let bs = __bytes(text)
+  if len(bs) > 0 && bs[len(bs) - 1] == 105 {
+    let (f, e) = strconv.parse_float_go(unwrap_or(__from_bytes(bs[..len(bs) - 1]), ""), 64)
+    if e == "" { return Ok(simplify_complex(Num { is_complex: true, re: 0.0, im: f, ..n })) }
+  }
+  let (u, ue) = parse_uint0(bs)
+  if ue == 0 { n = Num { is_uint: true, uint64: u, ..n } }
+  let (i, iok) = parse_int0(bs)
+  if iok {
+    n = Num { is_int: true, int64: i, ..n }
+    if i == 0 { n = Num { is_uint: true, uint64: if ue == 2 { -1 } else { u }, ..n } }
+  }
+  if n.is_int {
+    n = Num { is_float: true, float64: i2f(n.int64), ..n }
+  } else if n.is_uint {
+    n = Num { is_float: true, float64: u2f(n.uint64), ..n }
+  } else {
+    let (f, e) = strconv.parse_float_go(text, 64)
+    if e == "" {
+      if !contains_any(text, ".eEpP") { return Err("integer overflow: " + strconv.quote_go(text)) }
+      n = Num { is_float: true, float64: f, ..n }
+      if !n.is_int && i2f(f2i(f)) == f { n = Num { is_int: true, int64: f2i(f), ..n } }
+      if !n.is_uint && u2f(f2u(f)) == f { n = Num { is_uint: true, uint64: f2u(f), ..n } }
+    }
+  }
+  if !n.is_int && !n.is_uint && !n.is_float {
+    return Err("illegal number syntax: " + strconv.quote_go(text))
+  }
+  Ok(n)
+}
+
+// ───────── 语法分析 ─────────
+
+const MAX_STACK_DEPTH: Int = 10000
+
+type T = {
+  name: Str,
+  parse_name: Str,
+  root: Node?,
+  mode: Int,
+  text: Str,
+  funcs: List<Str>,
+  lex: L,
+  token: List<Item>,
+  peek_count: Int,
+  vars: List<Str>,
+  tree_set: Map<Str, Tree>,
+  action_line: Int,
+  range_depth: Int,
+  stack_depth: Int,
+  ld: Str,
+  rd: Str,
+}
+
+pub fn new(name: Str) -> Tree {
+  Tree {
+    name: name,
+    parse_name: "",
+    root: None,
+    mode: 0,
+    text: "",
+    left_delim: "",
+    right_delim: "",
+  }
+}
+
+fn eof_item() -> Item { Item { typ: I_EOF, pos: 0, val: "", line: 0 } }
+
+fn new_t(tr: Tree, lex: L, funcs: List<Str>, ts: Map<Str, Tree>) -> T {
+  T {
+    name: tr.name,
+    parse_name: tr.parse_name,
+    root: tr.root,
+    mode: tr.mode,
+    text: tr.text,
+    funcs: funcs,
+    lex: lex,
+    token: [eof_item(), eof_item(), eof_item()],
+    peek_count: 0,
+    vars: ["$"],
+    tree_set: ts,
+    action_line: 0,
+    range_depth: 0,
+    stack_depth: 0,
+    ld: tr.left_delim,
+    rd: tr.right_delim,
+  }
+}
+
+fn to_tree(t: T) -> Tree {
+  Tree {
+    name: t.name,
+    parse_name: t.parse_name,
+    root: t.root,
+    mode: t.mode,
+    text: t.text,
+    left_delim: t.ld,
+    right_delim: t.rd,
+  }
+}
+
+fn set_tok(ts: List<Item>, i: Int, x: Item) -> List<Item> {
+  var out: List<Item> = []
+  var k = 0
+  while k < 3 {
+    out = push(out, if k == i { x } else { ts[k] })
+    k += 1
+  }
+  out
+}
+
+fn tnext(t: T) -> (T, Item) {
+  if t.peek_count > 0 {
+    let t2 = T { peek_count: t.peek_count - 1, ..t }
+    return (t2, t2.token[t2.peek_count])
+  }
+  let (l, it) = next_item(t.lex)
+  let t2 = T { lex: l, token: set_tok(t.token, 0, it), ..t }
+  (t2, it)
+}
+
+fn tbackup(t: T) -> T { T { peek_count: t.peek_count + 1, ..t } }
+
+fn backup2(t: T, t1: Item) -> T { T { token: set_tok(t.token, 1, t1), peek_count: 2, ..t } }
+
+fn backup3(t: T, t2: Item, t1: Item) -> T {
+  T { token: set_tok(set_tok(t.token, 1, t1), 2, t2), peek_count: 3, ..t }
+}
+
+fn tpeek(t: T) -> (T, Item) {
+  if t.peek_count > 0 { return (t, t.token[t.peek_count - 1]) }
+  let (l, it) = next_item(t.lex)
+  (T { lex: l, peek_count: 1, token: set_tok(t.token, 0, it), ..t }, it)
+}
+
+fn next_non_space(t0: T) -> (T, Item) {
+  var t = t0
+  while true {
+    let (t2, it) = tnext(t)
+    t = t2
+    if it.typ != I_SPACE { return (t, it) }
+  }
+  (t, eof_item())
+}
+
+fn peek_non_space(t0: T) -> (T, Item) {
+  let (t, it) = next_non_space(t0)
+  (tbackup(t), it)
+}
+
+fn errorf_t<X>(t: T, msg: Str) -> Result<(T, X), Str> {
+  Err("template: {t.parse_name}:{t.token[0].line}: {msg}")
+}
+
+fn expect(t0: T, typ: Int, ctx: Str) -> Result<(T, Item), Str> {
+  let (t, it) = next_non_space(t0)
+  if it.typ != typ { return unexpected(t, it, ctx) }
+  Ok((t, it))
+}
+
+fn expect_one_of(t0: T, a: Int, b: Int, ctx: Str) -> Result<(T, Item), Str> {
+  let (t, it) = next_non_space(t0)
+  if it.typ != a && it.typ != b { return unexpected(t, it, ctx) }
+  Ok((t, it))
+}
+
+fn unexpected<X>(t: T, it: Item, ctx: Str) -> Result<(T, X), Str> {
+  if it.typ == I_ERROR {
+    var extra = ""
+    if t.action_line != 0 && t.action_line != it.line {
+      extra = " in action started at {t.parse_name}:{t.action_line}"
+      if ends_with(it.val, " action") { extra = __str_slice(extra, len(" in action"), len(extra)) }
+    }
+    return errorf_t(t, item_string(it) + extra)
+  }
+  errorf_t(t, "unexpected " + item_string(it) + " in " + ctx)
+}
+
+fn has_function(t: T, name: Str) -> Bool { contains(t.funcs, name) }
+
+fn start_parse(t: T) -> T {
+  let l = L {
+    emit_comment: t.mode & PARSE_COMMENTS != 0,
+    break_ok: !has_function(t, "break"),
+    continue_ok: !has_function(t, "continue"),
+    ..t.lex
+  }
+  T { root: None, lex: l, vars: ["$"], stack_depth: 0, ..t }
+}
+
+// Parse（包级函数）
+pub fn parse(
+  name: Str,
+  text: Str,
+  left: Str,
+  right: Str,
+  funcs: List<Str>,
+) -> Result<Map<Str, Tree>, Str> {
+  let tr = Tree { text: text, ..new(name) }
+  let (_, set) = tree_parse(tr, text, left, right, Map(), funcs)?
+  Ok(set)
+}
+
+// (*Tree).Parse
+pub fn tree_parse(
+  tr: Tree,
+  text: Str,
+  left: Str,
+  right: Str,
+  ts: Map<Str, Tree>,
+  funcs: List<Str>,
+) -> Result<(Tree, Map<Str, Tree>), Str> {
+  let ld = if left == "" { "\{\{" } else { left }
+  let rd = if right == "" { "\}\}" } else { right }
+  let tr2 = Tree { parse_name: tr.name, left_delim: ld, right_delim: rd, ..tr }
+  var t = start_parse(new_t(tr2, new_lexer(text, ld, rd), funcs, ts))
+  t = T { text: text, ..t }
+  let (t2, _) = parse_top(t)?
+  let (t3, _) = add(t2)?
+  Ok((to_tree(t3), t3.tree_set))
+}
+
+fn add(t: T) -> Result<(T, Bool), Str> {
+  match get(t.tree_set, t.name) {
+    Some(old) => {
+      if is_empty_tree(old.root) {
+        return Ok((T { tree_set: set(t.tree_set, t.name, to_tree(t)), ..t }, true))
+      }
+      if !is_empty_tree(t.root) {
+        return errorf_t(t, "template: multiple definition of template " + strconv.quote_go(t.name))
+      }
+      Ok((t, true))
+    },
+    None => Ok((T { tree_set: set(t.tree_set, t.name, to_tree(t)), ..t }, true)),
+  }
+}
+
+fn list_push(n: Node, x: Node) -> Node {
+  match n {
+    ListNode { pos, nodes } => Node.ListNode { pos: pos, nodes: push(nodes, x) },
+    _ => n,
+  }
+}
+
+// 子树（define / block）：共用词法分析器和树集
+fn sub_tree(t: T, name: Str) -> T {
+  let tr = Tree {
+    name: name,
+    parse_name: t.parse_name,
+    root: None,
+    mode: t.mode,
+    text: t.text,
+    left_delim: t.ld,
+    right_delim: t.rd,
+  }
+  start_parse(new_t(tr, t.lex, t.funcs, t.tree_set))
+}
+
+fn parse_top(t0: T) -> Result<(T, Bool), Str> {
+  var t = t0
+  let (t1, p) = tpeek(t)
+  var root = Node.ListNode { pos: p.pos, nodes: [] }
+  t = t1
+  while true {
+    let (t2, pk) = tpeek(t)
+    t = t2
+    if pk.typ == I_EOF { break }
+    if pk.typ == I_LEFT_DELIM {
+      let (t3, delim) = tnext(t)
+      let (t4, nx) = next_non_space(t3)
+      t = t4
+      if nx.typ == I_DEFINE {
+        let nt = sub_tree(t, "definition")
+        let (nt2, _) = parse_definition(nt)?
+        t = T { lex: nt2.lex, tree_set: nt2.tree_set, ..t }
+        continue
+      }
+      t = backup2(t, delim)
+    }
+    let (t5, n) = text_or_action(t)?
+    t = t5
+    let ty = node_type(n)
+    if ty == NODE_END || ty == NODE_ELSE {
+      return errorf_t(t, "unexpected " + string(n, t.ld, t.rd))
+    }
+    root = list_push(root, n)
+  }
+  Ok((T { root: Some(root), ..t }, true))
+}
+
+fn parse_definition(t0: T) -> Result<(T, Bool), Str> {
+  let ctx = "define clause"
+  let (t1, name) = expect_one_of(t0, I_STRING, I_RAW_STRING, ctx)?
+  let nm = match strconv.unquote_go(name.val) {
+    Ok(s) => s,
+    Err(e) => { return errorf_t(t1, e) },
+  }
+  let (t2, _) = expect(T { name: nm, ..t1 }, I_RIGHT_DELIM, ctx)?
+  let (t3, (list, end)) = item_list(t2)?
+  let t4 = T { root: Some(list), ..t3 }
+  if node_type(end) != NODE_END {
+    return errorf_t(t4, "unexpected " + string(end, t4.ld, t4.rd) + " in " + ctx)
+  }
+  add(t4)
+}
+
+fn item_list(t0: T) -> Result<(T, (Node, Node)), Str> {
+  let (t1, p) = peek_non_space(t0)
+  var t = t1
+  var list = Node.ListNode { pos: p.pos, nodes: [] }
+  while true {
+    let (t2, pk) = peek_non_space(t)
+    t = t2
+    if pk.typ == I_EOF { break }
+    let (t3, n) = text_or_action(t)?
+    t = t3
+    let ty = node_type(n)
+    if ty == NODE_END || ty == NODE_ELSE { return Ok((t, (list, n))) }
+    list = list_push(list, n)
+  }
+  errorf_t(t, "unexpected EOF")
+}
+
+fn text_or_action(t0: T) -> Result<(T, Node), Str> {
+  let (t, tok) = next_non_space(t0)
+  if tok.typ == I_TEXT { return Ok((t, Node.TextNode { pos: tok.pos, text: tok.val })) }
+  if tok.typ == I_LEFT_DELIM {
+    let (t2, n) = action(T { action_line: tok.line, ..t })?
+    return Ok((T { action_line: 0, ..t2 }, n))
+  }
+  if tok.typ == I_COMMENT { return Ok((t, Node.CommentNode { pos: tok.pos, text: tok.val })) }
+  unexpected(t, tok, "input")
+}
+
+fn action(t0: T) -> Result<(T, Node), Str> {
+  let (t, tok) = next_non_space(t0)
+  let ty = tok.typ
+  if ty == I_BLOCK { return block_control(t) }
+  if ty == I_BREAK { return break_control(t, tok, true) }
+  if ty == I_CONTINUE { return break_control(t, tok, false) }
+  if ty == I_ELSE { return else_control(t) }
+  if ty == I_END { return end_control(t) }
+  if ty == I_IF { return branch_control(t, "if") }
+  if ty == I_RANGE { return branch_control(t, "range") }
+  if ty == I_TEMPLATE { return template_control(t) }
+  if ty == I_WITH { return branch_control(t, "with") }
+  let (t2, pk) = tpeek(tbackup(t))
+  let (t3, pipe) = pipeline(t2, "command", I_RIGHT_DELIM)?
+  Ok((t3, Node.ActionNode { pos: pk.pos, line: pk.line, pipe: pipe }))
+}
+
+fn break_control(t0: T, kw: Item, is_break: Bool) -> Result<(T, Node), Str> {
+  let word = if is_break { "\{\{break\}\}" } else { "\{\{continue\}\}" }
+  let (t, tok) = next_non_space(t0)
+  if tok.typ != I_RIGHT_DELIM { return unexpected(t, tok, word) }
+  if t.range_depth == 0 { return errorf_t(t, word + " outside \{\{range\}\}") }
+  if is_break { return Ok((t, Node.BreakNode { pos: kw.pos, line: kw.line })) }
+  Ok((t, Node.ContinueNode { pos: kw.pos, line: kw.line }))
+}
+
+fn pipe_decl_push(p: Node, v: Node, assign: Bool?) -> Node {
+  match p {
+    PipeNode { pos, line, is_assign, decl, cmds } => Node.PipeNode {
+      pos: pos,
+      line: line,
+      is_assign: unwrap_or(assign, is_assign),
+      decl: push(decl, v),
+      cmds: cmds,
+    },
+    _ => p,
+  }
+}
+
+fn pipe_cmd_push(p: Node, c: Node) -> Node {
+  match p {
+    PipeNode { pos, line, is_assign, decl, cmds } => Node.PipeNode {
+      pos: pos,
+      line: line,
+      is_assign: is_assign,
+      decl: decl,
+      cmds: push(cmds, c),
+    },
+    _ => p,
+  }
+}
+
+fn pipe_parts(p: Node) -> (List<Node>, List<Node>) {
+  match p {
+    PipeNode { decl, cmds, .. } => (decl, cmds),
+    _ => ([], []),
+  }
+}
+
+fn drop1(s: Str) -> Str { __str_slice(s, 1, len(s)) }
+
+fn new_variable(pos: Int, ident: Str) -> Node {
+  Node.VariableNode { pos: pos, ident: split(ident, ".") }
+}
+
+fn pipeline(t0: T, ctx: Str, end: Int) -> Result<(T, Node), Str> {
+  let (t1, tok) = peek_non_space(t0)
+  var t = t1
+  var pipe = Node.PipeNode { pos: tok.pos, line: tok.line, is_assign: false, decl: [], cmds: [] }
+  var again = true
+  while again {
+    again = false
+    let (t2, v) = peek_non_space(t)
+    t = t2
+    if v.typ == I_VARIABLE {
+      let (t3, _) = tnext(t)
+      let (t4, after) = tpeek(t3)
+      let (t5, nx) = peek_non_space(t4)
+      t = t5
+      if nx.typ == I_ASSIGN || nx.typ == I_DECLARE {
+        let (t6, _) = next_non_space(t)
+        t = T { vars: push(t6.vars, v.val), ..t6 }
+        pipe = pipe_decl_push(pipe, new_variable(v.pos, v.val), Some(nx.typ == I_ASSIGN))
+      } else if nx.typ == I_CHAR && nx.val == "," {
+        let (t6, _) = next_non_space(t)
+        t = T { vars: push(t6.vars, v.val), ..t6 }
+        pipe = pipe_decl_push(pipe, new_variable(v.pos, v.val), None)
+        let (decl, _) = pipe_parts(pipe)
+        if ctx == "range" && len(decl) < 2 {
+          let (t7, pk) = peek_non_space(t)
+          t = t7
+          if pk.typ == I_VARIABLE || pk.typ == I_RIGHT_DELIM || pk.typ == I_RIGHT_PAREN {
+            again = true
+            continue
+          }
+          return errorf_t(t, "range can only initialize variables")
+        }
+        return errorf_t(t, "too many declarations in " + ctx)
+      } else if after.typ == I_SPACE {
+        t = backup3(t, v, after)
+      } else {
+        t = backup2(t, v)
+      }
+    }
+  }
+  while true {
+    let (t2, tok2) = next_non_space(t)
+    t = t2
+    let ty = tok2.typ
+    if ty == end {
+      let (_, cmds) = pipe_parts(pipe)
+      if len(cmds) == 0 { return errorf_t(t, "missing value for " + ctx) }
+      var i = 1
+      while i < len(cmds) {
+        let a0 = match cmds[i] {
+          CommandNode { args, .. } => args[0],
+          _ => cmds[i],
+        }
+        let at = node_type(a0)
+        if at == NODE_BOOL
+          || at == NODE_DOT
+          || at == NODE_NIL
+          || at == NODE_NUMBER
+          || at == NODE_STRING {
+          return errorf_t(t, "non executable command in pipeline stage {i + 1}")
+        }
+        i += 1
+      }
+      return Ok((t, pipe))
+    }
+    if ty == I_BOOL
+      || ty == I_CHAR_CONSTANT
+      || ty == I_COMPLEX
+      || ty == I_DOT
+      || ty == I_FIELD
+      || ty == I_IDENTIFIER
+      || ty == I_NUMBER
+      || ty == I_NIL
+      || ty == I_RAW_STRING
+      || ty == I_STRING
+      || ty == I_VARIABLE
+      || ty == I_LEFT_PAREN {
+      let (t3, c) = command(tbackup(t))?
+      t = t3
+      pipe = pipe_cmd_push(pipe, c)
+    } else {
+      return unexpected(t, tok2, ctx)
+    }
+  }
+  errorf_t(t, "unreachable")
+}
+
+fn branch_control(t0: T, ctx: Str) -> Result<(T, Node), Str> {
+  let nvars = len(t0.vars)
+  let (t1, pipe) = pipeline(t0, ctx, I_RIGHT_DELIM)?
+  var t = t1
+  if ctx == "range" { t = T { range_depth: t.range_depth + 1, ..t } }
+  let (t2, (list, nx)) = item_list(t)?
+  t = t2
+  if ctx == "range" { t = T { range_depth: t.range_depth - 1, ..t } }
+  var else_list: Node? = None
+  if node_type(nx) == NODE_ELSE {
+    let (t3, pk) = tpeek(t)
+    t = t3
+    if ctx == "if" && pk.typ == I_IF {
+      let (t4, _) = tnext(t)
+      let (t5, inner) = branch_control(t4, "if")?
+      t = t5
+      else_list = Some(Node.ListNode { pos: position(nx), nodes: [inner] })
+    } else if ctx == "with" && pk.typ == I_WITH {
+      let (t4, _) = tnext(t)
+      let (t5, inner) = branch_control(t4, "with")?
+      t = t5
+      else_list = Some(Node.ListNode { pos: position(nx), nodes: [inner] })
+    } else {
+      let (t4, (el, nx2)) = item_list(t)?
+      t = t4
+      if node_type(nx2) != NODE_END {
+        return errorf_t(t, "expected end; found " + string(nx2, t.ld, t.rd))
+      }
+      else_list = Some(el)
+    }
+  }
+  t = T { vars: take(t.vars, nvars), ..t }
+  let (pos, line) = match pipe {
+    PipeNode { pos, line, .. } => (pos, line),
+    _ => (0, 0),
+  }
+  if ctx == "if" {
+    return Ok((t, Node.IfNode {
+      pos: pos,
+      line: line,
+      pipe: pipe,
+      list: list,
+      else_list: else_list,
+    }))
+  }
+  if ctx == "range" {
+    return Ok((t, Node.RangeNode {
+      pos: pos,
+      line: line,
+      pipe: pipe,
+      list: list,
+      else_list: else_list,
+    }))
+  }
+  Ok((t, Node.WithNode { pos: pos, line: line, pipe: pipe, list: list, else_list: else_list }))
+}
+
+fn end_control(t0: T) -> Result<(T, Node), Str> {
+  let (t, tok) = expect(t0, I_RIGHT_DELIM, "end")?
+  Ok((t, Node.EndNode { pos: tok.pos }))
+}
+
+fn else_control(t0: T) -> Result<(T, Node), Str> {
+  let (t, pk) = peek_non_space(t0)
+  if pk.typ == I_IF || pk.typ == I_WITH {
+    return Ok((t, Node.ElseNode { pos: pk.pos, line: pk.line }))
+  }
+  let (t2, tok) = expect(t, I_RIGHT_DELIM, "else")?
+  Ok((t2, Node.ElseNode { pos: tok.pos, line: tok.line }))
+}
+
+fn block_control(t0: T) -> Result<(T, Node), Str> {
+  let ctx = "block clause"
+  let (t1, tok) = next_non_space(t0)
+  let (t2, name) = parse_template_name(t1, tok, ctx)?
+  let (t3, pipe) = pipeline(t2, ctx, I_RIGHT_DELIM)?
+  let bt = sub_tree(t3, name)
+  let (bt2, (list, end)) = item_list(bt)?
+  let bt3 = T { root: Some(list), ..bt2 }
+  let t4 = T { lex: bt3.lex, tree_set: bt3.tree_set, ..t3 }
+  if node_type(end) != NODE_END {
+    return errorf_t(t4, "unexpected " + string(end, t4.ld, t4.rd) + " in " + ctx)
+  }
+  let (bt4, _) = add(bt3)?
+  let t5 = T { lex: bt4.lex, tree_set: bt4.tree_set, ..t4 }
+  Ok((t5, Node.TemplateNode { pos: tok.pos, line: tok.line, name: name, pipe: Some(pipe) }))
+}
+
+fn template_control(t0: T) -> Result<(T, Node), Str> {
+  let ctx = "template clause"
+  let (t1, tok) = next_non_space(t0)
+  let (t2, name) = parse_template_name(t1, tok, ctx)?
+  let (t3, nx) = next_non_space(t2)
+  var t = t3
+  var pipe: Node? = None
+  if nx.typ != I_RIGHT_DELIM {
+    let (t4, p) = pipeline(tbackup(t), ctx, I_RIGHT_DELIM)?
+    t = t4
+    pipe = Some(p)
+  }
+  Ok((t, Node.TemplateNode { pos: tok.pos, line: tok.line, name: name, pipe: pipe }))
+}
+
+fn parse_template_name(t: T, tok: Item, ctx: Str) -> Result<(T, Str), Str> {
+  if tok.typ == I_STRING || tok.typ == I_RAW_STRING {
+    return match strconv.unquote_go(tok.val) {
+      Ok(s) => Ok((t, s)),
+      Err(e) => errorf_t(t, e),
+    }
+  }
+  unexpected(t, tok, ctx)
+}
+
+fn command(t0: T) -> Result<(T, Node), Str> {
+  let (t1, pk) = peek_non_space(t0)
+  var t = t1
+  var args: List<Node> = []
+  while true {
+    let (t2, _) = peek_non_space(t)
+    let (t3, op) = operand(t2)?
+    t = t3
+    if let Some(o) = op { args = push(args, o) }
+    let (t4, tok) = tnext(t)
+    t = t4
+    if tok.typ == I_SPACE { continue }
+    if tok.typ == I_RIGHT_DELIM || tok.typ == I_RIGHT_PAREN {
+      t = tbackup(t)
+    } else if tok.typ != I_PIPE {
+      return unexpected(t, tok, "operand")
+    }
+    break
+  }
+  if len(args) == 0 { return errorf_t(t, "empty command") }
+  Ok((t, Node.CommandNode { pos: pk.pos, args: args }))
+}
+
+fn operand(t0: T) -> Result<(T, Node?), Str> {
+  let (t1, node0) = term(t0)?
+  var t = t1
+  let Some(node) = node0 else { return Ok((t, None)) }
+  let (t2, pk) = tpeek(t)
+  t = t2
+  if pk.typ != I_FIELD { return Ok((t, Some(node))) }
+  let cpos = pk.pos
+  var fields: List<Str> = []
+  while true {
+    let (t3, p2) = tpeek(t)
+    t = t3
+    if p2.typ != I_FIELD { break }
+    let (t4, f) = tnext(t)
+    t = t4
+    fields = push(fields, __str_slice(f.val, 1, len(f.val)))
+  }
+  let chain = Node.ChainNode { pos: cpos, node: node, field: fields }
+  let ty = node_type(node)
+  if ty == NODE_FIELD {
+    return Ok((t, Some(Node.FieldNode {
+      pos: cpos,
+      ident: split(drop1(string(chain, t.ld, t.rd)), "."),
+    })))
+  }
+  if ty == NODE_VARIABLE { return Ok((t, Some(new_variable(cpos, string(chain, t.ld, t.rd))))) }
+  if ty == NODE_BOOL || ty == NODE_STRING || ty == NODE_NUMBER || ty == NODE_NIL || ty == NODE_DOT {
+    return errorf_t(t, "unexpected . after term " + strconv.quote_go(string(node, t.ld, t.rd)))
+  }
+  Ok((t, Some(chain)))
+}
+
+fn term(t0: T) -> Result<(T, Node?), Str> {
+  let (t, tok) = next_non_space(t0)
+  let ty = tok.typ
+  if ty == I_IDENTIFIER {
+    if t.mode & SKIP_FUNC_CHECK == 0 && !has_function(t, tok.val) {
+      return errorf_t(t, "function " + strconv.quote_go(tok.val) + " not defined")
+    }
+    return Ok((t, Some(Node.IdentifierNode { pos: tok.pos, ident: tok.val })))
+  }
+  if ty == I_DOT { return Ok((t, Some(Node.DotNode { pos: tok.pos }))) }
+  if ty == I_NIL { return Ok((t, Some(Node.NilNode { pos: tok.pos }))) }
+  if ty == I_VARIABLE {
+    let v = new_variable(tok.pos, tok.val)
+    let first = split(tok.val, ".")[0]
+    if contains(t.vars, first) { return Ok((t, Some(v))) }
+    return errorf_t(t, "undefined variable " + strconv.quote_go(first))
+  }
+  if ty == I_FIELD {
+    return Ok((t, Some(Node.FieldNode { pos: tok.pos, ident: split(drop1(tok.val), ".") })))
+  }
+  if ty == I_BOOL { return Ok((t, Some(Node.BoolNode { pos: tok.pos, val: tok.val == "true" }))) }
+  if ty == I_CHAR_CONSTANT || ty == I_COMPLEX || ty == I_NUMBER {
+    return match new_number(tok.val, ty) {
+      Ok(n) => Ok((t, Some(Node.NumberNode { pos: tok.pos, num: n }))),
+      Err(e) => errorf_t(t, e),
+    }
+  }
+  if ty == I_LEFT_PAREN {
+    if t.stack_depth >= MAX_STACK_DEPTH { return errorf_t(t, "max expression depth exceeded") }
+    let (t2, p) = pipeline(
+      T { stack_depth: t.stack_depth + 1, ..t },
+      "parenthesized pipeline",
+      I_RIGHT_PAREN,
+    )?
+    return Ok((T { stack_depth: t2.stack_depth - 1, ..t2 }, Some(p)))
+  }
+  if ty == I_STRING || ty == I_RAW_STRING {
+    return match strconv.unquote_go(tok.val) {
+      Ok(s) => Ok((t, Some(Node.StringNode { pos: tok.pos, quoted: tok.val, text: s }))),
+      Err(e) => errorf_t(t, e),
+    }
+  }
+  Ok((tbackup(t), None))
+}
