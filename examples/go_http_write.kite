@@ -1,0 +1,122 @@
+// 对拍 tests/go/http_write.go：http.request_write / response_write，net.split_host_port / join_host_port
+use std.fs
+use std.encoding.hex
+use std.strconv
+use std.net
+use std.net.http
+use std.net.url
+use std.net.textproto
+
+fn q(s: Str) -> Str { strconv.quote_go(s) }
+
+fn qb(b: List<Int>) -> Str { strconv.quote_bytes_with(b, 34, false, false) }
+
+fn main() {
+  let data = unwrap(fs.read("tests/go/testdata/http/write.txt"))
+  var n = 0
+  for line in split(data, "\n") {
+    if line == "" { continue }
+    let parts = split(line, "|")
+    var kv: Map<Str, List<List<Int>>> = Map()
+    for p in parts[1..] {
+      let i = __str_find(p, "=", 0)
+      let k = __str_slice(p, 0, i)
+      let v = unwrap(hex.decode(__str_slice(p, i + 1, len(p))))
+      kv = set(kv, k, push(unwrap_or(get(kv, k), []), v))
+    }
+    let one = (k: Str, d: Str) => match get(kv, k) {
+      Some(vs) => unwrap(__from_bytes(vs[0])),
+      None => d,
+    }
+    let num = (k: Str, d: Int) => unwrap_or(strconv.parse_int_base(one(k, str(d)), 10), 0)
+    let hdr = (k: Str) => {
+      var h = textproto.new_header()
+      for b in unwrap_or(get(kv, k), []) {
+        let s = unwrap(__from_bytes(b))
+        let i = __str_find(s, ":", 0)
+        h = h.add(__str_slice(s, 0, i), __str_slice(s, i + 1, len(s)))
+      }
+      h
+    }
+    let body: Option<List<Int>> = match get(kv, "body") {
+      Some(vs) => Some(vs[0]),
+      None => None,
+    }
+    let te = match get(kv, "te") {
+      Some(vs) => split(unwrap(__from_bytes(vs[0])), ","),
+      None => [],
+    }
+    n += 1
+    var out: List<Int> = []
+    var e = ""
+    if parts[0] == "req" {
+      let u = match url.parse(one("url", "")) {
+        Ok(x) => x,
+        Err(er) => {
+          print("{n} url err {q(er)}")
+          continue
+        },
+      }
+      let r = http.OutRequest {
+        host: one("host", ""),
+        header: hdr("h"),
+        body: body,
+        content_length: num("cl", 0),
+        transfer_encoding: te,
+        close: one("close", "") == "1",
+        trailer: hdr("tr"),
+        ..http.out_request(one("method", ""), u)
+      }
+      let (o, er) = http.request_write(r)
+      out = o
+      e = er
+    } else {
+      let r = http.OutResponse {
+        status: one("status", ""),
+        proto_major: num("major", 1),
+        proto_minor: num("minor", 1),
+        header: hdr("h"),
+        body: body,
+        content_length: num("cl", 0),
+        transfer_encoding: te,
+        close: one("close", "") == "1",
+        uncompressed: one("uncompressed", "") == "1",
+        trailer: hdr("tr"),
+        request_method: one("reqmethod", ""),
+        ..http.out_response(num("code", 0))
+      }
+      let (o, er) = http.response_write(r)
+      out = o
+      e = er
+    }
+    print("{n} {parts[0]} err={q(e)}")
+    print("  " + qb(out))
+  }
+  for hp in [
+    "a:80",
+    "a",
+    ":80",
+    "a:",
+    "[::1]:80",
+    "[::1]",
+    "[::1]x:80",
+    "[::1]:80:1",
+    "[::1",
+    "a:b:80",
+    "[a]b]:80",
+    "a[b:80",
+    "]a:80",
+    "[[a]:80",
+    "[fe80::1%en0]:443",
+    "",
+  ] {
+    let (h, p, e) = match net.split_host_port(hp) {
+      Ok((a, b)) => (a, b, ""),
+      Err(er) => ("", "", er),
+    }
+    print("split {q(hp)}: {q(h)} {q(p)} {q(e)}")
+  }
+  for (h, p) in [("a", "80"), ("::1", "80"), ("", ""), ("fe80::1%en0", "1")] {
+    print("join " + q(net.join_host_port(h, p)))
+  }
+}

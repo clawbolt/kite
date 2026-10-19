@@ -1,0 +1,124 @@
+package http_test
+
+import (
+	"encoding/hex"
+	"go/ast"
+	"go/parser"
+	"go/token"
+	"os"
+	"strconv"
+	"strings"
+	"testing"
+)
+
+// 生成 kite tests/go/testdata/http/mux.txt。行格式：new（新 mux）、pat|模式、req|方法|Host|URL（十六进制）。
+func TestDumpMux(t *testing.T) {
+	var out []string
+	h := func(s string) string { return hex.EncodeToString([]byte(s)) }
+	newMux := func() { out = append(out, "new") }
+	pat := func(s string) { out = append(out, "pat|"+h(s)) }
+	req := func(m, host, u string) { out = append(out, "req|"+h(m)+"|"+h(host)+"|"+h(u)) }
+	fset := token.NewFileSet()
+	lits := func(file, fn string, n int) [][]string {
+		f, err := parser.ParseFile(fset, file, nil, 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var res [][]string
+		for _, d := range f.Decls {
+			fd, ok := d.(*ast.FuncDecl)
+			if !ok || fd.Name.Name != fn {
+				continue
+			}
+			ast.Inspect(fd, func(x ast.Node) bool {
+				cl, ok := x.(*ast.CompositeLit)
+				if !ok || len(cl.Elts) < n {
+					return true
+				}
+				var row []string
+				for _, e := range cl.Elts[:n] {
+					b, ok := e.(*ast.BasicLit)
+					if !ok || b.Kind != token.STRING {
+						return true
+					}
+					s, _ := strconv.Unquote(b.Value)
+					row = append(row, s)
+				}
+				res = append(res, row)
+				return true
+			})
+		}
+		return res
+	}
+	for _, r := range lits("pattern_test.go", "TestParsePattern", 1) {
+		newMux()
+		pat(r[0])
+	}
+	for _, r := range lits("pattern_test.go", "TestParsePatternError", 1) {
+		newMux()
+		pat(r[0])
+	}
+	for _, fn := range []string{"TestConflictsWith", "TestDescribeConflict", "TestCommonPath", "TestDifferencePath"} {
+		for _, r := range lits("pattern_test.go", fn, 2) {
+			newMux()
+			pat(r[0])
+			pat(r[1])
+			newMux()
+			pat(r[1])
+			pat(r[0])
+		}
+	}
+	newMux()
+	for _, p := range []string{"/a", "/a/b", "/a/{x}", "/g/h/i", "/g/{x}/j", "/a/b/{x...}", "/a/b/{y}", "/a/b/{$}"} {
+		pat(p)
+	}
+	for _, r := range lits("routing_tree_test.go", "TestRoutingNodeMatch", 3) {
+		req(r[0], r[1], r[2])
+	}
+	newMux()
+	for _, e := range serveMuxRegister {
+		pat(e.pattern)
+	}
+	for _, tt := range serveMuxTests {
+		req(tt.method, tt.host, tt.path)
+	}
+	for _, tt := range serveMuxTests2 {
+		req(tt.method, tt.host, tt.url)
+	}
+	for _, x := range muxExtra {
+		switch x[0] {
+		case "new":
+			newMux()
+		case "pat":
+			pat(x[1])
+		case "req":
+			req(x[1], x[2], x[3])
+		}
+	}
+	os.WriteFile(os.Getenv("OUT"), []byte(strings.Join(out, "\n")+"\n"), 0o644)
+}
+
+var muxExtra = [][]string{
+	{"new"}, {"pat", "GET /items/{id}"}, {"pat", "POST /items/{id}"}, {"pat", "DELETE /items/{id}/{rest...}"},
+	{"pat", "/files/{path...}"}, {"pat", "GET /exact/{$}"}, {"pat", "example.com/"}, {"pat", "GET example.com/items/{id}"},
+	{"pat", "/old/"}, {"pat", "/static/"}, {"pat", "HEAD /h"}, {"pat", "GET /g"}, {"pat", "/b/{name}/x"}, {"pat", "PUT /items/{id}"},
+	{"pat", "/items/{id}"}, {"pat", "GET /items/{x}"}, {"pat", "/files/"}, {"pat", "GET /a b"}, {"pat", "/%41/{v}"},
+	{"req", "GET", "h.com", "/items/42"}, {"req", "POST", "h.com", "/items/42"}, {"req", "PATCH", "h.com", "/items/42"},
+	{"req", "HEAD", "h.com", "/items/42"}, {"req", "DELETE", "h.com", "/items/42/a/b%2Fc"}, {"req", "DELETE", "h.com", "/items/42"},
+	{"req", "GET", "h.com", "/files/a/b/c"}, {"req", "GET", "h.com", "/files/"}, {"req", "GET", "h.com", "/files"},
+	{"req", "GET", "h.com", "/exact/"}, {"req", "GET", "h.com", "/exact/x"}, {"req", "GET", "h.com", "/exact"},
+	{"req", "GET", "example.com", "/items/7"}, {"req", "GET", "example.com:8080", "/items/7"}, {"req", "POST", "example.com", "/items/7"},
+	{"req", "GET", "example.com", "/whatever"}, {"req", "GET", "h.com", "/old"}, {"req", "GET", "h.com", "/old?q=1&r"},
+	{"req", "GET", "h.com", "/static/../old/x"}, {"req", "GET", "h.com", "/a/./b/../static/"}, {"req", "GET", "h.com", "//static//x"},
+	{"req", "HEAD", "h.com", "/h"}, {"req", "GET", "h.com", "/h"}, {"req", "HEAD", "h.com", "/g"}, {"req", "POST", "h.com", "/g"},
+	{"req", "POST", "h.com", "/h"}, {"req", "GET", "h.com", "/b/%E4%B8%AD/x"}, {"req", "GET", "h.com", "/b/a%2Fb/x"},
+	{"req", "GET", "h.com", "/A/1"}, {"req", "GET", "h.com", "/%41/1"}, {"req", "GET", "h.com", "/nope"},
+	{"req", "CONNECT", "h.com:443", "h.com:443"}, {"req", "CONNECT", "h.com", "/files/x"}, {"req", "CONNECT", "h.com", "/old"},
+	{"req", "GET", "[::1]:80", "/items/1"}, {"req", "GET", "bad:host:x", "/items/1"},
+	{"new"}, {"pat", "/"}, {"pat", "/a/"}, {"pat", "GET /a/{x}/"}, {"pat", "/a/{x}/{y...}"},
+	{"req", "GET", "", "/"}, {"req", "GET", "", "/a"}, {"req", "GET", "", "/a/b"}, {"req", "GET", "", "/a/b/"}, {"req", "POST", "", "/a/b/"},
+	{"req", "GET", "", "/a/b/c/d"}, {"req", "GET", "", ""}, {"req", "GET", "", "x"},
+	{"new"}, {"pat", "POST /only"}, {"pat", "PUT /only/"}, {"req", "GET", "", "/only"}, {"req", "GET", "", "/only/"},
+	{"req", "DELETE", "", "/only/x"},
+	{"new"}, {"pat", "CONNECT h.com:443/"}, {"pat", "CONNECT /x/../y"}, {"pat", "GET /x/../y"}, {"pat", "GET /x/"}, {"pat", "GET //x"},
+}

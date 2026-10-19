@@ -12,6 +12,8 @@ use std.time
 use std.net.textproto
 use std.net.http.cookiejar
 use std.net.url
+use std.path
+use std.unicode
 
 pub type Request = { method: Str, path: Str, query: Str, headers: Map<Str, Str>, body: Str }
 
@@ -1432,4 +1434,1007 @@ pub fn read_response(d: List<Int>, method: Str) -> Result<WireResponse, Str> {
     body_err: t.body_err,
     rest: t.rest,
   })
+}
+
+// ───────────── 报文写出（对齐 Go 1.27 的 Request.Write / Response.Write） ─────────────
+// body：None = nil Body；Some(bytes) = 内存里的正文（Go 里的 bytes.Reader）。trailer 为空表示 nil。
+// 返回 (写出的字节, 错误)；出错时字节是 Go 在出错前已经写进 io.Writer 的部分。
+
+pub type OutRequest = {
+  method: Str,
+  url: url.URL,
+  host: Str,
+  header: textproto.MIMEHeader,
+  body: Option<List<Int>>,
+  content_length: Int,
+  transfer_encoding: List<Str>,
+  close: Bool,
+  trailer: textproto.MIMEHeader,
+}
+
+pub type OutResponse = {
+  status: Str,
+  status_code: Int,
+  proto_major: Int,
+  proto_minor: Int,
+  header: textproto.MIMEHeader,
+  body: Option<List<Int>>,
+  content_length: Int,
+  transfer_encoding: List<Str>,
+  close: Bool,
+  uncompressed: Bool,
+  trailer: textproto.MIMEHeader,
+  // 对应请求的方法；"" = Response.Request 为 nil
+  request_method: Str,
+}
+
+pub fn out_request(method: Str, u: url.URL) -> OutRequest {
+  OutRequest {
+    method: method,
+    url: u,
+    host: "",
+    header: textproto.new_header(),
+    body: None,
+    content_length: 0,
+    transfer_encoding: [],
+    close: false,
+    trailer: textproto.new_header(),
+  }
+}
+
+pub fn out_response(code: Int) -> OutResponse {
+  OutResponse {
+    status: "",
+    status_code: code,
+    proto_major: 1,
+    proto_minor: 1,
+    header: textproto.new_header(),
+    body: None,
+    content_length: 0,
+    transfer_encoding: [],
+    close: false,
+    uncompressed: false,
+    trailer: textproto.new_header(),
+    request_method: "",
+  }
+}
+
+pub const DEFAULT_USER_AGENT: Str = "Go-http-client/1.1"
+
+fn valid_host_byte(c: Int) -> Bool {
+  (c >= 48 && c <= 57)
+    || (c >= 97 && c <= 122)
+    || (c >= 65 && c <= 90)
+    || contains(
+      [33, 36, 37, 38, 40, 41, 42, 43, 44, 45, 46, 58, 59, 61, 91, 39, 93, 95, 126],
+      c,
+    )
+}
+
+// httpguts.ValidHostHeader
+pub fn valid_host_header(h: Str) -> Bool {
+  for c in __bytes(h) { if !valid_host_byte(c) { return false } }
+  true
+}
+
+// httpguts.ValidHeaderFieldValue
+pub fn valid_header_field_value(v: Str) -> Bool {
+  for c in __bytes(v) { if (c < 32 && c != 9) || c == 127 { return false } }
+  true
+}
+
+// httpguts.PunycodeHostPort
+pub fn punycode_host_port(v: Str) -> Result<Str, Str> {
+  if is_ascii(v) { return Ok(v) }
+  let (host, port) = match net.split_host_port(v) {
+    Ok(x) => x,
+    Err(_) => (v, ""),
+  }
+  let h = cookiejar.to_ascii(host)?
+  if port == "" { Ok(h) } else { Ok(net.join_host_port(h, port)) }
+}
+
+fn remove_zone(host: Str) -> Str {
+  if !starts_with(host, "[") { return host }
+  let b = __bytes(host)
+  var i = len(b) - 1
+  while i >= 0 && b[i] != 93 { i -= 1 }
+  if i < 0 { return host }
+  var j = i - 1
+  while j >= 0 && b[j] != 37 { j -= 1 }
+  if j < 0 { return host }
+  unwrap_or(__from_bytes(b[..j] + b[i..]), host)
+}
+
+fn has_ctl(s: Str) -> Bool {
+  for b in __bytes(s) { if b < 32 || b == 127 { return true } }
+  false
+}
+
+fn is_chunked(te: List<Str>) -> Bool { len(te) > 0 && te[0] == "chunked" }
+
+fn is_identity(te: List<Str>) -> Bool { len(te) == 1 && te[0] == "identity" }
+
+type TW = {
+  method: Str,
+  is_response: Bool,
+  to_head: Bool,
+  header: textproto.MIMEHeader,
+  trailer: textproto.MIMEHeader,
+  body: Option<List<Int>>,
+  // 正文按 Go 的 io.Copy 会切成的块（只影响 chunked 输出）
+  chunks: List<List<Int>>,
+  content_length: Int,
+  te: List<Str>,
+  close: Bool,
+}
+
+fn first_bad_header(h: textproto.MIMEHeader) -> Str {
+  for (k, vv) in zip(h.keys, h.vals) {
+    if !valid_header_field_name(k) { return "field name " + qgo(k) }
+    for v in vv { if !valid_header_field_value(v) { return "field value for " + qgo(k) } }
+  }
+  ""
+}
+
+fn tw_finish(t0: TW, at_least_11: Bool) -> Result<TW, Str> {
+  var t = t0
+  if t.to_head {
+    t = TW { body: None, ..t }
+    if is_chunked(t.te) { t = TW { content_length: -1, ..t } }
+  } else {
+    if !at_least_11 || is_none(t.body) { t = TW { te: [], ..t } }
+    if is_chunked(t.te) {
+      t = TW { content_length: -1, ..t }
+    } else if is_none(t.body) {
+      t = TW { content_length: 0, ..t }
+    }
+  }
+  if !is_chunked(t.te) { t = TW { trailer: textproto.new_header(), ..t } }
+  let bad = first_bad_header(t.trailer)
+  if bad != "" { return Err("net/http: invalid trailer " + bad) }
+  Ok(t)
+}
+
+fn should_send_cl(t: TW) -> Bool {
+  if is_chunked(t.te) { return false }
+  if t.content_length > 0 { return true }
+  if t.content_length < 0 { return false }
+  if t.method == "POST" || t.method == "PUT" || t.method == "PATCH" { return true }
+  if t.content_length == 0 && is_identity(t.te) {
+    return !(t.method == "GET" || t.method == "HEAD")
+  }
+  false
+}
+
+fn tw_header(t: TW) -> (Str, Str) {
+  var out = ""
+  if t.close && !has_token(t.header.get("Connection"), "close") {
+    out = out + "Connection: close\r\n"
+  }
+  if should_send_cl(t) {
+    out = out + "Content-Length: " + str(t.content_length) + "\r\n"
+  } else if is_chunked(t.te) {
+    out = out + "Transfer-Encoding: chunked\r\n"
+  }
+  if len(t.trailer.keys) > 0 {
+    var ks: List<Str> = []
+    for k0 in t.trailer.keys {
+      let k = canonical_header_key(k0)
+      if k == "Transfer-Encoding" || k == "Trailer" || k == "Content-Length" {
+        return (out, bad_string("invalid Trailer key", k))
+      }
+      ks = push(ks, k)
+    }
+    out = out + "Trailer: " + join(sort(ks), ",") + "\r\n"
+  }
+  (out, "")
+}
+
+fn tw_body(t: TW) -> (List<Int>, Str) {
+  var out: List<Int> = []
+  var ncopy = 0
+  if !t.to_head {
+    match t.body {
+      None => {},
+      Some(b) => {
+        if is_chunked(t.te) {
+          out = chunked_encode(t.chunks)
+        } else if t.content_length == -1 {
+          out = b
+          ncopy = len(b)
+        } else {
+          out = if len(b) > t.content_length { b[..t.content_length] } else { b }
+          ncopy = len(b)
+        }
+      },
+    }
+  }
+  if !t.to_head && t.content_length != -1 && t.content_length != ncopy {
+    return (out, "http: ContentLength={t.content_length} with Body length {ncopy}")
+  }
+  if !t.to_head && is_chunked(t.te) {
+    if len(t.trailer.keys) > 0 { out = out + __bytes(header_write(t.trailer)) }
+    out = out + [13, 10]
+  }
+  (out, "")
+}
+
+fn lacks_body(m: Str) -> Bool {
+  contains(["GET", "HEAD", "DELETE", "OPTIONS", "PROPFIND", "SEARCH"], m)
+}
+
+// Request.Write
+pub fn request_write(r: OutRequest) -> (List<Int>, Str) {
+  var host = if r.host != "" { r.host } else { r.url.host }
+  host = match punycode_host_port(host) {
+    Ok(h) => h,
+    Err(e) => { return ([], e) },
+  }
+  if !valid_host_header(host) { host = "" }
+  host = remove_zone(host)
+  var ruri = url.request_uri(r.url)
+  if r.method == "CONNECT" && r.url.path == "" {
+    ruri = if r.url.opaque != "" { r.url.opaque } else { host }
+  }
+  if has_ctl(ruri) { return ([], "net/http: can't write control character in Request.URL") }
+  let method = if r.method == "" { "GET" } else { r.method }
+  var out = method + " " + ruri + " HTTP/1.1\r\nHost: " + host + "\r\n"
+  var ua = DEFAULT_USER_AGENT
+  if has_key(r.header, "User-Agent") { ua = r.header.get("User-Agent") }
+  if ua != "" {
+    out = out + "User-Agent: " + textproto.trim_string(
+      replace(replace(ua, "\n", " "), "\r", " "),
+    ) + "\r\n"
+  }
+  // newTransferWriter
+  if r.content_length != 0 && is_none(r.body) {
+    return (__bytes(out), "http: Request.ContentLength={r.content_length} with nil Body")
+  }
+  var body = r.body
+  var cl = match r.body {
+    None => 0,
+    Some(_) => if r.content_length != 0 { r.content_length } else { -1 },
+  }
+  var te = r.transfer_encoding
+  var chunks: List<List<Int>> = match r.body {
+    None => [],
+    Some(b) => [b],
+  }
+  if cl < 0 && len(te) == 0 && is_some(body) && method != "CONNECT" {
+    let b = unwrap(body)
+    if lacks_body(method) {
+      if len(b) == 0 {
+        body = None
+        cl = 0
+      } else {
+        chunks = [b[..1], b[1..]]
+        te = ["chunked"]
+      }
+    } else {
+      te = ["chunked"]
+    }
+  }
+  let t = match tw_finish(
+    TW {
+      method: method,
+      is_response: false,
+      to_head: false,
+      header: r.header,
+      trailer: r.trailer,
+      body: body,
+      chunks: chunks,
+      content_length: cl,
+      te: te,
+      close: r.close,
+    },
+    true,
+  ) {
+    Ok(x) => x,
+    Err(e) => { return (__bytes(out), e) },
+  }
+  let (th, te2) = tw_header(t)
+  out = out + th
+  if te2 != "" { return (__bytes(out), te2) }
+  out = out + header_write_subset(
+    r.header,
+    ["Host", "User-Agent", "Content-Length", "Transfer-Encoding", "Trailer"],
+  ) + "\r\n"
+  let (bb, be) = tw_body(t)
+  (__bytes(out) + bb, be)
+}
+
+fn pad3(n: Int) -> Str {
+  if n >= 0 && n < 10 { "00" + str(n) } else if n >= 0 && n < 100 { "0" + str(n) } else { str(n) }
+}
+
+// Response.Write
+pub fn response_write(r: OutResponse) -> (List<Int>, Str) {
+  var text = r.status
+  if text == "" {
+    text = status_text(r.status_code)
+    if text == "" { text = "status code " + str(r.status_code) }
+  } else {
+    let p = str(r.status_code) + " "
+    if starts_with(text, p) { text = __str_slice(text, len(p), len(text)) }
+  }
+  var out = "HTTP/{r.proto_major}.{r.proto_minor} {pad3(r.status_code)} {text}\r\n"
+  var cl = r.content_length
+  var body = r.body
+  var chunks: List<List<Int>> = match r.body {
+    None => [],
+    Some(b) => [b],
+  }
+  if cl == 0 && is_some(body) {
+    let b = unwrap(body)
+    if len(b) == 0 {
+      body = Some([])
+      chunks = []
+    } else {
+      cl = -1
+      var cs = [b[..1]]
+      var i = 1
+      while i < len(b) {
+        let e = if i + 32768 < len(b) { i + 32768 } else { len(b) }
+        cs = push(cs, b[i..e])
+        i = e
+      }
+      chunks = cs
+    }
+  }
+  let at11 = r.proto_major > 1 || (r.proto_major == 1 && r.proto_minor >= 1)
+  var close = r.close
+  if cl == -1 && !close && at11 && !is_chunked(r.transfer_encoding) && !r.uncompressed {
+    close = true
+  }
+  let t = match tw_finish(
+    TW {
+      method: r.request_method,
+      is_response: true,
+      to_head: r.request_method == "HEAD",
+      header: r.header,
+      trailer: r.trailer,
+      body: body,
+      chunks: chunks,
+      content_length: cl,
+      te: r.transfer_encoding,
+      close: close,
+    },
+    at11,
+  ) {
+    Ok(x) => x,
+    Err(e) => { return (__bytes(out), e) },
+  }
+  let (th, te2) = tw_header(t)
+  out = out + th
+  if te2 != "" { return (__bytes(out), te2) }
+  out = out + header_write_subset(r.header, ["Content-Length", "Transfer-Encoding", "Trailer"])
+  if cl == 0
+    && !is_chunked(r.transfer_encoding)
+    && !should_send_cl(t)
+    && body_allowed(r.status_code) {
+    out = out + "Content-Length: 0\r\n"
+  }
+  out = out + "\r\n"
+  let (bb, be) = tw_body(t)
+  (__bytes(out) + bb, be)
+}
+
+// ───────────── ServeMux（对齐 Go 1.22+ 的模式路由：pattern.go / routing_tree.go / routing_index.go） ─────────────
+// mux 是不可变值：handle(mux, pattern) 返回新的 mux，处理器用登记顺序的编号（0、1、2…）表示。
+// find(mux, method, host, u) 等于 ServeMux.findHandler：结果是处理器 / 307 重定向 / 405 / 404，
+// 以及匹配的模式字符串和路径通配符的值（= Request.PathValue）。
+// 和 Go 的差别：冲突错误里没有 "(registered at 文件:行)"。
+
+type Segment = { s: Str, wild: Bool, multi: Bool }
+
+pub type Pattern = { str: Str, method: Str, host: Str, segments: List<Segment> }
+
+type RNode = { pat: Int, kids: List<(Str, Int)>, multi: Int, empty: Int }
+
+pub type ServeMux = {
+  pats: List<Pattern>,
+  nodes: List<RNode>,
+  idx_keys: List<(Int, Str)>,
+  idx_vals: List<List<Int>>,
+  multis: List<Int>,
+}
+
+pub type MuxMatch = {
+  // "handler"、"redirect"、"405"、"404"
+  kind: Str,
+  handler: Int,
+  pattern: Str,
+  // (通配符名, 值)，顺序同模式
+  values: List<(Str, Str)>,
+  // Location 头的值（= http.Redirect 处理后的地址）
+  location: Str,
+  allow: Str,
+}
+
+fn new_node() -> RNode { RNode { pat: -1, kids: [], multi: -1, empty: -1 } }
+
+pub fn new_serve_mux() -> ServeMux {
+  ServeMux { pats: [], nodes: [new_node()], idx_keys: [], idx_vals: [], multis: [] }
+}
+
+fn index_any(s: Str, a: Int, b: Int) -> Int {
+  let bs = __bytes(s)
+  for i in 0..len(bs) { if bs[i] == a || bs[i] == b { return i } }
+  -1
+}
+
+fn bslice(b: List<Int>, i: Int, j: Int) -> Str { unwrap_or(__from_bytes(b[i..j]), "") }
+
+fn path_unescape_or(s: Str) -> Str {
+  match url.path_unescape(s) {
+    Ok(x) => x,
+    Err(_) => s,
+  }
+}
+
+fn valid_wildcard_name(s: Str) -> Bool {
+  if s == "" { return false }
+  var i = 0
+  for c in chars(s) {
+    if !unicode.is_letter(c) && c != "_" && (i == 0 || !unicode.is_digit(c)) { return false }
+    i += 1
+  }
+  true
+}
+
+// cleanPath
+pub fn clean_path(p0: Str) -> Str {
+  if p0 == "" { return "/" }
+  let p = if starts_with(p0, "/") { p0 } else { "/" + p0 }
+  var np = path.clean(p)
+  if ends_with(p, "/") && np != "/" {
+    np = if len(p) == len(np) + 1 && starts_with(p, np) { p } else { np + "/" }
+  }
+  np
+}
+
+// parsePattern；错误文字同 Go（"at offset N: …"）
+pub fn parse_pattern(s: Str) -> Result<Pattern, Str> {
+  if s == "" { return Err("empty pattern") }
+  let b = __bytes(s)
+  var off = 0
+  let sp = index_any(s, 32, 9)
+  var method = ""
+  var rest: List<Int> = b
+  if sp >= 0 {
+    method = bslice(b, 0, sp)
+    var k = sp + 1
+    while k < len(b) && (b[k] == 32 || b[k] == 9) { k += 1 }
+    rest = b[k..]
+  }
+  let fail = (o: Int, e: Str) => Err("at offset {o}: {e}")
+  if method != "" && !valid_header_field_name(method) {
+    return fail(0, "invalid method " + qgo(method))
+  }
+  if sp >= 0 { off = len(__bytes(method)) + 1 }
+  let slash = index_byte(rest, 0, len(rest), 47)
+  if slash < 0 { return fail(off, "host/path missing /") }
+  let host = bslice(rest, 0, slash)
+  rest = rest[slash..]
+  let brace = index_byte(__bytes(host), 0, len(__bytes(host)), 123)
+  if brace >= 0 { return fail(off + brace, "host contains '\{' (missing initial '/'?)") }
+  off += slash
+  let rs = unwrap_or(__from_bytes(rest), "")
+  if method != "" && method != "CONNECT" && rs != clean_path(rs) {
+    return fail(off, "non-CONNECT pattern with unclean path can never match")
+  }
+  var segs: List<Segment> = []
+  var seen: List<Str> = []
+  while len(rest) > 0 {
+    rest = rest[1..]
+    off = len(b) - len(rest)
+    if len(rest) == 0 {
+      segs = push(segs, Segment { s: "", wild: true, multi: true })
+      break
+    }
+    var i = index_byte(rest, 0, len(rest), 47)
+    if i < 0 { i = len(rest) }
+    let seg = rest[..i]
+    rest = rest[i..]
+    let bi = index_byte(seg, 0, len(seg), 123)
+    if bi < 0 {
+      segs = push(segs, Segment {
+        s: path_unescape_or(unwrap_or(__from_bytes(seg), "")),
+        wild: false,
+        multi: false,
+      })
+    } else {
+      if bi != 0 { return fail(off, "bad wildcard segment (must start with '\{')") }
+      if seg[len(seg) - 1] != 125 { return fail(off, "bad wildcard segment (must end with '\}')") }
+      var name = bslice(seg, 1, len(seg) - 1)
+      if name == "$" {
+        if len(rest) != 0 { return fail(off, "\{$\} not at end") }
+        segs = push(segs, Segment { s: "/", wild: false, multi: false })
+        break
+      }
+      let multi = ends_with(name, "...")
+      if multi { name = __str_slice(name, 0, len(name) - 3) }
+      if multi && len(rest) != 0 { return fail(off, "\{...\} wildcard not at end") }
+      if name == "" { return fail(off, "empty wildcard") }
+      if !valid_wildcard_name(name) { return fail(off, "bad wildcard name " + qgo(name)) }
+      if contains(seen, name) { return fail(off, "duplicate wildcard name " + qgo(name)) }
+      seen = push(seen, name)
+      segs = push(segs, Segment { s: name, wild: true, multi: multi })
+    }
+  }
+  Ok(Pattern { str: s, method: method, host: host, segments: segs })
+}
+
+fn last_seg(p: Pattern) -> Segment { p.segments[len(p.segments) - 1] }
+
+fn inverse_rel(r: Str) -> Str {
+  if r == "moreSpecific" { "moreGeneral" } else if r == "moreGeneral" { "moreSpecific" } else { r }
+}
+
+fn combine_rel(r1: Str, r2: Str) -> Str {
+  if r1 == "equivalent" { return r2 }
+  if r1 == "disjoint" { return "disjoint" }
+  if r1 == "overlaps" { return if r2 == "disjoint" { "disjoint" } else { "overlaps" } }
+  if r2 == "equivalent" { return r1 }
+  if r2 == inverse_rel(r1) { return "overlaps" }
+  r2
+}
+
+fn compare_methods(p1: Pattern, p2: Pattern) -> Str {
+  if p1.method == p2.method { return "equivalent" }
+  if p1.method == "" { return "moreGeneral" }
+  if p2.method == "" { return "moreSpecific" }
+  if p1.method == "GET" && p2.method == "HEAD" { return "moreGeneral" }
+  if p2.method == "GET" && p1.method == "HEAD" { return "moreSpecific" }
+  "disjoint"
+}
+
+fn compare_segments(s1: Segment, s2: Segment) -> Str {
+  if s1.multi && s2.multi { return "equivalent" }
+  if s1.multi { return "moreGeneral" }
+  if s2.multi { return "moreSpecific" }
+  if s1.wild && s2.wild { return "equivalent" }
+  if s1.wild { return if s2.s == "/" { "disjoint" } else { "moreGeneral" } }
+  if s2.wild { return if s1.s == "/" { "disjoint" } else { "moreSpecific" } }
+  if s1.s == s2.s { "equivalent" } else { "disjoint" }
+}
+
+fn compare_paths(p1: Pattern, p2: Pattern) -> Str {
+  let n1 = len(p1.segments)
+  let n2 = len(p2.segments)
+  if n1 != n2 && !last_seg(p1).multi && !last_seg(p2).multi { return "disjoint" }
+  var rel = "equivalent"
+  var i = 0
+  while i < n1 && i < n2 {
+    rel = combine_rel(rel, compare_segments(p1.segments[i], p2.segments[i]))
+    if rel == "disjoint" { return rel }
+    i += 1
+  }
+  if n1 == n2 { return rel }
+  if n1 < n2 && last_seg(p1).multi { return combine_rel(rel, "moreGeneral") }
+  if n2 < n1 && last_seg(p2).multi { return combine_rel(rel, "moreSpecific") }
+  "disjoint"
+}
+
+fn conflicts_with(p1: Pattern, p2: Pattern) -> Bool {
+  if p1.host != p2.host { return false }
+  let m = compare_methods(p1, p2)
+  if m == "disjoint" { return false }
+  let rel = combine_rel(m, compare_paths(p1, p2))
+  rel == "equivalent" || rel == "overlaps"
+}
+
+fn write_seg(s: Segment) -> Str { if !s.multi && s.s != "/" { "/" + s.s } else { "/" } }
+
+fn write_segs(ss: List<Segment>) -> Str { join(map(ss, write_seg), "") }
+
+fn common_path(p1: Pattern, p2: Pattern) -> Str {
+  var b = ""
+  var i = 0
+  let n1 = len(p1.segments)
+  let n2 = len(p2.segments)
+  while i < n1 && i < n2 {
+    let s1 = p1.segments[i]
+    b = b + if s1.wild { write_seg(p2.segments[i]) } else { write_seg(s1) }
+    i += 1
+  }
+  if i < n1 {
+    b + write_segs(p1.segments[i..])
+  } else if i < n2 {
+    b + write_segs(p2.segments[i..])
+  } else {
+    b
+  }
+}
+
+fn difference_path(p1: Pattern, p2: Pattern) -> Str {
+  var b = ""
+  var i = 0
+  let n1 = len(p1.segments)
+  let n2 = len(p2.segments)
+  while i < n1 && i < n2 {
+    let s1 = p1.segments[i]
+    let s2 = p2.segments[i]
+    if s1.multi && s2.multi { return b + "/" }
+    if s1.multi && !s2.multi {
+      b = b + "/"
+      if s2.s == "/" { b = b + if s1.s != "" { s1.s } else { "x" } }
+      return b
+    }
+    if !s1.multi && s2.multi {
+      b = b + write_seg(s1)
+    } else if s1.wild && s2.wild {
+      b = b + write_seg(s1)
+    } else if s1.wild && !s2.wild {
+      b = b + if s1.s != s2.s { write_seg(s1) } else { "/" + s2.s + "x" }
+    } else {
+      b = b + write_seg(s1)
+    }
+    i += 1
+  }
+  if i < n1 {
+    b + write_segs(p1.segments[i..])
+  } else if i < n2 {
+    b + write_segs(p2.segments[i..])
+  } else {
+    b
+  }
+}
+
+fn describe_conflict(p1: Pattern, p2: Pattern) -> Str {
+  let mrel = compare_methods(p1, p2)
+  let prel = compare_paths(p1, p2)
+  let rel = combine_rel(mrel, prel)
+  if rel == "equivalent" { return "{p1.str} matches the same requests as {p2.str}" }
+  if prel == "overlaps" {
+    return "{p1.str} and {p2.str} both match some paths, like {qgo(common_path(p1, p2))}.\nBut neither is more specific than the other.\n{p1.str} matches {qgo(
+      difference_path(p1, p2),
+    )}, but {p2.str} doesn't.\n{p2.str} matches {qgo(difference_path(p2, p1))}, but {p1.str} doesn't."
+  }
+  if mrel == "moreGeneral" && prel == "moreSpecific" {
+    return "{p1.str} matches more methods than {p2.str}, but has a more specific path pattern"
+  }
+  if mrel == "moreSpecific" && prel == "moreGeneral" {
+    return "{p1.str} matches fewer methods than {p2.str}, but has a more general path pattern"
+  }
+  "bug: unexpected way for two patterns {p1.str} and {p2.str} to conflict: methods {mrel}, paths {prel}"
+}
+
+fn idx_get(m: ServeMux, pos: Int, s: Str) -> List<Int> {
+  for i in 0..len(m.idx_keys) {
+    let (p, k) = m.idx_keys[i]
+    if p == pos && k == s { return m.idx_vals[i] }
+  }
+  []
+}
+
+fn idx_add(m: ServeMux, pos: Int, s: Str, v: Int) -> ServeMux {
+  for i in 0..len(m.idx_keys) {
+    let (p, k) = m.idx_keys[i]
+    if p == pos && k == s {
+      return ServeMux { idx_vals: set(m.idx_vals, i, push(m.idx_vals[i], v)), ..m }
+    }
+  }
+  ServeMux { idx_keys: push(m.idx_keys, (pos, s)), idx_vals: push(m.idx_vals, [v]), ..m }
+}
+
+// routingIndex.possiblyConflictingPatterns 给出的候选顺序
+fn candidates(m: ServeMux, p: Pattern) -> List<Int> {
+  var out = m.multis
+  if last_seg(p).s == "/" && !last_seg(p).wild { return out + idx_get(m, len(p.segments) - 1, "/") }
+  var lmin: List<Int> = []
+  var wmin: List<Int> = []
+  var min = -1
+  var has_lit = false
+  for i in 0..len(p.segments) {
+    let seg = p.segments[i]
+    if seg.multi { break }
+    if !seg.wild {
+      has_lit = true
+      let l = idx_get(m, i, seg.s)
+      let w = idx_get(m, i, "")
+      if min < 0 || len(l) + len(w) < min {
+        lmin = l
+        wmin = w
+        min = len(l) + len(w)
+      }
+    }
+  }
+  if has_lit { return out + lmin + wmin }
+  for vs in m.idx_vals { out = out + vs }
+  out
+}
+
+fn find_kid(m: ServeMux, n: Int, key: Str) -> Int {
+  if n < 0 { return -1 }
+  if key == "" { return m.nodes[n].empty }
+  for (k, c) in m.nodes[n].kids { if k == key { return c } }
+  -1
+}
+
+fn add_kid(m: ServeMux, n: Int, key: Str) -> (ServeMux, Int) {
+  let f = find_kid(m, n, key)
+  if f >= 0 { return (m, f) }
+  let c = len(m.nodes)
+  var nodes = push(m.nodes, new_node())
+  let nd = nodes[n]
+  nodes = set(nodes, n, if key == "" {
+    RNode { empty: c, ..nd }
+  } else {
+    RNode { kids: push(nd.kids, (key, c)), ..nd }
+  })
+  (ServeMux { nodes: nodes, ..m }, c)
+}
+
+// ServeMux.Handle（registerErr）：返回新的 mux，处理器编号是 len(mux.pats)
+pub fn handle(m0: ServeMux, patstr: Str) -> Result<ServeMux, Str> {
+  if patstr == "" { return Err("http: invalid pattern") }
+  let p = match parse_pattern(patstr) {
+    Ok(x) => x,
+    Err(e) => { return Err("parsing " + qgo(patstr) + ": " + e) },
+  }
+  for c in candidates(m0, p) {
+    let p2 = m0.pats[c]
+    if conflicts_with(p, p2) {
+      return Err(
+        "pattern " + qgo(p.str) + " conflicts with pattern " + qgo(
+          p2.str,
+        ) + ":\n" + describe_conflict(p, p2),
+      )
+    }
+  }
+  let id = len(m0.pats)
+  var m = ServeMux { pats: push(m0.pats, p), ..m0 }
+  var (m1, n) = add_kid(m, 0, p.host)
+  let (m2, n2) = add_kid(m1, n, p.method)
+  m = m2
+  var cur = n2
+  for seg in p.segments {
+    if seg.multi {
+      let c = len(m.nodes)
+      let nd = m.nodes[cur]
+      m = ServeMux {
+        nodes: set(push(m.nodes, RNode { pat: id, ..new_node() }), cur, RNode { multi: c, ..nd }),
+        ..m
+      }
+      cur = -1
+      break
+    }
+    let (m3, c) = add_kid(m, cur, if seg.wild { "" } else { seg.s })
+    m = m3
+    cur = c
+  }
+  if cur >= 0 { m = ServeMux { nodes: set(m.nodes, cur, RNode { pat: id, ..m.nodes[cur] }), ..m } }
+  // routingIndex.addPattern
+  if last_seg(p).multi {
+    m = ServeMux { multis: push(m.multis, id), ..m }
+  } else {
+    for i in 0..len(p.segments) {
+      let seg = p.segments[i]
+      m = idx_add(m, i, if seg.wild { "" } else { seg.s }, id)
+    }
+  }
+  Ok(m)
+}
+
+fn first_segment(p: Str) -> (Str, Str) {
+  if p == "/" { return ("/", "") }
+  let r = __str_slice(p, 1, len(p))
+  let i = __str_find(r, "/", 0)
+  let j = if i < 0 { len(r) } else { i }
+  (path_unescape_or(__str_slice(r, 0, j)), __str_slice(r, j, len(r)))
+}
+
+fn match_path(m: ServeMux, n: Int, p: Str, ms: List<Str>) -> (Int, List<Str>) {
+  if n < 0 { return (-1, []) }
+  let nd = m.nodes[n]
+  if p == "" { return if nd.pat < 0 { (-1, []) } else { (n, ms) } }
+  let (seg, rest) = first_segment(p)
+  let (a, am) = match_path(m, find_kid(m, n, seg), rest, ms)
+  if a >= 0 { return (a, am) }
+  if seg != "/" {
+    let (b, bm) = match_path(m, nd.empty, rest, push(ms, seg))
+    if b >= 0 { return (b, bm) }
+  }
+  if nd.multi >= 0 {
+    let c = nd.multi
+    let pat = m.pats[m.nodes[c].pat]
+    if last_seg(pat).s != "" { return (c, push(ms, path_unescape_or(__str_slice(p, 1, len(p))))) }
+    return (c, ms)
+  }
+  (-1, [])
+}
+
+fn match_method_and_path(m: ServeMux, n: Int, method: Str, p: Str) -> (Int, List<Str>) {
+  if n < 0 { return (-1, []) }
+  let (a, am) = match_path(m, find_kid(m, n, method), p, [])
+  if a >= 0 { return (a, am) }
+  if method == "HEAD" {
+    let (b, bm) = match_path(m, find_kid(m, n, "GET"), p, [])
+    if b >= 0 { return (b, bm) }
+  }
+  match_path(m, m.nodes[n].empty, p, [])
+}
+
+fn tree_match(m: ServeMux, host: Str, method: Str, p: Str) -> (Int, List<Str>) {
+  if host != "" {
+    let (a, am) = match_method_and_path(m, find_kid(m, 0, host), method, p)
+    if a >= 0 { return (a, am) }
+  }
+  match_method_and_path(m, m.nodes[0].empty, method, p)
+}
+
+fn exact_match(m: ServeMux, n: Int, p: Str) -> Bool {
+  if n < 0 { return false }
+  let pat = m.pats[m.nodes[n].pat]
+  if !last_seg(pat).multi { return true }
+  if p != "" && !ends_with(p, "/") { return false }
+  len(pat.segments) == len(split(p, "/")) - 1
+}
+
+fn url_from_escaped(escaped: Str, raw_query: Str) -> Str {
+  url.to_str(url.URL {
+    path: path_unescape_or(escaped),
+    raw_path: escaped,
+    raw_query: raw_query,
+    ..url.empty()
+  })
+}
+
+// 返回 (节点, 匹配值, 重定向地址；"" 表示没有)
+fn match_or_redirect(m: ServeMux, host: Str, method: Str, p: Str, u: Option<url.URL>) -> (
+  Int,
+  List<Str>,
+  Str,
+) {
+  let (n, ms) = tree_match(m, host, method, p)
+  if !exact_match(m, n, p) && is_some(u) && !ends_with(p, "/") && p != "" {
+    let p2 = p + "/"
+    let (n2, _) = tree_match(m, host, method, p2)
+    if exact_match(m, n2, p2) { return (n2, [], url_from_escaped(p2, unwrap(u).raw_query)) }
+  }
+  (n, ms, "")
+}
+
+fn methods_path(m: ServeMux, n: Int, p: Str, acc: List<Str>) -> List<Str> {
+  if n < 0 { return acc }
+  var out = acc
+  for (meth, c) in m.nodes[n].kids {
+    let (x, _) = match_path(m, c, p, [])
+    if x >= 0 && !contains(out, meth) { out = push(out, meth) }
+  }
+  out
+}
+
+fn matching_methods(m: ServeMux, host: Str, p: Str) -> List<Str> {
+  var ms: List<Str> = []
+  for pp in if ends_with(p, "/") {
+    [p]
+  } else {
+    [p, p + "/"]
+  } {
+    if host != "" { ms = methods_path(m, find_kid(m, 0, host), pp, ms) }
+    ms = methods_path(m, m.nodes[0].empty, pp, ms)
+    if contains(ms, "GET") && !contains(ms, "HEAD") { ms = push(ms, "HEAD") }
+  }
+  sort(ms)
+}
+
+fn strip_host_port(h: Str) -> Str {
+  if !contains(h, ":") { return h }
+  match net.split_host_port(h) {
+    Ok((host, _)) => host,
+    Err(_) => h,
+  }
+}
+
+fn mux_result(kind: Str, handler: Int, pattern: Str) -> MuxMatch {
+  MuxMatch { kind: kind, handler: handler, pattern: pattern, values: [], location: "", allow: "" }
+}
+
+// ServeMux.findHandler；host 是 Request.Host，u 是 Request.URL
+pub fn find(m: ServeMux, method: Str, host: Str, u: url.URL) -> MuxMatch {
+  let escaped = url.escaped_path(u)
+  var p = escaped
+  var h = u.host
+  var n = -1
+  var ms: List<Str> = []
+  if method == "CONNECT" {
+    let (_, _, loc) = match_or_redirect(m, h, method, p, Some(u))
+    if loc != "" {
+      let pu = unwrap_or(url.parse(loc), url.empty())
+      return MuxMatch { location: redirect_location(loc, u), ..mux_result("redirect", -1, pu.path) }
+    }
+    let (n1, ms1, _) = match_or_redirect(m, host, method, p, None)
+    n = n1
+    ms = ms1
+  } else {
+    h = strip_host_port(host)
+    p = clean_path(p)
+    let (n1, ms1, loc) = match_or_redirect(m, h, method, p, Some(u))
+    if loc != "" {
+      return MuxMatch {
+        location: redirect_location(loc, u),
+        ..mux_result("redirect", -1, m.pats[m.nodes[n1].pat].str)
+      }
+    }
+    if p != escaped {
+      let ps = if n1 >= 0 { m.pats[m.nodes[n1].pat].str } else { "" }
+      return MuxMatch {
+        location: redirect_location(url_from_escaped(p, u.raw_query), u),
+        ..mux_result("redirect", -1, ps)
+      }
+    }
+    n = n1
+    ms = ms1
+  }
+  if n < 0 {
+    let allowed = matching_methods(m, h, p)
+    if len(allowed) > 0 {
+      return MuxMatch { allow: join(allowed, ", "), ..mux_result("405", -1, "") }
+    }
+    return mux_result("404", -1, "")
+  }
+  let id = m.nodes[n].pat
+  let pat = m.pats[id]
+  var vals: List<(Str, Str)> = []
+  var i = 0
+  for seg in pat.segments {
+    if seg.wild && seg.s != "" {
+      if i < len(ms) { vals = push(vals, (seg.s, ms[i])) }
+      i += 1
+    }
+  }
+  MuxMatch { values: vals, ..mux_result("handler", id, pat.str) }
+}
+
+fn hex_escape_non_ascii(s: Str) -> Str {
+  var out: List<Int> = []
+  for b in __bytes(s) {
+    if b >= 128 {
+      out = out + __bytes("%" + upper(strconv.format_int(b, 16)))
+    } else {
+      out = push(out, b)
+    }
+  }
+  unwrap_or(__from_bytes(out), s)
+}
+
+// http.Redirect 写进 Location 头的值（相对路径按请求路径解析并清理，非 ASCII 字节转成 %XX）
+pub fn redirect_location(loc0: Str, req_url: url.URL) -> Str {
+  var loc = loc0
+  match url.parse(loc0) {
+    Ok(u) => {
+      if u.scheme == "" && u.host == "" {
+        var old = url.escaped_path(req_url)
+        if old == "" { old = "/" }
+        if loc == "" || !starts_with(loc, "/") {
+          let i = last_index_str(old, "/")
+          loc = __str_slice(old, 0, i + 1) + loc
+        }
+        var query = ""
+        let qi = __str_find(loc, "?", 0)
+        if qi >= 0 {
+          query = __str_slice(loc, qi, len(loc))
+          loc = __str_slice(loc, 0, qi)
+        }
+        let trailing = ends_with(loc, "/")
+        loc = path.clean(loc)
+        if trailing && !ends_with(loc, "/") { loc = loc + "/" }
+        loc = loc + query
+      }
+    },
+    Err(_) => {},
+  }
+  hex_escape_non_ascii(loc)
+}
+
+fn last_index_str(s: Str, sub: Str) -> Int {
+  var i = len(s) - len(sub)
+  while i >= 0 {
+    if __str_slice(s, i, i + len(sub)) == sub { return i }
+    i -= 1
+  }
+  -1
 }

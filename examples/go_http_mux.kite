@@ -1,0 +1,62 @@
+// 对拍 tests/go/http_mux.go：http.new_serve_mux / handle / find
+use std.fs
+use std.encoding.hex
+use std.strconv
+use std.net.http
+use std.net.url
+
+fn q(s: Str) -> Str { strconv.quote_go(s) }
+
+fn main() {
+  let data = unwrap(fs.read("tests/go/testdata/http/mux.txt"))
+  var mux = http.new_serve_mux()
+  var n = 0
+  for line in split(data, "\n") {
+    if line == "" { continue }
+    let parts = split(line, "|")
+    let a = map(parts[1..], (h) => unwrap(__from_bytes(unwrap(hex.decode(h)))))
+    n += 1
+    let op = parts[0]
+    if op == "new" {
+      mux = http.new_serve_mux()
+      print("{n} new")
+    } else if op == "pat" {
+      match http.handle(mux, a[0]) {
+        Ok(m) => {
+          mux = m
+          print("{n} pat {q(a[0])} ok")
+        },
+        Err(e) => print("{n} pat {q(a[0])} err {q(e)}"),
+      }
+    } else if op == "req" {
+      let u = match url.parse(a[2]) {
+        Ok(x) => x,
+        Err(e) => {
+          print("{n} req url err {q(e)}")
+          continue
+        },
+      }
+      let r = http.find(mux, a[0], a[1], u)
+      let code = if r.kind == "handler" {
+        200
+      } else if r.kind == "redirect" {
+        307
+      } else if r.kind == "405" {
+        405
+      } else {
+        404
+      }
+      let body = if r.kind == "handler" {
+        "pat=" + r.pattern + " vals=[" + join(
+          map(r.values, (kv) => q(kv.0 + "=" + kv.1)),
+          " ",
+        ) + "]"
+      } else {
+        ""
+      }
+      print(
+        "{n} req {a[0]} {q(a[1])} {q(a[2])}: {code} pat={q(r.pattern)} loc={q(r.location)} allow={q(r.allow)} {body}",
+      )
+    }
+  }
+}

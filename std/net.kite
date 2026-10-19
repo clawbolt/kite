@@ -145,3 +145,43 @@ impl Conn {
 
   fn close(self) { __tcp_close(self.fd) }
 }
+
+// ───────────── 地址字符串（对齐 Go 1.27 net.SplitHostPort / JoinHostPort） ─────────────
+
+fn addr_err(addr: Str, why: Str) -> Str {
+  if addr != "" { "address " + addr + ": " + why } else { why }
+}
+
+// "host:port"、"[::1]:80" → (host, port)；错误文字同 Go 的 *AddrError
+pub fn split_host_port(hp: Str) -> Result<(Str, Str), Str> {
+  let b = __bytes(hp)
+  var i = len(b) - 1
+  while i >= 0 && b[i] != 58 { i -= 1 }
+  if i < 0 { return Err(addr_err(hp, "missing port in address")) }
+  var j = 0
+  var k = 0
+  var host: List<Int> = []
+  if b[0] == 91 {
+    var end = 0
+    while end < len(b) && b[end] != 93 { end += 1 }
+    if end >= len(b) { return Err(addr_err(hp, "missing ']' in address")) }
+    if end + 1 == len(b) { return Err(addr_err(hp, "missing port in address")) }
+    if end + 1 != i {
+      if b[end + 1] == 58 { return Err(addr_err(hp, "too many colons in address")) }
+      return Err(addr_err(hp, "missing port in address"))
+    }
+    host = b[1..end]
+    j = 1
+    k = end + 1
+  } else {
+    host = b[..i]
+    if contains(host, 58) { return Err(addr_err(hp, "too many colons in address")) }
+  }
+  if contains(b[j..], 91) { return Err(addr_err(hp, "unexpected '[' in address")) }
+  if contains(b[k..], 93) { return Err(addr_err(hp, "unexpected ']' in address")) }
+  Ok((unwrap_or(__from_bytes(host), ""), unwrap_or(__from_bytes(b[i + 1..]), "")))
+}
+
+pub fn join_host_port(host: Str, port: Str) -> Str {
+  if contains(host, ":") { "[" + host + "]:" + port } else { host + ":" + port }
+}

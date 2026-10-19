@@ -1,0 +1,97 @@
+// 生成 kite tests/go/testdata/http/write.txt：Request.Write / Response.Write 的用例。
+// 每行 req|键=十六进制值|… 或 resp|…；同一个键可出现多次（h、tr）；没有 body 键表示 nil Body。
+package main
+
+import (
+	"encoding/hex"
+	"fmt"
+	"strings"
+)
+
+type C []string
+
+var cases = []C{
+	{"req", "method=GET", "url=http://example.com/"},
+	{"req", "method=", "url=http://example.com"},
+	{"req", "method=GET", "url=http://example.com/a%20b?x=1&y#frag"},
+	{"req", "method=GET", "url=http://user:pw@h.com:8080/p/"},
+	{"req", "method=GET", "url=http://h.com/", "host=other.com:81"},
+	{"req", "method=GET", "url=http://h.com/", "host=bad host"},
+	{"req", "method=GET", "url=http://[fe80::1%25en0]:8080/"},
+	{"req", "method=GET", "url=http://bücher.example/x"},
+	{"req", "method=GET", "url=http://bücher.example:81/x"},
+	{"req", "method=CONNECT", "url=http://h.com:443"},
+	{"req", "method=CONNECT", "url=h.com:443"},
+	{"req", "method=OPTIONS", "url=*"},
+	{"req", "method=GET", "url=http://h.com/", "h=User-Agent:my agent", "h=X-B:2", "h=X-A:1", "h=X-A:3"},
+	{"req", "method=GET", "url=http://h.com/", "h=User-Agent:"},
+	{"req", "method=GET", "url=http://h.com/", "h=User-Agent: a\r\nb ", "h=X-Multi:l1\nl2", "h=Bad Key:v"},
+	{"req", "method=GET", "url=http://h.com/", "h=Host:ignored", "h=Content-Length:99", "h=Transfer-Encoding:gzip", "h=Trailer:x"},
+	{"req", "method=GET", "url=http://h.com/", "close=1"},
+	{"req", "method=GET", "url=http://h.com/", "close=1", "h=Connection:Close"},
+	{"req", "method=POST", "url=http://h.com/"},
+	{"req", "method=PUT", "url=http://h.com/", "body="},
+	{"req", "method=POST", "url=http://h.com/", "body=hello", "cl=5"},
+	{"req", "method=POST", "url=http://h.com/", "body=hello"},
+	{"req", "method=GET", "url=http://h.com/", "body=hello"},
+	{"req", "method=GET", "url=http://h.com/", "body="},
+	{"req", "method=DELETE", "url=http://h.com/", "body=x"},
+	{"req", "method=CONNECT", "url=http://h.com:443", "body=raw"},
+	{"req", "method=POST", "url=http://h.com/", "body=hello", "cl=3"},
+	{"req", "method=POST", "url=http://h.com/", "body=hi", "cl=5"},
+	{"req", "method=POST", "url=http://h.com/", "cl=5"},
+	{"req", "method=POST", "url=http://h.com/", "body=abc", "cl=3", "te=chunked"},
+	{"req", "method=POST", "url=http://h.com/", "body=abc", "te=chunked", "tr=X-T:1", "tr=x-a:2"},
+	{"req", "method=POST", "url=http://h.com/", "body=abc", "te=chunked", "tr=Content-Length:1"},
+	{"req", "method=POST", "url=http://h.com/", "body=abc", "te=chunked", "tr=Bad Key:1"},
+	{"req", "method=POST", "url=http://h.com/", "body=abc", "te=chunked", "tr=X:a\x01"},
+	{"req", "method=POST", "url=http://h.com/", "body=abc", "cl=3", "tr=X:1"},
+	{"req", "method=POST", "url=http://h.com/", "body=abc", "te=identity"},
+	{"req", "method=POST", "url=http://h.com/", "body=", "te=identity"},
+	{"req", "method=GET", "url=http://h.com/", "body=", "te=identity"},
+	{"req", "method=POST", "url=http://h.com/", "body=abc", "cl=3", "te=gzip"},
+	{"req", "method=GET", "url=http://h.com/\x01"},
+	{"req", "method=GET", "url=mailto:x@y.com"},
+	{"resp", "code=200"},
+	{"resp", "code=200", "body=hello", "cl=5"},
+	{"resp", "code=200", "body=hello"},
+	{"resp", "code=200", "body="},
+	{"resp", "code=200", "body=", "cl=3"},
+	{"resp", "code=404", "status=404 Not Here"},
+	{"resp", "code=404", "status=Gone"},
+	{"resp", "code=999"},
+	{"resp", "code=7"},
+	{"resp", "code=204"},
+	{"resp", "code=304", "body="},
+	{"resp", "code=101", "h=Upgrade:websocket"},
+	{"resp", "code=200", "major=1", "minor=0", "body=x"},
+	{"resp", "code=200", "major=1", "minor=0", "body=x", "te=chunked"},
+	{"resp", "code=200", "body=abc", "te=chunked"},
+	{"resp", "code=200", "body=abc", "te=chunked", "tr=X-T:v"},
+	{"resp", "code=200", "body=", "te=chunked"},
+	{"resp", "code=200", "te=chunked"},
+	{"resp", "code=200", "body=abc", "cl=-1"},
+	{"resp", "code=200", "body=abc", "cl=-1", "uncompressed=1"},
+	{"resp", "code=200", "body=abc", "cl=-1", "close=1", "h=Connection:close"},
+	{"resp", "code=200", "body=abc", "cl=3", "reqmethod=HEAD"},
+	{"resp", "code=200", "body=abc", "te=chunked", "reqmethod=HEAD"},
+	{"resp", "code=200", "reqmethod=HEAD"},
+	{"resp", "code=200", "body=abc", "cl=2"},
+	{"resp", "code=200", "h=Content-Length:7", "h=X-Y:z", "h=Transfer-Encoding:chunked"},
+	{"resp", "code=200", "body=" + strings.Repeat("0123456789", 7000)},
+	{"resp", "code=200", "body=" + strings.Repeat("0123456789", 7000), "te=chunked"},
+	{"resp", "code=200", "body=" + strings.Repeat("ab", 20000), "cl=0", "te=chunked"},
+	{"resp", "code=200", "major=2", "minor=0", "body=abc"},
+	{"resp", "code=200", "major=0", "minor=9", "body=abc", "te=chunked"},
+}
+
+func main() {
+	for _, c := range cases {
+		p := []string{c[0]}
+		for _, kv := range c[1:] {
+			k, v, _ := strings.Cut(kv, "=")
+			p = append(p, k+"="+hex.EncodeToString([]byte(v)))
+		}
+		fmt.Println(strings.Join(p, "|"))
+	}
+}

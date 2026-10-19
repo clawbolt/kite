@@ -1,0 +1,620 @@
+1 new
+2 pat "/" ok
+3 new
+4 pat "/a" ok
+5 new
+6 pat "/a/" ok
+7 new
+8 pat "/path/to/something" ok
+9 new
+10 pat "/{w1}/lit/{w2}" ok
+11 new
+12 pat "/{w1}/lit/{w2}/" ok
+13 new
+14 pat "example.com/" ok
+15 new
+16 pat "GET /" ok
+17 new
+18 pat "POST example.com/foo/{w}" ok
+19 new
+20 pat "/{$}" ok
+21 new
+22 pat "DELETE example.com/a/{foo12}/{$}" ok
+23 new
+24 pat "/foo/{$}" ok
+25 new
+26 pat "/{a}/foo/{rest...}" ok
+27 new
+28 pat "//" ok
+29 new
+30 pat "/foo///./../bar" ok
+31 new
+32 pat "a.com/foo//" ok
+33 new
+34 pat "/%61%62/%7b/%" ok
+35 new
+36 pat "GET\t  /" ok
+37 new
+38 pat "POST \t  example.com/foo/{w}" ok
+39 new
+40 pat "DELETE    \texample.com/a/{foo12}/{$}" ok
+41 new
+42 pat "" err "http: invalid pattern"
+43 new
+44 pat "A=B /" err "parsing \"A=B /\": at offset 0: invalid method \"A=B\""
+45 new
+46 pat " " err "parsing \" \": at offset 1: host/path missing /"
+47 new
+48 pat "/{w}x" err "parsing \"/{w}x\": at offset 1: bad wildcard segment (must end with '}')"
+49 new
+50 pat "/x{w}" err "parsing \"/x{w}\": at offset 1: bad wildcard segment (must start with '{')"
+51 new
+52 pat "/{wx" err "parsing \"/{wx\": at offset 1: bad wildcard segment (must end with '}')"
+53 new
+54 pat "/a/{/}/c" err "parsing \"/a/{/}/c\": at offset 3: bad wildcard segment (must end with '}')"
+55 new
+56 pat "/a/{%61}/c" err "parsing \"/a/{%61}/c\": at offset 3: bad wildcard name \"%61\""
+57 new
+58 pat "/{a$}" err "parsing \"/{a$}\": at offset 1: bad wildcard name \"a$\""
+59 new
+60 pat "/{}" err "parsing \"/{}\": at offset 1: empty wildcard"
+61 new
+62 pat "POST a.com/x/{}/y" err "parsing \"POST a.com/x/{}/y\": at offset 13: empty wildcard"
+63 new
+64 pat "/{...}" err "parsing \"/{...}\": at offset 1: empty wildcard"
+65 new
+66 pat "/{$...}" err "parsing \"/{$...}\": at offset 1: bad wildcard name \"$\""
+67 new
+68 pat "/{$}/" err "parsing \"/{$}/\": at offset 1: {$} not at end"
+69 new
+70 pat "/{$}/x" err "parsing \"/{$}/x\": at offset 1: {$} not at end"
+71 new
+72 pat "/abc/{$}/x" err "parsing \"/abc/{$}/x\": at offset 5: {$} not at end"
+73 new
+74 pat "/{a...}/" err "parsing \"/{a...}/\": at offset 1: {...} wildcard not at end"
+75 new
+76 pat "/{a...}/x" err "parsing \"/{a...}/x\": at offset 1: {...} wildcard not at end"
+77 new
+78 pat "{a}/b" err "parsing \"{a}/b\": at offset 0: host contains '{' (missing initial '/'?)"
+79 new
+80 pat "/a/{x}/b/{x...}" err "parsing \"/a/{x}/b/{x...}\": at offset 9: duplicate wildcard name \"x\""
+81 new
+82 pat "GET //" err "parsing \"GET //\": at offset 4: non-CONNECT pattern with unclean path can never match"
+83 new
+84 pat "/a" ok
+85 pat "/a" err "pattern \"/a\" conflicts with pattern \"/a\":\n/a matches the same requests as /a"
+86 new
+87 pat "/a" ok
+88 pat "/a" err "pattern \"/a\" conflicts with pattern \"/a\":\n/a matches the same requests as /a"
+89 new
+90 pat "/a" ok
+91 pat "/ab" ok
+92 new
+93 pat "/ab" ok
+94 pat "/a" ok
+95 new
+96 pat "/a/b/cd" ok
+97 pat "/a/b/cd" err "pattern \"/a/b/cd\" conflicts with pattern \"/a/b/cd\":\n/a/b/cd matches the same requests as /a/b/cd"
+98 new
+99 pat "/a/b/cd" ok
+100 pat "/a/b/cd" err "pattern \"/a/b/cd\" conflicts with pattern \"/a/b/cd\":\n/a/b/cd matches the same requests as /a/b/cd"
+101 new
+102 pat "/a/b/cd" ok
+103 pat "/a/b/c" ok
+104 new
+105 pat "/a/b/c" ok
+106 pat "/a/b/cd" ok
+107 new
+108 pat "/a/b/c" ok
+109 pat "/a/c/c" ok
+110 new
+111 pat "/a/c/c" ok
+112 pat "/a/b/c" ok
+113 new
+114 pat "/{x}" ok
+115 pat "/{y}" err "pattern \"/{y}\" conflicts with pattern \"/{x}\":\n/{y} matches the same requests as /{x}"
+116 new
+117 pat "/{y}" ok
+118 pat "/{x}" err "pattern \"/{x}\" conflicts with pattern \"/{y}\":\n/{x} matches the same requests as /{y}"
+119 new
+120 pat "/{x}" ok
+121 pat "/a" ok
+122 new
+123 pat "/a" ok
+124 pat "/{x}" ok
+125 new
+126 pat "/{x}/{y}" ok
+127 pat "/{x}/a" ok
+128 new
+129 pat "/{x}/a" ok
+130 pat "/{x}/{y}" ok
+131 new
+132 pat "/{x}/{y}" ok
+133 pat "/{x}/a/b" ok
+134 new
+135 pat "/{x}/a/b" ok
+136 pat "/{x}/{y}" ok
+137 new
+138 pat "/{x}" ok
+139 pat "/a/{y}" ok
+140 new
+141 pat "/a/{y}" ok
+142 pat "/{x}" ok
+143 new
+144 pat "/{x}/{y}" ok
+145 pat "/{x}/a/" ok
+146 new
+147 pat "/{x}/a/" ok
+148 pat "/{x}/{y}" ok
+149 new
+150 pat "/{x}" ok
+151 pat "/a/{y...}" ok
+152 new
+153 pat "/a/{y...}" ok
+154 pat "/{x}" ok
+155 new
+156 pat "/{x}/a/{y}" ok
+157 pat "/{x}/a/{y...}" ok
+158 new
+159 pat "/{x}/a/{y...}" ok
+160 pat "/{x}/a/{y}" ok
+161 new
+162 pat "/{x}/{y}" ok
+163 pat "/{x}/a/{$}" ok
+164 new
+165 pat "/{x}/a/{$}" ok
+166 pat "/{x}/{y}" ok
+167 new
+168 pat "/{x}/{y}/{$}" ok
+169 pat "/{x}/a/{$}" ok
+170 new
+171 pat "/{x}/a/{$}" ok
+172 pat "/{x}/{y}/{$}" ok
+173 new
+174 pat "/a/{x}" ok
+175 pat "/{x}/b" err "pattern \"/{x}/b\" conflicts with pattern \"/a/{x}\":\n/{x}/b and /a/{x} both match some paths, like \"/a/b\".\nBut neither is more specific than the other.\n/{x}/b matches \"/x/b\", but /a/{x} doesn't.\n/a/{x} matches \"/a/x\", but /{x}/b doesn't."
+176 new
+177 pat "/{x}/b" ok
+178 pat "/a/{x}" err "pattern \"/a/{x}\" conflicts with pattern \"/{x}/b\":\n/a/{x} and /{x}/b both match some paths, like \"/a/b\".\nBut neither is more specific than the other.\n/a/{x} matches \"/a/x\", but /{x}/b doesn't.\n/{x}/b matches \"/x/b\", but /a/{x} doesn't."
+179 new
+180 pat "/" ok
+181 pat "GET /" ok
+182 new
+183 pat "GET /" ok
+184 pat "/" ok
+185 new
+186 pat "/" ok
+187 pat "GET /foo" ok
+188 new
+189 pat "GET /foo" ok
+190 pat "/" ok
+191 new
+192 pat "GET /" ok
+193 pat "GET /foo" ok
+194 new
+195 pat "GET /foo" ok
+196 pat "GET /" ok
+197 new
+198 pat "GET /" ok
+199 pat "/foo" err "pattern \"/foo\" conflicts with pattern \"GET /\":\n/foo matches more methods than GET /, but has a more specific path pattern"
+200 new
+201 pat "/foo" ok
+202 pat "GET /" err "pattern \"GET /\" conflicts with pattern \"/foo\":\nGET / matches fewer methods than /foo, but has a more general path pattern"
+203 new
+204 pat "GET /foo" ok
+205 pat "HEAD /" err "pattern \"HEAD /\" conflicts with pattern \"GET /foo\":\nHEAD / matches fewer methods than GET /foo, but has a more general path pattern"
+206 new
+207 pat "HEAD /" ok
+208 pat "GET /foo" err "pattern \"GET /foo\" conflicts with pattern \"HEAD /\":\nGET /foo matches more methods than HEAD /, but has a more specific path pattern"
+209 new
+210 pat "/a/{x}" ok
+211 pat "/a/{y}" err "pattern \"/a/{y}\" conflicts with pattern \"/a/{x}\":\n/a/{y} matches the same requests as /a/{x}"
+212 new
+213 pat "/a/{y}" ok
+214 pat "/a/{x}" err "pattern \"/a/{x}\" conflicts with pattern \"/a/{y}\":\n/a/{x} matches the same requests as /a/{y}"
+215 new
+216 pat "/" ok
+217 pat "/{m...}" err "pattern \"/{m...}\" conflicts with pattern \"/\":\n/{m...} matches the same requests as /"
+218 new
+219 pat "/{m...}" ok
+220 pat "/" err "pattern \"/\" conflicts with pattern \"/{m...}\":\n/ matches the same requests as /{m...}"
+221 new
+222 pat "/a/{x}" ok
+223 pat "/{y}/b" err "pattern \"/{y}/b\" conflicts with pattern \"/a/{x}\":\n/{y}/b and /a/{x} both match some paths, like \"/a/b\".\nBut neither is more specific than the other.\n/{y}/b matches \"/y/b\", but /a/{x} doesn't.\n/a/{x} matches \"/a/x\", but /{y}/b doesn't."
+224 new
+225 pat "/{y}/b" ok
+226 pat "/a/{x}" err "pattern \"/a/{x}\" conflicts with pattern \"/{y}/b\":\n/a/{x} and /{y}/b both match some paths, like \"/a/b\".\nBut neither is more specific than the other.\n/a/{x} matches \"/a/x\", but /{y}/b doesn't.\n/{y}/b matches \"/y/b\", but /a/{x} doesn't."
+227 new
+228 pat "/a" ok
+229 pat "GET /{x}" err "pattern \"GET /{x}\" conflicts with pattern \"/a\":\nGET /{x} matches fewer methods than /a, but has a more general path pattern"
+230 new
+231 pat "GET /{x}" ok
+232 pat "/a" err "pattern \"/a\" conflicts with pattern \"GET /{x}\":\n/a matches more methods than GET /{x}, but has a more specific path pattern"
+233 new
+234 pat "GET /a" ok
+235 pat "HEAD /" err "pattern \"HEAD /\" conflicts with pattern \"GET /a\":\nHEAD / matches fewer methods than GET /a, but has a more general path pattern"
+236 new
+237 pat "HEAD /" ok
+238 pat "GET /a" err "pattern \"GET /a\" conflicts with pattern \"HEAD /\":\nGET /a matches more methods than HEAD /, but has a more specific path pattern"
+239 new
+240 pat "POST /" ok
+241 pat "/a" err "pattern \"/a\" conflicts with pattern \"POST /\":\n/a matches more methods than POST /, but has a more specific path pattern"
+242 new
+243 pat "/a" ok
+244 pat "POST /" err "pattern \"POST /\" conflicts with pattern \"/a\":\nPOST / matches fewer methods than /a, but has a more general path pattern"
+245 new
+246 pat "/a/{x}" ok
+247 pat "/{x}/a" err "pattern \"/{x}/a\" conflicts with pattern \"/a/{x}\":\n/{x}/a and /a/{x} both match some paths, like \"/a/a\".\nBut neither is more specific than the other.\n/{x}/a matches \"/x/a\", but /a/{x} doesn't.\n/a/{x} matches \"/a/x\", but /{x}/a doesn't."
+248 new
+249 pat "/{x}/a" ok
+250 pat "/a/{x}" err "pattern \"/a/{x}\" conflicts with pattern \"/{x}/a\":\n/a/{x} and /{x}/a both match some paths, like \"/a/a\".\nBut neither is more specific than the other.\n/a/{x} matches \"/a/x\", but /{x}/a doesn't.\n/{x}/a matches \"/x/a\", but /a/{x} doesn't."
+251 new
+252 pat "/a/{z}/" ok
+253 pat "/{z}/a/" err "pattern \"/{z}/a/\" conflicts with pattern \"/a/{z}/\":\n/{z}/a/ and /a/{z}/ both match some paths, like \"/a/a/\".\nBut neither is more specific than the other.\n/{z}/a/ matches \"/z/a/\", but /a/{z}/ doesn't.\n/a/{z}/ matches \"/a/z/\", but /{z}/a/ doesn't."
+254 new
+255 pat "/{z}/a/" ok
+256 pat "/a/{z}/" err "pattern \"/a/{z}/\" conflicts with pattern \"/{z}/a/\":\n/a/{z}/ and /{z}/a/ both match some paths, like \"/a/a/\".\nBut neither is more specific than the other.\n/a/{z}/ matches \"/a/z/\", but /{z}/a/ doesn't.\n/{z}/a/ matches \"/z/a/\", but /a/{z}/ doesn't."
+257 new
+258 pat "/a/{z}/{m...}" ok
+259 pat "/{z}/a/" err "pattern \"/{z}/a/\" conflicts with pattern \"/a/{z}/{m...}\":\n/{z}/a/ and /a/{z}/{m...} both match some paths, like \"/a/a/\".\nBut neither is more specific than the other.\n/{z}/a/ matches \"/z/a/\", but /a/{z}/{m...} doesn't.\n/a/{z}/{m...} matches \"/a/z/\", but /{z}/a/ doesn't."
+260 new
+261 pat "/{z}/a/" ok
+262 pat "/a/{z}/{m...}" err "pattern \"/a/{z}/{m...}\" conflicts with pattern \"/{z}/a/\":\n/a/{z}/{m...} and /{z}/a/ both match some paths, like \"/a/a/\".\nBut neither is more specific than the other.\n/a/{z}/{m...} matches \"/a/z/\", but /{z}/a/ doesn't.\n/{z}/a/ matches \"/z/a/\", but /a/{z}/{m...} doesn't."
+263 new
+264 pat "/{z}/{$}" ok
+265 pat "/a/" err "pattern \"/a/\" conflicts with pattern \"/{z}/{$}\":\n/a/ and /{z}/{$} both match some paths, like \"/a/\".\nBut neither is more specific than the other.\n/a/ matches \"/a/x\", but /{z}/{$} doesn't.\n/{z}/{$} matches \"/z/\", but /a/ doesn't."
+266 new
+267 pat "/a/" ok
+268 pat "/{z}/{$}" err "pattern \"/{z}/{$}\" conflicts with pattern \"/a/\":\n/{z}/{$} and /a/ both match some paths, like \"/a/\".\nBut neither is more specific than the other.\n/{z}/{$} matches \"/z/\", but /a/ doesn't.\n/a/ matches \"/a/x\", but /{z}/{$} doesn't."
+269 new
+270 pat "/{z}/{$}" ok
+271 pat "/a/{x...}" err "pattern \"/a/{x...}\" conflicts with pattern \"/{z}/{$}\":\n/a/{x...} and /{z}/{$} both match some paths, like \"/a/\".\nBut neither is more specific than the other.\n/a/{x...} matches \"/a/x\", but /{z}/{$} doesn't.\n/{z}/{$} matches \"/z/\", but /a/{x...} doesn't."
+272 new
+273 pat "/a/{x...}" ok
+274 pat "/{z}/{$}" err "pattern \"/{z}/{$}\" conflicts with pattern \"/a/{x...}\":\n/{z}/{$} and /a/{x...} both match some paths, like \"/a/\".\nBut neither is more specific than the other.\n/{z}/{$} matches \"/z/\", but /a/{x...} doesn't.\n/a/{x...} matches \"/a/x\", but /{z}/{$} doesn't."
+275 new
+276 pat "/a/{z}/{$}" ok
+277 pat "/{z}/a/" err "pattern \"/{z}/a/\" conflicts with pattern \"/a/{z}/{$}\":\n/{z}/a/ and /a/{z}/{$} both match some paths, like \"/a/a/\".\nBut neither is more specific than the other.\n/{z}/a/ matches \"/z/a/x\", but /a/{z}/{$} doesn't.\n/a/{z}/{$} matches \"/a/z/\", but /{z}/a/ doesn't."
+278 new
+279 pat "/{z}/a/" ok
+280 pat "/a/{z}/{$}" err "pattern \"/a/{z}/{$}\" conflicts with pattern \"/{z}/a/\":\n/a/{z}/{$} and /{z}/a/ both match some paths, like \"/a/a/\".\nBut neither is more specific than the other.\n/a/{z}/{$} matches \"/a/z/\", but /{z}/a/ doesn't.\n/{z}/a/ matches \"/z/a/x\", but /a/{z}/{$} doesn't."
+281 new
+282 pat "/a/{x}/b/{y...}" ok
+283 pat "/{x}/c/{y...}" err "pattern \"/{x}/c/{y...}\" conflicts with pattern \"/a/{x}/b/{y...}\":\n/{x}/c/{y...} and /a/{x}/b/{y...} both match some paths, like \"/a/c/b/\".\nBut neither is more specific than the other.\n/{x}/c/{y...} matches \"/x/c/\", but /a/{x}/b/{y...} doesn't.\n/a/{x}/b/{y...} matches \"/a/x/b/\", but /{x}/c/{y...} doesn't."
+284 new
+285 pat "/{x}/c/{y...}" ok
+286 pat "/a/{x}/b/{y...}" err "pattern \"/a/{x}/b/{y...}\" conflicts with pattern \"/{x}/c/{y...}\":\n/a/{x}/b/{y...} and /{x}/c/{y...} both match some paths, like \"/a/c/b/\".\nBut neither is more specific than the other.\n/a/{x}/b/{y...} matches \"/a/x/b/\", but /{x}/c/{y...} doesn't.\n/{x}/c/{y...} matches \"/x/c/\", but /a/{x}/b/{y...} doesn't."
+287 new
+288 pat "/a/{x}/b/" ok
+289 pat "/{x}/c/{y...}" err "pattern \"/{x}/c/{y...}\" conflicts with pattern \"/a/{x}/b/\":\n/{x}/c/{y...} and /a/{x}/b/ both match some paths, like \"/a/c/b/\".\nBut neither is more specific than the other.\n/{x}/c/{y...} matches \"/x/c/\", but /a/{x}/b/ doesn't.\n/a/{x}/b/ matches \"/a/x/b/\", but /{x}/c/{y...} doesn't."
+290 new
+291 pat "/{x}/c/{y...}" ok
+292 pat "/a/{x}/b/" err "pattern \"/a/{x}/b/\" conflicts with pattern \"/{x}/c/{y...}\":\n/a/{x}/b/ and /{x}/c/{y...} both match some paths, like \"/a/c/b/\".\nBut neither is more specific than the other.\n/a/{x}/b/ matches \"/a/x/b/\", but /{x}/c/{y...} doesn't.\n/{x}/c/{y...} matches \"/x/c/\", but /a/{x}/b/ doesn't."
+293 new
+294 pat "/a/{x}/b/{$}" ok
+295 pat "/{x}/c/{y...}" err "pattern \"/{x}/c/{y...}\" conflicts with pattern \"/a/{x}/b/{$}\":\n/{x}/c/{y...} and /a/{x}/b/{$} both match some paths, like \"/a/c/b/\".\nBut neither is more specific than the other.\n/{x}/c/{y...} matches \"/x/c/\", but /a/{x}/b/{$} doesn't.\n/a/{x}/b/{$} matches \"/a/x/b/\", but /{x}/c/{y...} doesn't."
+296 new
+297 pat "/{x}/c/{y...}" ok
+298 pat "/a/{x}/b/{$}" err "pattern \"/a/{x}/b/{$}\" conflicts with pattern \"/{x}/c/{y...}\":\n/a/{x}/b/{$} and /{x}/c/{y...} both match some paths, like \"/a/c/b/\".\nBut neither is more specific than the other.\n/a/{x}/b/{$} matches \"/a/x/b/\", but /{x}/c/{y...} doesn't.\n/{x}/c/{y...} matches \"/x/c/\", but /a/{x}/b/{$} doesn't."
+299 new
+300 pat "/a/{z}/{x...}" ok
+301 pat "/{z}/b/{y...}" err "pattern \"/{z}/b/{y...}\" conflicts with pattern \"/a/{z}/{x...}\":\n/{z}/b/{y...} and /a/{z}/{x...} both match some paths, like \"/a/b/\".\nBut neither is more specific than the other.\n/{z}/b/{y...} matches \"/z/b/\", but /a/{z}/{x...} doesn't.\n/a/{z}/{x...} matches \"/a/z/\", but /{z}/b/{y...} doesn't."
+302 new
+303 pat "/{z}/b/{y...}" ok
+304 pat "/a/{z}/{x...}" err "pattern \"/a/{z}/{x...}\" conflicts with pattern \"/{z}/b/{y...}\":\n/a/{z}/{x...} and /{z}/b/{y...} both match some paths, like \"/a/b/\".\nBut neither is more specific than the other.\n/a/{z}/{x...} matches \"/a/z/\", but /{z}/b/{y...} doesn't.\n/{z}/b/{y...} matches \"/z/b/\", but /a/{z}/{x...} doesn't."
+305 new
+306 pat "/a/{x}" ok
+307 pat "/{x}/a" err "pattern \"/{x}/a\" conflicts with pattern \"/a/{x}\":\n/{x}/a and /a/{x} both match some paths, like \"/a/a\".\nBut neither is more specific than the other.\n/{x}/a matches \"/x/a\", but /a/{x} doesn't.\n/a/{x} matches \"/a/x\", but /{x}/a doesn't."
+308 new
+309 pat "/{x}/a" ok
+310 pat "/a/{x}" err "pattern \"/a/{x}\" conflicts with pattern \"/{x}/a\":\n/a/{x} and /{x}/a both match some paths, like \"/a/a\".\nBut neither is more specific than the other.\n/a/{x} matches \"/a/x\", but /{x}/a doesn't.\n/{x}/a matches \"/x/a\", but /a/{x} doesn't."
+311 new
+312 pat "/{x}/a" ok
+313 pat "/a/{x}" err "pattern \"/a/{x}\" conflicts with pattern \"/{x}/a\":\n/a/{x} and /{x}/a both match some paths, like \"/a/a\".\nBut neither is more specific than the other.\n/a/{x} matches \"/a/x\", but /{x}/a doesn't.\n/{x}/a matches \"/x/a\", but /a/{x} doesn't."
+314 new
+315 pat "/a/{x}" ok
+316 pat "/{x}/a" err "pattern \"/{x}/a\" conflicts with pattern \"/a/{x}\":\n/{x}/a and /a/{x} both match some paths, like \"/a/a\".\nBut neither is more specific than the other.\n/{x}/a matches \"/x/a\", but /a/{x} doesn't.\n/a/{x} matches \"/a/x\", but /{x}/a doesn't."
+317 new
+318 pat "/a/{z}/" ok
+319 pat "/{z}/a/" err "pattern \"/{z}/a/\" conflicts with pattern \"/a/{z}/\":\n/{z}/a/ and /a/{z}/ both match some paths, like \"/a/a/\".\nBut neither is more specific than the other.\n/{z}/a/ matches \"/z/a/\", but /a/{z}/ doesn't.\n/a/{z}/ matches \"/a/z/\", but /{z}/a/ doesn't."
+320 new
+321 pat "/{z}/a/" ok
+322 pat "/a/{z}/" err "pattern \"/a/{z}/\" conflicts with pattern \"/{z}/a/\":\n/a/{z}/ and /{z}/a/ both match some paths, like \"/a/a/\".\nBut neither is more specific than the other.\n/a/{z}/ matches \"/a/z/\", but /{z}/a/ doesn't.\n/{z}/a/ matches \"/z/a/\", but /a/{z}/ doesn't."
+323 new
+324 pat "/{z}/a/" ok
+325 pat "/a/{z}/" err "pattern \"/a/{z}/\" conflicts with pattern \"/{z}/a/\":\n/a/{z}/ and /{z}/a/ both match some paths, like \"/a/a/\".\nBut neither is more specific than the other.\n/a/{z}/ matches \"/a/z/\", but /{z}/a/ doesn't.\n/{z}/a/ matches \"/z/a/\", but /a/{z}/ doesn't."
+326 new
+327 pat "/a/{z}/" ok
+328 pat "/{z}/a/" err "pattern \"/{z}/a/\" conflicts with pattern \"/a/{z}/\":\n/{z}/a/ and /a/{z}/ both match some paths, like \"/a/a/\".\nBut neither is more specific than the other.\n/{z}/a/ matches \"/z/a/\", but /a/{z}/ doesn't.\n/a/{z}/ matches \"/a/z/\", but /{z}/a/ doesn't."
+329 new
+330 pat "/{a}/a/" ok
+331 pat "/a/{z}/" err "pattern \"/a/{z}/\" conflicts with pattern \"/{a}/a/\":\n/a/{z}/ and /{a}/a/ both match some paths, like \"/a/a/\".\nBut neither is more specific than the other.\n/a/{z}/ matches \"/a/z/\", but /{a}/a/ doesn't.\n/{a}/a/ matches \"/ax/a/\", but /a/{z}/ doesn't."
+332 new
+333 pat "/a/{z}/" ok
+334 pat "/{a}/a/" err "pattern \"/{a}/a/\" conflicts with pattern \"/a/{z}/\":\n/{a}/a/ and /a/{z}/ both match some paths, like \"/a/a/\".\nBut neither is more specific than the other.\n/{a}/a/ matches \"/ax/a/\", but /a/{z}/ doesn't.\n/a/{z}/ matches \"/a/z/\", but /{a}/a/ doesn't."
+335 new
+336 pat "/a/{z}/{x...}" ok
+337 pat "/{z}/b/{y...}" err "pattern \"/{z}/b/{y...}\" conflicts with pattern \"/a/{z}/{x...}\":\n/{z}/b/{y...} and /a/{z}/{x...} both match some paths, like \"/a/b/\".\nBut neither is more specific than the other.\n/{z}/b/{y...} matches \"/z/b/\", but /a/{z}/{x...} doesn't.\n/a/{z}/{x...} matches \"/a/z/\", but /{z}/b/{y...} doesn't."
+338 new
+339 pat "/{z}/b/{y...}" ok
+340 pat "/a/{z}/{x...}" err "pattern \"/a/{z}/{x...}\" conflicts with pattern \"/{z}/b/{y...}\":\n/a/{z}/{x...} and /{z}/b/{y...} both match some paths, like \"/a/b/\".\nBut neither is more specific than the other.\n/a/{z}/{x...} matches \"/a/z/\", but /{z}/b/{y...} doesn't.\n/{z}/b/{y...} matches \"/z/b/\", but /a/{z}/{x...} doesn't."
+341 new
+342 pat "/{z}/b/{y...}" ok
+343 pat "/a/{z}/{x...}" err "pattern \"/a/{z}/{x...}\" conflicts with pattern \"/{z}/b/{y...}\":\n/a/{z}/{x...} and /{z}/b/{y...} both match some paths, like \"/a/b/\".\nBut neither is more specific than the other.\n/a/{z}/{x...} matches \"/a/z/\", but /{z}/b/{y...} doesn't.\n/{z}/b/{y...} matches \"/z/b/\", but /a/{z}/{x...} doesn't."
+344 new
+345 pat "/a/{z}/{x...}" ok
+346 pat "/{z}/b/{y...}" err "pattern \"/{z}/b/{y...}\" conflicts with pattern \"/a/{z}/{x...}\":\n/{z}/b/{y...} and /a/{z}/{x...} both match some paths, like \"/a/b/\".\nBut neither is more specific than the other.\n/{z}/b/{y...} matches \"/z/b/\", but /a/{z}/{x...} doesn't.\n/a/{z}/{x...} matches \"/a/z/\", but /{z}/b/{y...} doesn't."
+347 new
+348 pat "/a/b/" ok
+349 pat "/a/b/c" ok
+350 new
+351 pat "/a/b/c" ok
+352 pat "/a/b/" ok
+353 new
+354 pat "/a/b/{x...}" ok
+355 pat "/a/b/c" ok
+356 new
+357 pat "/a/b/c" ok
+358 pat "/a/b/{x...}" ok
+359 new
+360 pat "/a/b/{x...}" ok
+361 pat "/a/b/c/d" ok
+362 new
+363 pat "/a/b/c/d" ok
+364 pat "/a/b/{x...}" ok
+365 new
+366 pat "/a/b/{x...}" ok
+367 pat "/a/b/c/d/" ok
+368 new
+369 pat "/a/b/c/d/" ok
+370 pat "/a/b/{x...}" ok
+371 new
+372 pat "/a/{z}/{m...}" ok
+373 pat "/{z}/a/" err "pattern \"/{z}/a/\" conflicts with pattern \"/a/{z}/{m...}\":\n/{z}/a/ and /a/{z}/{m...} both match some paths, like \"/a/a/\".\nBut neither is more specific than the other.\n/{z}/a/ matches \"/z/a/\", but /a/{z}/{m...} doesn't.\n/a/{z}/{m...} matches \"/a/z/\", but /{z}/a/ doesn't."
+374 new
+375 pat "/{z}/a/" ok
+376 pat "/a/{z}/{m...}" err "pattern \"/a/{z}/{m...}\" conflicts with pattern \"/{z}/a/\":\n/a/{z}/{m...} and /{z}/a/ both match some paths, like \"/a/a/\".\nBut neither is more specific than the other.\n/a/{z}/{m...} matches \"/a/z/\", but /{z}/a/ doesn't.\n/{z}/a/ matches \"/z/a/\", but /a/{z}/{m...} doesn't."
+377 new
+378 pat "/{z}/a/" ok
+379 pat "/a/{z}/{m...}" err "pattern \"/a/{z}/{m...}\" conflicts with pattern \"/{z}/a/\":\n/a/{z}/{m...} and /{z}/a/ both match some paths, like \"/a/a/\".\nBut neither is more specific than the other.\n/a/{z}/{m...} matches \"/a/z/\", but /{z}/a/ doesn't.\n/{z}/a/ matches \"/z/a/\", but /a/{z}/{m...} doesn't."
+380 new
+381 pat "/a/{z}/{m...}" ok
+382 pat "/{z}/a/" err "pattern \"/{z}/a/\" conflicts with pattern \"/a/{z}/{m...}\":\n/{z}/a/ and /a/{z}/{m...} both match some paths, like \"/a/a/\".\nBut neither is more specific than the other.\n/{z}/a/ matches \"/z/a/\", but /a/{z}/{m...} doesn't.\n/a/{z}/{m...} matches \"/a/z/\", but /{z}/a/ doesn't."
+383 new
+384 pat "/{z}/{$}" ok
+385 pat "/a/" err "pattern \"/a/\" conflicts with pattern \"/{z}/{$}\":\n/a/ and /{z}/{$} both match some paths, like \"/a/\".\nBut neither is more specific than the other.\n/a/ matches \"/a/x\", but /{z}/{$} doesn't.\n/{z}/{$} matches \"/z/\", but /a/ doesn't."
+386 new
+387 pat "/a/" ok
+388 pat "/{z}/{$}" err "pattern \"/{z}/{$}\" conflicts with pattern \"/a/\":\n/{z}/{$} and /a/ both match some paths, like \"/a/\".\nBut neither is more specific than the other.\n/{z}/{$} matches \"/z/\", but /a/ doesn't.\n/a/ matches \"/a/x\", but /{z}/{$} doesn't."
+389 new
+390 pat "/a/" ok
+391 pat "/{z}/{$}" err "pattern \"/{z}/{$}\" conflicts with pattern \"/a/\":\n/{z}/{$} and /a/ both match some paths, like \"/a/\".\nBut neither is more specific than the other.\n/{z}/{$} matches \"/z/\", but /a/ doesn't.\n/a/ matches \"/a/x\", but /{z}/{$} doesn't."
+392 new
+393 pat "/{z}/{$}" ok
+394 pat "/a/" err "pattern \"/a/\" conflicts with pattern \"/{z}/{$}\":\n/a/ and /{z}/{$} both match some paths, like \"/a/\".\nBut neither is more specific than the other.\n/a/ matches \"/a/x\", but /{z}/{$} doesn't.\n/{z}/{$} matches \"/z/\", but /a/ doesn't."
+395 new
+396 pat "/{z}/{$}" ok
+397 pat "/a/{x...}" err "pattern \"/a/{x...}\" conflicts with pattern \"/{z}/{$}\":\n/a/{x...} and /{z}/{$} both match some paths, like \"/a/\".\nBut neither is more specific than the other.\n/a/{x...} matches \"/a/x\", but /{z}/{$} doesn't.\n/{z}/{$} matches \"/z/\", but /a/{x...} doesn't."
+398 new
+399 pat "/a/{x...}" ok
+400 pat "/{z}/{$}" err "pattern \"/{z}/{$}\" conflicts with pattern \"/a/{x...}\":\n/{z}/{$} and /a/{x...} both match some paths, like \"/a/\".\nBut neither is more specific than the other.\n/{z}/{$} matches \"/z/\", but /a/{x...} doesn't.\n/a/{x...} matches \"/a/x\", but /{z}/{$} doesn't."
+401 new
+402 pat "/a/{foo...}" ok
+403 pat "/{z}/{$}" err "pattern \"/{z}/{$}\" conflicts with pattern \"/a/{foo...}\":\n/{z}/{$} and /a/{foo...} both match some paths, like \"/a/\".\nBut neither is more specific than the other.\n/{z}/{$} matches \"/z/\", but /a/{foo...} doesn't.\n/a/{foo...} matches \"/a/foo\", but /{z}/{$} doesn't."
+404 new
+405 pat "/{z}/{$}" ok
+406 pat "/a/{foo...}" err "pattern \"/a/{foo...}\" conflicts with pattern \"/{z}/{$}\":\n/a/{foo...} and /{z}/{$} both match some paths, like \"/a/\".\nBut neither is more specific than the other.\n/a/{foo...} matches \"/a/foo\", but /{z}/{$} doesn't.\n/{z}/{$} matches \"/z/\", but /a/{foo...} doesn't."
+407 new
+408 pat "/a/{z}/{$}" ok
+409 pat "/{z}/a/" err "pattern \"/{z}/a/\" conflicts with pattern \"/a/{z}/{$}\":\n/{z}/a/ and /a/{z}/{$} both match some paths, like \"/a/a/\".\nBut neither is more specific than the other.\n/{z}/a/ matches \"/z/a/x\", but /a/{z}/{$} doesn't.\n/a/{z}/{$} matches \"/a/z/\", but /{z}/a/ doesn't."
+410 new
+411 pat "/{z}/a/" ok
+412 pat "/a/{z}/{$}" err "pattern \"/a/{z}/{$}\" conflicts with pattern \"/{z}/a/\":\n/a/{z}/{$} and /{z}/a/ both match some paths, like \"/a/a/\".\nBut neither is more specific than the other.\n/a/{z}/{$} matches \"/a/z/\", but /{z}/a/ doesn't.\n/{z}/a/ matches \"/z/a/x\", but /a/{z}/{$} doesn't."
+413 new
+414 pat "/{z}/a/" ok
+415 pat "/a/{z}/{$}" err "pattern \"/a/{z}/{$}\" conflicts with pattern \"/{z}/a/\":\n/a/{z}/{$} and /{z}/a/ both match some paths, like \"/a/a/\".\nBut neither is more specific than the other.\n/a/{z}/{$} matches \"/a/z/\", but /{z}/a/ doesn't.\n/{z}/a/ matches \"/z/a/x\", but /a/{z}/{$} doesn't."
+416 new
+417 pat "/a/{z}/{$}" ok
+418 pat "/{z}/a/" err "pattern \"/{z}/a/\" conflicts with pattern \"/a/{z}/{$}\":\n/{z}/a/ and /a/{z}/{$} both match some paths, like \"/a/a/\".\nBut neither is more specific than the other.\n/{z}/a/ matches \"/z/a/x\", but /a/{z}/{$} doesn't.\n/a/{z}/{$} matches \"/a/z/\", but /{z}/a/ doesn't."
+419 new
+420 pat "/a/{x}/b/{y...}" ok
+421 pat "/{x}/c/{y...}" err "pattern \"/{x}/c/{y...}\" conflicts with pattern \"/a/{x}/b/{y...}\":\n/{x}/c/{y...} and /a/{x}/b/{y...} both match some paths, like \"/a/c/b/\".\nBut neither is more specific than the other.\n/{x}/c/{y...} matches \"/x/c/\", but /a/{x}/b/{y...} doesn't.\n/a/{x}/b/{y...} matches \"/a/x/b/\", but /{x}/c/{y...} doesn't."
+422 new
+423 pat "/{x}/c/{y...}" ok
+424 pat "/a/{x}/b/{y...}" err "pattern \"/a/{x}/b/{y...}\" conflicts with pattern \"/{x}/c/{y...}\":\n/a/{x}/b/{y...} and /{x}/c/{y...} both match some paths, like \"/a/c/b/\".\nBut neither is more specific than the other.\n/a/{x}/b/{y...} matches \"/a/x/b/\", but /{x}/c/{y...} doesn't.\n/{x}/c/{y...} matches \"/x/c/\", but /a/{x}/b/{y...} doesn't."
+425 new
+426 pat "/{x}/c/{y...}" ok
+427 pat "/a/{x}/b/{y...}" err "pattern \"/a/{x}/b/{y...}\" conflicts with pattern \"/{x}/c/{y...}\":\n/a/{x}/b/{y...} and /{x}/c/{y...} both match some paths, like \"/a/c/b/\".\nBut neither is more specific than the other.\n/a/{x}/b/{y...} matches \"/a/x/b/\", but /{x}/c/{y...} doesn't.\n/{x}/c/{y...} matches \"/x/c/\", but /a/{x}/b/{y...} doesn't."
+428 new
+429 pat "/a/{x}/b/{y...}" ok
+430 pat "/{x}/c/{y...}" err "pattern \"/{x}/c/{y...}\" conflicts with pattern \"/a/{x}/b/{y...}\":\n/{x}/c/{y...} and /a/{x}/b/{y...} both match some paths, like \"/a/c/b/\".\nBut neither is more specific than the other.\n/{x}/c/{y...} matches \"/x/c/\", but /a/{x}/b/{y...} doesn't.\n/a/{x}/b/{y...} matches \"/a/x/b/\", but /{x}/c/{y...} doesn't."
+431 new
+432 pat "/a/{c}/b/" ok
+433 pat "/{x}/c/{y...}" err "pattern \"/{x}/c/{y...}\" conflicts with pattern \"/a/{c}/b/\":\n/{x}/c/{y...} and /a/{c}/b/ both match some paths, like \"/a/c/b/\".\nBut neither is more specific than the other.\n/{x}/c/{y...} matches \"/x/c/\", but /a/{c}/b/ doesn't.\n/a/{c}/b/ matches \"/a/cx/b/\", but /{x}/c/{y...} doesn't."
+434 new
+435 pat "/{x}/c/{y...}" ok
+436 pat "/a/{c}/b/" err "pattern \"/a/{c}/b/\" conflicts with pattern \"/{x}/c/{y...}\":\n/a/{c}/b/ and /{x}/c/{y...} both match some paths, like \"/a/c/b/\".\nBut neither is more specific than the other.\n/a/{c}/b/ matches \"/a/cx/b/\", but /{x}/c/{y...} doesn't.\n/{x}/c/{y...} matches \"/x/c/\", but /a/{c}/b/ doesn't."
+437 new
+438 pat "/{x}/c/{y...}" ok
+439 pat "/a/{c}/b/" err "pattern \"/a/{c}/b/\" conflicts with pattern \"/{x}/c/{y...}\":\n/a/{c}/b/ and /{x}/c/{y...} both match some paths, like \"/a/c/b/\".\nBut neither is more specific than the other.\n/a/{c}/b/ matches \"/a/cx/b/\", but /{x}/c/{y...} doesn't.\n/{x}/c/{y...} matches \"/x/c/\", but /a/{c}/b/ doesn't."
+440 new
+441 pat "/a/{c}/b/" ok
+442 pat "/{x}/c/{y...}" err "pattern \"/{x}/c/{y...}\" conflicts with pattern \"/a/{c}/b/\":\n/{x}/c/{y...} and /a/{c}/b/ both match some paths, like \"/a/c/b/\".\nBut neither is more specific than the other.\n/{x}/c/{y...} matches \"/x/c/\", but /a/{c}/b/ doesn't.\n/a/{c}/b/ matches \"/a/cx/b/\", but /{x}/c/{y...} doesn't."
+443 new
+444 pat "/a/{x}/b/{$}" ok
+445 pat "/{x}/c/{y...}" err "pattern \"/{x}/c/{y...}\" conflicts with pattern \"/a/{x}/b/{$}\":\n/{x}/c/{y...} and /a/{x}/b/{$} both match some paths, like \"/a/c/b/\".\nBut neither is more specific than the other.\n/{x}/c/{y...} matches \"/x/c/\", but /a/{x}/b/{$} doesn't.\n/a/{x}/b/{$} matches \"/a/x/b/\", but /{x}/c/{y...} doesn't."
+446 new
+447 pat "/{x}/c/{y...}" ok
+448 pat "/a/{x}/b/{$}" err "pattern \"/a/{x}/b/{$}\" conflicts with pattern \"/{x}/c/{y...}\":\n/a/{x}/b/{$} and /{x}/c/{y...} both match some paths, like \"/a/c/b/\".\nBut neither is more specific than the other.\n/a/{x}/b/{$} matches \"/a/x/b/\", but /{x}/c/{y...} doesn't.\n/{x}/c/{y...} matches \"/x/c/\", but /a/{x}/b/{$} doesn't."
+449 new
+450 pat "/{x}/c/{y...}" ok
+451 pat "/a/{x}/b/{$}" err "pattern \"/a/{x}/b/{$}\" conflicts with pattern \"/{x}/c/{y...}\":\n/a/{x}/b/{$} and /{x}/c/{y...} both match some paths, like \"/a/c/b/\".\nBut neither is more specific than the other.\n/a/{x}/b/{$} matches \"/a/x/b/\", but /{x}/c/{y...} doesn't.\n/{x}/c/{y...} matches \"/x/c/\", but /a/{x}/b/{$} doesn't."
+452 new
+453 pat "/a/{x}/b/{$}" ok
+454 pat "/{x}/c/{y...}" err "pattern \"/{x}/c/{y...}\" conflicts with pattern \"/a/{x}/b/{$}\":\n/{x}/c/{y...} and /a/{x}/b/{$} both match some paths, like \"/a/c/b/\".\nBut neither is more specific than the other.\n/{x}/c/{y...} matches \"/x/c/\", but /a/{x}/b/{$} doesn't.\n/a/{x}/b/{$} matches \"/a/x/b/\", but /{x}/c/{y...} doesn't."
+455 new
+456 pat "/a" ok
+457 pat "/a/b" ok
+458 pat "/a/{x}" ok
+459 pat "/g/h/i" ok
+460 pat "/g/{x}/j" ok
+461 pat "/a/b/{x...}" ok
+462 pat "/a/b/{y}" ok
+463 pat "/a/b/{$}" ok
+464 req GET "" "/a": 200 pat="/a" loc="" allow="" pat=/a vals=[]
+465 req Get "" "/b": 404 pat="" loc="" allow="" 
+466 req Get "" "/a/b": 200 pat="/a/b" loc="" allow="" pat=/a/b vals=[]
+467 req Get "" "/a/c": 200 pat="/a/{x}" loc="" allow="" pat=/a/{x} vals=["x=c"]
+468 req Get "" "/a/b/": 200 pat="/a/b/{$}" loc="" allow="" pat=/a/b/{$} vals=[]
+469 req Get "" "/a/b/c": 200 pat="/a/b/{y}" loc="" allow="" pat=/a/b/{y} vals=["y=c"]
+470 req Get "" "/a/b/c/d": 200 pat="/a/b/{x...}" loc="" allow="" pat=/a/b/{x...} vals=["x=c/d"]
+471 req Get "" "/g/h/i": 200 pat="/g/h/i" loc="" allow="" pat=/g/h/i vals=[]
+472 req Get "" "/g/h/j": 200 pat="/g/{x}/j" loc="" allow="" pat=/g/{x}/j vals=["x=h"]
+473 req GET "" "/item/jba": 404 pat="" loc="" allow="" 
+474 req POST "" "/item/jba": 404 pat="" loc="" allow="" 
+475 req HEAD "" "/item/jba": 404 pat="" loc="" allow="" 
+476 req get "" "/item/jba": 404 pat="" loc="" allow="" 
+477 req POST "" "/item/jba/17": 404 pat="" loc="" allow="" 
+478 req GET "" "/item/jba/new": 404 pat="" loc="" allow="" 
+479 req GET "" "/item/": 404 pat="" loc="" allow="" 
+480 req GET "" "/item/jba/17/line2": 404 pat="" loc="" allow="" 
+481 req POST "alt.com" "/item/jba": 404 pat="" loc="" allow="" 
+482 req GET "alt.com" "/item/jba": 404 pat="" loc="" allow="" 
+483 req GET "" "/item": 404 pat="" loc="" allow="" 
+484 req GET "" "/headwins": 404 pat="" loc="" allow="" 
+485 req HEAD "" "/headwins": 404 pat="" loc="" allow="" 
+486 req GET "" "/path/to/file": 404 pat="" loc="" allow="" 
+487 req GET "" "/path/*": 404 pat="" loc="" allow="" 
+488 req GET "" "/a/b": 200 pat="/a/b" loc="" allow="" pat=/a/b vals=[]
+489 req GET "" "/a/b/": 200 pat="/a/b/{$}" loc="" allow="" pat=/a/b/{$} vals=[]
+490 req GET "" "/a/b/c": 200 pat="/a/b/{y}" loc="" allow="" pat=/a/b/{y} vals=["y=c"]
+491 req GET "" "/a/b/c/d": 200 pat="/a/b/{x...}" loc="" allow="" pat=/a/b/{x...} vals=["x=c/d"]
+492 req GET "" "/a/b": 200 pat="/a/b" loc="" allow="" pat=/a/b vals=[]
+493 req GET "" "/a/b/": 200 pat="/a/b/{$}" loc="" allow="" pat=/a/b/{$} vals=[]
+494 req GET "" "/a/b/c": 200 pat="/a/b/{y}" loc="" allow="" pat=/a/b/{y} vals=["y=c"]
+495 req GET "" "/a/b/c/d": 200 pat="/a/b/{x...}" loc="" allow="" pat=/a/b/{x...} vals=["x=c/d"]
+496 req GET "" "/a/b": 200 pat="/a/b" loc="" allow="" pat=/a/b vals=[]
+497 req GET "" "/a/b/": 200 pat="/a/b/{$}" loc="" allow="" pat=/a/b/{$} vals=[]
+498 req GET "" "/a/b/c": 200 pat="/a/b/{y}" loc="" allow="" pat=/a/b/{y} vals=["y=c"]
+499 req GET "" "/a/b/c/d": 200 pat="/a/b/{x...}" loc="" allow="" pat=/a/b/{x...} vals=["x=c/d"]
+500 req GET "" "/a/b": 200 pat="/a/b" loc="" allow="" pat=/a/b vals=[]
+501 req GET "" "/a/b/": 200 pat="/a/b/{$}" loc="" allow="" pat=/a/b/{$} vals=[]
+502 req GET "" "/a/b/c": 200 pat="/a/b/{y}" loc="" allow="" pat=/a/b/{y} vals=["y=c"]
+503 req GET "" "/a/b/c/d": 200 pat="/a/b/{x...}" loc="" allow="" pat=/a/b/{x...} vals=["x=c/d"]
+504 new
+505 pat "/dir/" ok
+506 pat "/search" ok
+507 pat "codesearch.google.com/search" ok
+508 pat "codesearch.google.com/" ok
+509 pat "example.com/" ok
+510 pat "/pkg/bar/extra%2fpath" ok
+511 req GET "google.com" "/": 404 pat="" loc="" allow="" 
+512 req GET "google.com" "/dir": 307 pat="/dir/" loc="/dir/" allow="" 
+513 req GET "google.com" "/dir/": 200 pat="/dir/" loc="" allow="" pat=/dir/ vals=[]
+514 req GET "google.com" "/dir/file": 200 pat="/dir/" loc="" allow="" pat=/dir/ vals=[]
+515 req GET "google.com" "/search": 200 pat="/search" loc="" allow="" pat=/search vals=[]
+516 req GET "google.com" "/search/": 404 pat="" loc="" allow="" 
+517 req GET "google.com" "/search/foo": 404 pat="" loc="" allow="" 
+518 req GET "codesearch.google.com" "/search": 200 pat="codesearch.google.com/search" loc="" allow="" pat=codesearch.google.com/search vals=[]
+519 req GET "codesearch.google.com" "/search/": 200 pat="codesearch.google.com/" loc="" allow="" pat=codesearch.google.com/ vals=[]
+520 req GET "codesearch.google.com" "/search/foo": 200 pat="codesearch.google.com/" loc="" allow="" pat=codesearch.google.com/ vals=[]
+521 req GET "codesearch.google.com" "/": 200 pat="codesearch.google.com/" loc="" allow="" pat=codesearch.google.com/ vals=[]
+522 req GET "codesearch.google.com:443" "/": 200 pat="codesearch.google.com/" loc="" allow="" pat=codesearch.google.com/ vals=[]
+523 req GET "images.google.com" "/search": 200 pat="/search" loc="" allow="" pat=/search vals=[]
+524 req GET "images.google.com" "/search/": 404 pat="" loc="" allow="" 
+525 req GET "images.google.com" "/search/foo": 404 pat="" loc="" allow="" 
+526 req GET "google.com" "/../search": 307 pat="/search" loc="/search" allow="" 
+527 req GET "google.com" "/dir/..": 307 pat="" loc="/" allow="" 
+528 req GET "google.com" "/dir/..": 307 pat="" loc="/" allow="" 
+529 req GET "google.com" "/dir/./file": 307 pat="/dir/" loc="/dir/file" allow="" 
+530 req CONNECT "google.com" "/dir": 307 pat="/dir/" loc="/dir/" allow="" 
+531 req CONNECT "google.com" "/../search": 404 pat="" loc="" allow="" 
+532 req CONNECT "google.com" "/dir/..": 200 pat="/dir/" loc="" allow="" pat=/dir/ vals=[]
+533 req CONNECT "google.com" "/dir/..": 200 pat="/dir/" loc="" allow="" pat=/dir/ vals=[]
+534 req CONNECT "google.com" "/dir/./file": 200 pat="/dir/" loc="" allow="" pat=/dir/ vals=[]
+535 req GET "google.com" "/": 404 pat="" loc="" allow="" 
+536 req GET "example.com" "/test/?example.com/test/": 200 pat="example.com/" loc="" allow="" pat=example.com/ vals=[]
+537 req GET "example.com" "test/?example.com/test/": 307 pat="example.com/" loc="/test/?example.com/test/" allow="" 
+538 req GET "google.com" "/pkg/bar//extra%2fpath": 307 pat="/pkg/bar/extra%2fpath" loc="/pkg/bar/extra%2fpath" allow="" 
+539 req GET "google.com" "/dir/b%2fc/..": 307 pat="/dir/" loc="/dir/" allow="" 
+540 req GET "google.com" "/doesnotexist/b%2fc/..": 307 pat="" loc="/doesnotexist" allow="" 
+541 new
+542 pat "GET /items/{id}" ok
+543 pat "POST /items/{id}" ok
+544 pat "DELETE /items/{id}/{rest...}" ok
+545 pat "/files/{path...}" ok
+546 pat "GET /exact/{$}" ok
+547 pat "example.com/" ok
+548 pat "GET example.com/items/{id}" ok
+549 pat "/old/" ok
+550 pat "/static/" ok
+551 pat "HEAD /h" ok
+552 pat "GET /g" ok
+553 pat "/b/{name}/x" ok
+554 pat "PUT /items/{id}" ok
+555 pat "/items/{id}" ok
+556 pat "GET /items/{x}" err "pattern \"GET /items/{x}\" conflicts with pattern \"GET /items/{id}\":\nGET /items/{x} matches the same requests as GET /items/{id}"
+557 pat "/files/" err "pattern \"/files/\" conflicts with pattern \"/files/{path...}\":\n/files/ matches the same requests as /files/{path...}"
+558 pat "GET /a b" ok
+559 pat "/%41/{v}" ok
+560 req GET "h.com" "/items/42": 200 pat="GET /items/{id}" loc="" allow="" pat=GET /items/{id} vals=["id=42"]
+561 req POST "h.com" "/items/42": 200 pat="POST /items/{id}" loc="" allow="" pat=POST /items/{id} vals=["id=42"]
+562 req PATCH "h.com" "/items/42": 200 pat="/items/{id}" loc="" allow="" pat=/items/{id} vals=["id=42"]
+563 req HEAD "h.com" "/items/42": 200 pat="GET /items/{id}" loc="" allow="" pat=GET /items/{id} vals=["id=42"]
+564 req DELETE "h.com" "/items/42/a/b%2Fc": 200 pat="DELETE /items/{id}/{rest...}" loc="" allow="" pat=DELETE /items/{id}/{rest...} vals=["id=42" "rest=a/b/c"]
+565 req DELETE "h.com" "/items/42": 200 pat="/items/{id}" loc="" allow="" pat=/items/{id} vals=["id=42"]
+566 req GET "h.com" "/files/a/b/c": 200 pat="/files/{path...}" loc="" allow="" pat=/files/{path...} vals=["path=a/b/c"]
+567 req GET "h.com" "/files/": 200 pat="/files/{path...}" loc="" allow="" pat=/files/{path...} vals=["path="]
+568 req GET "h.com" "/files": 307 pat="/files/{path...}" loc="/files/" allow="" 
+569 req GET "h.com" "/exact/": 200 pat="GET /exact/{$}" loc="" allow="" pat=GET /exact/{$} vals=[]
+570 req GET "h.com" "/exact/x": 404 pat="" loc="" allow="" 
+571 req GET "h.com" "/exact": 307 pat="GET /exact/{$}" loc="/exact/" allow="" 
+572 req GET "example.com" "/items/7": 200 pat="GET example.com/items/{id}" loc="" allow="" pat=GET example.com/items/{id} vals=["id=7"]
+573 req GET "example.com:8080" "/items/7": 200 pat="GET example.com/items/{id}" loc="" allow="" pat=GET example.com/items/{id} vals=["id=7"]
+574 req POST "example.com" "/items/7": 200 pat="example.com/" loc="" allow="" pat=example.com/ vals=[]
+575 req GET "example.com" "/whatever": 200 pat="example.com/" loc="" allow="" pat=example.com/ vals=[]
+576 req GET "h.com" "/old": 307 pat="/old/" loc="/old/" allow="" 
+577 req GET "h.com" "/old?q=1&r": 307 pat="/old/" loc="/old/?q=1&r" allow="" 
+578 req GET "h.com" "/static/../old/x": 307 pat="/old/" loc="/old/x" allow="" 
+579 req GET "h.com" "/a/./b/../static/": 307 pat="" loc="/a/static/" allow="" 
+580 req GET "h.com" "//static//x": 307 pat="" loc="/x" allow="" 
+581 req HEAD "h.com" "/h": 200 pat="HEAD /h" loc="" allow="" pat=HEAD /h vals=[]
+582 req GET "h.com" "/h": 405 pat="" loc="" allow="HEAD" 
+583 req HEAD "h.com" "/g": 200 pat="GET /g" loc="" allow="" pat=GET /g vals=[]
+584 req POST "h.com" "/g": 405 pat="" loc="" allow="GET, HEAD" 
+585 req POST "h.com" "/h": 405 pat="" loc="" allow="HEAD" 
+586 req GET "h.com" "/b/%E4%B8%AD/x": 200 pat="/b/{name}/x" loc="" allow="" pat=/b/{name}/x vals=["name=中"]
+587 req GET "h.com" "/b/a%2Fb/x": 200 pat="/b/{name}/x" loc="" allow="" pat=/b/{name}/x vals=["name=a/b"]
+588 req GET "h.com" "/A/1": 200 pat="/%41/{v}" loc="" allow="" pat=/%41/{v} vals=["v=1"]
+589 req GET "h.com" "/%41/1": 200 pat="/%41/{v}" loc="" allow="" pat=/%41/{v} vals=["v=1"]
+590 req GET "h.com" "/nope": 404 pat="" loc="" allow="" 
+591 req CONNECT "h.com:443" "h.com:443": 404 pat="" loc="" allow="" 
+592 req CONNECT "h.com" "/files/x": 200 pat="/files/{path...}" loc="" allow="" pat=/files/{path...} vals=["path=x"]
+593 req CONNECT "h.com" "/old": 307 pat="/old/" loc="/old/" allow="" 
+594 req GET "[::1]:80" "/items/1": 200 pat="GET /items/{id}" loc="" allow="" pat=GET /items/{id} vals=["id=1"]
+595 req GET "bad:host:x" "/items/1": 200 pat="GET /items/{id}" loc="" allow="" pat=GET /items/{id} vals=["id=1"]
+596 new
+597 pat "/" ok
+598 pat "/a/" ok
+599 pat "GET /a/{x}/" ok
+600 pat "/a/{x}/{y...}" ok
+601 req GET "" "/": 200 pat="/" loc="" allow="" pat=/ vals=[]
+602 req GET "" "/a": 307 pat="/a/" loc="/a/" allow="" 
+603 req GET "" "/a/b": 307 pat="GET /a/{x}/" loc="/a/b/" allow="" 
+604 req GET "" "/a/b/": 200 pat="GET /a/{x}/" loc="" allow="" pat=GET /a/{x}/ vals=["x=b"]
+605 req POST "" "/a/b/": 200 pat="/a/{x}/{y...}" loc="" allow="" pat=/a/{x}/{y...} vals=["x=b" "y="]
+606 req GET "" "/a/b/c/d": 200 pat="GET /a/{x}/" loc="" allow="" pat=GET /a/{x}/ vals=["x=b"]
+607 req GET "" "": 307 pat="/" loc="/" allow="" 
+608 req GET "" "x": 307 pat="/" loc="/x" allow="" 
+609 new
+610 pat "POST /only" ok
+611 pat "PUT /only/" ok
+612 req GET "" "/only": 405 pat="" loc="" allow="POST, PUT" 
+613 req GET "" "/only/": 405 pat="" loc="" allow="PUT" 
+614 req DELETE "" "/only/x": 405 pat="" loc="" allow="PUT" 
+615 new
+616 pat "CONNECT h.com:443/" ok
+617 pat "CONNECT /x/../y" ok
+618 pat "GET /x/../y" err "parsing \"GET /x/../y\": at offset 4: non-CONNECT pattern with unclean path can never match"
+619 pat "GET /x/" ok
+620 pat "GET //x" err "parsing \"GET //x\": at offset 4: non-CONNECT pattern with unclean path can never match"

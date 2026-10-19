@@ -65,7 +65,14 @@ image/color/palette、path/filepath、go/constant、net/http/cookiejar、crypto/
   chunked_decode / chunked_encode（= httputil.NewChunkedReader / NewChunkedWriter）、header_values_contains_token；Transfer-Encoding、
   Content-Length、Trailer、Connection、Pragma、HEAD / 1xx / 204 / 304 规则同 Go。tests/go/http_wire 369 行一致（输入含 net/http 测试
   reqTests、badRequestTests、respTests 的原始报文，testdata/http/gen_wire_test.go.txt）。
-- 计划：Request.Write / Response.Write、ServeMux 模式匹配、net 的 SplitHostPort / ParseCIDR / UDP / Unix / DNS，然后 httptest、httputil、smtp、jsonrpc。
+- 第三步（报文写出 + 路由）：`request_write(OutRequest)` / `response_write(OutResponse)` 逐字节同 Go 的 Request.Write / Response.Write
+  （User-Agent 默认值、Host 的 punycode 和 zone 处理、Content-Length / chunked / Trailer 选择、GET 类方法空正文探测、
+  ContentLength 与正文长度不符的错误和已写出的部分）；`new_serve_mux` / `handle` / `find` = Go 1.22 ServeMux
+  （模式解析与错误、冲突检测和冲突说明、方法/主机/通配符/`{$}`/`{x...}` 匹配、HEAD 落到 GET、尾斜杠和 cleanPath 的 307 重定向、405 的 Allow）；
+  `redirect_location` = http.Redirect 写的 Location。mux 是不可变值，处理器用登记编号表示；冲突错误没有 "(registered at …)"。
+  对拍 tests/go/http_write（163 行）、tests/go/http_mux（620 行，用例取自 Go 的 pattern_test / routing_tree_test / serve_test）。
+- std.net：`split_host_port` / `join_host_port`（错误文字同 Go）。
+- 计划：net 的 ParseCIDR / UDP / Unix / DNS，然后 httptest、httputil、smtp、jsonrpc。
 
 ## 可以做（纯数据 / 算法，计划后续批次）
 - crypto/hpke
