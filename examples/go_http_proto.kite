@@ -1,0 +1,94 @@
+// 对拍 tests/go/http_proto.go：std.net.http 的协议层纯函数
+use std.fs
+use std.encoding.hex
+use std.strconv
+use std.time
+use std.net.textproto
+use std.net.http
+use std.net.http.cookiejar
+
+fn cookies(cs: List<cookiejar.Cookie>) -> Str {
+  "[" + join(
+    map(cs, (c) => strconv.quote(c.name) + "=" + strconv.quote(c.value) + "/" + str(c.quoted)),
+    " ",
+  ) + "]"
+}
+
+fn txt(b: List<Int>) -> Str {
+  match __from_bytes(b) {
+    Some(s) => s,
+    None => "\u{FFFD}",
+  }
+}
+
+fn main() {
+  let data = unwrap(fs.read("tests/go/testdata/http/cases.txt"))
+  for line in split(data, "\n") {
+    if line == "" { continue }
+    let parts = split(line, "|")
+    let op = parts[0]
+    let raw = map(parts[1..], (h) => unwrap(hex.decode(h)))
+    let a = map(raw, txt)
+    let res = match op {
+      "sniff" => http.detect_content_type(raw[0]),
+      "canon" => strconv.quote(http.canonical_header_key(a[0])),
+      "token" => str(http.has_token(a[0], a[1])),
+      "ver" => {
+        let (ma, mi, ok) = http.parse_http_version(a[0])
+        str(ma) + " " + str(mi) + " " + str(ok)
+      },
+      "time" => match http.parse_time(a[0]) {
+        Ok(t) => str(t),
+        Err(_) => "err",
+      },
+      "pcookie" => match http.parse_cookie(a[0]) {
+        Ok(cs) => cookies(cs),
+        Err(e) => "error: " + e,
+      },
+      "rcookie" => {
+        let h = textproto.MIMEHeader { keys: ["Cookie"], vals: [split(a[1], "\u{0}")] }
+        cookies(http.read_cookies(h, a[0]))
+      },
+      "valid" => {
+        let exp = if a[5] == "" {
+          None
+        } else {
+          Some(time.date(unwrap(strconv.atoi(a[5])), 1, 1, 0, 0, 0, 0))
+        }
+        let c = cookiejar.Cookie {
+          path: a[2],
+          domain: a[3],
+          partitioned: contains(a[4], "p"),
+          secure: contains(a[4], "s"),
+          expires: exp,
+          ..cookiejar.new_cookie(a[0], a[1])
+        }
+        match http.cookie_valid(c) {
+          Ok(_) => "ok",
+          Err(e) => e,
+        }
+      },
+      "hwrite" => {
+        var h = http.new_header()
+        if a[0] != "" {
+          let kv = split(a[0], "\u{0}")
+          var i = 0
+          while i + 1 < len(kv) {
+            if kv[i] == "x-lower" {
+              h = textproto.MIMEHeader { keys: push(h.keys, kv[i]), vals: push(h.vals, [kv[
+                i + 1
+              ]]) }
+            } else {
+              h = h.add(kv[i], kv[i + 1])
+            }
+            i += 2
+          }
+        }
+        strconv.quote(http.header_write(h))
+      },
+      "status" => strconv.quote(http.status_text(unwrap(strconv.atoi(a[0])))),
+      _ => "?",
+    }
+    print(op + ": " + res)
+  }
+}

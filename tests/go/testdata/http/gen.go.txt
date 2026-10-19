@@ -1,0 +1,199 @@
+// 生成 tests/go/testdata/http/cases.txt：每行 "操作|十六进制参数|…"
+package main
+
+import (
+	"encoding/hex"
+	"fmt"
+	"math/rand"
+	"os"
+	"strings"
+)
+
+var out []string
+
+func emit(op string, args ...string) {
+	parts := []string{op}
+	for _, a := range args {
+		parts = append(parts, hex.EncodeToString([]byte(a)))
+	}
+	out = append(out, strings.Join(parts, "|"))
+}
+
+func main() {
+	r := rand.New(rand.NewSource(7))
+	for _, t := range sniffTests {
+		emit("sniff", string(t.data))
+		d := []byte(string(t.data))
+		for k := 0; k < 3; k++ {
+			e := append([]byte(nil), d...)
+			switch k {
+			case 0:
+				if len(e) > 0 { e = e[:r.Intn(len(e))] }
+			case 1:
+				if len(e) > 0 { e[r.Intn(len(e))] ^= byte(1 << r.Intn(8)) }
+			case 2:
+				e = append([]byte(" \t\r\n"[:r.Intn(5)]), e...)
+				e = append(e, byte(r.Intn(256)))
+			}
+			emit("sniff", string(e))
+		}
+	}
+	for i := 0; i < 60; i++ {
+		b := make([]byte, r.Intn(40))
+		r.Read(b)
+		emit("sniff", string(b))
+	}
+	emit("sniff", strings.Repeat("a", 600)+"\x00")
+	emit("sniff", "\x00\x00\x00\x18ftypmp42\x00\x00\x00\x00mp42isom<\x06t\xbfmdat")
+	for _, s := range []string{"content-type", "CONTENT-LENGTH", "x-forwarded-for", "user agent", "", "a", "foo-BAR-baz", "Accept_Encoding", "ünicode", "-x-", "www-authenticate"} {
+		emit("canon", s)
+	}
+	for _, t := range hasTokenTests {
+		emit("token", t.header, t.token)
+	}
+	for _, v := range []string{"HTTP/1.1", "HTTP/1.0", "HTTP/2.0", "HTTP/3.9", "HTTP/1.10", "HTTP/a.1", "HTTP/1,1", "http/1.1", "HTTP/0.9", "HTTP/1", "HTTPS/1.1", ""} {
+		emit("ver", v)
+	}
+	for _, s := range []string{"Sun, 06 Nov 1994 08:49:37 GMT", "Sunday, 06-Nov-94 08:49:37 GMT", "Sun Nov  6 08:49:37 1994", "Mon Jan 12 01:02:03 2026", "Tue, 31 Dec 2030 23:59:59 GMT", "garbage", "", "Sun, 06 Nov 1994 08:49:37 UTC"} {
+		emit("time", s)
+	}
+	cookies := []string{
+		"a=b", "a=b; c=d", "  a = b ", "a=\"b\"", "a=\"b", "a=b;c", "=b", "a b=c", "a=b c", "a=b;;c=d", "", "   ",
+		"Cookie-1=v$1; c2=v2", "NID=99=YsDT5i3E-CXax-; expires=Wed, 23-Nov-2011 01:05:03 GMT", "a=é", "a=;b=", "a=b; ", "x=\"\"",
+		"ASP.NET_SessionId=foo", "ö=1", "a=b\\c", "a=b,c",
+	}
+	for _, c := range cookies {
+		emit("pcookie", c)
+	}
+	headers := [][]string{
+		{"a=b"}, {"a=b; c=d", "e=f"}, {"a=b;;  ; c=\"d\"; e", "bad name=x; g=h"}, {""}, {"x=1; x=2; y=3"},
+		{"Cookie-1=v$1; c2=v2"}, {"a=\"b"}, {"a=b c; d=e"},
+	}
+	for _, h := range headers {
+		emit("rcookie", "", strings.Join(h, "\x00"))
+		emit("rcookie", "x", strings.Join(h, "\x00"))
+		emit("rcookie", "c2", strings.Join(h, "\x00"))
+	}
+	// valid：name, value, path, domain, flags(p=partitioned, s=secure), expires 年份（空=零值）
+	valid := [][]string{
+		{"a", "b", "", "", "", ""}, {"a b", "b", "", "", "", ""}, {"a", "b\"", "", "", "", ""}, {"a", "b", "/x;y", "", "", ""},
+		{"a", "b", "", "example.com", "", ""}, {"a", "b", "", ".example.com", "", ""}, {"a", "b", "", "ex ample", "", ""},
+		{"a", "b", "", "127.0.0.1", "", ""}, {"a", "b", "", "", "p", ""}, {"a", "b", "", "", "ps", ""}, {"a", "b", "", "", "", "1600"},
+		{"a", "b", "", "", "", "1601"}, {"", "b", "", "", "", ""}, {"a", "b\x7f", "", "", "", ""}, {"a", "ÿb", "", "", "", ""},
+		{"a", "b", "/\x00", "", "", ""},
+	}
+	for _, v := range valid {
+		emit("valid", v...)
+	}
+	hw := [][]string{
+		{"Content-Type", "text/html", "X-B", "1", "X-B", "2", "A", "x"},
+		{"Bad Key", "v", "Good", "line1\r\nline2", "Space", "  padded  "},
+		{"x-lower", "raw", "Cookie", "a=b"},
+		{},
+	}
+	for _, h := range hw {
+		emit("hwrite", strings.Join(h, "\x00"))
+	}
+	for c := 0; c < 1000; c += 1 {
+		if c%37 == 0 || (c >= 100 && c <= 103) || (c >= 200 && c <= 226) || (c >= 300 && c <= 308) || (c >= 400 && c <= 451) || (c >= 500 && c <= 511) {
+			emit("status", fmt.Sprint(c))
+		}
+	}
+	os.WriteFile(os.Args[1], []byte(strings.Join(out, "\n")+"\n"), 0o644)
+}
+var sniffTests = []struct {
+	desc        string
+	data        []byte
+	contentType string
+}{
+	// Some nonsense.
+	{"Empty", []byte{}, "text/plain; charset=utf-8"},
+	{"Binary", []byte{1, 2, 3}, "application/octet-stream"},
+
+	{"HTML document #1", []byte(`<HtMl><bOdY>blah blah blah</body></html>`), "text/html; charset=utf-8"},
+	{"HTML document #2", []byte(`<HTML></HTML>`), "text/html; charset=utf-8"},
+	{"HTML document #3 (leading whitespace)", []byte(`   <!DOCTYPE HTML>...`), "text/html; charset=utf-8"},
+	{"HTML document #4 (leading CRLF)", []byte("\r\n<html>..."), "text/html; charset=utf-8"},
+
+	{"Plain text", []byte(`This is not HTML. It has ☃ though.`), "text/plain; charset=utf-8"},
+
+	{"XML", []byte("\n<?xml!"), "text/xml; charset=utf-8"},
+
+	// Image types.
+	{"Windows icon", []byte("\x00\x00\x01\x00"), "image/x-icon"},
+	{"Windows cursor", []byte("\x00\x00\x02\x00"), "image/x-icon"},
+	{"BMP image", []byte("BM..."), "image/bmp"},
+	{"GIF 87a", []byte(`GIF87a`), "image/gif"},
+	{"GIF 89a", []byte(`GIF89a...`), "image/gif"},
+	{"WEBP image", []byte("RIFF\x00\x00\x00\x00WEBPVP"), "image/webp"},
+	{"PNG image", []byte("\x89PNG\x0D\x0A\x1A\x0A"), "image/png"},
+	{"JPEG image", []byte("\xFF\xD8\xFF"), "image/jpeg"},
+
+	// Audio types.
+	{"MIDI audio", []byte("MThd\x00\x00\x00\x06\x00\x01"), "audio/midi"},
+	{"MP3 audio/MPEG audio", []byte("ID3\x03\x00\x00\x00\x00\x0f"), "audio/mpeg"},
+	{"WAV audio #1", []byte("RIFFb\xb8\x00\x00WAVEfmt \x12\x00\x00\x00\x06"), "audio/wave"},
+	{"WAV audio #2", []byte("RIFF,\x00\x00\x00WAVEfmt \x12\x00\x00\x00\x06"), "audio/wave"},
+	{"AIFF audio #1", []byte("FORM\x00\x00\x00\x00AIFFCOMM\x00\x00\x00\x12\x00\x01\x00\x00\x57\x55\x00\x10\x40\x0d\xf3\x34"), "audio/aiff"},
+
+	{"OGG audio", []byte("OggS\x00\x02\x00\x00\x00\x00\x00\x00\x00\x00\x7e\x46\x00\x00\x00\x00\x00\x00\x1f\xf6\xb4\xfc\x01\x1e\x01\x76\x6f\x72"), "application/ogg"},
+	{"Must not match OGG", []byte("owow\x00"), "application/octet-stream"},
+	{"Must not match OGG", []byte("oooS\x00"), "application/octet-stream"},
+	{"Must not match OGG", []byte("oggS\x00"), "application/octet-stream"},
+
+	// Video types.
+	{"MP4 video", []byte("\x00\x00\x00\x18ftypmp42\x00\x00\x00\x00mp42isom<\x06t\xbfmdat"), "video/mp4"},
+	{"AVI video #1", []byte("RIFF,O\n\x00AVI LISTÀ"), "video/avi"},
+	{"AVI video #2", []byte("RIFF,\n\x00\x00AVI LISTÀ"), "video/avi"},
+
+	// Font types.
+	// {"MS.FontObject", []byte("\x00\x00")},
+	{"TTF sample  I", []byte("\x00\x01\x00\x00\x00\x17\x01\x00\x00\x04\x01\x60\x4f"), "font/ttf"},
+	{"TTF sample II", []byte("\x00\x01\x00\x00\x00\x0e\x00\x80\x00\x03\x00\x60\x46"), "font/ttf"},
+
+	{"OTTO sample  I", []byte("\x4f\x54\x54\x4f\x00\x0e\x00\x80\x00\x03\x00\x60\x42\x41\x53\x45"), "font/otf"},
+
+	{"woff sample  I", []byte("\x77\x4f\x46\x46\x00\x01\x00\x00\x00\x00\x30\x54\x00\x0d\x00\x00"), "font/woff"},
+	{"woff2 sample", []byte("\x77\x4f\x46\x32\x00\x01\x00\x00\x00"), "font/woff2"},
+	{"wasm sample", []byte("\x00\x61\x73\x6d\x01\x00"), "application/wasm"},
+
+	// Archive types
+	{"RAR v1.5-v4.0", []byte("Rar!\x1A\x07\x00"), "application/x-rar-compressed"},
+	{"RAR v5+", []byte("Rar!\x1A\x07\x01\x00"), "application/x-rar-compressed"},
+	{"Incorrect RAR v1.5-v4.0", []byte("Rar \x1A\x07\x00"), "application/octet-stream"},
+	{"Incorrect RAR v5+", []byte("Rar \x1A\x07\x01\x00"), "application/octet-stream"},
+}
+
+type hasTokenTest struct {
+	header string
+	token  string
+	want   bool
+}
+var hasTokenTests = []hasTokenTest{
+	{"", "", false},
+	{"", "foo", false},
+	{"foo", "foo", true},
+	{"foo ", "foo", true},
+	{" foo", "foo", true},
+	{" foo ", "foo", true},
+	{"foo,bar", "foo", true},
+	{"bar,foo", "foo", true},
+	{"bar, foo", "foo", true},
+	{"bar,foo, baz", "foo", true},
+	{"bar, foo,baz", "foo", true},
+	{"bar,foo, baz", "foo", true},
+	{"bar, foo, baz", "foo", true},
+	{"FOO", "foo", true},
+	{"FOO ", "foo", true},
+	{" FOO", "foo", true},
+	{" FOO ", "foo", true},
+	{"FOO,BAR", "foo", true},
+	{"BAR,FOO", "foo", true},
+	{"BAR, FOO", "foo", true},
+	{"BAR,FOO, baz", "foo", true},
+	{"BAR, FOO,BAZ", "foo", true},
+	{"BAR,FOO, BAZ", "foo", true},
+	{"BAR, FOO, BAZ", "foo", true},
+	{"foobar", "foo", false},
+	{"barfoo ", "foo", false},
+}

@@ -7,6 +7,10 @@
 
 use std.net
 use std.strings
+use std.strconv
+use std.time
+use std.net.textproto
+use std.net.http.cookiejar
 
 pub type Request = { method: Str, path: Str, query: Str, headers: Map<Str, Str>, body: Str }
 
@@ -490,4 +494,417 @@ fn utf8(bs: List<Int>) -> Str {
     }
   }
   out
+}
+
+// ───────────── 协议层纯函数（对齐 Go 1.27 net/http） ─────────────
+// Header 就是 textproto.MIMEHeader（值不可变，add/set/del 返回新值）；canonical_header_key、header_write、
+// has_token、status_text、detect_content_type、parse_http_version、parse_time、parse_cookie、read_cookies、
+// cookie_valid。Cookie 类型在 std.net.http.cookiejar 里。
+
+pub const TIME_FORMAT: Str = "Mon, 02 Jan 2006 15:04:05 GMT"
+pub const SNIFF_LEN: Int = 512
+pub const DEFAULT_MAX_HEADER_BYTES: Int = 1048576
+
+pub fn new_header() -> textproto.MIMEHeader { textproto.new_header() }
+
+pub fn canonical_header_key(s: Str) -> Str { textproto.canonical_mime_header_key(s) }
+
+fn tok_char(o: Int) -> Bool {
+  (o >= 48 && o <= 57)
+    || (o >= 65 && o <= 90)
+    || (o >= 97 && o <= 122)
+    || o == 33
+    || (o >= 35 && o <= 39)
+    || o == 42
+    || o == 43
+    || o == 45
+    || o == 46
+    || (o >= 94 && o <= 96)
+    || o == 124
+    || o == 126
+}
+
+// httpguts.ValidHeaderFieldName（= Go 的 isToken）
+pub fn valid_header_field_name(s: Str) -> Bool {
+  if s == "" { return false }
+  for b in __bytes(s) { if !tok_char(b) { return false } }
+  true
+}
+
+// Header.Write / WriteSubset：按键排序，跳过非法键，值里的 \r \n 换成空格再去掉首尾空白
+pub fn header_write_subset(h: textproto.MIMEHeader, exclude: List<Str>) -> Str {
+  var out = ""
+  for (k, vs) in h.sorted() {
+    if contains(exclude, k) || !valid_header_field_name(k) { continue }
+    for v0 in vs {
+      let v = textproto.trim_string(replace(replace(v0, "\n", " "), "\r", " "))
+      out = out + k + ": " + v + "\r\n"
+    }
+  }
+  out
+}
+
+pub fn header_write(h: textproto.MIMEHeader) -> Str { header_write_subset(h, []) }
+
+fn lower_b(b: Int) -> Int { if b >= 65 && b <= 90 { b + 32 } else { b } }
+
+fn token_boundary(b: Int) -> Bool { b == 32 || b == 44 || b == 9 }
+
+// hasToken：v 里是否含有以空格 / 逗号 / tab 为边界的 token（token 须为小写，ASCII 不区分大小写）
+pub fn has_token(v0: Str, token0: Str) -> Bool {
+  let v = __bytes(v0)
+  let t = __bytes(token0)
+  if len(t) > len(v) || len(t) == 0 { return false }
+  if v0 == token0 { return true }
+  var sp = 0
+  while sp <= len(v) - len(t) {
+    let b = v[sp]
+    let ok = (b == t[0] || (b | 0x20) == t[0])
+      && !(sp > 0 && !token_boundary(v[sp - 1]))
+      && !(sp + len(t) != len(v) && !token_boundary(v[sp + len(t)]))
+    if ok {
+      var eq = true
+      for i in 0..len(t) { if lower_b(v[sp + i]) != lower_b(t[i]) { eq = false } }
+      if eq { return true }
+    }
+    sp += 1
+  }
+  false
+}
+
+// ParseHTTPVersion -> (major, minor, ok)
+pub fn parse_http_version(vers: Str) -> (Int, Int, Bool) {
+  if vers == "HTTP/1.1" { return (1, 1, true) }
+  if vers == "HTTP/1.0" { return (1, 0, true) }
+  let b = __bytes(vers)
+  if !starts_with(vers, "HTTP/") || len(b) != 8 || b[6] != 46 { return (0, 0, false) }
+  if b[5] < 48 || b[5] > 57 || b[7] < 48 || b[7] > 57 { return (0, 0, false) }
+  (b[5] - 48, b[7] - 48, true)
+}
+
+// ParseTime：依次试 TimeFormat、RFC850、ANSIC，返回 unix 毫秒
+pub fn parse_time(text: Str) -> Result<Int, Str> {
+  var last = ""
+  for layout in [TIME_FORMAT, "Monday, 02-Jan-06 15:04:05 MST", "Mon Jan _2 15:04:05 2006"] {
+    match time.parse(layout, text) {
+      Ok(t) => { return Ok(t) },
+      Err(e) => { last = e },
+    }
+  }
+  Err(last)
+}
+
+// ── Cookie 请求头 ──
+
+fn cookie_value_byte(o: Int) -> Bool { o >= 32 && o < 127 && o != 34 && o != 59 && o != 92 }
+
+fn cookie_path_byte(o: Int) -> Bool { o >= 32 && o < 127 && o != 59 }
+
+fn cookie_value(raw0: Str, allow_dq: Bool) -> (Str, Bool, Bool) {
+  var raw = raw0
+  var quoted = false
+  if allow_dq && len(__bytes(raw)) > 1 && starts_with(raw, "\"") && ends_with(raw, "\"") {
+    raw = __str_slice(raw, 1, len(raw) - 1)
+    quoted = true
+  }
+  for b in __bytes(raw) { if !cookie_value_byte(b) { return ("", quoted, false) } }
+  (raw, quoted, true)
+}
+
+fn cut1(s: Str, sep: Str) -> (Str, Str, Bool) {
+  let i = __str_find(s, sep, 0)
+  if i < 0 {
+    (s, "", false)
+  } else {
+    (__str_slice(s, 0, i), __str_slice(s, i + len(sep), len(s)), true)
+  }
+}
+
+fn count_semi(s: Str) -> Int { len(split(s, ";")) - 1 }
+
+// ParseCookie（解析 Cookie 请求头，Go 1.23+）
+pub fn parse_cookie(line: Str) -> Result<List<cookiejar.Cookie>, Str> {
+  let n = count_semi(line) + 1
+  if n > 3000 { return Err("http: number of cookies exceeded limit") }
+  if n == 1 && textproto.trim_string(line) == "" { return Err(cookiejar.ERR_BLANK_COOKIE) }
+  var out = []
+  for s0 in split(line, ";") {
+    let s = textproto.trim_string(s0)
+    let (name, value0, found) = cut1(s, "=")
+    if !found { return Err(cookiejar.ERR_EQUAL_NOT_FOUND_IN_COOKIE) }
+    if !valid_header_field_name(name) { return Err(cookiejar.ERR_INVALID_COOKIE_NAME) }
+    let (value, quoted, ok) = cookie_value(value0, true)
+    if !ok { return Err(cookiejar.ERR_INVALID_COOKIE_VALUE) }
+    out = push(out, cookiejar.Cookie {
+      name: name,
+      value: value,
+      quoted: quoted,
+      ..cookiejar.new_cookie("", "")
+    })
+  }
+  Ok(out)
+}
+
+// readCookies（Request.Cookies / Request.Cookie 的核心）：filter 为空时返回全部
+pub fn read_cookies(h: textproto.MIMEHeader, filter: Str) -> List<cookiejar.Cookie> {
+  let lines = h.values("Cookie")
+  if len(lines) == 0 { return [] }
+  var total = 0
+  for l in lines { total += count_semi(l) + 1 }
+  if total > 3000 { return [] }
+  var out = []
+  for l0 in lines {
+    var line = textproto.trim_string(l0)
+    while line != "" {
+      let (part0, rest, _) = cut1(line, ";")
+      line = rest
+      let part = textproto.trim_string(part0)
+      if part == "" { continue }
+      let (name0, val0, _) = cut1(part, "=")
+      let name = textproto.trim_string(name0)
+      if !valid_header_field_name(name) { continue }
+      if filter != "" && filter != name { continue }
+      let (val, quoted, ok) = cookie_value(val0, true)
+      if !ok { continue }
+      out = push(out, cookiejar.Cookie {
+        name: name,
+        value: val,
+        quoted: quoted,
+        ..cookiejar.new_cookie("", "")
+      })
+    }
+  }
+  out
+}
+
+fn quote_byte(b: Int) -> Str { strconv.quote_rune(b) }
+
+// Cookie.Valid：Ok(()) 或 Go 的错误文字
+pub fn cookie_valid(c: cookiejar.Cookie) -> Result<Unit, Str> {
+  if !valid_header_field_name(c.name) { return Err("http: invalid Cookie.Name") }
+  match c.expires {
+    Some(t) => { if time.utc(t).year < 1601 { return Err("http: invalid Cookie.Expires") } },
+    None => {},
+  }
+  for b in __bytes(c.value) {
+    if !cookie_value_byte(b) {
+      return Err("http: invalid byte " + quote_byte(b) + " in Cookie.Value")
+    }
+  }
+  for b in __bytes(c.path) {
+    if !cookie_path_byte(b) {
+      return Err("http: invalid byte " + quote_byte(b) + " in Cookie.Path")
+    }
+  }
+  if c.domain != "" && !cookiejar.valid_cookie_domain(c.domain) {
+    return Err("http: invalid Cookie.Domain")
+  }
+  if c.partitioned && !c.secure { return Err("http: partitioned cookies must be set with Secure") }
+  Ok(())
+}
+
+// ── DetectContentType（sniff.go） ──
+
+fn hx(s: Str) -> List<Int> {
+  let b = __bytes(s)
+  var out = []
+  var i = 0
+  while i < len(b) {
+    out = push(out, hexv(b[i]) * 16 + hexv(b[i + 1]))
+    i += 2
+  }
+  out
+}
+
+fn hexv(c: Int) -> Int { if c <= 57 { c - 48 } else if c <= 70 { c - 55 } else { c - 87 } }
+
+fn has_prefix_b(d: List<Int>, p: List<Int>) -> Bool {
+  if len(d) < len(p) { return false }
+  for i in 0..len(p) { if d[i] != p[i] { return false } }
+  true
+}
+
+fn masked(d: List<Int>, mask: List<Int>, pat: List<Int>) -> Bool {
+  if len(d) < len(pat) { return false }
+  for i in 0..len(pat) { if (d[i] & mask[i]) != pat[i] { return false } }
+  true
+}
+
+fn html_sig(d: List<Int>, h0: Str) -> Bool {
+  let h = __bytes(h0)
+  if len(d) < len(h) + 1 { return false }
+  for i in 0..len(h) {
+    let b = h[i]
+    let db = if b >= 65 && b <= 90 { d[i] & 0xDF } else { d[i] }
+    if b != db { return false }
+  }
+  d[len(h)] == 32 || d[len(h)] == 62
+}
+
+fn is_ws(b: Int) -> Bool { b == 9 || b == 10 || b == 12 || b == 13 || b == 32 }
+
+fn mp4_sig(d: List<Int>) -> Bool {
+  if len(d) < 12 { return false }
+  let size = d[0] * 16777216 + d[1] * 65536 + d[2] * 256 + d[3]
+  if len(d) < size || size % 4 != 0 { return false }
+  if d[4..8] != __bytes("ftyp") { return false }
+  var st = 8
+  while st < size {
+    if st != 12 && d[st..st + 3] == __bytes("mp4") { return true }
+    st += 4
+  }
+  false
+}
+
+const HTML_SIGS: List<Str> = [
+  "<!DOCTYPE HTML",
+  "<HTML",
+  "<HEAD",
+  "<SCRIPT",
+  "<IFRAME",
+  "<H1",
+  "<DIV",
+  "<FONT",
+  "<TABLE",
+  "<A",
+  "<STYLE",
+  "<TITLE",
+  "<B",
+  "<BODY",
+  "<BR",
+  "<P",
+  "<!--",
+]
+
+// (种类, 掩码十六进制, 模式十六进制, 类型)；种类 0 = 精确前缀，1 = 掩码，2 = 跳过空白的掩码，3 = mp4
+const SIGS: List<(Int, Str, Str, Str)> = [
+  (2, "FFFFFFFFFF", "3C3F786D6C", "text/xml; charset=utf-8"),
+  (0, "", "255044462D", "application/pdf"),
+  (0, "", "252150532D41646F62652D", "application/postscript"),
+  (1, "FFFF0000", "FEFF0000", "text/plain; charset=utf-16be"),
+  (1, "FFFF0000", "FFFE0000", "text/plain; charset=utf-16le"),
+  (1, "FFFFFF00", "EFBBBF00", "text/plain; charset=utf-8"),
+  (0, "", "00000100", "image/x-icon"),
+  (0, "", "00000200", "image/x-icon"),
+  (0, "", "424D", "image/bmp"),
+  (0, "", "474946383761", "image/gif"),
+  (0, "", "474946383961", "image/gif"),
+  (1, "FFFFFFFF00000000FFFFFFFFFFFF", "5249464600000000574542505650", "image/webp"),
+  (0, "", "89504E470D0A1A0A", "image/png"),
+  (0, "", "FFD8FF", "image/jpeg"),
+  (1, "FFFFFFFF00000000FFFFFFFF", "464F524D0000000041494646", "audio/aiff"),
+  (1, "FFFFFF", "494433", "audio/mpeg"),
+  (1, "FFFFFFFFFF", "4F67675300", "application/ogg"),
+  (1, "FFFFFFFFFFFFFFFF", "4D54686400000006", "audio/midi"),
+  (1, "FFFFFFFF00000000FFFFFFFF", "524946460000000041564920", "video/avi"),
+  (1, "FFFFFFFF00000000FFFFFFFF", "524946460000000057415645", "audio/wave"),
+  (3, "", "", "video/mp4"),
+  (0, "", "1A45DFA3", "video/webm"),
+  (
+    1,
+    "0000000000000000000000000000000000000000000000000000000000000000000000FFFF",
+    "00000000000000000000000000000000000000000000000000000000000000000000004C50",
+    "application/vnd.ms-fontobject",
+  ),
+  (0, "", "00010000", "font/ttf"),
+  (0, "", "4F54544F", "font/otf"),
+  (0, "", "74746366", "font/collection"),
+  (0, "", "774F4646", "font/woff"),
+  (0, "", "774F4632", "font/woff2"),
+  (0, "", "1F8B08", "application/x-gzip"),
+  (0, "", "504B0304", "application/zip"),
+  (0, "", "526172211A0700", "application/x-rar-compressed"),
+  (0, "", "526172211A070100", "application/x-rar-compressed"),
+  (0, "", "0061736D", "application/wasm"),
+]
+
+pub fn detect_content_type(data0: List<Int>) -> Str {
+  let data = if len(data0) > SNIFF_LEN { data0[..SNIFF_LEN] } else { data0 }
+  var ws = 0
+  while ws < len(data) && is_ws(data[ws]) { ws += 1 }
+  let rest = data[ws..]
+  for h in HTML_SIGS { if html_sig(rest, h) { return "text/html; charset=utf-8" } }
+  for (kind, m, p, ct) in SIGS {
+    let hit = match kind {
+      0 => has_prefix_b(data, hx(p)),
+      1 => masked(data, hx(m), hx(p)),
+      2 => masked(rest, hx(m), hx(p)),
+      _ => mp4_sig(data),
+    }
+    if hit { return ct }
+  }
+  for b in rest {
+    if b <= 8 || b == 11 || (b >= 14 && b <= 26) || (b >= 28 && b <= 31) {
+      return "application/octet-stream"
+    }
+  }
+  "text/plain; charset=utf-8"
+}
+
+pub fn status_text(code: Int) -> Str {
+  match code {
+    100 => "Continue",
+    101 => "Switching Protocols",
+    102 => "Processing",
+    103 => "Early Hints",
+    200 => "OK",
+    201 => "Created",
+    202 => "Accepted",
+    203 => "Non-Authoritative Information",
+    204 => "No Content",
+    205 => "Reset Content",
+    206 => "Partial Content",
+    207 => "Multi-Status",
+    208 => "Already Reported",
+    226 => "IM Used",
+    300 => "Multiple Choices",
+    301 => "Moved Permanently",
+    302 => "Found",
+    303 => "See Other",
+    304 => "Not Modified",
+    305 => "Use Proxy",
+    307 => "Temporary Redirect",
+    308 => "Permanent Redirect",
+    400 => "Bad Request",
+    401 => "Unauthorized",
+    402 => "Payment Required",
+    403 => "Forbidden",
+    404 => "Not Found",
+    405 => "Method Not Allowed",
+    406 => "Not Acceptable",
+    407 => "Proxy Authentication Required",
+    408 => "Request Timeout",
+    409 => "Conflict",
+    410 => "Gone",
+    411 => "Length Required",
+    412 => "Precondition Failed",
+    413 => "Request Entity Too Large",
+    414 => "Request URI Too Long",
+    415 => "Unsupported Media Type",
+    416 => "Requested Range Not Satisfiable",
+    417 => "Expectation Failed",
+    418 => "I'm a teapot",
+    421 => "Misdirected Request",
+    422 => "Unprocessable Entity",
+    423 => "Locked",
+    424 => "Failed Dependency",
+    425 => "Too Early",
+    426 => "Upgrade Required",
+    428 => "Precondition Required",
+    429 => "Too Many Requests",
+    431 => "Request Header Fields Too Large",
+    451 => "Unavailable For Legal Reasons",
+    500 => "Internal Server Error",
+    501 => "Not Implemented",
+    502 => "Bad Gateway",
+    503 => "Service Unavailable",
+    504 => "Gateway Timeout",
+    505 => "HTTP Version Not Supported",
+    506 => "Variant Also Negotiates",
+    507 => "Insufficient Storage",
+    508 => "Loop Detected",
+    510 => "Not Extended",
+    511 => "Network Authentication Required",
+    _ => "",
+  }
 }

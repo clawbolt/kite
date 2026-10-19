@@ -559,7 +559,7 @@ use std.crypto.rand as crand
 ### 网络：std.net 与 std.net.http（0.34）
 
 - `std.net`：TCP（IPv4）。`net.listen(host, port) -> Result<Listener, Str>`（port 为 0 时由系统分配端口，结果在 `.port`），`listener.accept()`，`net.connect(host, port)`，`conn.read_line()`、`read_bytes(n)`（按字节计）、`read_all()`、`write(s)`、`close()`。套接字都是非阻塞的：等待时 sleep 退避（1 到 16 毫秒），所以 I/O 会让出调度，能放进 `spawn` 或 `par_map`，也能被 `timeout` 取消。
-- `std.net.http`：HTTP/1.1，只支持 `http://`。客户端用 `http.get(url)`、`http.post(url, body, content_type)`、`http.request(method, url, headers, body)`，返回 `Result<Response, Str>`，支持 Content-Length、chunked 和读到连接关闭。服务器先 `http.listen(port)`，再 `http.serve(l, handler)`（8 个任务并发 accept）、`serve_with(l, workers, handler)` 或 `serve_n(l, n, handler)`；handler 类型为 `fn(Request) -> Response`，panic 时回 500。辅助函数：`text`、`html`、`json`、`response`、`with_header`、`req.header(name)`、`parse_query`、`url_decode`。头部名统一转成小写。
+- `std.net.http`：HTTP/1.1，只支持 `http://`。客户端用 `http.get(url)`、`http.post(url, body, content_type)`、`http.request(method, url, headers, body)`，返回 `Result<Response, Str>`，支持 Content-Length、chunked 和读到连接关闭。服务器先 `http.listen(port)`，再 `http.serve(l, handler)`（8 个任务并发 accept）、`serve_with(l, workers, handler)` 或 `serve_n(l, n, handler)`；handler 类型为 `fn(Request) -> Response`，panic 时回 500。辅助函数：`text`、`html`、`json`、`response`、`with_header`、`req.header(name)`、`parse_query`、`url_decode`。头部名统一转成小写。协议层纯函数（对齐 Go net/http）：`new_header()`（多值 `textproto.MIMEHeader`）、`canonical_header_key`、`header_write`、`has_token`、`status_text`、`detect_content_type(bytes)`、`parse_http_version`、`parse_time`、`parse_cookie`、`read_cookies(header, filter)`、`cookie_valid(c)`（Cookie 类型在 `std.net.http.cookiejar`）。
 - 底层原语：`__tcp_*`、`__byte_len`。示例：`examples/http.kite`（同一个程序里起服务器再请求它）。
 
 ### keep-alive（0.35）

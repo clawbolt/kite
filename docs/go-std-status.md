@@ -52,6 +52,13 @@ image/color/palette、path/filepath、go/constant、net/http/cookiejar、crypto/
   SKID 用 SHA-256 前 20 字节、默认签名算法、全部错误检查）。tests/go/x509_create 94 行一致：RSA PKCS#1 v1.5 / Ed25519 整份 DER 逐字节相同，
   ECDSA / PSS / ML-DSA 比较 TBS 并验签。与 Go 的差异：模板序列号必填（Go 里 nil 时随机生成）；签名随机数由 std.crypto.rand 提供。
 
+## 第三批：网络（进行中）
+- net/http 协议层第一步（2026-10-19 完成）：std.net.http 新增 Header（= textproto.MIMEHeader）、canonical_header_key、header_write(_subset)、
+  has_token、valid_header_field_name、status_text（全表）、detect_content_type（sniff.go 全部签名）、parse_http_version、parse_time、
+  parse_cookie、read_cookies、cookie_valid（Cookie 类型仍在 std.net.http.cookiejar）。tests/go/http_proto 466 行一致
+  （输入 tests/go/testdata/http/cases.txt，生成器 gen.go.txt）。与 Go 的差异：Kite 字符串必须是 UTF-8，非法字节只能出现在 detect_content_type 的字节输入里。
+- 计划：ReadRequest / ReadResponse / Request.Write、chunked、ServeMux 模式匹配、net 的 SplitHostPort / ParseCIDR / UDP / Unix / DNS，然后 httptest、httputil、smtp、jsonrpc。
+
 ## 可以做（纯数据 / 算法，计划后续批次）
 - crypto/hpke
 - encoding/gob（值用类似 fmt.Arg 的枚举表示）
