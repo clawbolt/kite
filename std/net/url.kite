@@ -1,7 +1,18 @@
-// std.net.url：URL 解析与百分号编码（对齐 Go 的 net/url）
-//   parse / to_str，hostname / port / query，resolve（RFC 3986 相对引用），join_path
-//   query_escape / query_unescape（空格 ↔ +），path_escape / path_unescape
-//   parse_query / encode_query：查询串 ↔ Map<Str, List<Str>>（编码时按键排序）
+// std.net.url：URL 解析与百分号编码（对齐 Go 1.27 的 net/url，逐函数移植）
+//   parse / parse_request_uri / to_str（= URL.String）/ redacted / escaped_path / escaped_fragment / request_uri
+//   hostname / port / is_abs / query / resolve（= ResolveReference）/ parse_ref（= URL.Parse）/ resolve_str
+//   join_path / url_join_path（= URL.JoinPath）
+//   query_escape / query_unescape（空格 ↔ +）、path_escape / path_unescape
+//   parse_query / parse_query_all / encode_query：查询串 ↔ Map<Str, List<Str>>（编码时按键排序）
+//   错误文字与 Go 的 err.Error() 相同，例如 parse "http://[::1": missing ']' in host
+// 和 Go 的差别：
+//   - User *Userinfo 拆成 user: Option<Str>（None = nil）和 password: Option<Str>（Some = passwordSet）
+//   - Kite 字符串必须是 UTF-8：解码出的字节不是合法 UTF-8 时（例如 %FF），按 U+FFFD 替换
+//   - urlstrictcolons / urlmaxqueryparams 这两个 GODEBUG 取默认值
+
+use std.strconv
+use std.net.netip
+use std.unicode.utf8
 
 pub type URL = {
   scheme: Str,
@@ -10,177 +21,174 @@ pub type URL = {
   password: Option<Str>,
   host: Str,
   path: Str,
+  raw_path: Str,
+  omit_host: Bool,
+  force_query: Bool,
   raw_query: Str,
   fragment: Str,
+  raw_fragment: Str,
 }
 
-fn hexd(n: Int) -> Str { __str_slice("0123456789ABCDEF", n, n + 1) }
-
-fn unreserved(b: Int) -> Bool {
-  (b >= 65 && b <= 90)
-    || (b >= 97 && b <= 122)
-    || (b >= 48 && b <= 57)
-    || b == 45
-    || b == 95
-    || b == 46
-    || b == 126
-}
-
-// mode：0 查询（空格 → +）、1 路径段（/ 也转义）、2 整个路径（保留 /）、3 片段、4 用户信息
-fn should_keep(b: Int, mode: Int) -> Bool {
-  if unreserved(b) { return true }
-  let c = if b < 128 { __chr(b) } else { "" }
-  if mode == 1 { return contains("$&+,:;=@", c) && c != "" }
-  if mode == 2 { return contains("$&+,/:;=@", c) && c != "" }
-  if mode == 3 { return contains("$&+,/:;=?@!()*'", c) && c != "" }
-  if mode == 4 { return contains("$&+,;=!()*'", c) && c != "" }
-  false
-}
-
-fn escape(s: Str, mode: Int) -> Str {
-  var out = ""
-  for b in __bytes(s) {
-    if should_keep(b, mode) {
-      out = out + __chr(b)
-    } else if b == 32 && mode == 0 {
-      out = out + "+"
-    } else {
-      out = out + "%" + hexd(b / 16) + hexd(b % 16)
-    }
-  }
-  out
-}
-
-fn hv(c: Int) -> Int {
-  if c >= 48 && c <= 57 {
-    c - 48
-  } else if c >= 65 && c <= 70 {
-    c - 55
-  } else if c >= 97 && c <= 102 {
-    c - 87
-  } else {
-    -1
+pub fn empty() -> URL {
+  URL {
+    scheme: "",
+    opaque: "",
+    user: None,
+    password: None,
+    host: "",
+    path: "",
+    raw_path: "",
+    omit_host: false,
+    force_query: false,
+    raw_query: "",
+    fragment: "",
+    raw_fragment: "",
   }
 }
 
-fn unescape(s: Str, plus: Bool) -> Result<Str, Str> {
-  let bs = __bytes(s)
-  var out: List<Int> = []
-  var i = 0
-  while i < len(bs) {
-    let b = bs[i]
-    if b == 37 {
-      if i + 2 >= len(bs) || hv(bs[i + 1]) < 0 || hv(bs[i + 2]) < 0 {
-        let e = if i + 3 <= len(bs) { i + 3 } else { len(bs) }
-        return Err("无效的 URL 转义 " + quote_bytes(bs[i..e]))
+const ENC_PATH: Int = 1
+const ENC_SEGMENT: Int = 2
+const ENC_HOST: Int = 4
+const ENC_ZONE: Int = 8
+const ENC_USER: Int = 16
+const ENC_QUERY: Int = 32
+const ENC_FRAGMENT: Int = 64
+const HEX_CHAR: Int = 128
+
+const TABLE: List<Int> = [
+  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+  76, 12, 0, 95, 0, 95, 12, 76, 76, 76, 95, 93, 127, 127, 65, 255, 255, 255, 255, 255, 255, 255,
+  255, 255, 255, 79, 93, 12, 95, 12, 64, 67, 255, 255, 255, 255, 255, 255, 127, 127, 127, 127, 127,
+  127, 127, 127, 127, 127, 127, 127, 127, 127, 127, 127, 127, 127, 127, 127, 12, 0, 12, 0, 127, 0,
+  255, 255, 255, 255, 255, 255, 127, 127, 127, 127, 127, 127, 127, 127, 127, 127, 127, 127, 127,
+  127, 127, 127, 127, 127, 127, 127, 0, 0, 0, 127, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+]
+
+fn lossy(b: List<Int>) -> Str {
+  match __from_bytes(b) {
+    Some(s) => s,
+    None => {
+      var rs: List<Int> = []
+      var i = 0
+      while i < len(b) {
+        let (r, w) = utf8.decode_rune_at(b, i)
+        rs = push(rs, r)
+        i += w
       }
-      out = push(out, hv(bs[i + 1]) * 16 + hv(bs[i + 2]))
+      utf8.from_runes(rs)
+    },
+  }
+}
+
+fn qb(b: List<Int>) -> Str { strconv.quote_bytes_with(b, 34, false, false) }
+
+fn ishex(c: Int) -> Bool { (TABLE[c] & HEX_CHAR) != 0 }
+
+fn unhex(c: Int) -> Int { 9 * (c >> 6) + (c & 15) }
+
+fn should_escape(c: Int, mode: Int) -> Bool { (TABLE[c] & mode) == 0 }
+
+fn escape_error(b: List<Int>) -> Str { "invalid URL escape " + qb(b) }
+
+fn unescape_b(s: List<Int>, mode: Int) -> Result<List<Int>, Str> {
+  var n = 0
+  var has_plus = false
+  var i = 0
+  while i < len(s) {
+    let c = s[i]
+    if c == 37 {
+      n += 1
+      if i + 2 >= len(s) || !ishex(s[i + 1]) || !ishex(s[i + 2]) {
+        let e = if len(s) - i > 3 { i + 3 } else { len(s) }
+        return Err(escape_error(s[i..e]))
+      }
+      let is25 = s[i + 1] == 50 && s[i + 2] == 53
+      if mode == ENC_HOST && unhex(s[i + 1]) < 8 && !is25 { return Err(escape_error(s[i..i + 3])) }
+      if mode == ENC_ZONE {
+        let v = (unhex(s[i + 1]) << 4) | unhex(s[i + 2])
+        if !is25 && v != 32 && should_escape(v, ENC_HOST) { return Err(escape_error(s[i..i + 3])) }
+      }
       i += 3
+    } else if c == 43 {
+      has_plus = mode == ENC_QUERY
+      i += 1
     } else {
-      out = push(out, if plus && b == 43 { 32 } else { b })
+      if (mode == ENC_HOST || mode == ENC_ZONE) && c < 128 && should_escape(c, mode) {
+        return Err("invalid character " + qb([c]) + " in host name")
+      }
       i += 1
     }
   }
-  match __from_bytes(out) {
-    Some(t) => Ok(t),
-    None => Err("URL 解码后不是合法的 UTF-8: {s}"),
-  }
-}
-
-fn quote_bytes(bs: List<Int>) -> Str { "\"" + unwrap_or(__from_bytes(bs), "?") + "\"" }
-
-pub fn query_escape(s: Str) -> Str { escape(s, 0) }
-
-pub fn query_unescape(s: Str) -> Result<Str, Str> { unescape(s, true) }
-
-pub fn path_escape(s: Str) -> Str { escape(s, 1) }
-
-pub fn path_unescape(s: Str) -> Result<Str, Str> { unescape(s, false) }
-
-fn scheme_end(s: Str) -> Int {
-  // 合法的 scheme 后面紧跟 ':'，返回 ':' 的位置，否则 -1
-  let cs = chars(s)
-  var i = 0
-  while i < len(cs) {
-    let o = __ord(cs[i])
-    let alpha = (o >= 65 && o <= 90) || (o >= 97 && o <= 122)
-    if cs[i] == ":" { return if i > 0 { i } else { -1 } }
-    if !(
-      alpha || (i > 0 && ((o >= 48 && o <= 57) || cs[i] == "+" || cs[i] == "-" || cs[i] == "."))
-    ) {
-      return -1
+  if n == 0 && !has_plus { return Ok(s) }
+  let plus = if mode == ENC_QUERY { 32 } else { 43 }
+  var t: List<Int> = []
+  i = 0
+  while i < len(s) {
+    let c = s[i]
+    if c == 37 {
+      t = push(t, (unhex(s[i + 1]) << 4) | unhex(s[i + 2]))
+      i += 2
+    } else if c == 43 {
+      t = push(t, plus)
+    } else {
+      t = push(t, c)
     }
     i += 1
   }
-  -1
+  Ok(t)
 }
 
-pub fn parse(raw: Str) -> Result<URL, Str> {
-  var rest = raw
-  var frag = ""
-  let (r1, f, has_frag) = cut1(rest, "#")
-  if has_frag {
-    frag = unescape(f, false)?
-    rest = r1
-  }
-  var scheme = ""
-  let se = scheme_end(rest)
-  if se > 0 {
-    scheme = lower(__str_slice(rest, 0, se))
-    rest = __str_slice(rest, se + 1, len(rest))
-  }
-  var q = ""
-  let (r2, qq, has_q) = cut1(rest, "?")
-  if has_q {
-    q = qq
-    rest = r2
-  }
-  if scheme != "" && !starts_with(rest, "/") && rest != "" {
-    return Ok(URL {
-      scheme: scheme,
-      opaque: rest,
-      user: None,
-      password: None,
-      host: "",
-      path: "",
-      raw_query: q,
-      fragment: frag,
-    })
-  }
-  var user: Option<Str> = None
-  var pass: Option<Str> = None
-  var host = ""
-  if starts_with(rest, "//") {
-    let a = __str_slice(rest, 2, len(rest))
-    let slash = __str_find(a, "/", 0)
-    let auth = if slash < 0 { a } else { __str_slice(a, 0, slash) }
-    rest = if slash < 0 { "" } else { __str_slice(a, slash, len(a)) }
-    let at = rfind(auth, "@")
-    var hp = auth
-    if at >= 0 {
-      let ui = __str_slice(auth, 0, at)
-      hp = __str_slice(auth, at + 1, len(auth))
-      let (u, pw, has_pw) = cut1(ui, ":")
-      user = Some(unescape(u, false)?)
-      if has_pw { pass = Some(unescape(pw, false)?) }
+fn unescape(s: Str, mode: Int) -> Result<Str, Str> { Ok(lossy(unescape_b(__bytes(s), mode)?)) }
+
+const UPPERHEX: List<Int> = [48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 65, 66, 67, 68, 69, 70]
+
+fn escape_b(s: List<Int>, mode: Int) -> List<Int> {
+  var any = false
+  for c in s { if should_escape(c, mode) { any = true } }
+  if !any { return s }
+  var t: List<Int> = []
+  for c in s {
+    if c == 32 && mode == ENC_QUERY {
+      t = push(t, 43)
+    } else if should_escape(c, mode) {
+      t = push(push(push(t, 37), UPPERHEX[c >> 4]), UPPERHEX[c & 15])
+    } else {
+      t = push(t, c)
     }
-    if contains(hp, " ") { return Err("URL 的主机名里有非法字符: {hp}") }
-    if starts_with(hp, "[") && !contains(hp, "]") { return Err("IPv6 主机缺少 ]: {hp}") }
-    host = lower(hp)
   }
-  Ok(URL {
-    scheme: scheme,
-    opaque: "",
-    user: user,
-    password: pass,
-    host: host,
-    path: unescape(rest, false)?,
-    raw_query: q,
-    fragment: frag,
-  })
+  t
 }
 
-fn cut1(s: Str, sep: Str) -> (Str, Str, Bool) {
+fn escape(s: Str, mode: Int) -> Str { lossy(escape_b(__bytes(s), mode)) }
+
+pub fn query_unescape(s: Str) -> Result<Str, Str> { unescape(s, ENC_QUERY) }
+
+pub fn path_unescape(s: Str) -> Result<Str, Str> { unescape(s, ENC_SEGMENT) }
+
+pub fn query_escape(s: Str) -> Str { escape(s, ENC_QUERY) }
+
+pub fn path_escape(s: Str) -> Str { escape(s, ENC_SEGMENT) }
+
+// Userinfo.String
+pub fn userinfo_string(u: URL) -> Str {
+  match u.user {
+    None => "",
+    Some(n) => {
+      var s = escape(n, ENC_USER)
+      match u.password {
+        Some(p) => { s = s + ":" + escape(p, ENC_USER) },
+        None => {},
+      }
+      s
+    },
+  }
+}
+
+fn cut(s: Str, sep: Str) -> (Str, Str, Bool) {
   let i = __str_find(s, sep, 0)
   if i < 0 {
     (s, "", false)
@@ -189,7 +197,7 @@ fn cut1(s: Str, sep: Str) -> (Str, Str, Bool) {
   }
 }
 
-fn rfind(s: Str, sub: Str) -> Int {
+fn last_index(s: Str, sub: Str) -> Int {
   var i = len(s) - len(sub)
   while i >= 0 {
     if __str_slice(s, i, i + len(sub)) == sub { return i }
@@ -198,143 +206,470 @@ fn rfind(s: Str, sub: Str) -> Int {
   -1
 }
 
-pub fn to_str(u: URL) -> Str {
-  var out = ""
-  if u.scheme != "" { out = u.scheme + ":" }
-  if u.opaque != "" {
-    out = out + u.opaque
-  } else {
-    if u.host != "" || is_some(u.user) || u.scheme == "file" {
-      out = out + "//"
-      match u.user {
-        Some(n) => {
-          out = out + escape(n, 4)
-          match u.password {
-            Some(p) => { out = out + ":" + escape(p, 4) },
-            None => {},
-          }
-          out = out + "@"
-        },
-        None => {},
-      }
-      out = out + u.host
+fn count(s: Str, sub: Str) -> Int { len(split(s, sub)) - 1 }
+
+fn get_scheme(raw: Str) -> Result<(Str, Str), Str> {
+  let b = __bytes(raw)
+  for i in 0..len(b) {
+    let c = b[i]
+    if (c >= 97 && c <= 122)
+      || (c >= 65 && c <= 90) {} else if (c >= 48 && c <= 57)
+      || c == 43
+      || c == 45
+      || c == 46 {
+      if i == 0 { return Ok(("", raw)) }
+    } else if c == 58 {
+      if i == 0 { return Err("missing protocol scheme") }
+      return Ok((lossy(b[..i]), lossy(b[i + 1..])))
+    } else {
+      return Ok(("", raw))
     }
-    if u.path != "" && !starts_with(u.path, "/") && u.host != "" { out = out + "/" }
-    out = out + escape(u.path, 2)
   }
-  if u.raw_query != "" { out = out + "?" + u.raw_query }
-  if u.fragment != "" { out = out + "#" + escape(u.fragment, 3) }
-  out
+  Ok(("", raw))
 }
 
-// 主机名（去掉端口和 IPv6 的方括号）
-pub fn hostname(u: URL) -> Str {
-  let h = u.host
-  if starts_with(h, "[") {
-    let e = __str_find(h, "]", 0)
-    return __str_slice(h, 1, e)
+fn wrap(raw: Str, e: Str) -> Str { "parse " + strconv.quote_go(raw) + ": " + e }
+
+// url.Parse
+pub fn parse(raw: Str) -> Result<URL, Str> {
+  let (u, frag, _) = cut(raw, "#")
+  let r = match parse0(u, false) {
+    Ok(x) => x,
+    Err(e) => { return Err(wrap(u, e)) },
   }
-  let (a, _, _) = cut1(h, ":")
-  a
+  if frag == "" { return Ok(r) }
+  match set_fragment(r, frag) {
+    Ok(x) => Ok(x),
+    Err(e) => Err(wrap(raw, e)),
+  }
 }
 
-// 端口，没有时为 ""
-pub fn port(u: URL) -> Str {
-  let h = u.host
-  let start = if starts_with(h, "[") { __str_find(h, "]", 0) } else { 0 }
-  let i = __str_find(__str_slice(h, start, len(h)), ":", 0)
-  if i < 0 { "" } else { __str_slice(h, start + i + 1, len(h)) }
+// url.ParseRequestURI
+pub fn parse_request_uri(raw: Str) -> Result<URL, Str> {
+  match parse0(raw, true) {
+    Ok(x) => Ok(x),
+    Err(e) => Err(wrap(raw, e)),
+  }
 }
+
+fn has_ctl(s: Str) -> Bool {
+  for b in __bytes(s) { if b < 32 || b == 127 { return true } }
+  false
+}
+
+fn parse0(raw: Str, via_request: Bool) -> Result<URL, Str> {
+  if has_ctl(raw) { return Err("net/url: invalid control character in URL") }
+  if raw == "" && via_request { return Err("empty url") }
+  var u = empty()
+  if raw == "*" { return Ok(URL { path: "*", ..u }) }
+  let (scheme, rest0) = get_scheme(raw)?
+  u = URL { scheme: lower_ascii(scheme), ..u }
+  var rest = rest0
+  if ends_with(rest, "?") && count(rest, "?") == 1 {
+    u = URL { force_query: true, ..u }
+    rest = __str_slice(rest, 0, len(rest) - 1)
+  } else {
+    let (a, q, _) = cut(rest, "?")
+    rest = a
+    u = URL { raw_query: q, ..u }
+  }
+  if !starts_with(rest, "/") {
+    if u.scheme != "" { return Ok(URL { opaque: rest, ..u }) }
+    if via_request { return Err("invalid URI for request") }
+    let (seg, _, _) = cut(rest, "/")
+    if contains(seg, ":") { return Err("first path segment in URL cannot contain colon") }
+  }
+  if (u.scheme != "" || !via_request && !starts_with(rest, "///")) && starts_with(rest, "//") {
+    var authority = __str_slice(rest, 2, len(rest))
+    rest = ""
+    let i = __str_find(authority, "/", 0)
+    if i >= 0 {
+      rest = __str_slice(authority, i, len(authority))
+      authority = __str_slice(authority, 0, i)
+    }
+    let (user, pass, host) = parse_authority(u.scheme, authority)?
+    u = URL { user: user, password: pass, host: host, ..u }
+  } else if u.scheme != "" && starts_with(rest, "/") {
+    u = URL { omit_host: true, ..u }
+  }
+  set_path(u, rest)
+}
+
+fn lower_ascii(s: Str) -> Str {
+  lossy(map(__bytes(s), (c) => if c >= 65 && c <= 90 { c + 32 } else { c }))
+}
+
+fn parse_authority(scheme: Str, authority: Str) -> Result<(Option<Str>, Option<Str>, Str), Str> {
+  let i = last_index(authority, "@")
+  let host = if i < 0 {
+    parse_host(scheme, authority)?
+  } else {
+    parse_host(scheme, __str_slice(authority, i + 1, len(authority)))?
+  }
+  if i < 0 { return Ok((None, None, host)) }
+  let userinfo = __str_slice(authority, 0, i)
+  if !valid_userinfo(userinfo) { return Err("net/url: invalid userinfo") }
+  if !contains(userinfo, ":") { return Ok((Some(unescape(userinfo, ENC_USER)?), None, host)) }
+  let (un, pw, _) = cut(userinfo, ":")
+  let u2 = unescape(un, ENC_USER)?
+  let p2 = unescape(pw, ENC_USER)?
+  Ok((Some(u2), Some(p2), host))
+}
+
+fn parse_host(scheme: Str, host: Str) -> Result<Str, Str> {
+  let ob = last_index(host, "[")
+  if ob > 0 { return Err("invalid IP-literal") }
+  if ob == 0 {
+    let cb = last_index(host, "]")
+    if cb < 0 { return Err("missing ']' in host") }
+    let colon_port = __str_slice(host, cb + 1, len(host))
+    if !valid_optional_port(colon_port) {
+      return Err("invalid port " + strconv.quote_go(colon_port) + " after host")
+    }
+    let ucp = unescape(colon_port, ENC_HOST)?
+    let hostname = __str_slice(host, 1, cb)
+    let zi = __str_find(hostname, "%25", 0)
+    let uh = if zi >= 0 {
+      unescape(__str_slice(hostname, 0, zi), ENC_HOST)? + unescape(
+        __str_slice(hostname, zi, len(hostname)),
+        ENC_ZONE,
+      )?
+    } else {
+      unescape(hostname, ENC_HOST)?
+    }
+    let addr = match netip.parse_addr(uh) {
+      Ok(a) => a,
+      Err(e) => { return Err("invalid host: " + e) },
+    }
+    if addr.is4() { return Err("invalid IP-literal") }
+    return Ok("[" + uh + "]" + ucp)
+  }
+  let i0 = __str_find(host, ":", 0)
+  if i0 >= 0 {
+    let last = last_index(host, ":")
+    var i = i0
+    if last != i0 && !(scheme == "http" || scheme == "https") { i = last }
+    let colon_port = __str_slice(host, i, len(host))
+    if !valid_optional_port(colon_port) {
+      return Err("invalid port " + strconv.quote_go(colon_port) + " after host")
+    }
+  }
+  unescape(host, ENC_HOST)
+}
+
+fn set_path(u: URL, p: Str) -> Result<URL, Str> {
+  let path = unescape(p, ENC_PATH)?
+  let raw = if escape(path, ENC_PATH) == p { "" } else { p }
+  Ok(URL { path: path, raw_path: raw, ..u })
+}
+
+fn set_fragment(u: URL, f: Str) -> Result<URL, Str> {
+  let frag = unescape(f, ENC_FRAGMENT)?
+  let raw = if escape(frag, ENC_FRAGMENT) == f { "" } else { f }
+  Ok(URL { fragment: frag, raw_fragment: raw, ..u })
+}
+
+fn valid_encoded(s: Str, mode: Int) -> Bool {
+  for c in __bytes(s) {
+    if !contains([33, 36, 38, 39, 40, 41, 42, 43, 44, 59, 61, 58, 64, 91, 93, 37], c)
+      && should_escape(c, mode) {
+      return false
+    }
+  }
+  true
+}
+
+// URL.EscapedPath
+pub fn escaped_path(u: URL) -> Str {
+  if u.raw_path != "" && valid_encoded(u.raw_path, ENC_PATH) {
+    match unescape(u.raw_path, ENC_PATH) {
+      Ok(p) => { if p == u.path { return u.raw_path } },
+      Err(_) => {},
+    }
+  }
+  if u.path == "*" { return "*" }
+  escape(u.path, ENC_PATH)
+}
+
+// URL.EscapedFragment
+pub fn escaped_fragment(u: URL) -> Str {
+  if u.raw_fragment != "" && valid_encoded(u.raw_fragment, ENC_FRAGMENT) {
+    match unescape(u.raw_fragment, ENC_FRAGMENT) {
+      Ok(f) => { if f == u.fragment { return u.raw_fragment } },
+      Err(_) => {},
+    }
+  }
+  escape(u.fragment, ENC_FRAGMENT)
+}
+
+fn valid_optional_port(port: Str) -> Bool {
+  if port == "" { return true }
+  let b = __bytes(port)
+  if b[0] != 58 { return false }
+  for c in b[1..] { if c < 48 || c > 57 { return false } }
+  true
+}
+
+// URL.String
+pub fn to_str(u: URL) -> Str {
+  var buf = ""
+  if u.scheme != "" { buf = u.scheme + ":" }
+  if u.opaque != "" {
+    buf = buf + u.opaque
+  } else {
+    let has_user = is_some(u.user)
+    if u.scheme != "" || u.host != "" || has_user {
+      if u.omit_host && u.host == "" && !has_user {} else {
+        if u.host != "" || u.path != "" || has_user { buf = buf + "//" }
+        if has_user { buf = buf + userinfo_string(u) + "@" }
+        if u.host != "" { buf = buf + escape(u.host, ENC_HOST) }
+      }
+    }
+    var path = escaped_path(u)
+    if u.omit_host && u.host == "" && !has_user && starts_with(path, "//") {
+      buf = buf + "%2F"
+      path = __str_slice(path, 1, len(path))
+    }
+    if path != "" && !starts_with(path, "/") && u.host != "" { buf = buf + "/" }
+    if buf == "" {
+      let (seg, _, _) = cut(path, "/")
+      if contains(seg, ":") { buf = buf + "./" }
+    }
+    buf = buf + path
+  }
+  if u.force_query || u.raw_query != "" { buf = buf + "?" + u.raw_query }
+  if u.fragment != "" { buf = buf + "#" + escaped_fragment(u) }
+  buf
+}
+
+// URL.Redacted
+pub fn redacted(u: URL) -> Str {
+  match u.password {
+    Some(_) => to_str(URL { password: Some("xxxxx"), ..u }),
+    None => to_str(u),
+  }
+}
+
+// URL.RequestURI
+pub fn request_uri(u: URL) -> Str {
+  var result = u.opaque
+  if result == "" {
+    result = escaped_path(u)
+    if result == "" { result = "/" }
+  } else if starts_with(result, "//") {
+    result = u.scheme + ":" + result
+  }
+  if u.force_query || u.raw_query != "" { result = result + "?" + u.raw_query }
+  result
+}
+
+fn split_host_port(hp: Str) -> (Str, Str) {
+  var host = hp
+  var port = ""
+  let colon = last_index(host, ":")
+  if colon >= 0 && valid_optional_port(__str_slice(host, colon, len(host))) {
+    port = __str_slice(host, colon + 1, len(host))
+    host = __str_slice(host, 0, colon)
+  }
+  if starts_with(host, "[") && ends_with(host, "]") { host = __str_slice(host, 1, len(host) - 1) }
+  (host, port)
+}
+
+// URL.Hostname / URL.Port
+pub fn hostname(u: URL) -> Str { split_host_port(u.host).0 }
+
+pub fn port(u: URL) -> Str { split_host_port(u.host).1 }
 
 pub fn is_abs(u: URL) -> Bool { u.scheme != "" }
 
-pub fn query(u: URL) -> Map<Str, List<Str>> { unwrap_or(parse_query(u.raw_query), Map()) }
+// URL.Query：忽略错误
+pub fn query(u: URL) -> Map<Str, List<Str>> { parse_query_all(u.raw_query).0 }
 
-// a=1&b=2&a=3 → {"a": ["1", "3"], "b": ["2"]}；遇到错误的转义返回 Err
-pub fn parse_query(s: Str) -> Result<Map<Str, List<Str>>, Str> {
+// url.ParseQuery：返回 (能解析的部分, 第一个错误；没有错误时为 "")
+pub fn parse_query_all(q: Str) -> (Map<Str, List<Str>>, Str) {
   var m: Map<Str, List<Str>> = Map()
-  for part in split(s, "&") {
-    if part == "" { continue }
-    if contains(part, ";") { return Err("查询串里不能有分号: {part}") }
-    let (k0, v0, _) = cut1(part, "=")
-    let k = query_unescape(k0)?
-    let v = query_unescape(v0)?
+  if count(q, "&") + 1 > 10000 { return (m, "number of URL query parameters exceeded limit") }
+  var err = ""
+  var query = q
+  while query != "" {
+    let (key0, rest, _) = cut(query, "&")
+    query = rest
+    if contains(key0, ";") {
+      err = "invalid semicolon separator in query"
+      continue
+    }
+    if key0 == "" { continue }
+    let (k1, v1, _) = cut(key0, "=")
+    let k = match query_unescape(k1) {
+      Ok(x) => x,
+      Err(e) => {
+        if err == "" { err = e }
+        continue
+      },
+    }
+    let v = match query_unescape(v1) {
+      Ok(x) => x,
+      Err(e) => {
+        if err == "" { err = e }
+        continue
+      },
+    }
     m = set(m, k, push(unwrap_or(get(m, k), []), v))
   }
-  Ok(m)
+  (m, err)
 }
 
-// 按键排序后编码
+// a=1&b=2&a=3 → {"a": ["1", "3"], "b": ["2"]}；有错误时返回 Err（要部分结果用 parse_query_all）
+pub fn parse_query(s: Str) -> Result<Map<Str, List<Str>>, Str> {
+  let (m, e) = parse_query_all(s)
+  if e == "" { Ok(m) } else { Err(e) }
+}
+
+// Values.Encode：按键排序
 pub fn encode_query(m: Map<Str, List<Str>>) -> Str {
   var parts: List<Str> = []
   for k in sort(keys(m)) {
-    for v in unwrap_or(get(m, k), []) {
-      parts = push(parts, query_escape(k) + "=" + query_escape(v))
-    }
+    let ke = query_escape(k)
+    for v in unwrap_or(get(m, k), []) { parts = push(parts, ke + "=" + query_escape(v)) }
   }
   join(parts, "&")
 }
 
-// 第一个值
+// 第一个值（Values.Get 返回 "" 的版本用 unwrap_or）
 pub fn first(m: Map<Str, List<Str>>, k: Str) -> Option<Str> {
   let vs = get(m, k)?
   get(vs, 0)
 }
 
-pub fn remove_dot_segments(p: Str) -> Str {
-  if p == "" { return "" }
+// resolvePath
+pub fn resolve_path(base: Str, r: Str) -> Str {
+  let full = if r == "" {
+    base
+  } else if !starts_with(r, "/") {
+    let i = last_index(base, "/")
+    __str_slice(base, 0, i + 1) + r
+  } else {
+    r
+  }
+  if full == "" { return "" }
+  var dst = "/"
+  var elem = ""
+  var remaining = full
+  var found = true
+  var first = true
+  while found {
+    let (e, rest, f) = cut(remaining, "/")
+    elem = e
+    remaining = rest
+    found = f
+    if elem == "." {
+      first = false
+    } else if elem == ".." {
+      let i = last_index(__str_slice(dst, 1, len(dst)), "/")
+      dst = if i >= 0 { __str_slice(dst, 0, i + 1) } else { "/" }
+      first = len(dst) == 1
+    } else {
+      if !first { dst = dst + "/" }
+      dst = dst + elem
+      first = false
+    }
+  }
+  if elem == "." || elem == ".." { dst = dst + "/" }
+  if len(dst) > 1 && __str_slice(dst, 1, 2) == "/" { __str_slice(dst, 1, len(dst)) } else { dst }
+}
+
+// 兼容旧接口：只做 . / .. 清理
+pub fn remove_dot_segments(p: Str) -> Str { if p == "" { "" } else { resolve_path(p, "") } }
+
+fn set_path_ignore(u: URL, p: Str) -> URL {
+  match set_path(u, p) {
+    Ok(x) => x,
+    Err(_) => u,
+  }
+}
+
+// URL.ResolveReference（RFC 3986 第 5.2 节）
+pub fn resolve(base: URL, r: URL) -> URL {
+  var u = r
+  if r.scheme == "" { u = URL { scheme: base.scheme, ..u } }
+  if r.scheme != "" || r.host != "" || is_some(r.user) {
+    return set_path_ignore(u, resolve_path(escaped_path(r), ""))
+  }
+  if r.opaque != "" { return URL { user: None, password: None, host: "", path: "", ..u } }
+  if r.path == "" && !r.force_query && r.raw_query == "" {
+    u = URL { raw_query: base.raw_query, ..u }
+    if r.fragment == "" {
+      u = URL { fragment: base.fragment, raw_fragment: base.raw_fragment, ..u }
+    }
+  }
+  if r.path == "" && base.opaque != "" {
+    return URL { opaque: base.opaque, user: None, password: None, host: "", path: "", ..u }
+  }
+  u = URL { host: base.host, user: base.user, password: base.password, ..u }
+  set_path_ignore(u, resolve_path(escaped_path(base), escaped_path(r)))
+}
+
+// URL.Parse(ref)
+pub fn parse_ref(base: URL, r: Str) -> Result<URL, Str> { Ok(resolve(base, parse(r)?)) }
+
+pub fn resolve_str(base: Str, r: Str) -> Result<Str, Str> {
+  Ok(to_str(parse_ref(parse(base)?, r)?))
+}
+
+// path.Join（只用于 join_path）
+fn path_join(elems: List<Str>) -> Str {
+  var parts: List<Str> = []
+  for e in elems { if e != "" { parts = push(parts, e) } }
+  if len(parts) == 0 { return "" }
+  clean(join(parts, "/"))
+}
+
+fn clean(p: Str) -> Str {
+  if p == "" { return "." }
+  let rooted = starts_with(p, "/")
   var out: List<Str> = []
-  let segs = split(p, "/")
-  var i = 0
-  for s in segs {
-    let last = i == len(segs) - 1
-    if s == "." {
-      if last { out = push(out, "") }
-    } else if s == ".." {
-      if len(out) > 1 { out = out[0..len(out) - 1] }
-      if last { out = push(out, "") }
+  for s in split(p, "/") {
+    if s == "" || s == "." { continue }
+    if s == ".." {
+      if len(out) > 0 && out[len(out) - 1] != ".." {
+        out = out[..len(out) - 1]
+      } else if !rooted {
+        out = push(out, "..")
+      }
     } else {
       out = push(out, s)
     }
-    i += 1
   }
   let r = join(out, "/")
-  if starts_with(p, "/") && !starts_with(r, "/") { "/" + r } else { r }
+  if rooted { "/" + r } else if r == "" { "." } else { r }
 }
 
-// RFC 3986 第 5.2 节：在 base 上解析相对引用 r
-pub fn resolve(base: URL, r: URL) -> URL {
-  if r.scheme != "" { return URL { path: remove_dot_segments(r.path), ..r } }
-  if r.host != "" || is_some(r.user) {
-    return URL { scheme: base.scheme, path: remove_dot_segments(r.path), ..r }
-  }
-  if r.path == "" {
-    let q = if r.raw_query != "" { r.raw_query } else { base.raw_query }
-    return URL { raw_query: q, fragment: r.fragment, ..base }
-  }
-  let p = if starts_with(r.path, "/") {
-    r.path
+// URL.JoinPath（出错时 Go 也返回带原路径的 URL；这里返回 Err）
+pub fn url_join_path(u: URL, elems0: List<Str>) -> Result<URL, Str> {
+  var elems = [escaped_path(u)] + elems0
+  var p = ""
+  if !starts_with(elems[0], "/") {
+    elems = set(elems, 0, "/" + elems[0])
+    let j = path_join(elems)
+    p = __str_slice(j, 1, len(j))
   } else {
-    let bp = if base.path == "" && base.host != "" { "/" } else { base.path }
-    let i = rfind(bp, "/")
-    (if i >= 0 { __str_slice(bp, 0, i + 1) } else { "" }) + r.path
+    p = path_join(elems)
   }
-  URL { path: remove_dot_segments(p), raw_query: r.raw_query, fragment: r.fragment, ..base }
+  if ends_with(elems[len(elems) - 1], "/") && !ends_with(p, "/") { p = p + "/" }
+  set_path(u, p)
 }
 
-pub fn resolve_str(base: Str, r: Str) -> Result<Str, Str> {
-  let b = parse(base)?
-  let rr = parse(r)?
-  Ok(to_str(resolve(b, rr)))
-}
-
-// 把路径段拼到 base 的路径后面并清理 . 和 ..（同 Go 的 url.JoinPath）
+// url.JoinPath
 pub fn join_path(base: Str, elems: List<Str>) -> Result<Str, Str> {
   let u = parse(base)?
-  var p = u.path
-  for e in elems { p = if ends_with(p, "/") { p + e } else { p + "/" + e } }
-  let trail = ends_with(p, "/")
-  var c = remove_dot_segments(p)
-  if trail && !ends_with(c, "/") { c = c + "/" }
-  Ok(to_str(URL { path: c, ..u }))
+  Ok(to_str(url_join_path(u, elems)?))
+}
+
+fn valid_userinfo(s: Str) -> Bool {
+  for c in chars(s) {
+    let r = __ord(c)
+    if (r >= 65 && r <= 90) || (r >= 97 && r <= 122) || (r >= 48 && r <= 57) { continue }
+    if !contains("-._:~!$&'()*+,;=%@", c) { return false }
+  }
+  true
 }

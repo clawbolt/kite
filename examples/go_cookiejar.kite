@@ -259,13 +259,9 @@ fn main() {
     let jar = cookiejar.new(cookiejar.options())
     let u = url.URL {
       scheme: "http",
-      opaque: "",
-      user: None,
-      password: None,
       host: host,
       path: "/",
-      raw_query: "",
-      fragment: "",
+      ..url.empty()
     }
     let before = show_cookies(jar.cookies(u))
     let jar2 = jar.set_cookies(u, cookies)
@@ -318,13 +314,9 @@ fn main() {
   jar = jar.set_cookies_at(must_parse_url("ftp://www.host.test/"), parse_lines(["z=1"]), t_now())
   let bad = url.URL {
     scheme: "http",
-    opaque: "",
-    user: None,
-    password: None,
     host: "[bad",
     path: "/",
-    raw_query: "",
-    fragment: "",
+    ..url.empty()
   }
   jar = jar.set_cookies_at(bad, parse_lines(["z=1"]), t_now())
   jar = jar.set_cookies_at(u, [], t_now())

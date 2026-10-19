@@ -1,0 +1,61 @@
+// 对拍 tests/go/url.go：std.net.url
+use std.fs
+use std.encoding.hex
+use std.strconv
+use std.net.url
+
+fn q(s: Str) -> Str { strconv.quote_go(s) }
+
+fn show(r: Result<url.URL, Str>) -> Str {
+  let u = match r {
+    Ok(x) => x,
+    Err(e) => { return "err " + q(e) },
+  }
+  let user = match u.user {
+    None => "nil",
+    Some(n) => q(n) + ":" + q(unwrap_or(u.password, "")) + ":" + str(is_some(u.password)),
+  }
+  "scheme={q(u.scheme)} opaque={q(u.opaque)} user={user} host={q(u.host)} path={q(u.path)} rawpath={q(u.raw_path)} omit={u.omit_host} force={u.force_query} rawq={q(u.raw_query)} frag={q(u.fragment)} rawfrag={q(u.raw_fragment)}\n  str={q(url.to_str(u))} red={q(url.redacted(u))} requri={q(url.request_uri(u))} epath={q(url.escaped_path(u))} efrag={q(url.escaped_fragment(u))} hn={q(url.hostname(u))} port={q(url.port(u))} q={q(url.encode_query(url.query(u)))}"
+}
+
+fn res(r: Result<Str, Str>) -> Str {
+  match r {
+    Ok(s) => q(s),
+    Err(e) => "err " + q(e),
+  }
+}
+
+fn main() {
+  let data = unwrap(fs.read("tests/go/testdata/url/cases.txt"))
+  for line in split(data, "\n") {
+    if line == "" { continue }
+    let parts = split(line, "|")
+    let op = parts[0]
+    let a = map(parts[1..], (h) => unwrap(__from_bytes(unwrap(hex.decode(h)))))
+    let r = match op {
+      "parse" => show(url.parse(a[0])),
+      "request" => show(url.parse_request_uri(a[0])),
+      "unescape" => res(url.query_unescape(a[0])) + " " + res(url.path_unescape(a[0])),
+      "escape" => q(url.query_escape(a[0])) + " " + q(url.path_escape(a[0])),
+      "rpath" => q(url.resolve_path(a[0], a[1])),
+      "resolve" => match url.parse(a[0]) {
+        Err(_) => "base err",
+        Ok(b) => match url.parse_ref(b, a[1]) {
+          Ok(u) => show(Ok(u)),
+          Err(e) => "err " + q(e),
+        },
+      },
+      "query" => {
+        let (m, e) = url.parse_query_all(a[0])
+        q(url.encode_query(m)) + " " + q(e)
+      },
+      "join" => res(url.join_path(a[0], a[1..])),
+      "hostport" => {
+        let u = url.URL { host: a[0], ..url.empty() }
+        q(url.hostname(u)) + " " + q(url.port(u))
+      },
+      _ => "?",
+    }
+    print(op + " [" + join(map(a, q), " ") + "]: " + r)
+  }
+}

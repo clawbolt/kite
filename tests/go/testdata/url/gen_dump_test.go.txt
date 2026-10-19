@@ -1,0 +1,99 @@
+package url
+
+import (
+	"encoding/hex"
+	"os"
+	"regexp"
+	"strings"
+	"testing"
+)
+
+// 把 url_test.go 里各张表的输入写成 cases.txt（每行 操作|参数…，参数用 \x1f 之外的原文，换行无）
+func TestDump(t *testing.T) {
+	var out []string
+	add := func(op string, a ...string) {
+		p := []string{op}
+		for _, x := range a {
+			p = append(p, hex.EncodeToString([]byte(x)))
+		}
+		out = append(out, strings.Join(p, "|"))
+	}
+	for _, u := range urltests {
+		add("parse", u.in)
+	}
+	for _, u := range parseRequestURLTests {
+		add("request", u.url)
+	}
+	for _, u := range urltests {
+		add("request", u.in)
+	}
+	for _, e := range unescapeTests {
+		add("unescape", e.in)
+	}
+	for _, e := range queryEscapeTests {
+		add("escape", e.in)
+	}
+	for _, e := range pathEscapeTests {
+		add("escape", e.in)
+	}
+	for _, e := range resolvePathTests {
+		add("rpath", e.base, e.ref)
+	}
+	for _, e := range resolveReferenceTests {
+		add("resolve", e.base, e.rel)
+	}
+	for _, e := range parseTests {
+		add("query", e.query)
+	}
+	src, _ := os.ReadFile("url_test.go")
+	s := string(src)
+	pe := s[strings.Index(s, "func TestParseErrors"):]
+	pe = pe[:strings.Index(pe, "\n}\n")]
+	re := regexp.MustCompile(`\{("(?:[^"\\]|\\.)*"), (true|false)\}`)
+	for _, m := range re.FindAllStringSubmatch(pe, -1) {
+		add("parse", unq(m[1]))
+	}
+	jp := s[strings.Index(s, "func TestJoinPath"):]
+	jp = jp[:strings.Index(jp, "\n}\n")]
+	rb := regexp.MustCompile(`base: ("(?:[^"\\]|\\.)*"),\s*elem: (nil|\[\]string\{[^}]*\})`)
+	rs := regexp.MustCompile(`"(?:[^"\\]|\\.)*"`)
+	for _, m := range rb.FindAllStringSubmatch(jp, -1) {
+		a := []string{unq(m[1])}
+		for _, e := range rs.FindAllString(m[2], -1) {
+			a = append(a, unq(e))
+		}
+		add("join", a...)
+	}
+	hp := s[strings.Index(s, "func TestURLHostnameAndPort"):]
+	hp = hp[:strings.Index(hp, "\n}\n")]
+	rh := regexp.MustCompile(`\{("(?:[^"\\]|\\.)*"), "`)
+	for _, m := range rh.FindAllStringSubmatch(hp, -1) {
+		add("hostport", unq(m[1]))
+	}
+	for _, x := range extra {
+		add(x[0], x[1:]...)
+	}
+	os.WriteFile(os.Getenv("OUT"), []byte(strings.Join(out, "\n")+"\n"), 0o644)
+}
+
+func unq(s string) string {
+	r, err := strconvUnquote(s)
+	if err != nil {
+		panic(s)
+	}
+	return r
+}
+
+var extra = [][]string{
+	{"parse", "http://a\x7fb"}, {"parse", "http://%41:8080/"}, {"parse", "http://user:pa ss@host/"},
+	{"parse", "http://[fe80::1%25en0]:8080/"}, {"parse", "http://[fe80::1%en0]/"}, {"parse", "http://[1.2.3.4]/"},
+	{"parse", "http://a:b:c/"}, {"parse", "ftp://a:b:c/"}, {"parse", "http://x/%zz"}, {"parse", "http://x/#%zz"},
+	{"parse", ":foo"}, {"parse", "a:b"}, {"parse", "1a:b"}, {"parse", "mailto:x@y"}, {"parse", "http:///x"},
+	{"parse", "//host/p?q#f"}, {"parse", "/a b?c d#e f"}, {"parse", "http://h/%E4%B8%AD"},
+	{"parse", "x?"}, {"parse", "x??"}, {"parse", "http://h?a=1;b=2"}, {"parse", "HTTP://H/P"},
+	{"request", "*"}, {"request", ""}, {"request", "foo"}, {"request", "///x"}, {"request", "//x/y"},
+	{"query", "a=1;b=2&c=3"}, {"query", "a=%zz&b=2&c=%"}, {"query", "&&a&=b"},
+	{"join", "http://h/a/", "b", "c/"}, {"join", "http://h", "..", "x"}, {"join", "x", "y"}, {"join", "%zz", "a"},
+}
+
+func strconvUnquote(s string) (string, error) { return unquoteImpl(s) }

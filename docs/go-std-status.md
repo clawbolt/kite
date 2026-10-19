@@ -53,11 +53,19 @@ image/color/palette、path/filepath、go/constant、net/http/cookiejar、crypto/
   ECDSA / PSS / ML-DSA 比较 TBS 并验签。与 Go 的差异：模板序列号必填（Go 里 nil 时随机生成）；签名随机数由 std.crypto.rand 提供。
 
 ## 第三批：网络（进行中）
-- net/http 协议层第一步（2026-10-19 完成）：std.net.http 新增 Header（= textproto.MIMEHeader）、canonical_header_key、header_write(_subset)、
+- net/http 协议层第一步（2026-10-20 完成）：std.net.http 新增 Header（= textproto.MIMEHeader）、canonical_header_key、header_write(_subset)、
   has_token、valid_header_field_name、status_text（全表）、detect_content_type（sniff.go 全部签名）、parse_http_version、parse_time、
   parse_cookie、read_cookies、cookie_valid（Cookie 类型仍在 std.net.http.cookiejar）。tests/go/http_proto 466 行一致
   （输入 tests/go/testdata/http/cases.txt，生成器 gen.go.txt）。与 Go 的差异：Kite 字符串必须是 UTF-8，非法字节只能出现在 detect_content_type 的字节输入里。
-- 计划：ReadRequest / ReadResponse / Request.Write、chunked、ServeMux 模式匹配、net 的 SplitHostPort / ParseCIDR / UDP / Unix / DNS，然后 httptest、httputil、smtp、jsonrpc。
+- net/url 重写为逐函数移植（2026-10-20）：之前是简化版（主机名转小写、错误文字是中文、没有 RawPath/RawFragment/ForceQuery/OmitHost）。
+  现在 URL 加 raw_path、omit_host、force_query、raw_fragment（url.empty() 给出空值），新增 parse_request_uri、redacted、escaped_path、
+  escaped_fragment、request_uri、parse_ref、url_join_path、parse_query_all、resolve_path、userinfo_string；错误文字同 Go。
+  tests/go/url 704 行一致（输入取自 url_test.go 的各张表，testdata/url/gen_dump_test.go.txt）。差异：解码出非 UTF-8 字节时替换成 U+FFFD。
+- net/http 第二步（2026-10-20）：read_request / read_response（WireRequest / WireResponse；正文一并读完，body_err、rest 给出正文错误和剩余字节）、
+  chunked_decode / chunked_encode（= httputil.NewChunkedReader / NewChunkedWriter）、header_values_contains_token；Transfer-Encoding、
+  Content-Length、Trailer、Connection、Pragma、HEAD / 1xx / 204 / 304 规则同 Go。tests/go/http_wire 369 行一致（输入含 net/http 测试
+  reqTests、badRequestTests、respTests 的原始报文，testdata/http/gen_wire_test.go.txt）。
+- 计划：Request.Write / Response.Write、ServeMux 模式匹配、net 的 SplitHostPort / ParseCIDR / UDP / Unix / DNS，然后 httptest、httputil、smtp、jsonrpc。
 
 ## 可以做（纯数据 / 算法，计划后续批次）
 - crypto/hpke

@@ -11,6 +11,7 @@ use std.strconv
 use std.time
 use std.net.textproto
 use std.net.http.cookiejar
+use std.net.url
 
 pub type Request = { method: Str, path: Str, query: Str, headers: Map<Str, Str>, body: Str }
 
@@ -907,4 +908,528 @@ pub fn status_text(code: Int) -> Str {
     511 => "Network Authentication Required",
     _ => "",
   }
+}
+
+// ───────────── 报文读取（对齐 Go 1.27 的 ReadRequest / ReadResponse / chunked） ─────────────
+// 输入是整块字节；读出头部后把正文也一次读完（= io.ReadAll(req.Body)），正文出错时 body 是出错前读到的部分、
+// body_err 是错误文字（没有错误为 ""），rest 是正文之后剩下的字节（流水线里的下一条报文；正文出错时为 []）。
+// trailer 是 chunked 正文后面的尾部头（Trailer 头声明过的键值为空列表）。
+
+pub type WireRequest = {
+  method: Str,
+  url: url.URL,
+  proto: Str,
+  proto_major: Int,
+  proto_minor: Int,
+  header: textproto.MIMEHeader,
+  content_length: Int,
+  transfer_encoding: List<Str>,
+  close: Bool,
+  host: Str,
+  trailer: textproto.MIMEHeader,
+  request_uri: Str,
+  body: List<Int>,
+  body_err: Str,
+  rest: List<Int>,
+}
+
+pub type WireResponse = {
+  status: Str,
+  status_code: Int,
+  proto: Str,
+  proto_major: Int,
+  proto_minor: Int,
+  header: textproto.MIMEHeader,
+  content_length: Int,
+  transfer_encoding: List<Str>,
+  close: Bool,
+  trailer: textproto.MIMEHeader,
+  body: List<Int>,
+  body_err: Str,
+  rest: List<Int>,
+}
+
+fn qgo(s: Str) -> Str { strconv.quote_go(s) }
+
+fn qlist(xs: List<Str>) -> Str { "[" + join(map(xs, qgo), " ") + "]" }
+
+fn bad_string(what: Str, v: Str) -> Str { what + " " + qgo(v) }
+
+fn is_ows(b: Int) -> Bool { b == 32 || b == 9 }
+
+fn hexval(b: Int) -> Int {
+  if b >= 48 && b <= 57 {
+    b - 48
+  } else if b >= 97 && b <= 102 {
+    b - 87
+  } else if b >= 65 && b <= 70 {
+    b - 55
+  } else {
+    -1
+  }
+}
+
+fn index_byte(d: List<Int>, from: Int, to: Int, b: Int) -> Int {
+  var i = from
+  while i < to {
+    if d[i] == b { return i }
+    i += 1
+  }
+  -1
+}
+
+// bufio.Reader（4096 字节缓冲）上的 ReadSlice('\n') + readChunkLine 的检查；返回 (行, 新位置, 错误)
+fn read_chunk_line(d: List<Int>, pos: Int) -> (List<Int>, Int, Str) {
+  let lim = if len(d) - pos > 4096 { pos + 4096 } else { len(d) }
+  let nl = index_byte(d, pos, lim, 10)
+  if nl < 0 {
+    if lim == len(d) && len(d) - pos < 4096 { return ([], len(d), "unexpected EOF") }
+    return ([], lim, "header line too long")
+  }
+  let p = d[pos..nl + 1]
+  let cr = index_byte(p, 0, len(p), 13)
+  if cr < 0 { return ([], nl + 1, "chunked line ends with bare LF") }
+  if cr != len(p) - 2 { return ([], nl + 1, "invalid CR in chunked line") }
+  let line = p[..len(p) - 2]
+  if len(line) >= 4096 { return ([], nl + 1, "header line too long") }
+  (line, nl + 1, "")
+}
+
+// chunked 解码（internal.NewChunkedReader 读到 EOF）：返回 (数据, 结束位置, 错误)。
+// 错误为 "" 表示正常读到长度为 0 的块，位置在 "0\r\n" 之后（尾部头从这里开始）
+pub fn chunked_decode(d: List<Int>, start: Int) -> (List<Int>, Int, Str) {
+  var out: List<Int> = []
+  var pos = start
+  var excess = 0
+  loop {
+    let (line0, p2, e) = read_chunk_line(d, pos)
+    pos = p2
+    if e != "" { return (out, pos, e) }
+    excess += len(line0) + 2
+    var n0 = len(line0)
+    while n0 > 0 && is_ows(line0[n0 - 1]) { n0 -= 1 }
+    var line = line0[..n0]
+    let semi = index_byte(line, 0, len(line), 59)
+    if semi >= 0 { line = line[..semi] }
+    if len(line) == 0 { return (out, pos, "empty hex number for chunk length") }
+    var n = 0
+    for i in 0..len(line) {
+      let v = hexval(line[i])
+      if v < 0 { return (out, pos, "invalid byte in chunk length") }
+      if i == 16 { return (out, pos, "http chunk length too large") }
+      n = (n << 4) | v
+    }
+    // n 最多 16 个十六进制位；超过 Int 正数范围时按溢出后的值处理（Go 里是 uint64）
+    excess = excess - 16 - 2 * n
+    if excess < 0 { excess = 0 }
+    if excess > 16 * 1024 { return (out, pos, "chunked encoding contains too much non-data") }
+    if n == 0 { return (out, pos, "") }
+    if n < 0 || len(d) - pos < n {
+      return (out + d[pos..], len(d), "unexpected EOF")
+    }
+    out = out + d[pos..pos + n]
+    pos += n
+    if len(d) - pos < 2 { return (out, len(d), "unexpected EOF") }
+    if d[pos] != 13 || d[pos + 1] != 10 { return (out, pos + 2, "malformed chunked encoding") }
+    pos += 2
+  }
+}
+
+// httputil.NewChunkedWriter：每次 Write（非空）写 "%x\r\n" + 数据 + "\r\n"，Close 写 "0\r\n"
+pub fn chunked_encode(chunks: List<List<Int>>) -> List<Int> {
+  var out: List<Int> = []
+  for c in chunks {
+    if len(c) == 0 { continue }
+    out = out + __bytes(strconv.format_int(len(c), 16) + "\r\n") + c + [13, 10]
+  }
+  out + [48, 13, 10]
+}
+
+// httpguts.HeaderValuesContainsToken
+pub fn header_values_contains_token(values: List<Str>, token: Str) -> Bool {
+  let t = lower(token)
+  for v in values {
+    for f in split(v, ",") {
+      if lower(trim_ows(f)) == t && is_ascii(f) { return true }
+    }
+  }
+  false
+}
+
+fn is_ascii(s: Str) -> Bool {
+  for b in __bytes(s) { if b >= 128 { return false } }
+  true
+}
+
+fn trim_ows(s: Str) -> Str {
+  let b = __bytes(s)
+  var i = 0
+  var j = len(b)
+  while i < j && is_ows(b[i]) { i += 1 }
+  while j > i && is_ows(b[j - 1]) { j -= 1 }
+  unwrap_or(__from_bytes(b[i..j]), s)
+}
+
+fn should_close(major: Int, minor: Int, h: textproto.MIMEHeader, remove: Bool) -> (
+  Bool,
+  textproto.MIMEHeader,
+) {
+  if major < 1 { return (true, h) }
+  let conv = h.values("Connection")
+  let has_close = header_values_contains_token(conv, "close")
+  if major == 1 && minor == 0 {
+    return (has_close || !header_values_contains_token(conv, "keep-alive"), h)
+  }
+  if has_close && remove { return (true, h.del("Connection")) }
+  (has_close, h)
+}
+
+fn has_key(h: textproto.MIMEHeader, k: Str) -> Bool { contains(h.keys, k) }
+
+fn fix_pragma(h: textproto.MIMEHeader) -> textproto.MIMEHeader {
+  let hp = h.values("Pragma")
+  if len(hp) > 0 && hp[0] == "no-cache" && !has_key(h, "Cache-Control") {
+    return h.set("Cache-Control", "no-cache")
+  }
+  h
+}
+
+fn parse_content_length(cls: List<Str>) -> Result<Int, Str> {
+  if len(cls) == 0 { return Ok(-1) }
+  let cl = textproto.trim_string(cls[0])
+  if cl == "" { return Err(bad_string("invalid empty Content-Length", cl)) }
+  var n = 0
+  for b in __bytes(cl) {
+    if b < 48 || b > 57 || n > (9223372036854775807 - (b - 48)) / 10 {
+      return Err(bad_string("bad Content-Length", cl))
+    }
+    n = n * 10 + (b - 48)
+  }
+  Ok(n)
+}
+
+fn body_allowed(status: Int) -> Bool {
+  !((status >= 100 && status <= 199) || status == 204 || status == 304)
+}
+
+fn foreach_header_element(v0: Str) -> List<Str> {
+  let v = textproto.trim_string(v0)
+  if v == "" { return [] }
+  if !contains(v, ",") { return [v] }
+  var out: List<Str> = []
+  for f0 in split(v, ",") {
+    let f = textproto.trim_string(f0)
+    if f != "" { out = push(out, f) }
+  }
+  out
+}
+
+type Transfer = {
+  header: textproto.MIMEHeader,
+  content_length: Int,
+  chunked: Bool,
+  close: Bool,
+  trailer: textproto.MIMEHeader,
+  body: List<Int>,
+  body_err: Str,
+  rest: List<Int>,
+}
+
+fn ascii_equal_fold(a: Str, b: Str) -> Bool { is_ascii(a) && lower(a) == lower(b) }
+
+// readTransfer + 把 body 读完
+fn read_transfer(
+  is_response: Bool,
+  status: Int,
+  method: Str,
+  major0: Int,
+  minor0: Int,
+  h0: textproto.MIMEHeader,
+  close0: Bool,
+  d: List<Int>,
+  pos: Int,
+) -> Result<Transfer, Str> {
+  var h = h0
+  var close = close0
+  let (major, minor) = if major0 == 0 && minor0 == 0 { (1, 1) } else { (major0, minor0) }
+  var chunked = false
+  if has_key(h, "Transfer-Encoding") {
+    let raw = h.values("Transfer-Encoding")
+    h = h.del("Transfer-Encoding")
+    if major > 1 || (major == 1 && minor >= 1) {
+      if len(raw) != 1 { return Err("too many transfer encodings: " + qlist(raw)) }
+      if !ascii_equal_fold(raw[0], "chunked") {
+        return Err("unsupported transfer encoding: " + qgo(raw[0]))
+      }
+      chunked = true
+    }
+  }
+  // fixLength
+  var cls = h.values("Content-Length")
+  if len(cls) > 1 {
+    let first = textproto.trim_string(cls[0])
+    for ct in cls[1..] {
+      if first != textproto.trim_string(ct) {
+        return Err(
+          "http: message cannot contain multiple Content-Length headers; got " + qlist(cls),
+        )
+      }
+    }
+    h = h.del("Content-Length").add("Content-Length", first)
+    cls = h.values("Content-Length")
+  }
+  var n = 0
+  if len(cls) > 0 {
+    n = match parse_content_length(cls) {
+      Ok(x) => x,
+      Err(e) => { return Err(e) },
+    }
+  }
+  let real = if is_response && method == "HEAD" {
+    0
+  } else if status / 100 == 1 || status == 204 || status == 304 {
+    0
+  } else if chunked {
+    h = h.del("Content-Length")
+    -1
+  } else if len(cls) > 0 {
+    n
+  } else {
+    h = h.del("Content-Length")
+    if is_response { -1 } else { 0 }
+  }
+  let content_length = if is_response && method == "HEAD" {
+    parse_content_length(h.values("Content-Length"))?
+  } else {
+    real
+  }
+  // fixTrailer
+  var trailer = textproto.new_header()
+  if has_key(h, "Trailer") && chunked {
+    let vv = h.values("Trailer")
+    h = h.del("Trailer")
+    var err = ""
+    for v in vv {
+      for k0 in foreach_header_element(v) {
+        let k = canonical_header_key(k0)
+        if k == "Transfer-Encoding" || k == "Trailer" || k == "Content-Length" {
+          if err == "" {
+            err = bad_string("bad trailer key", k)
+            continue
+          }
+        }
+        if !has_key(trailer, k) {
+          trailer = textproto.MIMEHeader {
+            keys: push(trailer.keys, k),
+            vals: push(trailer.vals, []),
+          }
+        }
+      }
+    }
+    if err != "" { return Err(err) }
+  }
+  if is_response && real == -1 && !chunked && body_allowed(status) { close = true }
+  var body: List<Int> = []
+  var berr = ""
+  var rest = d[pos..]
+  if chunked {
+    if !(is_response && (method == "HEAD" || !body_allowed(status))) {
+      let (b, p2, e) = chunked_decode(d, pos)
+      body = b
+      if e != "" {
+        berr = e
+        rest = []
+      } else {
+        let (tr, p3, e2) = read_trailer(d, p2, trailer)
+        trailer = tr
+        if e2 != "" {
+          berr = e2
+          rest = []
+        } else {
+          rest = d[p3..]
+        }
+      }
+    }
+  } else if real > 0 {
+    if len(d) - pos < real {
+      body = d[pos..]
+      berr = "unexpected EOF"
+      rest = []
+    } else {
+      body = d[pos..pos + real]
+      rest = d[pos + real..]
+    }
+  } else if real < 0 && close {
+    body = d[pos..]
+    rest = []
+  }
+  Ok(Transfer {
+    header: h,
+    content_length: content_length,
+    chunked: chunked,
+    close: close,
+    trailer: trailer,
+    body: body,
+    body_err: berr,
+    rest: rest,
+  })
+}
+
+fn ends_crlfcrlf(d: List<Int>, i: Int) -> Bool {
+  d[i - 4] == 13 && d[i - 3] == 10 && d[i - 2] == 13 && d[i - 1] == 10
+}
+
+// body.readTrailer
+fn read_trailer(d: List<Int>, pos: Int, tr: textproto.MIMEHeader) -> (
+  textproto.MIMEHeader,
+  Int,
+  Str,
+) {
+  let avail = len(d) - pos
+  if avail >= 2 && d[pos] == 13 && d[pos + 1] == 10 { return (tr, pos + 2, "") }
+  if avail < 2 { return (tr, pos, "http: unexpected EOF reading trailer") }
+  let lim = if avail > 4096 { 4096 } else { avail }
+  var seen = false
+  var k = 4
+  while k <= lim && !seen {
+    if ends_crlfcrlf(d, pos + k) { seen = true }
+    k += 1
+  }
+  if !seen { return (tr, pos, "http: suspiciously long trailer after chunked body") }
+  let r = textproto.Reader { data: d, pos: pos }
+  let (r2, h, e) = r.read_mime_header()
+  if e != "" {
+    return (tr, r2.pos, if e == "EOF" { "http: unexpected EOF reading trailer" } else { e })
+  }
+  var out = tr
+  if len(tr.keys) == 0 {
+    out = h
+  } else {
+    for (k2, vs) in zip(h.keys, h.vals) {
+      out = out.del(k2)
+      out = textproto.MIMEHeader { keys: push(out.keys, k2), vals: push(out.vals, vs) }
+    }
+  }
+  (out, r2.pos, "")
+}
+
+fn eof_to_unexpected(e: Str) -> Str { if e == "EOF" { "unexpected EOF" } else { e } }
+
+// http.ReadRequest
+pub fn read_request(d: List<Int>) -> Result<WireRequest, Str> {
+  let r0 = textproto.new_reader(d)
+  let (r1, l) = r0.read_line()
+  let s = l?
+  let (method, rest1, ok1) = cut_str(s, " ")
+  let (ruri, proto, ok2) = cut_str(rest1, " ")
+  if !ok1 || !ok2 { return Err(bad_string("malformed HTTP request", s)) }
+  if !valid_header_field_name(method) { return Err(bad_string("invalid method", method)) }
+  let (major, minor, okv) = parse_http_version(proto)
+  if !okv { return Err(bad_string("malformed HTTP version", proto)) }
+  let just_authority = method == "CONNECT" && !starts_with(ruri, "/")
+  let raw = if just_authority { "http://" + ruri } else { ruri }
+  var u = url.parse_request_uri(raw)?
+  if just_authority { u = url.URL { scheme: "", ..u } }
+  let (r2, h0, he) = r1.read_mime_header()
+  if he != "" { return Err(eof_to_unexpected(he)) }
+  var h = h0
+  if len(h.values("Host")) > 1 { return Err("too many Host headers") }
+  let host = if u.host != "" { u.host } else { h.get("Host") }
+  h = fix_pragma(h)
+  let (close, _) = should_close(major, minor, h, false)
+  let t = match read_transfer(false, 200, method, major, minor, h, close, d, r2.pos) {
+    Ok(x) => x,
+    Err(e) => { return Err(eof_to_unexpected(e)) },
+  }
+  let h2u = method == "PRI" && len(t.header.keys) == 0 && u.path == "*" && proto == "HTTP/2.0"
+  Ok(WireRequest {
+    method: method,
+    url: u,
+    proto: proto,
+    proto_major: major,
+    proto_minor: minor,
+    header: t.header.del("Host"),
+    content_length: if h2u { -1 } else { t.content_length },
+    transfer_encoding: if t.chunked { ["chunked"] } else { [] },
+    close: h2u || t.close,
+    host: host,
+    trailer: t.trailer,
+    request_uri: ruri,
+    body: t.body,
+    body_err: t.body_err,
+    rest: t.rest,
+  })
+}
+
+fn cut_str(s: Str, sep: Str) -> (Str, Str, Bool) {
+  let i = __str_find(s, sep, 0)
+  if i < 0 {
+    (s, "", false)
+  } else {
+    (__str_slice(s, 0, i), __str_slice(s, i + len(sep), len(s)), true)
+  }
+}
+
+fn atoi_go(s: Str) -> Option<Int> {
+  let b = __bytes(s)
+  if len(b) == 0 { return None }
+  var i = 0
+  var neg = false
+  if b[0] == 43 || b[0] == 45 {
+    neg = b[0] == 45
+    i = 1
+    if len(b) == 1 { return None }
+  }
+  var n = 0
+  while i < len(b) {
+    if b[i] < 48 || b[i] > 57 { return None }
+    n = n * 10 + (b[i] - 48)
+    i += 1
+  }
+  Some(if neg { -n } else { n })
+}
+
+// http.ReadResponse；method 是对应请求的方法（Go 里 req 为 nil 时传 "GET"）
+pub fn read_response(d: List<Int>, method: Str) -> Result<WireResponse, Str> {
+  let r0 = textproto.new_reader(d)
+  let (r1, l) = r0.read_line()
+  let line = match l {
+    Ok(x) => x,
+    Err(e) => { return Err(eof_to_unexpected(e)) },
+  }
+  let (proto, status0, ok) = cut_str(line, " ")
+  if !ok { return Err(bad_string("malformed HTTP response", line)) }
+  var sb = __bytes(status0)
+  var i = 0
+  while i < len(sb) && sb[i] == 32 { i += 1 }
+  let status = unwrap_or(__from_bytes(sb[i..]), status0)
+  let (code_s, _, _) = cut_str(status, " ")
+  if len(__bytes(code_s)) != 3 { return Err(bad_string("malformed HTTP status code", code_s)) }
+  let code = match atoi_go(code_s) {
+    Some(c) => c,
+    None => { return Err(bad_string("malformed HTTP status code", code_s)) },
+  }
+  if code < 0 { return Err(bad_string("malformed HTTP status code", code_s)) }
+  let (major, minor, okv) = parse_http_version(proto)
+  if !okv { return Err(bad_string("malformed HTTP version", proto)) }
+  let (r2, h0, he) = r1.read_mime_header()
+  if he != "" { return Err(eof_to_unexpected(he)) }
+  let h1 = fix_pragma(h0)
+  let (close, h) = should_close(major, minor, h1, true)
+  let t = read_transfer(true, code, method, major, minor, h, close, d, r2.pos)?
+  Ok(WireResponse {
+    status: status,
+    status_code: code,
+    proto: proto,
+    proto_major: major,
+    proto_minor: minor,
+    header: t.header,
+    content_length: t.content_length,
+    transfer_encoding: if t.chunked { ["chunked"] } else { [] },
+    close: t.close,
+    trailer: t.trailer,
+    body: t.body,
+    body_err: t.body_err,
+    rest: t.rest,
+  })
 }

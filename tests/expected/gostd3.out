@@ -5,11 +5,11 @@ true false true true true true true true false
 Ⓐ ꭰ Ꭰ 1 38
 ["语言和", "语言"] ["héllo", "мир"] Some("ÄÖ12")
 Some("123!") Some("abc") Some("äbc") Some("Σ") Err("regexp: 未知的 Unicode 类 Klingon（第 1 个字符）")
-https Some("bob") Some("p@ss") example.com:8443 example.com 8443 /a b/c q=go+lang&x=1&q=2 frag!
-https://bob:p%40ss@example.com:8443/a%20b/c?q=go+lang&x=1&q=2#frag! {"q": ["go lang", "2"], "x": ["1"]} Some("go lang")
-Ok(std.net.url.URL { scheme: "mailto", opaque: "a@b.com", user: None, password: None, host: "", path: "", raw_query: "", fragment: "" }) http://[::1]:80/x ::1 Err("无效的 URL 转义 \"%zz\"")
-a+b%26c%3Dd%2F%C3%A9 a%20b%2Fc Ok("a b&c") Ok("a+b/") Ok("中") Err("无效的 URL 转义 \"%\"")
-a=1&a=x+y&b=2&c= Err("查询串里不能有分号: a=1;b=2")
+https Some("bob") Some("p@ss") Example.com:8443 Example.com 8443 /a b/c q=go+lang&x=1&q=2 frag!
+https://bob:p%40ss@Example.com:8443/a%20b/c?q=go+lang&x=1&q=2#frag%21 {"q": ["go lang", "2"], "x": ["1"]} Some("go lang")
+Ok(std.net.url.URL { scheme: "mailto", opaque: "a@b.com", user: None, password: None, host: "", path: "", raw_path: "", omit_host: false, force_query: false, raw_query: "", fragment: "", raw_fragment: "" }) http://[::1]:80/x ::1 Err("parse \"http://x/%zz\": invalid URL escape \"%zz\"")
+a+b%26c%3Dd%2F%C3%A9 a%20b%2Fc Ok("a b&c") Ok("a+b/") Ok("中") Err("invalid URL escape \"%\"")
+a=1&a=x+y&b=2&c= Err("invalid semicolon separator in query")
 g => Ok("http://a/b/c/g")
 ./g => Ok("http://a/b/c/g")
 g/ => Ok("http://a/b/c/g/")

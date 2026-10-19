@@ -1,0 +1,369 @@
+1 req "GET" "http://www.techcrunch.com/" "HTTP/1.1" 1.1 host="www.techcrunch.com" uri="http://www.techcrunch.com/" cl=7 te=[] close=false
+  h={Accept:["text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"] Accept-Charset:["ISO-8859-1,utf-8;q=0.7,*;q=0.7"] Accept-Encoding:["gzip,deflate"] Accept-Language:["en-us,en;q=0.5"] Content-Length:["7"] Keep-Alive:["300"] Proxy-Connection:["keep-alive"] User-Agent:["Fake"]}
+  tr={}
+  body="abcdef\n" err="" rest="???"
+2 req "GET" "/" "HTTP/1.1" 1.1 host="foo.com" uri="/" cl=0 te=[] close=false
+  h={}
+  tr={}
+  body="" err="" rest=""
+3 req "GET" "//user@host/is/actually/a/path/" "HTTP/1.1" 1.1 host="test" uri="//user@host/is/actually/a/path/" cl=0 te=[] close=false
+  h={}
+  tr={}
+  body="" err="" rest=""
+4 req err "parse \"../../../../etc/passwd\": invalid URI for request"
+5 req err "parse \"\": empty url"
+6 req "POST" "/" "HTTP/1.1" 1.1 host="foo.com" uri="/" cl=-1 te=["chunked"] close=false
+  h={}
+  tr={Trailer-Key:["Trailer-Value"]}
+  body="foobar" err="" rest=""
+7 req "POST" "/" "HTTP/1.1" 1.1 host="foo.com" uri="/" cl=-1 te=["chunked"] close=false
+  h={}
+  tr={}
+  body="foobar" err="" rest=""
+8 req err "bad Content-Length \"notdigits\""
+9 req "CONNECT" "//www.google.com:443" "HTTP/1.1" 1.1 host="www.google.com:443" uri="www.google.com:443" cl=0 te=[] close=false
+  h={}
+  tr={}
+  body="" err="" rest=""
+10 req "CONNECT" "//127.0.0.1:6060" "HTTP/1.1" 1.1 host="127.0.0.1:6060" uri="127.0.0.1:6060" cl=0 te=[] close=false
+  h={}
+  tr={}
+  body="" err="" rest=""
+11 req "CONNECT" "/_goRPC_" "HTTP/1.1" 1.1 host="" uri="/_goRPC_" cl=0 te=[] close=false
+  h={}
+  tr={}
+  body="" err="" rest=""
+12 req "NOTIFY" "*" "HTTP/1.1" 1.1 host="" uri="*" cl=0 te=[] close=false
+  h={Server:["foo"]}
+  tr={}
+  body="" err="" rest=""
+13 req "OPTIONS" "*" "HTTP/1.1" 1.1 host="" uri="*" cl=0 te=[] close=false
+  h={Server:["foo"]}
+  tr={}
+  body="" err="" rest=""
+14 req "GET" "/" "HTTP/1.1" 1.1 host="issue8261.com" uri="/" cl=0 te=[] close=true
+  h={Connection:["close"]}
+  tr={}
+  body="" err="" rest=""
+15 req "HEAD" "/" "HTTP/1.1" 1.1 host="issue8261.com" uri="/" cl=0 te=[] close=true
+  h={Connection:["close"] Content-Length:["0"]}
+  tr={}
+  body="" err="" rest=""
+16 req "PRI" "*" "HTTP/2.0" 2.0 host="" uri="*" cl=-1 te=[] close=true
+  h={}
+  tr={}
+  body="" err="" rest="SM\r\n\r\n"
+17 req err "parse \"http://[]%20%48%54%54%50%2f%31%2e%31%0a%4d%79%48%65%61%64%65%72%3a%20%31%32%33%0a%0a\": invalid port \"%20%48%54%54%50%2f%31%2e%31%0a%4d%79%48%65%61%64%65%72%3a%20%31%32%33%0a%0a\" after host"
+18 req err "http: message cannot contain multiple Content-Length headers; got [\"3\" \"4\"]"
+19 req err "http: message cannot contain multiple Content-Length headers; got [\"4\" \"5\"]"
+20 req err "malformed MIME header initial line: \" Host: foo\""
+21 req err "malformed MIME header initial line: \"\\tHost: foo\""
+22 resp "200 OK" 200 "HTTP/1.0" 1.0 cl=-1 te=[] close=true
+  h={Connection:["close"]}
+  tr={}
+  body="Body here\n" err="" rest=""
+23 resp "200 OK" 200 "HTTP/1.1" 1.1 cl=-1 te=[] close=true
+  h={}
+  tr={}
+  body="Body here\n" err="" rest=""
+24 resp "204 No Content" 204 "HTTP/1.1" 1.1 cl=0 te=[] close=false
+  h={}
+  tr={}
+  body="" err="" rest="Body should not be read!\n"
+25 resp "200 OK" 200 "HTTP/1.0" 1.0 cl=10 te=[] close=true
+  h={Connection:["close"] Content-Length:["10"]}
+  tr={}
+  body="Body here\n" err="" rest=""
+26 resp "200 OK" 200 "HTTP/1.1" 1.1 cl=-1 te=["chunked"] close=false
+  h={}
+  tr={}
+  body="Body here\ncontinued" err="" rest=""
+27 resp "200 OK" 200 "HTTP/1.0" 1.0 cl=10 te=[] close=true
+  h={Connection:["close"] Content-Length:["10"] Trailer:["Content-MD5, Content-Sources"]}
+  tr={}
+  body="Body here\n" err="" rest=""
+28 resp "200 OK" 200 "HTTP/1.1" 1.1 cl=-1 te=["chunked"] close=false
+  h={}
+  tr={}
+  body="Body here\n" err="" rest=""
+29 resp "200 OK" 200 "HTTP/1.1" 1.1 cl=-1 te=["chunked"] close=false
+  h={}
+  tr={}
+  body="" err="" rest=""
+30 resp "200 OK" 200 "HTTP/1.0" 1.0 cl=256 te=[] close=true
+  h={Content-Length:["256"]}
+  tr={}
+  body="" err="" rest=""
+31 resp "200 OK" 200 "HTTP/1.1" 1.1 cl=256 te=[] close=false
+  h={Content-Length:["256"]}
+  tr={}
+  body="" err="" rest=""
+32 resp "200 OK" 200 "HTTP/1.0" 1.0 cl=-1 te=[] close=true
+  h={}
+  tr={}
+  body="" err="" rest=""
+33 resp "200 OK" 200 "HTTP/1.1" 1.1 cl=0 te=[] close=false
+  h={Content-Length:["0"]}
+  tr={}
+  body="" err="" rest=""
+34 resp "303 " 303 "HTTP/1.0" 1.0 cl=-1 te=[] close=true
+  h={}
+  tr={}
+  body="" err="" rest=""
+35 resp "303" 303 "HTTP/1.0" 1.0 cl=-1 te=[] close=true
+  h={}
+  tr={}
+  body="" err="" rest=""
+36 resp "206 Partial Content" 206 "HTTP/1.1" 1.1 cl=-1 te=[] close=true
+  h={Content-Type:["multipart/byteranges; boundary=18a75608c8f47cef"]}
+  tr={}
+  body="some body" err="" rest=""
+37 resp "200 OK" 200 "HTTP/1.0" 1.0 cl=-1 te=[] close=true
+  h={Connection:["close"]}
+  tr={}
+  body="Body here\n" err="" rest=""
+38 resp "206 Partial Content" 206 "HTTP/1.1" 1.1 cl=6 te=[] close=false
+  h={Accept-Ranges:["bytes"] Content-Length:["6"] Content-Range:["bytes 0-5/1862"] Content-Type:["text/plain; charset=utf-8"]}
+  tr={}
+  body="foobar" err="" rest=""
+39 resp "200 OK" 200 "HTTP/1.1" 1.1 cl=256 te=[] close=true
+  h={Content-Length:["256"]}
+  tr={}
+  body="" err="" rest=""
+40 resp "200 OK" 200 "HTTP/1.1" 1.1 cl=256 te=[] close=true
+  h={Content-Length:["256"]}
+  tr={}
+  body="" err="" rest=""
+41 resp "200 OK" 200 "HTTP/1.0" 1.0 cl=-1 te=[] close=true
+  h={}
+  tr={}
+  body="Body here\n" err="" rest=""
+42 resp "200 OK" 200 "HTTP/1.0" 1.0 cl=10 te=[] close=true
+  h={Content-Length:["10"]}
+  tr={}
+  body="Body here\n" err="" rest=""
+43 resp "200 OK" 200 "HTTP/1.1" 1.1 cl=23 te=[] close=false
+  h={Connection:["keep-alive"] Content-Encoding:["gzip"] Content-Length:["23"] Keep-Alive:["timeout=7200"]}
+  tr={}
+  body="\x1f\x8b\b\x00\x00\x00\x00\x00\x00\x00s\xf3\xf7\a\x00\xab'\xd4\x1a\x03\x00\x00\x00" err="" rest=""
+44 resp "401 Unauthorized" 401 "HTTP/1.0" 1.0 cl=-1 te=[] close=true
+  h={Content-Type:["text/html"] Www-Authenticate:["Basic realm=\"\""]}
+  tr={}
+  body="Your Authentication failed.\r\n" err="" rest=""
+45 req err "EOF"
+46 req err "malformed HTTP request \"GET\""
+47 req err "unexpected EOF"
+48 req err "unexpected EOF"
+49 req err "unexpected EOF"
+50 req err "invalid method \"G@T\""
+51 req err "malformed HTTP version \"HTTP/1.x\""
+52 req err "parse \"foo\": invalid URI for request"
+53 req err "malformed HTTP version \"/ HTTP/1.1\""
+54 req "GET" "*" "HTTP/1.1" 1.1 host="" uri="*" cl=0 te=[] close=false
+  h={}
+  tr={}
+  body="" err="" rest=""
+55 req "OPTIONS" "*" "HTTP/1.1" 1.1 host="x" uri="*" cl=0 te=[] close=false
+  h={}
+  tr={}
+  body="" err="" rest=""
+56 req "CONNECT" "//example.com:443" "HTTP/1.1" 1.1 host="example.com:443" uri="example.com:443" cl=0 te=[] close=false
+  h={}
+  tr={}
+  body="" err="" rest=""
+57 req "CONNECT" "/path" "HTTP/1.1" 1.1 host="h" uri="/path" cl=0 te=[] close=false
+  h={}
+  tr={}
+  body="" err="" rest=""
+58 req "GET" "http://user:pw@h.com:81/a%20b?x=1#f" "HTTP/1.1" 1.1 host="h.com:81" uri="http://user:pw@h.com:81/a%20b?x=1#f" cl=0 te=[] close=false
+  h={}
+  tr={}
+  body="" err="" rest=""
+59 req err "too many Host headers"
+60 req "GET" "/" "HTTP/1.1" 1.1 host="" uri="/" cl=0 te=[] close=false
+  h={Cache-Control:["no-cache"] Pragma:["no-cache"]}
+  tr={}
+  body="" err="" rest=""
+61 req "GET" "/" "HTTP/1.0" 1.0 host="" uri="/" cl=0 te=[] close=false
+  h={Connection:["keep-alive"]}
+  tr={}
+  body="" err="" rest=""
+62 req "GET" "/" "HTTP/1.0" 1.0 host="" uri="/" cl=0 te=[] close=true
+  h={}
+  tr={}
+  body="" err="" rest=""
+63 req "GET" "/" "HTTP/1.1" 1.1 host="" uri="/" cl=0 te=[] close=true
+  h={Connection:["foo, Close"]}
+  tr={}
+  body="" err="" rest=""
+64 req "GET" "/" "HTTP/0.9" 0.9 host="" uri="/" cl=0 te=[] close=true
+  h={}
+  tr={}
+  body="" err="" rest=""
+65 req "POST" "/" "HTTP/1.1" 1.1 host="" uri="/" cl=5 te=[] close=false
+  h={Content-Length:["5"]}
+  tr={}
+  body="hello" err="" rest="GET /next HTTP/1.1\r\n\r\n"
+66 req "POST" "/" "HTTP/1.1" 1.1 host="" uri="/" cl=10 te=[] close=false
+  h={Content-Length:["10"]}
+  tr={}
+  body="short" err="unexpected EOF" rest=""
+67 req err "bad Content-Length \"-1\""
+68 req err "invalid empty Content-Length \"\""
+69 req err "bad Content-Length \"1x\""
+70 req "POST" "/" "HTTP/1.1" 1.1 host="" uri="/" cl=3 te=[] close=false
+  h={Content-Length:["3"]}
+  tr={}
+  body="abc" err="" rest=""
+71 req "POST" "/" "HTTP/1.1" 1.1 host="" uri="/" cl=3 te=[] close=false
+  h={Content-Length:["3"]}
+  tr={}
+  body="abc" err="" rest=""
+72 req err "bad Content-Length \"99999999999999999999\""
+73 req "POST" "/" "HTTP/1.1" 1.1 host="" uri="/" cl=-1 te=["chunked"] close=false
+  h={}
+  tr={}
+  body="abc" err="" rest="NEXT"
+74 req "POST" "/" "HTTP/1.1" 1.1 host="" uri="/" cl=-1 te=["chunked"] close=false
+  h={}
+  tr={}
+  body="abcde" err="" rest=""
+75 req err "unsupported transfer encoding: \"gzip\""
+76 req err "too many transfer encodings: [\"chunked\" \"chunked\"]"
+77 req "POST" "/" "HTTP/1.0" 1.0 host="" uri="/" cl=0 te=[] close=true
+  h={}
+  tr={}
+  body="" err="" rest="xyz"
+78 req "POST" "/" "HTTP/1.1" 1.1 host="" uri="/" cl=-1 te=["chunked"] close=false
+  h={}
+  tr={X-A:["1"] X-B:[] X-C:["3"]}
+  body="z" err="" rest="REST"
+79 req err "bad trailer key \"Content-Length\""
+80 req "POST" "/" "HTTP/1.1" 1.1 host="" uri="/" cl=-1 te=["chunked"] close=false
+  h={}
+  tr={X:["1"]}
+  body="" err="" rest=""
+81 req "POST" "/" "HTTP/1.1" 1.1 host="" uri="/" cl=-1 te=["chunked"] close=false
+  h={}
+  tr={}
+  body="" err="http: unexpected EOF reading trailer" rest=""
+82 req "POST" "/" "HTTP/1.1" 1.1 host="" uri="/" cl=-1 te=["chunked"] close=false
+  h={}
+  tr={}
+  body="" err="http: suspiciously long trailer after chunked body" rest=""
+83 req "POST" "/" "HTTP/1.1" 1.1 host="" uri="/" cl=-1 te=["chunked"] close=false
+  h={}
+  tr={}
+  body="ab" err="unexpected EOF" rest=""
+84 req "POST" "/" "HTTP/1.1" 1.1 host="" uri="/" cl=-1 te=["chunked"] close=false
+  h={}
+  tr={}
+  body="abc" err="malformed chunked encoding" rest=""
+85 req "POST" "/" "HTTP/1.1" 1.1 host="" uri="/" cl=-1 te=["chunked"] close=false
+  h={}
+  tr={}
+  body="" err="invalid byte in chunk length" rest=""
+86 req "POST" "/" "HTTP/1.1" 1.1 host="" uri="/" cl=-1 te=["chunked"] close=false
+  h={}
+  tr={}
+  body="" err="chunked line ends with bare LF" rest=""
+87 req "POST" "/" "HTTP/1.1" 1.1 host="" uri="/" cl=-1 te=["chunked"] close=false
+  h={}
+  tr={}
+  body="" err="invalid CR in chunked line" rest=""
+88 req "POST" "/" "HTTP/1.1" 1.1 host="" uri="/" cl=-1 te=["chunked"] close=false
+  h={}
+  tr={}
+  body="" err="empty hex number for chunk length" rest=""
+89 req "POST" "/" "HTTP/1.1" 1.1 host="" uri="/" cl=-1 te=["chunked"] close=false
+  h={}
+  tr={}
+  body="" err="http chunk length too large" rest=""
+90 req "PRI" "*" "HTTP/2.0" 2.0 host="" uri="*" cl=-1 te=[] close=true
+  h={}
+  tr={}
+  body="" err="" rest="SM\r\n\r\n"
+91 req err "malformed MIME header initial line: \" bad: x\""
+92 req err "malformed MIME header: missing colon: \"no colon\""
+93 req err "parse \"/\\x01\": net/url: invalid control character in URL"
+94 req err "parse \"http://[::1\": missing ']' in host"
+95 resp err "unexpected EOF"
+96 resp err "malformed HTTP response \"HTTP/1.1\""
+97 resp err "malformed HTTP status code \"2000\""
+98 resp err "malformed HTTP status code \"abc\""
+99 resp err "malformed HTTP status code \"-12\""
+100 resp "+12 x" 12 "HTTP/1.1" 1.1 cl=-1 te=[] close=true
+  h={}
+  tr={}
+  body="" err="" rest=""
+101 resp "200   OK  " 200 "HTTP/1.1" 1.1 cl=-1 te=[] close=true
+  h={}
+  tr={}
+  body="body" err="" rest=""
+102 resp "200 OK" 200 "HTTP/9.9" 9.9 cl=-1 te=[] close=true
+  h={}
+  tr={}
+  body="" err="" rest=""
+103 resp err "malformed HTTP version \"FOO\""
+104 resp err "unexpected EOF"
+105 resp "200 OK" 200 "HTTP/1.1" 1.1 cl=3 te=[] close=false
+  h={Content-Length:["3"]}
+  tr={}
+  body="abc" err="" rest="def"
+106 resp "200 OK" 200 "HTTP/1.1" 1.1 cl=3 te=[] close=false
+  h={Content-Length:["3"]}
+  tr={}
+  body="" err="" rest=""
+107 resp err "bad Content-Length \"x\""
+108 resp "204 No Content" 204 "HTTP/1.1" 1.1 cl=0 te=[] close=false
+  h={Content-Length:["3"]}
+  tr={}
+  body="" err="" rest="abc"
+109 resp "304 Not Modified" 304 "HTTP/1.1" 1.1 cl=0 te=["chunked"] close=false
+  h={}
+  tr={}
+  body="" err="" rest=""
+110 resp "101 Switching" 101 "HTTP/1.1" 1.1 cl=0 te=[] close=false
+  h={}
+  tr={}
+  body="" err="" rest="raw"
+111 resp "200 OK" 200 "HTTP/1.1" 1.1 cl=2 te=[] close=true
+  h={Content-Length:["2"]}
+  tr={}
+  body="hi" err="" rest=""
+112 resp "200 OK" 200 "HTTP/1.0" 1.0 cl=2 te=[] close=false
+  h={Connection:["keep-alive"] Content-Length:["2"]}
+  tr={}
+  body="hi" err="" rest=""
+113 resp "200 OK" 200 "HTTP/1.1" 1.1 cl=-1 te=["chunked"] close=false
+  h={}
+  tr={Foo:["bar"]}
+  body="hi" err="" rest=""
+114 resp "200 OK" 200 "HTTP/1.1" 1.1 cl=-1 te=[] close=true
+  h={Cache-Control:["max-age=1"] Pragma:["no-cache"]}
+  tr={}
+  body="" err="" rest=""
+115 resp "200 OK" 200 "HTTP/0.0" 0.0 cl=-1 te=[] close=true
+  h={}
+  tr={}
+  body="x" err="" rest=""
+116 chunk body="hello" err="" rest="\r\n"
+117 chunk body="ab" err="" rest="T: v\r\n\r\n"
+118 chunk body="0123456789" err="" rest=""
+119 chunk body="0123456789" err="" rest=""
+120 chunk body="" err="" rest=""
+121 chunk body="" err="unexpected EOF" rest=""
+122 chunk body="hel" err="unexpected EOF" rest=""
+123 chunk body="hello" err="unexpected EOF" rest=""
+124 chunk body="hello" err="unexpected EOF" rest=""
+125 chunk body="hello" err="malformed chunked encoding" rest=""
+126 chunk body="" err="invalid byte in chunk length" rest=""
+127 chunk body="" err="invalid byte in chunk length" rest=""
+128 chunk body="x" err="malformed chunked encoding" rest=""
+129 chunk body="" err="header line too long" rest=""
+130 chunk body="" err="unexpected EOF" rest=""
+131 chunk body="xxxxxxxxxxxxxxxxxx" err="chunked encoding contains too much non-data" rest=""
+132 chunk body="xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" err="" rest=""
+133 chunkw "3\r\nabc\r\n11\r\n0123456789abcdef0\r\n1\r\nx\r\n0\r\n"
+134 chunkw "0\r\n"
+135 chunkw "0\r\n"

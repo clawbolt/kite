@@ -1,0 +1,60 @@
+// 对拍 tests/go/http_wire.go：http.read_request / read_response / chunked_decode / chunked_encode
+use std.fs
+use std.encoding.hex
+use std.strconv
+use std.net.http
+use std.net.url
+use std.net.textproto
+
+fn q(s: Str) -> Str { strconv.quote_go(s) }
+
+fn qb(b: List<Int>) -> Str { strconv.quote_bytes_with(b, 34, false, false) }
+
+fn ql(xs: List<Str>) -> Str { "[" + join(map(xs, q), " ") + "]" }
+
+fn hdr(h: textproto.MIMEHeader) -> Str {
+  "\{" + join(map(h.sorted(), (kv) => kv.0 + ":" + ql(kv.1)), " ") + "\}"
+}
+
+fn main() {
+  let data = unwrap(fs.read("tests/go/testdata/http/wire.txt"))
+  var n = 0
+  for line in split(data, "\n") {
+    if line == "" { continue }
+    let parts = split(line, "|")
+    let a = map(parts[1..], (h) => unwrap(hex.decode(h)))
+    n += 1
+    let op = parts[0]
+    if op == "req" {
+      match http.read_request(a[0]) {
+        Err(e) => print("{n} req err {q(e)}"),
+        Ok(r) => {
+          print(
+            "{n} req {q(r.method)} {q(url.to_str(r.url))} {q(r.proto)} {r.proto_major}.{r.proto_minor} host={q(r.host)} uri={q(r.request_uri)} cl={r.content_length} te={ql(r.transfer_encoding)} close={r.close}",
+          )
+          print("  h=" + hdr(r.header))
+          print("  tr=" + hdr(r.trailer))
+          print("  body={qb(r.body)} err={q(r.body_err)} rest={qb(r.rest)}")
+        },
+      }
+    } else if op == "resp" {
+      match http.read_response(a[1], unwrap(__from_bytes(a[0]))) {
+        Err(e) => print("{n} resp err {q(e)}"),
+        Ok(r) => {
+          print(
+            "{n} resp {q(r.status)} {r.status_code} {q(r.proto)} {r.proto_major}.{r.proto_minor} cl={r.content_length} te={ql(r.transfer_encoding)} close={r.close}",
+          )
+          print("  h=" + hdr(r.header))
+          print("  tr=" + hdr(r.trailer))
+          print("  body={qb(r.body)} err={q(r.body_err)} rest={qb(r.rest)}")
+        },
+      }
+    } else if op == "chunk" {
+      let (b, p, e) = http.chunked_decode(a[0], 0)
+      let rest = if e == "" { a[0][p..] } else { [] }
+      print("{n} chunk body={qb(b)} err={q(e)} rest={qb(rest)}")
+    } else if op == "chunkw" {
+      print("{n} chunkw {qb(http.chunked_encode(a))}")
+    }
+  }
+}
