@@ -38,6 +38,7 @@ use std.fs
 use std.os
 use std.time
 use std.strings
+use std.crypto.rand as crand
 use std.net.netip.{ parse_addr, addr_from4, addr_from16 }
 
 // ───────── 算法 ─────────
@@ -437,6 +438,7 @@ pub type Certificate = {
   require_explicit_policy: Int,
   require_explicit_policy_zero: Bool,
   policy_mappings: List<PolicyMapping>,
+  extra_extensions: List<Extension>, // 仅用于 create_certificate 的模板
 }
 
 const ZERO_TIME: Time = Time { unix: -62135596800, nsec: 0, offset: 0 }
@@ -497,6 +499,7 @@ pub fn empty_certificate() -> Certificate {
     require_explicit_policy: 0,
     require_explicit_policy_zero: false,
     policy_mappings: [],
+    extra_extensions: [],
   }
 }
 
@@ -1560,6 +1563,7 @@ pub type RevocationListEntry = {
   revocation_time: Time,
   reason_code: Int,
   extensions: List<Extension>,
+  extra_extensions: List<Extension>, // 仅用于 create_revocation_list 的模板
 }
 
 pub type RevocationList = {
@@ -1577,6 +1581,7 @@ pub type RevocationList = {
   this_update: Time,
   next_update: Time,
   extensions: List<Extension>,
+  extra_extensions: List<Extension>, // 仅用于 create_revocation_list 的模板
 }
 
 const OID_REASON_CODE: List<Int> = [2, 5, 29, 21]
@@ -1671,6 +1676,7 @@ pub fn parse_revocation_list(der: List<Int>) -> Result<RevocationList, Str> {
         revocation_time: rt,
         reason_code: reason,
         extensions: list,
+        extra_extensions: [],
       })
       revoked = push(revoked, RevokedCertificate {
         serial_number: serial,
@@ -1722,6 +1728,7 @@ pub fn parse_revocation_list(der: List<Int>) -> Result<RevocationList, Str> {
     this_update: this_update,
     next_update: next_update,
     extensions: list,
+    extra_extensions: [],
   })
 }
 
@@ -2415,6 +2422,7 @@ pub type CertificateRequest = {
   email_addresses: List<Str>,
   ip_addresses: List<List<Int>>,
   uris: List<url.URL>,
+  extra_extensions: List<Extension>, // 仅用于 create_certificate_request 的模板
 }
 
 fn csr_ty() -> Ty {
@@ -2590,6 +2598,7 @@ pub fn parse_certificate_request(der: List<Int>) -> Result<CertificateRequest, S
     email_addresses: san.emails,
     ip_addresses: san.ips,
     uris: san.uris,
+    extra_extensions: [],
   })
 }
 
@@ -3940,4 +3949,705 @@ fn policies_valid(chain: List<Certificate>, opts: VerifyOptions) -> Bool {
   }
   if explicit == 0 && len(user) == 0 { return false }
   true
+}
+
+// ───────── 创建证书 / CSR / CRL（x509.go 的 CreateCertificate、CreateCertificateRequest、CreateRevocationList、CreateCRL）─────────
+// Go 的 rand 参数在这里由 std.crypto.rand 提供；RSA PKCS#1 v1.5 和 Ed25519 的结果与 Go 逐字节相同。
+
+pub fn empty_certificate_request() -> CertificateRequest {
+  CertificateRequest {
+    raw: [],
+    raw_tbs_certificate_request: [],
+    raw_subject_public_key_info: [],
+    raw_subject: [],
+    raw_signature_algorithm: [],
+    version: 0,
+    signature: [],
+    signature_algorithm: 0,
+    public_key_algorithm: 0,
+    public_key: PublicKey.NoKey,
+    subject: pkix.empty_name(),
+    attributes: [],
+    extensions: [],
+    dns_names: [],
+    email_addresses: [],
+    ip_addresses: [],
+    uris: [],
+    extra_extensions: [],
+  }
+}
+
+pub fn empty_revocation_list() -> RevocationList {
+  RevocationList {
+    raw: [],
+    raw_tbs_revocation_list: [],
+    raw_issuer: [],
+    raw_signature_algorithm: [],
+    issuer: pkix.empty_name(),
+    authority_key_id: [],
+    signature: [],
+    signature_algorithm: 0,
+    revoked_certificate_entries: [],
+    revoked_certificates: [],
+    number: None,
+    this_update: zero_time(),
+    next_update: zero_time(),
+    extensions: [],
+    extra_extensions: [],
+  }
+}
+
+pub fn empty_revocation_list_entry() -> RevocationListEntry {
+  RevocationListEntry {
+    raw: [],
+    serial_number: big.zero(),
+    revocation_time: zero_time(),
+    reason_code: 0,
+    extensions: [],
+    extra_extensions: [],
+  }
+}
+
+// DER 长度
+fn der_len(n: Int) -> List<Int> {
+  if n < 128 { return [n] }
+  var bs: List<Int> = []
+  var x = n
+  while x > 0 {
+    bs = [x & 255] + bs
+    x = x >> 8
+  }
+  [0x80 | len(bs)] + bs
+}
+
+fn tlv(tag: Int, body: List<Int>) -> List<Int> { [tag] + der_len(len(body)) + body }
+
+fn der_oid(o: List<Int>) -> List<Int> { unwrap_or(asn1.marshal(Val.VOid(o), Ty.TOid), []) }
+
+fn der_big(n: BigInt) -> List<Int> { unwrap_or(asn1.marshal(Val.VBig(Some(n)), Ty.TBig), []) }
+
+fn der_int(n: Int) -> List<Int> { unwrap_or(asn1.marshal(Val.VInt(n), Ty.TInt), []) }
+
+fn der_time(t: Time) -> Result<List<Int>, Str> {
+  asn1.marshal(Val.VTime(Time { offset: 0, ..t }), Ty.TTime)
+}
+
+fn der_bits(b: List<Int>) -> List<Int> { tlv(3, [0] + b) }
+
+fn der_ai(oid: List<Int>, params: List<Int>) -> List<Int> { tlv(0x30, der_oid(oid) + params) }
+
+fn der_exts(exts: List<Extension>) -> Result<List<Int>, Str> {
+  asn1.marshal(
+    Val.VList(map(exts, (e) => Val.VStruct([
+      Val.VOid(e.id),
+      Val.VBool(e.critical),
+      Val.VBytes(e.value),
+    ]))),
+    ext_list_ty(),
+  )
+}
+
+fn rdn_ty() -> Ty {
+  Ty.TSlice("pkix.RDNSequence", [
+    Ty.TSlice("pkix.RelativeDistinguishedNameSET", [
+      Ty.TStruct("AttributeTypeAndValue", [asn1.field(Ty.TOid, ""), asn1.field(Ty.TAny, "")]),
+    ]),
+  ])
+}
+
+fn marshal_rdn(rdns: List<List<AttributeTypeAndValue>>) -> Result<List<Int>, Str> {
+  asn1.marshal(
+    Val.VList(map(rdns, (r) => Val.VList(map(r, (a) => Val.VStruct([Val.VOid(a.typ), a.value]))))),
+    rdn_ty(),
+  )
+}
+
+fn subject_bytes(raw: List<Int>, n: Name) -> Result<List<Int>, Str> {
+  if len(raw) > 0 { return Ok(raw) }
+  marshal_rdn(pkix.to_rdn_sequence(n))
+}
+
+pub fn private_key_public(k: PrivateKey) -> PublicKey {
+  match k {
+    RSAPriv(r) => PublicKey.RSAKey(r.pub_),
+    ECDSAPriv(e) => PublicKey.ECDSAKey(ecdsa.public_key(e)),
+    Ed25519Priv(e) => PublicKey.Ed25519Key(ed25519.public_key(e)),
+    MLDSAPriv(m) => PublicKey.MLDSAKey(m.public_key()),
+    X25519Priv(x) => PublicKey.X25519Key(ecdh.public_key(x)),
+    ECDHPriv(x) => PublicKey.X25519Key(ecdh.public_key(x)),
+  }
+}
+
+fn is_signer(k: PrivateKey) -> Bool {
+  match k {
+    X25519Priv(_) => false,
+    ECDHPriv(_) => false,
+    _ => true,
+  }
+}
+
+const ERR_NOT_SIGNER: Str = "x509: certificate private key does not implement crypto.Signer"
+
+fn mldsa_algo(name: Str) -> Int {
+  if name == "ML-DSA-44" { MLDSA44 } else if name == "ML-DSA-65" { MLDSA65 } else { MLDSA87 }
+}
+
+// signingParamsForKey：返回 (算法, AlgorithmIdentifier 的 DER)
+fn signing_params(key: PrivateKey, sig_algo0: Int) -> Result<(Int, List<Int>), Str> {
+  var pub_type = 0
+  var default_algo = 0
+  match key {
+    RSAPriv(_) => {
+      pub_type = RSA
+      default_algo = SHA256_WITH_RSA
+    },
+    ECDSAPriv(e) => {
+      pub_type = ECDSA
+      if e.curve == 0 || e.curve == 1 {
+        default_algo = ECDSA_WITH_SHA256
+      } else if e.curve == 2 {
+        default_algo = ECDSA_WITH_SHA384
+      } else if e.curve == 3 {
+        default_algo = ECDSA_WITH_SHA512
+      } else {
+        return Err("x509: unsupported elliptic curve")
+      }
+    },
+    Ed25519Priv(_) => {
+      pub_type = ED25519
+      default_algo = PURE_ED25519
+    },
+    MLDSAPriv(m) => {
+      pub_type = MLDSA
+      default_algo = mldsa_algo(m.public_key().params.name)
+    },
+    _ => { return Err("x509: only RSA, ECDSA, ML-DSA and Ed25519 keys supported") },
+  }
+  let sig_algo = if sig_algo0 == 0 { default_algo } else { sig_algo0 }
+  for d in signature_algorithm_details() {
+    if d.algo == sig_algo {
+      if d.pub_algo != pub_type {
+        return Err("x509: requested SignatureAlgorithm does not match private key type")
+      }
+      if pub_type == MLDSA && sig_algo != default_algo {
+        return Err("x509: requested SignatureAlgorithm does not match ML-DSA parameters")
+      }
+      if d.hash == 2 { return Err("x509: signing with MD5 is not supported") }
+      let params = if d.pss {
+        PSS_PARAMS[d.hash - 5]
+      } else if d.pub_algo == RSA {
+        NULL_BYTES
+      } else {
+        []
+      }
+      return Ok((sig_algo, der_ai(d.oid, params)))
+    }
+  }
+  Err("x509: unknown SignatureAlgorithm")
+}
+
+const PSS_PARAMS: List<List<Int>> = [
+  [
+    48, 52, 160, 15, 48, 13, 6, 9, 96, 134, 72, 1, 101, 3, 4, 2, 1, 5, 0, 161, 28, 48, 26, 6, 9, 42,
+    134, 72, 134, 247, 13, 1, 1, 8, 48, 13, 6, 9, 96, 134, 72, 1, 101, 3, 4, 2, 1, 5, 0, 162, 3, 2,
+    1, 32,
+  ],
+  [
+    48, 52, 160, 15, 48, 13, 6, 9, 96, 134, 72, 1, 101, 3, 4, 2, 2, 5, 0, 161, 28, 48, 26, 6, 9, 42,
+    134, 72, 134, 247, 13, 1, 1, 8, 48, 13, 6, 9, 96, 134, 72, 1, 101, 3, 4, 2, 2, 5, 0, 162, 3, 2,
+    1, 48,
+  ],
+  [
+    48, 52, 160, 15, 48, 13, 6, 9, 96, 134, 72, 1, 101, 3, 4, 2, 3, 5, 0, 161, 28, 48, 26, 6, 9, 42,
+    134, 72, 134, 247, 13, 1, 1, 8, 48, 13, 6, 9, 96, 134, 72, 1, 101, 3, 4, 2, 3, 5, 0, 162, 3, 2,
+    1, 64,
+  ],
+]
+
+fn sign_tbs(tbs: List<Int>, key: PrivateKey, algo: Int) -> Result<List<Int>, Str> {
+  var hash = 0
+  var pss = false
+  for d in signature_algorithm_details() {
+    if d.algo == algo {
+      hash = d.hash
+      pss = d.pss
+      break
+    }
+  }
+  let sig = match key {
+    RSAPriv(r) => {
+      let h = digest(hash, tbs)
+      if pss {
+        rsa.sign_pss(crand.read(64), r, hash, h, rsa.PSS_SALT_LENGTH_EQUALS_HASH)?
+      } else {
+        rsa.sign_pkcs1v15(r, hash, h)?
+      }
+    },
+    ECDSAPriv(e) => ecdsa.sign(e, digest(hash, tbs), hash)?,
+    Ed25519Priv(e) => ed25519.sign(e, tbs)?,
+    MLDSAPriv(m) => m.sign(tbs, None)?,
+    _ => { return Err(ERR_NOT_SIGNER) },
+  }
+  if let Err(e) = check_signature(algo, tbs, sig, private_key_public(key), true) {
+    return Err("x509: signature returned by signer is invalid: " + e)
+  }
+  Ok(sig)
+}
+
+// marshalPublicKey：(公钥字节, AlgorithmIdentifier 的 DER)
+fn marshal_public_key(p: PublicKey) -> Result<(List<Int>, List<Int>), Str> {
+  let spki = marshal_pkix_public_key(p)?
+  let Some((body, _)) = cb.read_asn1(spki, cb.SEQUENCE) else { return Err("x509: internal error") }
+  let Some((ai, rest)) = cb.read_asn1_element(body, cb.SEQUENCE) else {
+    return Err("x509: internal error")
+  }
+  let Some((bits, _)) = cb.read_asn1(rest, 3) else { return Err("x509: internal error") }
+  Ok((bits[1..], ai))
+}
+
+fn check_ia5(s: Str) -> Result<(), Str> {
+  for c in __bytes(s) {
+    if c > 127 { return Err("x509: " + strconv.quote_go(s) + " cannot be encoded as an IA5String") }
+  }
+  Ok(())
+}
+
+fn to4(ip: List<Int>) -> List<Int>? {
+  if len(ip) == 4 { return Some(ip) }
+  if len(ip) == 16 && is_v4_mapped(ip) { return Some(ip[12..]) }
+  None
+}
+
+fn marshal_sans(
+  dns: List<Str>,
+  emails: List<Str>,
+  ips: List<List<Int>>,
+  uris: List<url.URL>,
+) -> Result<List<Int>, Str> {
+  var body: List<Int> = []
+  for n in dns {
+    check_ia5(n)?
+    body = body + tlv(0x82, __bytes(n))
+  }
+  for e in emails {
+    check_ia5(e)?
+    body = body + tlv(0x81, __bytes(e))
+  }
+  for ip in ips { body = body + tlv(0x87, unwrap_or(to4(ip), ip)) }
+  for u in uris {
+    let us = url.to_str(u)
+    check_ia5(us)?
+    body = body + tlv(0x86, __bytes(us))
+  }
+  Ok(tlv(0x30, body))
+}
+
+fn reverse_bits(b: Int) -> Int {
+  var out = 0
+  var i = 0
+  while i < 8 {
+    if (b >> i) & 1 == 1 { out = out | (1 << (7 - i)) }
+    i += 1
+  }
+  out
+}
+
+fn bit_length_of(bs: List<Int>) -> Int {
+  var n = len(bs) * 8
+  var i = len(bs) - 1
+  while i >= 0 {
+    var bit = 0
+    while bit < 8 {
+      if (bs[i] >> bit) & 1 == 1 { return n }
+      n -= 1
+      bit += 1
+    }
+    i -= 1
+  }
+  0
+}
+
+fn ext(id: List<Int>, critical: Bool, value: List<Int>) -> Extension {
+  Extension { id: id, critical: critical, value: value }
+}
+
+fn oid_in(oid: List<Int>, exts: List<Extension>) -> Bool { any(exts, (e) => e.id == oid) }
+
+fn ip_and_mask(n: IPNet) -> Result<List<Int>, Str> {
+  let masked = unwrap_or(ip_mask(n.ip, n.mask), [])
+  if len(masked) == 16 && to4(masked) != None {
+    return Err("x509: IP constraint contained IPv4-mapped IPv6 address with a IPv6 mask")
+  }
+  Ok(masked + n.mask)
+}
+
+fn serialise_constraints(
+  dns: List<Str>,
+  ips: List<IPNet>,
+  emails: List<Str>,
+  uris: List<Str>,
+) -> Result<List<Int>, Str> {
+  var out: List<Int> = []
+  for n in dns {
+    check_ia5(n)?
+    out = out + tlv(0x30, tlv(0x82, __bytes(n)))
+  }
+  for ip in ips { out = out + tlv(0x30, tlv(0x87, ip_and_mask(ip)?)) }
+  for e in emails {
+    check_ia5(e)?
+    out = out + tlv(0x30, tlv(0x81, __bytes(e)))
+  }
+  for u in uris {
+    check_ia5(u)?
+    out = out + tlv(0x30, tlv(0x86, __bytes(u)))
+  }
+  Ok(out)
+}
+
+fn build_cert_extensions(
+  t: Certificate,
+  subject_is_empty: Bool,
+  akid: List<Int>,
+  skid: List<Int>,
+) -> Result<List<Extension>, Str> {
+  var ret: List<Extension> = []
+  let extra = t.extra_extensions
+  if t.key_usage != 0 && !oid_in([2, 5, 29, 15], extra) {
+    let a0 = reverse_bits(t.key_usage & 255)
+    let a1 = reverse_bits((t.key_usage >> 8) & 255)
+    let bs = if a1 != 0 { [a0, a1] } else { [a0] }
+    let bl = bit_length_of(bs)
+    ret = push(ret, ext([2, 5, 29, 15], true, tlv(3, [(8 - bl % 8) % 8] + bs)))
+  }
+  if (len(t.ext_key_usage) > 0 || len(t.unknown_ext_key_usage) > 0)
+    && !oid_in([2, 5, 29, 37], extra) {
+    var body: List<Int> = []
+    for u in t.ext_key_usage {
+      let Some(o) = oid_from_ext_key_usage(u) else {
+        return Err("x509: unknown extended key usage")
+      }
+      body = body + der_oid(o)
+    }
+    for o in t.unknown_ext_key_usage { body = body + der_oid(o) }
+    ret = push(ret, ext([2, 5, 29, 37], false, tlv(0x30, body)))
+  }
+  if t.basic_constraints_valid && !oid_in([2, 5, 29, 19], extra) {
+    var mpl = t.max_path_len
+    if mpl == 0 && !t.max_path_len_zero { mpl = -1 }
+    var body: List<Int> = []
+    if t.is_ca { body = body + [1, 1, 0xff] }
+    if mpl != -1 { body = body + der_int(mpl) }
+    ret = push(ret, ext([2, 5, 29, 19], true, tlv(0x30, body)))
+  }
+  if len(skid) > 0 && !oid_in([2, 5, 29, 14], extra) {
+    ret = push(ret, ext([2, 5, 29, 14], false, tlv(4, skid)))
+  }
+  if len(akid) > 0 && !oid_in([2, 5, 29, 35], extra) {
+    ret = push(ret, ext([2, 5, 29, 35], false, tlv(0x30, tlv(0x80, akid))))
+  }
+  if (len(t.ocsp_server) > 0 || len(t.issuing_certificate_url) > 0)
+    && !oid_in([1, 3, 6, 1, 5, 5, 7, 1, 1], extra) {
+    var body: List<Int> = []
+    for n in t.ocsp_server {
+      body = body + tlv(0x30, der_oid([1, 3, 6, 1, 5, 5, 7, 48, 1]) + tlv(0x86, __bytes(n)))
+    }
+    for n in t.issuing_certificate_url {
+      body = body + tlv(0x30, der_oid([1, 3, 6, 1, 5, 5, 7, 48, 2]) + tlv(0x86, __bytes(n)))
+    }
+    ret = push(ret, ext([1, 3, 6, 1, 5, 5, 7, 1, 1], false, tlv(0x30, body)))
+  }
+  if (
+    len(t.dns_names) > 0
+      || len(t.email_addresses) > 0
+      || len(t.ip_addresses) > 0
+      || len(t.uris) > 0
+  )
+    && !oid_in([2, 5, 29, 17], extra) {
+    ret = push(
+      ret,
+      ext(
+        [2, 5, 29, 17],
+        subject_is_empty,
+        marshal_sans(t.dns_names, t.email_addresses, t.ip_addresses, t.uris)?,
+      ),
+    )
+  }
+  if len(t.policies) > 0 && !oid_in([2, 5, 29, 32], extra) {
+    var body: List<Int> = []
+    for p in t.policies {
+      if len(p.der) == 0 { return Err("invalid policy object identifier") }
+      body = body + tlv(0x30, tlv(6, p.der))
+    }
+    ret = push(ret, ext([2, 5, 29, 32], false, tlv(0x30, body)))
+  }
+  if (
+    len(t.permitted_dns_domains) > 0
+      || len(t.excluded_dns_domains) > 0
+      || len(t.permitted_ip_ranges) > 0
+      || len(t.excluded_ip_ranges) > 0
+      || len(t.permitted_email_addresses) > 0
+      || len(t.excluded_email_addresses) > 0
+      || len(t.permitted_uri_domains) > 0
+      || len(t.excluded_uri_domains) > 0
+  )
+    && !oid_in([2, 5, 29, 30], extra) {
+    let permitted = serialise_constraints(
+      t.permitted_dns_domains,
+      t.permitted_ip_ranges,
+      t.permitted_email_addresses,
+      t.permitted_uri_domains,
+    )?
+    let excluded = serialise_constraints(
+      t.excluded_dns_domains,
+      t.excluded_ip_ranges,
+      t.excluded_email_addresses,
+      t.excluded_uri_domains,
+    )?
+    var body: List<Int> = []
+    if len(permitted) > 0 { body = body + tlv(0xa0, permitted) }
+    if len(excluded) > 0 { body = body + tlv(0xa1, excluded) }
+    ret = push(ret, ext([2, 5, 29, 30], t.permitted_dns_domains_critical, tlv(0x30, body)))
+  }
+  if len(t.crl_distribution_points) > 0 && !oid_in([2, 5, 29, 31], extra) {
+    var body: List<Int> = []
+    for n in t.crl_distribution_points {
+      body = body + tlv(0x30, tlv(0xa0, tlv(0xa0, tlv(0x86, __bytes(n)))))
+    }
+    ret = push(ret, ext([2, 5, 29, 31], false, tlv(0x30, body)))
+  }
+  Ok(ret + extra)
+}
+
+// CreateCertificate(rand, template, parent, pub, priv)。Kite 的模板总带序列号（Go 里 nil 时随机生成）。
+pub fn create_certificate(
+  template: Certificate,
+  parent: Certificate,
+  pub_: PublicKey,
+  priv: PrivateKey,
+) -> Result<List<Int>, Str> {
+  if !is_signer(priv) { return Err(ERR_NOT_SIGNER) }
+  let serial = template.serial_number
+  if serial.sign() < 0 { return Err("x509: serial number must be positive") }
+  if template.basic_constraints_valid && template.max_path_len < -1 {
+    return Err("x509: invalid MaxPathLen, must be greater or equal to -1")
+  }
+  if template.basic_constraints_valid
+    && !template.is_ca
+    && template.max_path_len != -1
+    && (template.max_path_len != 0 || template.max_path_len_zero) {
+    return Err("x509: only CAs are allowed to specify MaxPathLen")
+  }
+  let (sig_algo, ai) = signing_params(priv, template.signature_algorithm)?
+  let (pk_bytes, pk_ai) = marshal_public_key(pub_)?
+  if let X25519Key(k) = pub_ {
+    if k.curve == 0 { return Err("x509: unsupported public key type: *ecdh.PublicKey") }
+  }
+  let issuer = subject_bytes(parent.raw_subject, parent.subject)?
+  let subject = subject_bytes(template.raw_subject, template.subject)?
+  var akid = template.authority_key_id
+  if issuer != subject && len(parent.subject_key_id) > 0 { akid = parent.subject_key_id }
+  var skid = template.subject_key_id
+  if len(skid) == 0 && template.is_ca { skid = sha256.digest(pk_bytes)[..20] }
+  if parent.public_key != PublicKey.NoKey && private_key_public(priv) != parent.public_key {
+    return Err("x509: provided PrivateKey doesn't match parent's PublicKey")
+  }
+  let exts = build_cert_extensions(template, subject == [0x30, 0], akid, skid)?
+  var body = tlv(0xa0, der_int(2)) + der_big(serial) + ai + issuer
+  body = body + tlv(0x30, der_time(template.not_before)? + der_time(template.not_after)?) + subject
+  body = body + tlv(0x30, pk_ai + der_bits(pk_bytes))
+  if len(exts) > 0 { body = body + tlv(0xa3, der_exts(exts)?) }
+  let tbs = tlv(0x30, body)
+  let sig = sign_tbs(tbs, priv, sig_algo)?
+  Ok(tlv(0x30, tbs + ai + der_bits(sig)))
+}
+
+const OID_EXT_REQUEST: List<Int> = [1, 2, 840, 113549, 1, 9, 14]
+
+// CreateCertificateRequest(rand, template, priv)
+pub fn create_certificate_request(
+  template: CertificateRequest,
+  priv: PrivateKey,
+) -> Result<List<Int>, Str> {
+  if !is_signer(priv) { return Err(ERR_NOT_SIGNER) }
+  let (sig_algo, ai) = signing_params(priv, template.signature_algorithm)?
+  let (pk_bytes, pk_ai) = marshal_public_key(private_key_public(priv))?
+  var exts: List<Extension> = []
+  if (
+    len(template.dns_names) > 0
+      || len(template.email_addresses) > 0
+      || len(template.ip_addresses) > 0
+      || len(template.uris) > 0
+  )
+    && !oid_in([2, 5, 29, 17], template.extra_extensions) {
+    exts = [
+      ext(
+        [2, 5, 29, 17],
+        false,
+        marshal_sans(
+          template.dns_names,
+          template.email_addresses,
+          template.ip_addresses,
+          template.uris,
+        )?,
+      ),
+    ]
+  }
+  exts = exts + template.extra_extensions
+  var attrs = template.attributes
+  var appended = false
+  if len(exts) > 0 {
+    var k = 0
+    while k < len(attrs) {
+      let a = attrs[k]
+      if a.typ != OID_EXT_REQUEST || len(a.value) == 0 {
+        k += 1
+        continue
+      }
+      var specified: List<List<Int>> = []
+      for atvs in a.value { for atv in atvs { specified = push(specified, atv.typ) } }
+      var nv = a.value[0]
+      for e in exts {
+        if contains(specified, e.id) { continue }
+        nv = push(nv, AttributeTypeAndValue { typ: e.id, value: Val.VBytes(e.value) })
+      }
+      attrs = attrs[..k] + [AttributeTypeAndValueSET { typ: a.typ, value: [nv] + a.value[
+        1..
+      ] }] + attrs[k + 1..]
+      appended = true
+      break
+    }
+  }
+  var raw_attrs: List<Int> = []
+  for a in attrs {
+    raw_attrs = raw_attrs + asn1.marshal(
+      Val.VStruct([
+        Val.VOid(a.typ),
+        Val.VList(map(a.value, (r) => Val.VList(map(r, (x) => Val.VStruct([
+          Val.VOid(x.typ),
+          x.value,
+        ]))))),
+      ]),
+      atv_set_ty(),
+    )?
+  }
+  if len(exts) > 0 && !appended {
+    let e = match der_exts(exts) {
+      Ok(x) => x,
+      Err(m) => { return Err("x509: failed to serialise extensions attribute: " + m) },
+    }
+    raw_attrs = raw_attrs + tlv(0x30, der_oid(OID_EXT_REQUEST) + tlv(0x31, e))
+  }
+  let subject = subject_bytes(template.raw_subject, template.subject)?
+  let tbs = tlv(
+    0x30,
+    der_int(0) + subject + tlv(0x30, pk_ai + der_bits(pk_bytes)) + tlv(0xa0, raw_attrs),
+  )
+  let sig = sign_tbs(tbs, priv, sig_algo)?
+  Ok(tlv(0x30, tbs + ai + der_bits(sig)))
+}
+
+fn der_revoked(rcs: List<RevokedCertificate>) -> Result<List<Int>, Str> {
+  var body: List<Int> = []
+  for rc in rcs {
+    var b = der_big(rc.serial_number) + der_time(rc.revocation_time)?
+    if len(rc.extensions) > 0 { b = b + der_exts(rc.extensions)? }
+    body = body + tlv(0x30, b)
+  }
+  Ok(tlv(0x30, body))
+}
+
+// CreateRevocationList(rand, template, issuer, priv)
+pub fn create_revocation_list(
+  template: RevocationList,
+  issuer: Certificate,
+  priv: PrivateKey,
+) -> Result<List<Int>, Str> {
+  if !is_signer(priv) { return Err(ERR_NOT_SIGNER) }
+  if issuer.key_usage & KEY_USAGE_CRL_SIGN == 0 {
+    return Err("x509: issuer must have the crlSign key usage bit set")
+  }
+  if len(issuer.subject_key_id) == 0 {
+    return Err("x509: issuer certificate doesn't contain a subject key identifier")
+  }
+  if time_before(template.next_update, template.this_update) {
+    return Err("x509: template.ThisUpdate is after template.NextUpdate")
+  }
+  let Some(number) = template.number else { return Err("x509: template contains nil Number field") }
+  let (sig_algo, ai) = signing_params(priv, template.signature_algorithm)?
+  var revoked: List<RevokedCertificate> = []
+  if len(template.revoked_certificates) > 0 && len(template.revoked_certificate_entries) == 0 {
+    revoked = template.revoked_certificates
+  } else {
+    for rce in template.revoked_certificate_entries {
+      if rce.revocation_time == zero_time() {
+        return Err("x509: template contains entry with zero RevocationTime field")
+      }
+      var exts: List<Extension> = []
+      for e in rce.extra_extensions {
+        if e.id == OID_REASON_CODE {
+          return Err(
+            "x509: template contains entry with ReasonCode ExtraExtension; use ReasonCode field instead",
+          )
+        }
+        exts = push(exts, e)
+      }
+      if rce.reason_code != 0 {
+        exts = push(exts, ext(OID_REASON_CODE, false, tlv(10, int_be(rce.reason_code))))
+      }
+      revoked = push(revoked, RevokedCertificate {
+        serial_number: rce.serial_number,
+        revocation_time: rce.revocation_time,
+        extensions: exts,
+      })
+    }
+  }
+  let aki = tlv(0x30, tlv(0x80, issuer.subject_key_id))
+  let nb = number.bytes()
+  if len(nb) > 20 || (len(nb) == 20 && nb[0] & 0x80 != 0) {
+    return Err("x509: CRL number exceeds 20 octets")
+  }
+  let iss = subject_bytes(issuer.raw_subject, issuer.subject)?
+  var body = der_int(1) + ai + iss + der_time(template.this_update)? + der_time(
+    template.next_update,
+  )?
+  if len(revoked) > 0 { body = body + der_revoked(revoked)? }
+  let exts = [
+    ext(OID_AKID, false, aki),
+    ext(OID_CRL_NUMBER, false, der_big(number)),
+  ] + template.extra_extensions
+  body = body + tlv(0xa0, der_exts(exts)?)
+  let tbs = tlv(0x30, body)
+  let sig = sign_tbs(tbs, priv, sig_algo)?
+  Ok(tlv(0x30, tbs + ai + der_bits(sig)))
+}
+
+// asn1.Marshal(asn1.Enumerated(n)) 的内容字节
+fn int_be(n: Int) -> List<Int> {
+  let d = der_int(n)
+  d[2..]
+}
+
+// Certificate.CreateCRL（已弃用的 v1 接口）：issuer 由 Subject 重新编码，revoked 总会写出（可能为空 SEQUENCE）
+pub fn certificate_create_crl(
+  c: Certificate,
+  priv: PrivateKey,
+  revoked: List<RevokedCertificate>,
+  now: Time,
+  expiry: Time,
+) -> Result<List<Int>, Str> {
+  if !is_signer(priv) { return Err(ERR_NOT_SIGNER) }
+  let (sig_algo, ai) = signing_params(priv, 0)?
+  var body = der_int(1) + ai + marshal_rdn(pkix.to_rdn_sequence(c.subject))?
+  body = body + der_time(now)?
+  if expiry != zero_time() { body = body + der_time(expiry)? }
+  body = body + der_revoked(revoked)?
+  if len(c.subject_key_id) > 0 {
+    body = body + tlv(
+      0xa0,
+      der_exts([ext(OID_AKID, false, tlv(0x30, tlv(0x80, c.subject_key_id)))])?,
+    )
+  }
+  let tbs = tlv(0x30, body)
+  let sig = sign_tbs(tbs, priv, sig_algo)?
+  Ok(tlv(0x30, tbs + ai + der_bits(sig)))
 }

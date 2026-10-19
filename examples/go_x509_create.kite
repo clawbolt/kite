@@ -1,0 +1,708 @@
+// crypto/x509 的 CreateCertificate / CreateCertificateRequest / CreateRevocationList / CreateCRL 对拍（tests/go/x509_create.go）
+//   RSA PKCS#1 v1.5 和 Ed25519 签名是确定的，比较整份 DER；ECDSA、PSS、ML-DSA 带随机数，比较 TBS 并验签
+use std.fs
+use std.encoding.pem
+use std.encoding.hex
+use std.encoding.asn1.{ Val, Time }
+use std.math.big
+use std.math.big.{ BigInt }
+use std.net.url
+use std.net.netip
+use std.crypto.x509
+use std.crypto.x509.{
+  Certificate,
+  CertificateRequest,
+  RevocationList,
+  RevocationListEntry,
+  PrivateKey,
+  PublicKey,
+  IPNet,
+  OID,
+}
+use std.crypto.x509.pkix
+use std.crypto.x509.pkix.{ Name, Extension, AttributeTypeAndValue, RevokedCertificate }
+
+fn load_keys() -> List<PrivateKey> {
+  var data = unwrap(fs.read("tests/go/testdata/x509/keys.pem"))
+  var out: List<PrivateKey> = []
+  while true {
+    let (b, rest) = pem.decode(data)
+    data = rest
+    let Some(blk) = b else { break }
+    if blk.typ == "RSA PRIVATE KEY" {
+      out = push(out, PrivateKey.RSAPriv(unwrap(x509.parse_pkcs1_private_key(blk.bytes))))
+    } else if blk.typ == "EC PRIVATE KEY" {
+      out = push(out, PrivateKey.ECDSAPriv(unwrap(x509.parse_ec_private_key(blk.bytes))))
+    } else {
+      out = push(out, unwrap(x509.parse_pkcs8_private_key(blk.bytes)))
+    }
+  }
+  out
+}
+
+fn pubk(k: PrivateKey) -> PublicKey { x509.private_key_public(k) }
+
+fn deterministic(k: PrivateKey, algo: Int) -> Bool {
+  match k {
+    RSAPriv(_) => algo != x509.SHA256_WITH_RSAPSS
+      && algo != x509.SHA384_WITH_RSAPSS
+      && algo != x509.SHA512_WITH_RSAPSS,
+    Ed25519Priv(_) => true,
+    _ => false,
+  }
+}
+
+fn hx(b: List<Int>) -> Str { hex.encode_bytes(b) }
+
+fn errs(r: Result<(), Str>) -> Str {
+  match r {
+    Ok(_) => "<nil>",
+    Err(e) => e,
+  }
+}
+
+fn leap(y: Int) -> Bool { (y % 4 == 0 && y % 100 != 0) || y % 400 == 0 }
+
+fn date(y: Int, mo: Int, d: Int, h: Int, mi: Int, s: Int, offset: Int) -> Time {
+  var days = 0
+  if y >= 1970 {
+    var yy = 1970
+    while yy < y {
+      days += if leap(yy) { 366 } else { 365 }
+      yy += 1
+    }
+  } else {
+    var yy = y
+    while yy < 1970 {
+      days -= if leap(yy) { 366 } else { 365 }
+      yy += 1
+    }
+  }
+  let ml = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
+  var m = 1
+  while m < mo {
+    days += ml[m - 1]
+    if m == 2 && leap(y) { days += 1 }
+    m += 1
+  }
+  days += d - 1
+  Time { unix: days * 86400 + h * 3600 + mi * 60 + s - offset, nsec: 0, offset: offset }
+}
+
+fn oid(xs: List<Int>) -> OID { unwrap(x509.oid_from_ints(xs)) }
+
+// net.ParseIP：IPv4 也返回 16 字节
+fn parse_ip(s: Str) -> List<Int> {
+  let a = unwrap(netip.parse_addr(s))
+  if a.is4() { [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 255, 255] + a.as_slice() } else { a.as_slice() }
+}
+
+fn cidr(ones: Int, bits: Int) -> List<Int> {
+  var out: List<Int> = []
+  var i = 0
+  while i < bits / 8 {
+    let n = ones - i * 8
+    out = push(out, if n >= 8 { 255 } else if n <= 0 { 0 } else { (255 << (8 - n)) & 255 })
+    i += 1
+  }
+  out
+}
+
+fn cert(
+  name: Str,
+  t: Certificate,
+  parent0: Option<Certificate>,
+  pk: PublicKey,
+  priv: PrivateKey,
+) -> Option<Certificate> {
+  let parent = unwrap_or(parent0, t)
+  let der = match x509.create_certificate(t, parent, pk, priv) {
+    Ok(d) => d,
+    Err(e) => {
+      print("cert " + name + ": ERR " + e)
+      return None
+    },
+  }
+  let c = match x509.parse_certificate(der) {
+    Ok(c) => c,
+    Err(e) => {
+      print("cert " + name + ": PARSE ERR " + e)
+      return None
+    },
+  }
+  if deterministic(priv, t.signature_algorithm) {
+    print("cert " + name + ": der " + hx(der))
+  } else {
+    print("cert " + name + ": tbs " + hx(c.raw_tbs_certificate))
+  }
+  let p = if parent0 == None { c } else { parent }
+  print(
+    "  algo " + x509.signature_algorithm_string(c.signature_algorithm) + " check " + errs(
+      x509.check_signature_from(c, p),
+    ),
+  )
+  Some(c)
+}
+
+fn csr(name: Str, t: CertificateRequest, priv: PrivateKey) {
+  let der = match x509.create_certificate_request(t, priv) {
+    Ok(d) => d,
+    Err(e) => {
+      print("csr " + name + ": ERR " + e)
+      return
+    },
+  }
+  let c = unwrap(x509.parse_certificate_request(der))
+  if deterministic(priv, t.signature_algorithm) {
+    print("csr " + name + ": der " + hx(der))
+  } else {
+    print("csr " + name + ": tbs " + hx(c.raw_tbs_certificate_request))
+  }
+  print(
+    "  algo " + x509.signature_algorithm_string(c.signature_algorithm) + " check " + errs(
+      x509.certificate_request_check_signature(c),
+    ),
+  )
+}
+
+fn crl(name: Str, t: RevocationList, issuer: Certificate, priv: PrivateKey) {
+  let der = match x509.create_revocation_list(t, issuer, priv) {
+    Ok(d) => d,
+    Err(e) => {
+      print("crl " + name + ": ERR " + e)
+      return
+    },
+  }
+  let c = unwrap(x509.parse_revocation_list(der))
+  if deterministic(priv, t.signature_algorithm) {
+    print("crl " + name + ": der " + hx(der))
+  } else {
+    print("crl " + name + ": tbs " + hx(c.raw_tbs_revocation_list))
+  }
+  print(
+    "  algo " + x509.signature_algorithm_string(c.signature_algorithm) + " check " + errs(
+      x509.revocation_list_check_signature_from(c, issuer),
+    ),
+  )
+}
+
+fn ex(id: List<Int>, critical: Bool, value: List<Int>) -> Extension {
+  Extension { id: id, critical: critical, value: value }
+}
+
+fn name_cn(cn: Str) -> Name { Name { common_name: cn, ..pkix.empty_name() } }
+
+fn main() {
+  let ks = load_keys()
+  let rsa_k = ks[0]
+  let rsa2 = ks[1]
+  let p224 = ks[2]
+  let p256 = ks[3]
+  let p384 = ks[4]
+  let p521 = ks[5]
+  let ed_k = ks[11]
+  let x_k = ks[12]
+  let ml_k = ks[13]
+  let curves = ["P-224", "P-256", "P-384", "P-521"]
+  var i = 0
+  for k in [p224, p256, p384, p521] {
+    let ECDSAPriv(e) = k else { break }
+    print("curve", i, curves[e.curve])
+    i += 1
+  }
+  let nb = date(2021, 3, 4, 5, 6, 7, 0)
+  let na = date(2031, 3, 4, 5, 6, 7, 0)
+  let base = Certificate { not_before: nb, not_after: na, ..x509.empty_certificate() }
+
+  let full = Name {
+    country: ["US", "CA"],
+    organization: ["Kite Create"],
+    organizational_unit: ["Unit"],
+    locality: ["Town"],
+    province: ["State"],
+    street_address: ["1 Road"],
+    postal_code: ["12345"],
+    serial_number: "42",
+    common_name: "Create Root",
+    names: [],
+    extra_names: Some([AttributeTypeAndValue {
+      typ: [1, 2, 840, 113549, 1, 9, 1],
+      value: Val.VStr("root@example.com"),
+    }]),
+  }
+  let root = Certificate {
+    serial_number: big.new_int(1),
+    subject: full,
+    is_ca: true,
+    basic_constraints_valid: true,
+    max_path_len: 2,
+    key_usage: x509.KEY_USAGE_CERT_SIGN | x509.KEY_USAGE_CRL_SIGN | x509.KEY_USAGE_DIGITAL_SIGNATURE,
+    ext_key_usage: [x509.EXT_KEY_USAGE_SERVER_AUTH, x509.EXT_KEY_USAGE_OCSP_SIGNING],
+    unknown_ext_key_usage: [[1, 2, 3, 4]],
+    ocsp_server: ["http://ocsp.example.com"],
+    issuing_certificate_url: ["http://ca.example.com/ca.crt", "ldap://x"],
+    crl_distribution_points: ["http://crl.example.com/a.crl", "http://crl2.example.com/b.crl"],
+    policies: [oid([2, 23, 140, 1, 2, 1]), oid([1, 3, 6, 1, 4, 1, 99999, 1])],
+    permitted_dns_domains_critical: true,
+    permitted_dns_domains: ["example.com", ".example.org"],
+    excluded_dns_domains: ["bad.example.com"],
+    permitted_ip_ranges: [
+      IPNet { ip: [192, 168, 0, 0], mask: cidr(16, 32) },
+      IPNet { ip: parse_ip("2001:db8::"), mask: cidr(32, 128) },
+    ],
+    excluded_ip_ranges: [IPNet { ip: [192, 168, 1, 7], mask: cidr(24, 32) }],
+    permitted_email_addresses: ["example.com"],
+    excluded_email_addresses: ["x@example.com"],
+    permitted_uri_domains: [".example.com"],
+    excluded_uri_domains: ["evil.example.com"],
+    extra_extensions: [ex([1, 2, 3, 4, 5], false, [4, 2, 0xab, 0xcd])],
+    ..base
+  }
+  let rc = unwrap(cert("root", root, None, pubk(rsa_k), rsa_k))
+
+  let u = unwrap(url.parse("https://www.example.com/a?b=c"))
+  let leaf = Certificate {
+    serial_number: big.new_int(1000),
+    subject: Name { organization: ["Ünïcode Org"], ..name_cn("leaf") },
+    key_usage: x509.KEY_USAGE_DIGITAL_SIGNATURE,
+    ext_key_usage: [x509.EXT_KEY_USAGE_SERVER_AUTH],
+    dns_names: ["www.example.com", "*.example.com"],
+    email_addresses: ["a@example.com"],
+    ip_addresses: [[10, 0, 0, 1], parse_ip("2001:db8::1"), parse_ip("192.0.2.9")],
+    uris: [u],
+    signature_algorithm: x509.SHA384_WITH_RSA,
+    ..base
+  }
+  cert("leaf", leaf, Some(rc), pubk(p256), rsa_k)
+  let empty = Certificate {
+    serial_number: big.new_int(1).lsh(150),
+    dns_names: ["empty.example.com"],
+    signature_algorithm: x509.SHA512_WITH_RSA,
+    basic_constraints_valid: true,
+    max_path_len: -1,
+    ..base
+  }
+  cert("empty-subject", empty, Some(rc), pubk(rsa2), rsa_k)
+  let sha1c = Certificate {
+    serial_number: big.new_int(0),
+    subject: name_cn("sha1"),
+    not_before: date(1949, 12, 31, 23, 59, 59, 0),
+    not_after: date(2050, 1, 1, 0, 0, 0, 3600),
+    signature_algorithm: x509.SHA1_WITH_RSA,
+    subject_key_id: [1, 2, 3],
+    authority_key_id: [9, 9],
+    ..base
+  }
+  cert("sha1-times", sha1c, Some(rc), pubk(rsa2), rsa_k)
+  let self_ = Certificate {
+    serial_number: big.new_int(77),
+    subject: name_cn("self"),
+    authority_key_id: [5, 5, 5],
+    raw_subject: [
+      0x30, 0x0f, 0x31, 0x0d, 0x30, 0x0b, 0x06, 0x03, 0x55, 0x04, 0x03, 0x0c, 0x04, 0x72, 0x61,
+      0x77, 0x21,
+    ],
+    ..base
+  }
+  cert("raw-subject", self_, None, pubk(rsa_k), rsa_k)
+  let ed_root = Certificate {
+    serial_number: big.new_int(5),
+    subject: name_cn("Ed Root"),
+    is_ca: true,
+    basic_constraints_valid: true,
+    max_path_len_zero: true,
+    key_usage: x509.KEY_USAGE_CERT_SIGN | x509.KEY_USAGE_CRL_SIGN,
+    ..base
+  }
+  let ec = unwrap(cert("ed-root", ed_root, None, pubk(ed_k), ed_k))
+  cert(
+    "ed-leaf-mldsa",
+    Certificate { serial_number: big.new_int(6), subject: name_cn("pq"), ..base },
+    Some(ec),
+    pubk(ml_k),
+    ed_k,
+  )
+  cert(
+    "ed-leaf-x25519",
+    Certificate { serial_number: big.new_int(7), ..base },
+    Some(ec),
+    pubk(x_k),
+    ed_k,
+  )
+  let pss = Certificate {
+    serial_number: big.new_int(8),
+    subject: name_cn("pss"),
+    signature_algorithm: x509.SHA256_WITH_RSAPSS,
+    ..base
+  }
+  cert("pss256", pss, Some(rc), pubk(p384), rsa_k)
+  cert(
+    "pss512",
+    Certificate { signature_algorithm: x509.SHA512_WITH_RSAPSS, ..pss },
+    Some(rc),
+    pubk(p384),
+    rsa_k,
+  )
+  i = 0
+  for k in [p224, p256, p384, p521] {
+    let t = Certificate {
+      serial_number: big.new_int(20 + i),
+      subject: name_cn("ec {i}"),
+      is_ca: true,
+      basic_constraints_valid: true,
+      key_usage: x509.KEY_USAGE_CERT_SIGN,
+      ..base
+    }
+    cert("ec{i}", t, None, pubk(k), k)
+    i += 1
+  }
+  cert(
+    "ecdsa-sha512",
+    Certificate {
+      serial_number: big.new_int(30),
+      signature_algorithm: x509.ECDSA_WITH_SHA512,
+      subject: name_cn("e"),
+      ..base
+    },
+    None,
+    pubk(p256),
+    p256,
+  )
+  cert(
+    "mldsa",
+    Certificate {
+      serial_number: big.new_int(31),
+      subject: name_cn("ml"),
+      is_ca: true,
+      basic_constraints_valid: true,
+      ..base
+    },
+    None,
+    pubk(ml_k),
+    ml_k,
+  )
+  let bad = Certificate { serial_number: big.new_int(99), subject: name_cn("bad"), ..base }
+  cert(
+    "neg-serial",
+    Certificate { serial_number: big.new_int(-5), ..bad },
+    None,
+    pubk(rsa_k),
+    rsa_k,
+  )
+  cert(
+    "maxpath-2",
+    Certificate { basic_constraints_valid: true, is_ca: true, max_path_len: -2, ..bad },
+    None,
+    pubk(rsa_k),
+    rsa_k,
+  )
+  cert(
+    "nonca-maxpath",
+    Certificate { basic_constraints_valid: true, max_path_len: 1, ..bad },
+    None,
+    pubk(rsa_k),
+    rsa_k,
+  )
+  cert(
+    "nonca-zero",
+    Certificate { basic_constraints_valid: true, max_path_len_zero: true, ..bad },
+    None,
+    pubk(rsa_k),
+    rsa_k,
+  )
+  cert(
+    "algo-mismatch",
+    Certificate { signature_algorithm: x509.ECDSA_WITH_SHA256, ..bad },
+    None,
+    pubk(rsa_k),
+    rsa_k,
+  )
+  cert(
+    "md5",
+    Certificate { signature_algorithm: x509.MD5_WITH_RSA, ..bad },
+    None,
+    pubk(rsa_k),
+    rsa_k,
+  )
+  cert("unknown-algo", Certificate { signature_algorithm: 100, ..bad }, None, pubk(rsa_k), rsa_k)
+  cert(
+    "dsa-algo",
+    Certificate { signature_algorithm: x509.DSA_WITH_SHA256, ..bad },
+    None,
+    pubk(rsa_k),
+    rsa_k,
+  )
+  cert(
+    "mldsa-params",
+    Certificate { signature_algorithm: x509.MLDSA65, ..bad },
+    None,
+    pubk(ml_k),
+    ml_k,
+  )
+  cert("x25519-signer", bad, None, pubk(x_k), x_k)
+  cert("wrong-parent-key", bad, Some(rc), pubk(p256), rsa2)
+  cert("ia5", Certificate { dns_names: ["é.example.com"], ..bad }, None, pubk(rsa_k), rsa_k)
+  cert("ia5-email", Certificate { email_addresses: ["ü@x"], ..bad }, None, pubk(rsa_k), rsa_k)
+  cert(
+    "ia5-constraint",
+    Certificate { excluded_dns_domains: ["ö.com"], ..bad },
+    None,
+    pubk(rsa_k),
+    rsa_k,
+  )
+  cert("unknown-eku", Certificate { ext_key_usage: [99], ..bad }, None, pubk(rsa_k), rsa_k)
+  cert("empty-policy", Certificate { policies: [OID { der: [] }], ..bad }, None, pubk(rsa_k), rsa_k)
+  cert(
+    "mapped-v6mask",
+    Certificate {
+      permitted_ip_ranges: [IPNet { ip: parse_ip("::ffff:10.0.0.0"), mask: cidr(104, 128) }],
+      ..bad
+    },
+    None,
+    pubk(rsa_k),
+    rsa_k,
+  )
+  cert(
+    "v4-in-16",
+    Certificate {
+      permitted_ip_ranges: [IPNet { ip: parse_ip("10.0.0.0"), mask: cidr(8, 32) }],
+      ..bad
+    },
+    None,
+    pubk(rsa_k),
+    rsa_k,
+  )
+  cert(
+    "extra-overrides",
+    Certificate {
+      key_usage: x509.KEY_USAGE_DIGITAL_SIGNATURE | x509.KEY_USAGE_DECIPHER_ONLY,
+      dns_names: ["x.example.com"],
+      extra_extensions: [ex([2, 5, 29, 17], true, [0x30, 0])],
+      ..bad
+    },
+    None,
+    pubk(rsa_k),
+    rsa_k,
+  )
+  cert(
+    "ku-encipher",
+    Certificate { key_usage: x509.KEY_USAGE_ENCIPHER_ONLY | x509.KEY_USAGE_KEY_AGREEMENT, ..bad },
+    None,
+    pubk(rsa_k),
+    rsa_k,
+  )
+
+  let ec0 = x509.empty_certificate_request()
+  csr(
+    "csr-rsa",
+    CertificateRequest {
+      subject: full,
+      dns_names: ["a.example.com"],
+      ip_addresses: [[1, 2, 3, 4]],
+      extra_extensions: [ex([1, 2, 3], true, [5, 0])],
+      ..ec0
+    },
+    rsa_k,
+  )
+  let pw = [1, 2, 840, 113549, 1, 9, 7]
+  let er = [1, 2, 840, 113549, 1, 9, 14]
+  csr(
+    "csr-attrs",
+    CertificateRequest {
+      subject: name_cn("attrs"),
+      email_addresses: ["e@example.com"],
+      attributes: [
+        x509.AttributeTypeAndValueSET { typ: pw, value: [[AttributeTypeAndValue {
+          typ: pw,
+          value: Val.VStr("secret"),
+        }]] },
+        x509.AttributeTypeAndValueSET {
+          typ: er,
+          value: [
+            [
+              AttributeTypeAndValue { typ: [2, 5, 29, 15], value: Val.VBytes([3, 2, 7, 0x80]) },
+              AttributeTypeAndValue { typ: [2, 5, 29, 17], value: Val.VBytes([0x30, 0]) },
+            ],
+          ],
+        },
+      ],
+      signature_algorithm: x509.SHA256_WITH_RSA,
+      ..ec0
+    },
+    rsa2,
+  )
+  csr(
+    "csr-plain-attr",
+    CertificateRequest {
+      subject: name_cn("plain"),
+      attributes: [x509.AttributeTypeAndValueSET { typ: pw, value: [[AttributeTypeAndValue {
+        typ: pw,
+        value: Val.VStr("pw"),
+      }]] }],
+      ..ec0
+    },
+    ed_k,
+  )
+  csr("csr-ed", CertificateRequest { raw_subject: [0x30, 0], uris: [u], ..ec0 }, ed_k)
+  csr(
+    "csr-ec",
+    CertificateRequest {
+      subject: name_cn("ec csr"),
+      signature_algorithm: x509.ECDSA_WITH_SHA384,
+      ..ec0
+    },
+    p521,
+  )
+  csr(
+    "csr-pss",
+    CertificateRequest {
+      subject: name_cn("pss csr"),
+      signature_algorithm: x509.SHA384_WITH_RSAPSS,
+      ..ec0
+    },
+    rsa_k,
+  )
+  csr("csr-ml", CertificateRequest { subject: name_cn("ml csr"), ..ec0 }, ml_k)
+  csr("csr-x25519", CertificateRequest { subject: name_cn("x"), ..ec0 }, x_k)
+  csr(
+    "csr-mismatch",
+    CertificateRequest { subject: name_cn("x"), signature_algorithm: x509.PURE_ED25519, ..ec0 },
+    rsa_k,
+  )
+
+  let t1 = date(2024, 5, 6, 7, 8, 9, 0)
+  let t2 = date(2024, 6, 6, 7, 8, 9, -7 * 3600)
+  let e0 = x509.empty_revocation_list_entry()
+  let entries = [
+    RevocationListEntry {
+      serial_number: big.new_int(1000),
+      revocation_time: t1,
+      reason_code: 1,
+      ..e0
+    },
+    RevocationListEntry {
+      serial_number: big.new_int(1001),
+      revocation_time: Time { unix: t1.unix + 3600, ..t1 },
+      extra_extensions: [ex([2, 5, 29, 24], false, [0x18, 0x0f] + __bytes("20240101000000Z"))],
+      ..e0
+    },
+    RevocationListEntry {
+      serial_number: big.new_int(1).lsh(100),
+      revocation_time: date(2060, 1, 1, 0, 0, 0, 0),
+      ..e0
+    },
+  ]
+  let rl = RevocationList { this_update: t1, next_update: t2, ..x509.empty_revocation_list() }
+  crl(
+    "crl-rsa",
+    RevocationList {
+      number: Some(big.new_int(12)),
+      revoked_certificate_entries: entries,
+      extra_extensions: [ex([1, 2, 3, 9], false, [5, 0])],
+      ..rl
+    },
+    rc,
+    rsa_k,
+  )
+  crl(
+    "crl-empty",
+    RevocationList {
+      number: Some(big.new_int(0)),
+      signature_algorithm: x509.SHA512_WITH_RSA,
+      ..rl
+    },
+    rc,
+    rsa_k,
+  )
+  crl(
+    "crl-old",
+    RevocationList {
+      number: Some(big.new_int(3)),
+      revoked_certificates: [RevokedCertificate {
+        serial_number: big.new_int(5),
+        revocation_time: t2,
+        extensions: [],
+      }],
+      ..rl
+    },
+    rc,
+    rsa_k,
+  )
+  crl(
+    "crl-ed",
+    RevocationList {
+      number: Some(big.new_int(255)),
+      revoked_certificate_entries: entries[..1],
+      ..rl
+    },
+    ec,
+    ed_k,
+  )
+  let ec1 = x509.empty_certificate()
+  crl(
+    "crl-noCRLSign",
+    RevocationList { number: Some(big.new_int(1)), ..rl },
+    Certificate { key_usage: x509.KEY_USAGE_CERT_SIGN, subject_key_id: [1], ..ec1 },
+    rsa_k,
+  )
+  crl(
+    "crl-noSKID",
+    RevocationList { number: Some(big.new_int(1)), ..rl },
+    Certificate { key_usage: x509.KEY_USAGE_CRL_SIGN, ..ec1 },
+    rsa_k,
+  )
+  crl(
+    "crl-order",
+    RevocationList { number: Some(big.new_int(1)), this_update: t2, next_update: t1, ..rl },
+    rc,
+    rsa_k,
+  )
+  crl("crl-nonumber", rl, rc, rsa_k)
+  crl("crl-bignum", RevocationList { number: Some(big.new_int(1).lsh(159)), ..rl }, rc, rsa_k)
+  crl("crl-bignum-ok", RevocationList { number: Some(big.new_int(1).lsh(158)), ..rl }, rc, rsa_k)
+  crl(
+    "crl-reason-extra",
+    RevocationList {
+      number: Some(big.new_int(1)),
+      revoked_certificate_entries: [
+        RevocationListEntry {
+          serial_number: big.new_int(1),
+          revocation_time: t1,
+          extra_extensions: [ex([2, 5, 29, 21], false, [10, 1, 1])],
+          ..e0
+        },
+      ],
+      ..rl
+    },
+    rc,
+    rsa_k,
+  )
+  crl(
+    "crl-zero-time",
+    RevocationList {
+      number: Some(big.new_int(1)),
+      revoked_certificate_entries: [RevocationListEntry { serial_number: big.new_int(1), ..e0 }],
+      ..rl
+    },
+    rc,
+    rsa_k,
+  )
+  crl("crl-ec", RevocationList { number: Some(big.new_int(1)), ..rl }, rc, p256)
+
+  let show = (r: Result<List<Int>, Str>) => match r {
+    Ok(d) => hx(d) + " <nil>",
+    Err(e) => " " + e,
+  }
+  print(
+    "createcrl " + show(
+      x509.certificate_create_crl(
+        rc,
+        rsa_k,
+        [RevokedCertificate { serial_number: big.new_int(9), revocation_time: t2, extensions: [] }],
+        t1,
+        t2,
+      ),
+    ),
+  )
+  print("createcrl-empty " + show(x509.certificate_create_crl(rc, rsa_k, [], t1, t2)))
+}

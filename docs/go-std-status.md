@@ -37,11 +37,9 @@ image/color/palette、path/filepath、go/constant、net/http/cookiejar、crypto/
 ## 第二批（进行中）
 - debug/elf（2026-10-19 完成；tests/go/testdata/elf 里 27 个 Go 测试 ELF；不含 DWARF() / 重定位 / zstd）
 - text/template/parse（2026-10-19 完成；std.text.template.parse，1540 行对拍输出与 Go 逐字节一致；出错时不返回部分树集）
-- crypto/x509（进行中）：第一步完成（2026-10-19）——std.crypto.cryptobyte（x/crypto/cryptobyte 读取部分）、std.crypto.x509.pkix、
+- crypto/x509（2026-10-19 完成）：第一步——std.crypto.cryptobyte（x/crypto/cryptobyte 读取部分）、std.crypto.x509.pkix、
   std.crypto.x509 的证书 / CRL / PKIX 公钥解析和 OID；tests/go/x509 对 100 张证书（生成器造的 + Go 测试源码里的）、3 个 CRL、
-  8 个公钥、约 500 个变异 / 截断输入，2199 行与 Go 逐字节一致。下一步：CSR、PKCS#1/#8/SEC1、签名校验、链验证与名称约束、签发
-
-## 可以做（纯数据 / 算法，计划后续批次）
+  8 个公钥、约 500 个变异 / 截断输入，2199 行与 Go 逐字节一致。
   第二步完成（2026-10-19）：parse_certificate_request（CSR，含属性、扩展请求、SAN）；PKCS#1 / SEC1（含 P-224，std.crypto.ecdsa 新增 P224 = 0）/ PKCS#8
   私钥（RSA / ECDSA / Ed25519 / X25519 / ML-DSA 种子）的解析和编码、PKCS#1 公钥、marshal_pkix_public_key；签名校验 check_signature /
   check_signature_from / CRL、CSR 校验；rsa.new_private_key_with_precomputation（按 Go fips 的检查顺序）。tests/go/x509_keys 569 行一致。
@@ -49,7 +47,12 @@ image/color/palette、path/filepath、go/constant、net/http/cookiejar、crypto/
   第三步完成（2026-10-19）：verify（链构建、路径长度、有效期、EKU、RFC 5280 证书策略图）、名称约束（DNS / IP / 邮箱 / URI，含排除通配父域）、
   verify_hostname（含 HostnameError 文字）、CertPool（不可变，add_cert / add_cert_with_constraint / append_certs_from_pem / equal、
   system_cert_pool 读 SSL_CERT_FILE、SSL_CERT_DIR 和 Linux 常见路径）。tests/go/x509_verify 37 张证书 × 14 组选项 + 主机名表，584 行一致。
-  与 Go 的差异：错误是字符串（无 CertificateInvalidError 等类型）；Windows / macOS 平台验证器不移植。剩余：Create*（证书、CRL、CSR）。
+  与 Go 的差异：错误是字符串（无 CertificateInvalidError 等类型）；Windows / macOS 平台验证器不移植。
+  第四步完成（2026-10-19）：create_certificate、create_certificate_request、create_revocation_list、certificate_create_crl（扩展编码、
+  SKID 用 SHA-256 前 20 字节、默认签名算法、全部错误检查）。tests/go/x509_create 94 行一致：RSA PKCS#1 v1.5 / Ed25519 整份 DER 逐字节相同，
+  ECDSA / PSS / ML-DSA 比较 TBS 并验签。与 Go 的差异：模板序列号必填（Go 里 nil 时随机生成）；签名随机数由 std.crypto.rand 提供。
+
+## 可以做（纯数据 / 算法，计划后续批次）
 - crypto/hpke
 - encoding/gob（值用类似 fmt.Arg 的枚举表示）
 - debug/dwarf、debug/macho、debug/pe、debug/plan9obj
