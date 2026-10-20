@@ -49,6 +49,12 @@ pub fn connect_tls_with(host: Str, port: Int, cfg: TlsConfig) -> Result<Conn, St
   }
 }
 
+// 在已建立的明文连接上做 TLS 客户端握手（SMTP STARTTLS 等）
+pub fn start_tls(c: Conn, host: Str, cfg: TlsConfig) -> Result<Conn, Str> {
+  handshake(c.fd, host, cfg)?
+  Ok(c)
+}
+
 fn handshake(fd: Int, host: Str, cfg: TlsConfig) -> Result<Unit, Str> {
   __tls_client(fd, host, cfg.ca, cfg.verify)?
   var d = 1

@@ -1,0 +1,68 @@
+// std.net.smtp 真实连接：本机起一个极简 SMTP 服务，用 send_mail（PLAIN 认证）投递，服务端记下收到的命令和正文
+use std.net
+use std.net.smtp
+
+fn serve_one(l: net.Listener) -> List<Str> {
+  let c = unwrap(l.accept())
+  var log: List<Str> = []
+  let _ = c.write("220 kite.test ESMTP\r\n")
+  while true {
+    let line = match c.read_line() {
+      Ok(x) => x,
+      Err(_) => { break },
+    }
+    log = push(log, line)
+    if starts_with(line, "EHLO") {
+      let _ = c.write("250-kite.test\r\n250-AUTH PLAIN\r\n250 8BITMIME\r\n")
+    } else if starts_with(line, "AUTH") {
+      let _ = c.write("235 2.7.0 ok\r\n")
+    } else if line == "DATA" {
+      let _ = c.write("354 go ahead\r\n")
+      while true {
+        let d = unwrap(c.read_line())
+        if d == "." { break }
+        log = push(log, "  | " + d)
+      }
+      let _ = c.write("250 queued\r\n")
+    } else if line == "QUIT" {
+      let _ = c.write("221 bye\r\n")
+      break
+    } else {
+      let _ = c.write("250 ok\r\n")
+    }
+  }
+  c.close()
+  log
+}
+
+fn main() {
+  let l = unwrap(net.listen("127.0.0.1", 0))
+  let addr = "127.0.0.1:{l.port}"
+  let (log, r) = spawn {
+    serve_one(l),
+    smtp.send_mail(
+      addr,
+      Some(smtp.plain_auth("", "alice", "secret", "127.0.0.1")),
+      "alice@kite.test",
+      ["bob@kite.test", "carol@kite.test"],
+      __bytes("Subject: hi\n\nHello Bob.\n.leading dot\n"),
+    ),
+  }
+  l.close()
+  print("send_mail: {r}")
+  for x in log { print(x) }
+  // 主机名不是本机又没有 TLS：PLAIN 拒绝
+  let l2 = unwrap(net.listen("127.0.0.1", 0))
+  let (_, r2) = spawn {
+    serve_one(l2),
+    smtp.send_mail(
+      "127.0.0.1:{l2.port}",
+      Some(smtp.plain_auth("", "a", "b", "mail.example.com")),
+      "a@b",
+      ["c@d"],
+      __bytes("x"),
+    ),
+  }
+  l2.close()
+  print("wrong host: {r2}")
+}

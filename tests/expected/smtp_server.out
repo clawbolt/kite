@@ -1,0 +1,13 @@
+send_mail: Ok(())
+EHLO localhost
+AUTH PLAIN AGFsaWNlAHNlY3JldA==
+MAIL FROM:<alice@kite.test> BODY=8BITMIME
+RCPT TO:<bob@kite.test>
+RCPT TO:<carol@kite.test>
+DATA
+  | Subject: hi
+  | 
+  | Hello Bob.
+  | ..leading dot
+QUIT
+wrong host: Err("wrong host name")

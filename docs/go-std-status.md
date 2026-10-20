@@ -81,7 +81,11 @@ image/color/palette、path/filepath、go/constant、net/http/cookiejar、crypto/
   反向代理改写（single_joining_slash、join_url_path、rewrite_request_url、remove_hop_by_hop_headers、clean_query_params、upgrade_type、
   proxy_request、proxy_response），可运行的 reverse_proxy(target)。Go 对拍 tests/go/httputil 827 行（复用 http/wire.txt、write.txt，加 httputil/proxy.txt）；
   行为测试 examples/httputil_proxy。http.WireResponse 加 trailer_declared，http.request_write_extra。未做：协议升级（101）转发、FlushInterval、ClientConn/ServerConn（已废弃）。
-- 计划：smtp、jsonrpc；之后 DNS 报文（dnsmessage）以支持 MX/TXT/SRV/NS。
+- std.net.smtp（2026-10-20）：Client（不可变值，Wire = 真实 TCP 或脚本应答）、new_client/dial/new_script_client、hello_as/verify/auth/mail/rcpt/data/
+  extension/reset/noop/quit/start_tls（真实连接，用新增的 net.start_tls）、send_mail/send_mail_via、plain_auth/cram_md5_auth（Auth = start/next 闭包）。
+  Go 对拍 tests/go/smtp 122 行（26 组脚本会话 + 8 次真实 SendMail）；行为测试 examples/smtp_server。顺带修了 textproto.read_response：多行应答首行码不符时错误被后续行覆盖。
+  限制：真实连接写出的字节须是合法 UTF-8（Kite Str）。
+- 计划：jsonrpc；之后 DNS 报文（dnsmessage）以支持 MX/TXT/SRV/NS。
 
 ## 可以做（纯数据 / 算法，计划后续批次）
 - crypto/hpke

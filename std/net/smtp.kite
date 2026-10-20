@@ -1,0 +1,478 @@
+// std.net.smtp：对齐 Go 1.27 net/smtp（RFC 5321 客户端）
+// Client 是不可变值：每个方法返回 (新 Client, 结果)。底层 Wire 可以是真实 TCP 连接（dial / new_client），
+// 也可以是脚本（new_script_client：服务器应答预先给定，客户端写出的字节记在 Client.out），后者用于测试和对拍。
+// Auth 用一对闭包表示（对应 Go 的 Auth 接口），plain_auth / cram_md5_auth 是内置实现。
+
+use std.net
+use std.net.textproto
+use std.encoding.base64
+use std.crypto.hmac
+use std.crypto.md5
+use std.encoding.hex
+
+pub enum Wire {
+  NetWire(net.Conn)
+  ScriptWire(textproto.Reader)
+}
+
+pub type ServerInfo = { name: Str, tls: Bool, auth: List<Str> }
+
+pub type Auth = {
+  // (机制名, 初始响应；None = nil)
+  start: fn(ServerInfo) -> Result<(Str, Option<List<Int>>), Str>,
+  // (服务器质询, 是否还有后续) -> 下一个响应；None = 结束
+  next: fn(List<Int>, Bool) -> Result<Option<List<Int>>, Str>,
+}
+
+pub type Client = {
+  wire: Wire,
+  // 写出的全部字节（脚本模式下就是发给服务器的内容；真实连接也照样记录）
+  out: List<Int>,
+  tls: Bool,
+  server_name: Str,
+  // None = 没有 EHLO 扩展信息（Go 的 ext == nil）
+  ext: Option<Map<Str, Str>>,
+  auth: List<Str>,
+  local_name: Str,
+  did_hello: Bool,
+  hello_error: Str,
+  closed: Bool,
+}
+
+fn s2b(s: Str) -> List<Int> { __bytes(s) }
+
+fn b2s(b: List<Int>) -> Str { unwrap_or(__from_bytes(b), "") }
+
+// textproto.Conn.ReadResponse
+fn read_resp(c: Client, expect: Int) -> (Client, textproto.Response) {
+  match c.wire {
+    ScriptWire(r) => {
+      let (r2, resp) = r.read_response(expect)
+      (Client { wire: ScriptWire(r2), ..c }, resp)
+    },
+    NetWire(conn) => {
+      // 把一个完整（可能多行）的应答读进来，再交给 textproto 解析
+      var buf: List<Int> = []
+      while true {
+        match conn.read_line() {
+          Err(e) => {
+            if len(buf) == 0 { return (c, textproto.Response { code: 0, message: "", err: e }) }
+            break
+          },
+          Ok(l) => {
+            buf = buf + s2b(l) + [13, 10]
+            let b = s2b(l)
+            if len(b) < 4 || b[3] != 45 { break }
+          },
+        }
+      }
+      let (_, resp) = textproto.new_reader(buf).read_response(expect)
+      (c, resp)
+    },
+  }
+}
+
+fn write_raw(c: Client, b: List<Int>) -> (Client, Str) {
+  let c2 = Client { out: c.out + b, ..c }
+  match c.wire {
+    NetWire(conn) => match conn.write(b2s(b)) {
+      Ok(_) => (c2, ""),
+      Err(e) => (c2, e),
+    },
+    ScriptWire(_) => (c2, ""),
+  }
+}
+
+// cmd：写一行命令，读应答
+fn cmd(c0: Client, expect: Int, line: Str) -> (Client, Int, Str, Str) {
+  let (c, we) = write_raw(c0, s2b(line + "\r\n"))
+  if we != "" { return (c, 0, "", we) }
+  let (c2, r) = read_resp(c, expect)
+  (c2, r.code, r.message, r.err)
+}
+
+fn new_from_wire(w: Wire, host: Str, tls: Bool) -> (Client, Str) {
+  let c = Client {
+    wire: w,
+    out: [],
+    tls: tls,
+    server_name: host,
+    ext: None,
+    auth: [],
+    local_name: "localhost",
+    did_hello: false,
+    hello_error: "",
+    closed: false,
+  }
+  let (c2, r) = read_resp(c, 220)
+  if r.err != "" { return (close(c2), r.err) }
+  (c2, "")
+}
+
+// NewClient（真实连接）
+pub fn new_client(conn: net.Conn, host: Str) -> Result<Client, Str> {
+  let (c, e) = new_from_wire(NetWire(conn), host, false)
+  if e != "" { Err(e) } else { Ok(c) }
+}
+
+// 脚本客户端：server 是服务器依次发出的全部字节。出错时也返回 Client（看 out）
+pub fn new_script_client(server: List<Int>, host: Str, tls: Bool) -> (Client, Str) {
+  new_from_wire(ScriptWire(textproto.new_reader(server)), host, tls)
+}
+
+// Dial：addr 为 "host:port"
+pub fn dial(addr: Str) -> Result<Client, Str> {
+  let (host, port) = net.split_host_port(addr)?
+  let p = match parse_int(port) {
+    Ok(x) => x,
+    Err(_) => { return Err("dial tcp: lookup port " + port) },
+  }
+  let conn = net.connect(host, p)?
+  new_client(conn, host)
+}
+
+pub fn close(c: Client) -> Client {
+  if !c.closed {
+    match c.wire {
+      NetWire(conn) => conn.close(),
+      ScriptWire(_) => {},
+    }
+  }
+  Client { closed: true, ..c }
+}
+
+fn helo(c0: Client) -> (Client, Str) {
+  let c = Client { ext: None, ..c0 }
+  let (c2, _, _, e) = cmd(c, 250, "HELO " + c.local_name)
+  (c2, e)
+}
+
+fn ehlo(c0: Client) -> (Client, Str) {
+  let (c, _, msg, e) = cmd(c0, 250, "EHLO " + c0.local_name)
+  if e != "" { return (c, e) }
+  var ext: Map<Str, Str> = Map()
+  let lines = split(msg, "\n")
+  if len(lines) > 1 {
+    for line in lines[1..] {
+      let i = __str_find(line, " ", 0)
+      if i < 0 {
+        ext = set(ext, line, "")
+      } else {
+        ext = set(ext, __str_slice(line, 0, i), __str_slice(line, i + 1, len(line)))
+      }
+    }
+  }
+  var auth = c.auth
+  match get(ext, "AUTH") {
+    Some(m) => { auth = split(m, " ") },
+    None => {},
+  }
+  (Client { ext: Some(ext), auth: auth, ..c }, "")
+}
+
+fn hello(c0: Client) -> (Client, Str) {
+  if c0.did_hello { return (c0, c0.hello_error) }
+  let (c, e) = ehlo(Client { did_hello: true, ..c0 })
+  if e == "" { return (c, "") }
+  let (c2, e2) = helo(c)
+  (Client { hello_error: e2, ..c2 }, e2)
+}
+
+fn validate_line(line: Str) -> Str {
+  if contains_str(line, "\n") || contains_str(line, "\r") {
+    "smtp: A line must not contain CR or LF"
+  } else {
+    ""
+  }
+}
+
+fn contains_str(s: Str, sub: Str) -> Bool { __str_find(s, sub, 0) >= 0 }
+
+fn res(c: Client, e: Str) -> (Client, Result<Unit, Str>) {
+  (c, if e == "" { Ok(()) } else { Err(e) })
+}
+
+pub fn hello_as(c: Client, local_name: Str) -> (Client, Result<Unit, Str>) {
+  let v = validate_line(local_name)
+  if v != "" { return res(c, v) }
+  if c.did_hello { return res(c, "smtp: Hello called after other methods") }
+  let (c2, e) = hello(Client { local_name: local_name, ..c })
+  res(c2, e)
+}
+
+// StartTLS：仅真实连接可用
+pub fn start_tls(c0: Client, cfg: net.TlsConfig) -> (Client, Result<Unit, Str>) {
+  let (c, he) = hello(c0)
+  if he != "" { return res(c, he) }
+  let (c2, _, _, e) = cmd(c, 220, "STARTTLS")
+  if e != "" { return res(c2, e) }
+  match c2.wire {
+    ScriptWire(_) => res(c2, "smtp: 脚本连接不支持 STARTTLS"),
+    NetWire(conn) => match net.start_tls(conn, c2.server_name, cfg) {
+      Err(te) => res(c2, te),
+      Ok(tc) => {
+        let (c3, e3) = ehlo(Client { wire: NetWire(tc), tls: true, ..c2 })
+        res(c3, e3)
+      },
+    },
+  }
+}
+
+pub fn verify(c: Client, addr: Str) -> (Client, Result<Unit, Str>) {
+  let v = validate_line(addr)
+  if v != "" { return res(c, v) }
+  let (c1, he) = hello(c)
+  if he != "" { return res(c1, he) }
+  let (c2, _, _, e) = cmd(c1, 250, "VRFY " + addr)
+  res(c2, e)
+}
+
+fn enc64(b: List<Int>) -> Str { base64.encode_bytes(b) }
+
+pub fn auth(c0: Client, a: Auth) -> (Client, Result<Unit, Str>) {
+  let (c1, he) = hello(c0)
+  if he != "" { return res(c1, he) }
+  let (mech, resp0) = match (a.start)(ServerInfo {
+    name: c1.server_name,
+    tls: c1.tls,
+    auth: c1.auth,
+  }) {
+    Ok(x) => x,
+    Err(e) => {
+      let (c2, _) = quit(c1)
+      return res(c2, e)
+    },
+  }
+  let r64 = enc64(unwrap_or(resp0, []))
+  var (c, code, msg64, err) = cmd(c1, 0, trim("AUTH " + mech + " " + r64))
+  while err == "" {
+    var msg: List<Int> = []
+    if code == 334 {
+      match base64
+        .std_encoding()
+        .decode_string(msg64) {
+          Ok(m) => { msg = m },
+          Err(e) => { err = e },
+        }
+    } else if code == 235 {
+      msg = s2b(msg64)
+    } else {
+      err = textproto.error_string(code, msg64)
+    }
+    var next: Option<List<Int>> = None
+    if err == "" {
+      match (a.next)(msg, code == 334) {
+        Ok(n) => { next = n },
+        Err(e) => { err = e },
+      }
+    }
+    if err != "" {
+      let (c2, _, _, _) = cmd(c, 501, "*")
+      let (c3, _) = quit(c2)
+      c = c3
+      break
+    }
+    match next {
+      None => { break },
+      Some(r) => {
+        let (c4, code4, m4, e4) = cmd(c, 0, enc64(r))
+        c = c4
+        code = code4
+        msg64 = m4
+        err = e4
+      },
+    }
+  }
+  res(c, err)
+}
+
+fn has_ext(c: Client, k: Str) -> Bool {
+  match c.ext {
+    Some(m) => is_some(get(m, k)),
+    None => false,
+  }
+}
+
+pub fn mail(c: Client, from: Str) -> (Client, Result<Unit, Str>) {
+  let v = validate_line(from)
+  if v != "" { return res(c, v) }
+  let (c1, he) = hello(c)
+  if he != "" { return res(c1, he) }
+  var line = "MAIL FROM:<" + from + ">"
+  if has_ext(c1, "8BITMIME") { line = line + " BODY=8BITMIME" }
+  if has_ext(c1, "SMTPUTF8") { line = line + " SMTPUTF8" }
+  let (c2, _, _, e) = cmd(c1, 250, line)
+  res(c2, e)
+}
+
+pub fn rcpt(c: Client, to: Str) -> (Client, Result<Unit, Str>) {
+  let v = validate_line(to)
+  if v != "" { return res(c, v) }
+  let (c2, _, _, e) = cmd(c, 25, "RCPT TO:<" + to + ">")
+  res(c2, e)
+}
+
+// Data + 写入 msg + Close：DATA，点编码后的正文，读 250
+pub fn data(c: Client, msg: List<Int>) -> (Client, Result<Unit, Str>) {
+  let (c1, _, _, e) = cmd(c, 354, "DATA")
+  if e != "" { return res(c1, e) }
+  let (c2, we) = write_raw(c1, textproto.dot_encode(msg))
+  if we != "" { return res(c2, we) }
+  let (c3, r) = read_resp(c2, 250)
+  res(c3, r.err)
+}
+
+pub fn extension(c0: Client, ext: Str) -> (Client, Bool, Str) {
+  let (c, he) = hello(c0)
+  if he != "" { return (c, false, "") }
+  match c.ext {
+    None => (c, false, ""),
+    Some(m) => match get(m, upper(ext)) {
+      Some(p) => (c, true, p),
+      None => (c, false, ""),
+    },
+  }
+}
+
+pub fn reset(c0: Client) -> (Client, Result<Unit, Str>) {
+  let (c, he) = hello(c0)
+  if he != "" { return res(c, he) }
+  let (c2, _, _, e) = cmd(c, 250, "RSET")
+  res(c2, e)
+}
+
+pub fn noop(c0: Client) -> (Client, Result<Unit, Str>) {
+  let (c, he) = hello(c0)
+  if he != "" { return res(c, he) }
+  let (c2, _, _, e) = cmd(c, 250, "NOOP")
+  res(c2, e)
+}
+
+pub fn quit(c0: Client) -> (Client, Result<Unit, Str>) {
+  let (c, _) = hello(c0)
+  let (c2, _, _, e) = cmd(c, 221, "QUIT")
+  if e != "" { return res(c2, e) }
+  res(close(c2), "")
+}
+
+// SendMail 在一个已连上的 Client 上的步骤（send_mail 用；脚本客户端也能直接调）
+pub fn send_mail_on(c0: Client, a: Option<Auth>, from: Str, to: List<Str>, msg: List<Int>) -> (
+  Client,
+  Result<Unit, Str>,
+) {
+  let (c1, he) = hello(c0)
+  if he != "" { return res(close(c1), he) }
+  let (c2, has_tls, _) = extension(c1, "STARTTLS")
+  var c = c2
+  if has_tls {
+    let (c3, r) = start_tls(c, net.tls_config())
+    c = c3
+    match r {
+      Err(e) => { return res(close(c), e) },
+      Ok(_) => {},
+    }
+  }
+  match a {
+    Some(au) => {
+      if is_some(c.ext) {
+        if !has_ext(c, "AUTH") { return res(close(c), "smtp: server doesn't support AUTH") }
+        let (c4, r) = auth(c, au)
+        c = c4
+        match r {
+          Err(e) => { return res(close(c), e) },
+          Ok(_) => {},
+        }
+      }
+    },
+    None => {},
+  }
+  let (cm, rm) = mail(c, from)
+  c = cm
+  match rm {
+    Err(e) => { return res(close(c), e) },
+    Ok(_) => {},
+  }
+  for t in to {
+    let (cr, rr) = rcpt(c, t)
+    c = cr
+    match rr {
+      Err(e) => { return res(close(c), e) },
+      Ok(_) => {},
+    }
+  }
+  let (cd, rd) = data(c, msg)
+  c = cd
+  match rd {
+    Err(e) => { return res(close(c), e) },
+    Ok(_) => {},
+  }
+  let (cq, rq) = quit(c)
+  res(close(cq), match rq {
+    Err(e) => e,
+    Ok(_) => "",
+  })
+}
+
+// SendMail：连接 addr，有 STARTTLS 就升级，a 不为 None 时认证，然后投递
+pub fn send_mail(
+  addr: Str,
+  a: Option<Auth>,
+  from: Str,
+  to: List<Str>,
+  msg: List<Int>,
+) -> Result<Unit, Str> {
+  send_mail_via(() => dial(addr), a, from, to, msg).1
+}
+
+// 同 send_mail，但由 connect 提供连好的 Client（测试时可给脚本客户端）；返回最后的 Client（没连上时为 None）
+pub fn send_mail_via(
+  connect: fn() -> Result<Client, Str>,
+  a: Option<Auth>,
+  from: Str,
+  to: List<Str>,
+  msg: List<Int>,
+) -> (Option<Client>, Result<Unit, Str>) {
+  let v = validate_line(from)
+  if v != "" { return (None, Err(v)) }
+  for r in to {
+    let vr = validate_line(r)
+    if vr != "" { return (None, Err(vr)) }
+  }
+  match connect() {
+    Err(e) => (None, Err(e)),
+    Ok(c) => {
+      let (c2, r) = send_mail_on(c, a, from, to, msg)
+      (Some(c2), r)
+    },
+  }
+}
+
+// ───────────── 认证 ─────────────
+
+fn is_localhost(name: Str) -> Bool { name == "localhost" || name == "127.0.0.1" || name == "::1" }
+
+pub fn plain_auth(identity: Str, username: Str, password: Str, host: Str) -> Auth {
+  Auth {
+    start: (si: ServerInfo) => {
+      if !si.tls && !is_localhost(si.name) { return Err("unencrypted connection") }
+      if si.name != host { return Err("wrong host name") }
+      Ok(("PLAIN", Some(s2b(identity) + [0] + s2b(username) + [0] + s2b(password))))
+    },
+    next: (_: List<Int>, more: Bool) => if more {
+      Err("unexpected server challenge")
+    } else {
+      Ok(None)
+    },
+  }
+}
+
+pub fn cram_md5_auth(username: Str, secret: Str) -> Auth {
+  Auth {
+    start: (_: ServerInfo) => Ok(("CRAM-MD5", None)),
+    next: (from: List<Int>, more: Bool) => {
+      if !more { return Ok(None) }
+      let d = hmac.sum(md5.digest, 64, s2b(secret), from)
+      Ok(Some(s2b(username + " " + hex.encode_bytes(d))))
+    },
+  }
+}
