@@ -103,10 +103,15 @@ image/color/palette、path/filepath、go/constant、net/http/cookiejar、crypto/
   非法名字过滤、错误文字 "lookup 名字 on 服务器: …"。对拍 tests/go/dnsclient 188 行：Go 的 net 内部测试（tests/go/dnsclient_regen.sh）
   对本机假 DNS 服务查询，Kite 起同样的假服务（testdata/dnsclient/responses.txt）；另含 Go 自带的 14 个 resolv.conf 样例。
   差异：截断的 UDP 应答直接用、不改走 TCP；rotate 不轮换；有非法名字时只返回错误（Go 还返回剩下的记录）。
-- 计划：crypto/hpke。
+- std.crypto.hpke（2026-10-21）：RFC 9180 base 模式 + hpke-pq：DHKEM(P-256/P-384/P-521/X25519)、ML-KEM-768/1024、MLKEM768-X25519/P256、
+  MLKEM1024-P384；HKDF-SHA256/384/512、SHAKE128/256（一段式）；AES-128/256-GCM、ChaCha20-Poly1305、Export-only；new_kem / new_kdf / new_aead、
+  generate_key / new_public_key / new_private_key / derive_key_pair、new_sender / new_recipient / seal / open / export，错误文字同 Go。
+  Sender/Recipient 是不可变 Context（seal / open 返回新 Context）；另有 new_sender_derand（同 Go 测试的 setupDerandomizedEncap）。
+  对拍 tests/go/hpke 485 行（Go 的 crypto/hpke 内部测试，tests/go/hpke_regen.sh）：两份测试向量（rfc9180 24 组、hpke-pq 13 组，跳过 X448、
+  ML-KEM-512、TurboSHAKE 同 Go）、9 种 KEM 的错误路径、ChaCha20/XChaCha20。累积次数默认 20；HPKE_N=1000 时 210 项与向量里的摘要全部一致。
+- std.crypto.chacha20poly1305（同日，x/crypto）：new / new_x、seal / open，及 chacha20_block、hchacha20、poly1305_sum。
 
 ## 可以做（纯数据 / 算法，计划后续批次）
-- crypto/hpke
 - encoding/gob（值用类似 fmt.Arg 的枚举表示）
 - debug/dwarf、debug/macho、debug/pe、debug/plan9obj
 - html/template（上下文转义）

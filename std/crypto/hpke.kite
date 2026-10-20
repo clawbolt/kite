@@ -1,0 +1,744 @@
+// std.crypto.hpke：对齐 Go 1.27 crypto/hpke（RFC 9180 的 base 模式，以及 draft-ietf-hpke-pq 的 ML-KEM 与混合 KEM）
+//
+// KEM：DHKEM(P-256 / P-384 / P-521 / X25519)、ML-KEM-768 / 1024、MLKEM768-X25519、MLKEM768-P256、MLKEM1024-P384
+// KDF：HKDF-SHA256 / 384 / 512（两段式），SHAKE128 / SHAKE256（一段式）
+// AEAD：AES-128-GCM、AES-256-GCM、ChaCha20-Poly1305、Export-only
+// 对应关系：Go 的 KEM / KDF / AEAD 接口在这里是带 id 的值（kem.id()、new_kem / new_kdf / new_aead 同 Go 的 NewKEM …）；
+//   Sender / Recipient 是不可变的 Context，seal / open 返回 (新 Context, 结果)（序号加一只在成功时发生，同 Go）。
+// 额外提供 new_sender_derand：用确定的随机输入封装（同 Go 测试里的 setupDerandomizedEncap），用来跑测试向量。
+// 错误是 Go 的错误文字。
+
+use std.crypto.ecdh
+use std.crypto.mlkem
+use std.crypto.hkdf
+use std.crypto.sha256
+use std.crypto.sha512
+use std.crypto.sha3
+use std.crypto.aes
+use std.crypto.cipher
+use std.crypto.chacha20poly1305 as cc
+
+fn be16(v: Int) -> List<Int> { [(v >> 8) & 255, v & 255] }
+
+fn hex4(v: Int) -> Str {
+  let d = chars("0123456789abcdef")
+  d[(v >> 12) & 15] + d[(v >> 8) & 15] + d[(v >> 4) & 15] + d[v & 15]
+}
+
+// ───────────── KDF ─────────────
+
+pub type KDF = { kid: Int }
+
+pub fn hkdf_sha256() -> KDF { KDF { kid: 0x0001 } }
+
+pub fn hkdf_sha384() -> KDF { KDF { kid: 0x0002 } }
+
+pub fn hkdf_sha512() -> KDF { KDF { kid: 0x0003 } }
+
+pub fn shake128() -> KDF { KDF { kid: 0x0010 } }
+
+pub fn shake256() -> KDF { KDF { kid: 0x0011 } }
+
+pub fn new_kdf(id: Int) -> Result<KDF, Str> {
+  if id == 1 || id == 2 || id == 3 || id == 0x10 || id == 0x11 { return Ok(KDF { kid: id }) }
+  Err("unsupported KDF " + hex4(id))
+}
+
+fn hash_fn(id: Int) -> fn(List<Int>) -> List<Int> {
+  if id == 1 { return (b) => sha256.digest(b) }
+  if id == 2 { return (b) => sha512.digest384(b) }
+  (b) => sha512.digest(b)
+}
+
+impl KDF {
+  fn id(self) -> Int { self.kid }
+
+  fn one_stage(self) -> Bool { self.kid == 0x10 || self.kid == 0x11 }
+
+  // Nh
+  fn size(self) -> Int {
+    if self.kid == 1 || self.kid == 0x10 { return 32 }
+    if self.kid == 2 { return 48 }
+    64
+  }
+
+  fn block(self) -> Int { if self.kid == 1 { 64 } else { 128 } }
+
+  fn labeled_extract(
+    self,
+    suite_id: List<Int>,
+    salt: List<Int>,
+    label: Str,
+    ikm: List<Int>,
+  ) -> Result<List<Int>, Str> {
+    if self.one_stage() {
+      return Err("hpke: internal error: labeledExtract called on one-stage KDF")
+    }
+    hkdf.extract(
+      hash_fn(self.kid),
+      self.block(),
+      __bytes("HPKE-v1") + suite_id + __bytes(label) + ikm,
+      salt,
+    )
+  }
+
+  fn labeled_expand(
+    self,
+    suite_id: List<Int>,
+    prk: List<Int>,
+    label: Str,
+    info: List<Int>,
+    length: Int,
+  ) -> Result<List<Int>, Str> {
+    if self.one_stage() {
+      return Err("hpke: internal error: labeledExpand called on one-stage KDF")
+    }
+    hkdf.expand_bytes(
+      hash_fn(self.kid),
+      self.block(),
+      prk,
+      be16(length) + __bytes("HPKE-v1") + suite_id + __bytes(label) + info,
+      length,
+    )
+  }
+
+  fn labeled_derive(
+    self,
+    suite_id: List<Int>,
+    ikm: List<Int>,
+    label: Str,
+    ctx: List<Int>,
+    length: Int,
+  ) -> Result<List<Int>, Str> {
+    if !self.one_stage() {
+      return Err("hpke: internal error: labeledDerive called on two-stage KDF")
+    }
+    let h = if self.kid == 0x10 { sha3.new_shake128() } else { sha3.new_shake256() }
+    let lb = __bytes(label)
+    let (out, _) = h
+      .write(ikm + __bytes("HPKE-v1") + suite_id + be16(len(lb)) + lb + be16(length) + ctx)
+      .read(length)
+    Ok(out)
+  }
+}
+
+// ───────────── AEAD ─────────────
+
+pub type AEAD = { aid: Int }
+
+pub fn aes128_gcm() -> AEAD { AEAD { aid: 0x0001 } }
+
+pub fn aes256_gcm() -> AEAD { AEAD { aid: 0x0002 } }
+
+pub fn chacha20_poly1305() -> AEAD { AEAD { aid: 0x0003 } }
+
+pub fn export_only() -> AEAD { AEAD { aid: 0xFFFF } }
+
+pub fn new_aead(id: Int) -> Result<AEAD, Str> {
+  if id == 1 || id == 2 || id == 3 || id == 0xFFFF { return Ok(AEAD { aid: id }) }
+  Err("unsupported AEAD " + hex4(id))
+}
+
+enum Cipher {
+  CGcm(g: cipher.AEAD)
+  CChaCha(c: cc.AEAD)
+}
+
+impl AEAD {
+  fn id(self) -> Int { self.aid }
+
+  fn key_size(self) -> Int {
+    if self.aid == 1 { return 16 }
+    if self.aid == 0xFFFF { return 0 }
+    32
+  }
+
+  fn nonce_size(self) -> Int { if self.aid == 0xFFFF { 0 } else { 12 } }
+
+  fn make(self, key: List<Int>) -> Result<Option<Cipher>, Str> {
+    if self.aid == 0xFFFF { return Ok(None) }
+    if len(key) != self.key_size() { return Err("invalid key size") }
+    if self.aid == 3 { return Ok(Some(CChaCha(cc.new(key)?))) }
+    Ok(Some(CGcm(cipher.new_gcm(aes.new_cipher(key)?)?)))
+  }
+}
+
+fn c_seal(c: Cipher, nonce: List<Int>, pt: List<Int>, aad: List<Int>) -> List<Int> {
+  match c {
+    CGcm(g) => g.seal([], nonce, pt, aad),
+    CChaCha(x) => x.seal([], nonce, pt, aad),
+  }
+}
+
+fn c_open(c: Cipher, nonce: List<Int>, ct: List<Int>, aad: List<Int>) -> Result<List<Int>, Str> {
+  match c {
+    CGcm(g) => g.open([], nonce, ct, aad),
+    CChaCha(x) => x.open([], nonce, ct, aad),
+  }
+}
+
+// ───────────── KEM ─────────────
+
+pub type KEM = { kem_id: Int }
+
+pub const KEM_P256: Int = 0x0010
+pub const KEM_P384: Int = 0x0011
+pub const KEM_P521: Int = 0x0012
+pub const KEM_X25519: Int = 0x0020
+pub const KEM_MLKEM768: Int = 0x0041
+pub const KEM_MLKEM1024: Int = 0x0042
+pub const KEM_MLKEM768_X25519: Int = 0x647a
+pub const KEM_MLKEM768_P256: Int = 0x0050
+pub const KEM_MLKEM1024_P384: Int = 0x0051
+
+// DHKEM(curve)：curve 是 ecdh.P256 / P384 / P521 / X25519；其它曲线得到 id 为 0 的 KEM，所有操作报 "unsupported curve"
+pub fn dhkem(curve: Int) -> KEM {
+  if curve == ecdh.P256 { return KEM { kem_id: KEM_P256 } }
+  if curve == ecdh.P384 { return KEM { kem_id: KEM_P384 } }
+  if curve == ecdh.P521 { return KEM { kem_id: KEM_P521 } }
+  if curve == ecdh.X25519 { return KEM { kem_id: KEM_X25519 } }
+  KEM { kem_id: 0 }
+}
+
+pub fn mlkem768() -> KEM { KEM { kem_id: KEM_MLKEM768 } }
+
+pub fn mlkem1024() -> KEM { KEM { kem_id: KEM_MLKEM1024 } }
+
+pub fn mlkem768_x25519() -> KEM { KEM { kem_id: KEM_MLKEM768_X25519 } }
+
+pub fn mlkem768_p256() -> KEM { KEM { kem_id: KEM_MLKEM768_P256 } }
+
+pub fn mlkem1024_p384() -> KEM { KEM { kem_id: KEM_MLKEM1024_P384 } }
+
+pub fn new_kem(id: Int) -> Result<KEM, Str> {
+  let ids = [
+    KEM_P256,
+    KEM_P384,
+    KEM_P521,
+    KEM_X25519,
+    KEM_MLKEM768,
+    KEM_MLKEM1024,
+    KEM_MLKEM768_X25519,
+    KEM_MLKEM768_P256,
+    KEM_MLKEM1024_P384,
+  ]
+  if any(ids, (x) => x == id) { return Ok(KEM { kem_id: id }) }
+  Err("unsupported KEM")
+}
+
+// 0 DH，1 纯 ML-KEM，2 混合，-1 不支持
+fn kind(id: Int) -> Int {
+  if id == KEM_P256 || id == KEM_P384 || id == KEM_P521 || id == KEM_X25519 { return 0 }
+  if id == KEM_MLKEM768 || id == KEM_MLKEM1024 { return 1 }
+  if id == KEM_MLKEM768_X25519 || id == KEM_MLKEM768_P256 || id == KEM_MLKEM1024_P384 { return 2 }
+  -1
+}
+
+fn dh_curve(id: Int) -> Int {
+  if id == KEM_P256 || id == KEM_MLKEM768_P256 { return ecdh.P256 }
+  if id == KEM_P384 || id == KEM_MLKEM1024_P384 { return ecdh.P384 }
+  if id == KEM_P521 { return ecdh.P521 }
+  ecdh.X25519
+}
+
+fn dh_kdf(id: Int) -> KDF {
+  if id == KEM_P384 { return hkdf_sha384() }
+  if id == KEM_P521 { return hkdf_sha512() }
+  hkdf_sha256()
+}
+
+// Nsecret / Nsk / 曲线点长度
+fn n_secret(id: Int) -> Int { if id == KEM_P384 { 48 } else if id == KEM_P521 { 64 } else { 32 } }
+
+fn n_sk(id: Int) -> Int { if id == KEM_P384 { 48 } else if id == KEM_P521 { 66 } else { 32 } }
+
+fn point_size(curve: Int) -> Int {
+  if curve == ecdh.P256 { return 65 }
+  if curve == ecdh.P384 { return 97 }
+  if curve == ecdh.P521 { return 133 }
+  32
+}
+
+fn pq_k(id: Int) -> Int { if id == KEM_MLKEM1024 || id == KEM_MLKEM1024_P384 { 4 } else { 3 } }
+
+fn hybrid_label(id: Int) -> Str {
+  if id == KEM_MLKEM768_X25519 { return "\\./" + "/^\\" }
+  if id == KEM_MLKEM768_P256 { return "MLKEM768-P256" }
+  "MLKEM1024-P384"
+}
+
+fn curve_seed_size(id: Int) -> Int { if id == KEM_MLKEM1024_P384 { 48 } else { 32 } }
+
+fn kem_suite(id: Int) -> List<Int> { __bytes("KEM") + be16(id) }
+
+pub type PublicKey = { kem: KEM, t: Option<ecdh.PublicKey>, pq: Option<mlkem.EncapsulationKey> }
+
+pub type PrivateKey = {
+  kem: KEM,
+  t: Option<ecdh.PrivateKey>,
+  pq: Option<mlkem.DecapsulationKey>,
+  // 混合 KEM 的 32 字节种子（Go 的 hybridPrivateKey.seed）
+  seed: Option<List<Int>>,
+}
+
+fn dh_private(id: Int, k: ecdh.PrivateKey) -> PrivateKey {
+  PrivateKey { kem: KEM { kem_id: id }, t: Some(k), pq: None, seed: None }
+}
+
+fn random_curve_key(curve: Int) -> ecdh.PrivateKey {
+  let n = if curve == ecdh.P384 { 48 } else if curve == ecdh.P521 { 66 } else { 32 }
+  loop {
+    var b = __random_bytes(n)
+    if curve == ecdh.P521 { b[0] = b[0] & 1 }
+    if let Ok(k) = ecdh.new_private_key(curve, b) { return k }
+  }
+  unwrap(ecdh.new_private_key(curve, []))
+}
+
+fn hybrid_from_seed(id: Int, priv: List<Int>) -> Result<PrivateKey, Str> {
+  if len(priv) != 32 { return Err("hpke: invalid hybrid KEM secret length") }
+  var s = sha3.new_shake256().write(priv)
+  let (seed_pq, s1) = s.read(64)
+  s = s1
+  let pq = mlkem.new_decapsulation_key(pq_k(id), seed_pq)?
+  let curve = dh_curve(id)
+  loop {
+    let (st, s2) = s.read(curve_seed_size(id))
+    s = s2
+    if let Ok(k) = ecdh.new_private_key(curve, st) {
+      return Ok(PrivateKey { kem: KEM { kem_id: id }, t: Some(k), pq: Some(pq), seed: Some(priv) })
+    }
+  }
+  Err("unreachable")
+}
+
+impl KEM {
+  fn id(self) -> Int { self.kem_id }
+
+  fn enc_size(self) -> Int {
+    let k = kind(self.kem_id)
+    if k == 0 { return point_size(dh_curve(self.kem_id)) }
+    if k == 1 { return mlkem.ciphertext_size(pq_k(self.kem_id)) }
+    if k == 2 {
+      return mlkem.ciphertext_size(pq_k(self.kem_id)) + point_size(dh_curve(self.kem_id))
+    }
+    0
+  }
+
+  fn generate_key(self) -> Result<PrivateKey, Str> {
+    let k = kind(self.kem_id)
+    if k == 0 { return Ok(dh_private(self.kem_id, random_curve_key(dh_curve(self.kem_id)))) }
+    if k == 1 { return self.new_private_key(__random_bytes(64)) }
+    if k == 2 { return hybrid_from_seed(self.kem_id, __random_bytes(32)) }
+    Err("unsupported curve")
+  }
+
+  fn new_public_key(self, data: List<Int>) -> Result<PublicKey, Str> {
+    let k = kind(self.kem_id)
+    if k == 0 {
+      return Ok(PublicKey {
+        kem: self,
+        t: Some(ecdh.new_public_key(dh_curve(self.kem_id), data)?),
+        pq: None,
+      })
+    }
+    if k == 1 {
+      return Ok(PublicKey {
+        kem: self,
+        t: None,
+        pq: Some(mlkem.new_encapsulation_key(pq_k(self.kem_id), data)?),
+      })
+    }
+    if k == 2 {
+      let n = mlkem.encapsulation_key_size(pq_k(self.kem_id))
+      if len(data) != n + point_size(dh_curve(self.kem_id)) {
+        return Err("invalid public key size")
+      }
+      let pq = mlkem.new_encapsulation_key(pq_k(self.kem_id), data[..n])?
+      let t = ecdh.new_public_key(dh_curve(self.kem_id), data[n..])?
+      return Ok(PublicKey { kem: self, t: Some(t), pq: Some(pq) })
+    }
+    Err("unsupported curve")
+  }
+
+  fn new_private_key(self, data: List<Int>) -> Result<PrivateKey, Str> {
+    let k = kind(self.kem_id)
+    if k == 0 {
+      return Ok(dh_private(self.kem_id, ecdh.new_private_key(dh_curve(self.kem_id), data)?))
+    }
+    if k == 1 {
+      return Ok(PrivateKey {
+        kem: self,
+        t: None,
+        pq: Some(mlkem.new_decapsulation_key(pq_k(self.kem_id), data)?),
+        seed: None,
+      })
+    }
+    if k == 2 { return hybrid_from_seed(self.kem_id, data) }
+    Err("unsupported curve")
+  }
+
+  fn derive_key_pair(self, ikm: List<Int>) -> Result<PrivateKey, Str> {
+    let k = kind(self.kem_id)
+    let sid = kem_suite(self.kem_id)
+    if k == 1 {
+      return self.new_private_key(shake256().labeled_derive(sid, ikm, "DeriveKeyPair", [], 64)?)
+    }
+    if k == 2 {
+      return self.new_private_key(shake256().labeled_derive(sid, ikm, "DeriveKeyPair", [], 32)?)
+    }
+    if k != 0 { return Err("unsupported curve") }
+    let kdf = dh_kdf(self.kem_id)
+    let prk = kdf.labeled_extract(sid, [], "dkp_prk", ikm)?
+    if self.kem_id == KEM_X25519 {
+      return self.new_private_key(kdf.labeled_expand(sid, prk, "sk", [], 32)?)
+    }
+    var counter = 0
+    while counter < 4 {
+      var s = kdf.labeled_expand(sid, prk, "candidate", [counter], n_sk(self.kem_id))?
+      if self.kem_id == KEM_P521 { s[0] = s[0] & 1 }
+      match self.new_private_key(s) {
+        Ok(r) => { return Ok(r) },
+        Err(_) => { counter += 1 },
+      }
+    }
+    panic("chance of four rejections is < 2^-128")
+  }
+}
+
+fn extract_and_expand(id: Int, dh: List<Int>, kem_context: List<Int>) -> Result<List<Int>, Str> {
+  let kdf = dh_kdf(id)
+  let sid = kem_suite(id)
+  let prk = kdf.labeled_extract(sid, [], "eae_prk", dh)?
+  kdf.labeled_expand(sid, prk, "shared_secret", kem_context, n_secret(id))
+}
+
+fn hybrid_secret(
+  id: Int,
+  ss_pq: List<Int>,
+  ss_t: List<Int>,
+  ct_t: List<Int>,
+  ek_t: List<Int>,
+) -> List<Int> {
+  sha3.sum256(ss_pq + ss_t + ct_t + ek_t + __bytes(hybrid_label(id)))
+}
+
+impl PublicKey {
+  fn bytes(self) -> List<Int> {
+    let a = match self.pq {
+      Some(p) => p.bytes(),
+      None => [],
+    }
+    let b = match self.t {
+      Some(t) => t.q,
+      None => [],
+    }
+    a + b
+  }
+
+  // (共享密钥, enc)；eph 为 None 时随机，否则是确定的输入（DH：临时私钥；ML-KEM：封装随机数；混合：两者）
+  fn encap_with(self, eph_t: Option<ecdh.PrivateKey>, m: Option<List<Int>>) -> Result<(
+    List<Int>, List<Int>
+  ), Str> {
+    let id = self.kem.kem_id
+    let k = kind(id)
+    if k == 1 {
+      let ek = unwrap(self.pq)
+      return match m {
+        Some(r) => mlkem.encapsulate_with(ek, r),
+        None => Ok(mlkem.encapsulate(ek)),
+      }
+    }
+    let pt = match self.t {
+      Some(x) => x,
+      None => { return Err("unsupported curve") },
+    }
+    let e = match eph_t {
+      Some(x) => x,
+      None => random_curve_key(pt.curve),
+    }
+    let dh = ecdh.ecdh(e, pt)?
+    let enc_t = ecdh.public_key(e).q
+    if k == 0 { return Ok((extract_and_expand(id, dh, enc_t + pt.q)?, enc_t)) }
+    let ek = unwrap(self.pq)
+    let (ss_pq, ct_pq) = match m {
+      Some(r) => mlkem.encapsulate_with(ek, r)?,
+      None => mlkem.encapsulate(ek),
+    }
+    Ok((hybrid_secret(id, ss_pq, dh, enc_t, pt.q), ct_pq + enc_t))
+  }
+}
+
+impl PrivateKey {
+  fn bytes(self) -> Result<List<Int>, Str> {
+    let k = kind(self.kem.kem_id)
+    if k == 1 { return Ok(unwrap(self.pq).bytes()) }
+    if k == 2 {
+      return match self.seed {
+        Some(s) => Ok(s),
+        None => Err("private key seed not available"),
+      }
+    }
+    var b = unwrap(self.t).d
+    if self.kem.kem_id == KEM_X25519 {
+      b[0] = b[0] & 248
+      b[31] = (b[31] & 127) | 64
+    }
+    Ok(b)
+  }
+
+  fn public_key(self) -> PublicKey {
+    PublicKey {
+      kem: self.kem,
+      t: match self.t {
+        Some(x) => Some(ecdh.public_key(x)),
+        None => None,
+      },
+      pq: match self.pq {
+        Some(x) => Some(x.encapsulation_key()),
+        None => None,
+      },
+    }
+  }
+
+  fn decap(self, enc: List<Int>) -> Result<List<Int>, Str> {
+    let id = self.kem.kem_id
+    let k = kind(id)
+    if k == 1 { return unwrap(self.pq).decapsulate(enc) }
+    let t = unwrap(self.t)
+    if k == 0 {
+      let pe = ecdh.new_public_key(t.curve, enc)?
+      let dh = ecdh.ecdh(t, pe)?
+      return extract_and_expand(id, dh, enc + t.pub_)
+    }
+    let n = mlkem.ciphertext_size(pq_k(id))
+    if len(enc) != n + point_size(t.curve) { return Err("invalid encapsulated key size") }
+    let ss_pq = unwrap(self.pq).decapsulate(enc[..n])?
+    let ct_t = enc[n..]
+    let pe = ecdh.new_public_key(t.curve, ct_t)?
+    let ss_t = ecdh.ecdh(t, pe)?
+    Ok(hybrid_secret(id, ss_pq, ss_t, ct_t, t.pub_))
+  }
+}
+
+// NewDHKEMPublicKey / NewDHKEMPrivateKey / NewMLKEMPublicKey … ：从已有的 ecdh / mlkem 密钥构造
+pub fn new_dhkem_public_key(pub_: ecdh.PublicKey) -> Result<PublicKey, Str> {
+  Ok(PublicKey { kem: dhkem(pub_.curve), t: Some(pub_), pq: None })
+}
+
+pub fn new_dhkem_private_key(priv: ecdh.PrivateKey) -> Result<PrivateKey, Str> {
+  Ok(dh_private(dhkem(priv.curve).kem_id, priv))
+}
+
+fn mlkem_id(k: Int) -> Int { if k == 4 { KEM_MLKEM1024 } else { KEM_MLKEM768 } }
+
+pub fn new_mlkem_public_key(ek: mlkem.EncapsulationKey) -> Result<PublicKey, Str> {
+  Ok(PublicKey { kem: KEM { kem_id: mlkem_id(len(ek.bytes()) / 384) }, t: None, pq: Some(ek) })
+}
+
+pub fn new_mlkem_private_key(dk: mlkem.DecapsulationKey) -> Result<PrivateKey, Str> {
+  Ok(PrivateKey {
+    kem: KEM { kem_id: mlkem_id(len(dk.encapsulation_key().bytes()) / 384) },
+    t: None,
+    pq: Some(dk),
+    seed: None,
+  })
+}
+
+fn hybrid_id(curve: Int, k: Int) -> Result<Int, Str> {
+  if curve == ecdh.X25519 {
+    if k != 3 { return Err("invalid PQ KEM for X25519 hybrid") }
+    return Ok(KEM_MLKEM768_X25519)
+  }
+  if curve == ecdh.P256 {
+    if k != 3 { return Err("invalid PQ KEM for P-256 hybrid") }
+    return Ok(KEM_MLKEM768_P256)
+  }
+  if curve == ecdh.P384 {
+    if k != 4 { return Err("invalid PQ KEM for P-384 hybrid") }
+    return Ok(KEM_MLKEM1024_P384)
+  }
+  Err("unsupported curve")
+}
+
+pub fn new_hybrid_public_key(
+  pq: mlkem.EncapsulationKey,
+  t: ecdh.PublicKey,
+) -> Result<PublicKey, Str> {
+  let id = hybrid_id(t.curve, len(pq.bytes()) / 384)?
+  Ok(PublicKey { kem: KEM { kem_id: id }, t: Some(t), pq: Some(pq) })
+}
+
+pub fn new_hybrid_private_key(
+  pq: mlkem.DecapsulationKey,
+  t: ecdh.PrivateKey,
+) -> Result<PrivateKey, Str> {
+  let id = hybrid_id(t.curve, len(pq.encapsulation_key().bytes()) / 384)?
+  Ok(PrivateKey { kem: KEM { kem_id: id }, t: Some(t), pq: Some(pq), seed: None })
+}
+
+// ───────────── 上下文 ─────────────
+
+pub type Context = {
+  suite_id: List<Int>,
+  kdf: KDF,
+  exp_secret: List<Int>,
+  aead: Option<Cipher>,
+  base_nonce: List<Int>,
+  seq: Int,
+}
+
+fn suite_id(kem: Int, kdf: Int, aead: Int) -> List<Int> {
+  __bytes("HPKE") + be16(kem) + be16(kdf) + be16(aead)
+}
+
+fn new_context(
+  ss: List<Int>,
+  kem_id: Int,
+  kdf: KDF,
+  aead: AEAD,
+  info: List<Int>,
+) -> Result<Context, Str> {
+  let sid = suite_id(kem_id, kdf.kid, aead.aid)
+  let nk = aead.key_size()
+  let nn = aead.nonce_size()
+  if kdf.one_stage() {
+    let secrets = be16(0) + be16(len(ss)) + ss
+    let ks = [0] + be16(0) + be16(len(info)) + info
+    let secret = kdf.labeled_derive(sid, secrets, "secret", ks, nk + nn + kdf.size())?
+    let a = aead.make(secret[..nk])?
+    return Ok(Context {
+      suite_id: sid,
+      kdf: kdf,
+      exp_secret: secret[nk + nn..],
+      aead: a,
+      base_nonce: secret[nk..nk + nn],
+      seq: 0,
+    })
+  }
+  let psk_id_hash = kdf.labeled_extract(sid, [], "psk_id_hash", [])?
+  let info_hash = kdf.labeled_extract(sid, [], "info_hash", info)?
+  let ks = [0] + psk_id_hash + info_hash
+  let secret = kdf.labeled_extract(sid, ss, "secret", [])?
+  let key = kdf.labeled_expand(sid, secret, "key", ks, nk)?
+  let a = aead.make(key)?
+  let base_nonce = kdf.labeled_expand(sid, secret, "base_nonce", ks, nn)?
+  let exp = kdf.labeled_expand(sid, secret, "exp", ks, kdf.size())?
+  Ok(Context { suite_id: sid, kdf: kdf, exp_secret: exp, aead: a, base_nonce: base_nonce, seq: 0 })
+}
+
+impl Context {
+  fn next_nonce(self) -> List<Int> {
+    var n: List<Int> = []
+    for _ in 0..4 { n = push(n, 0) }
+    for i in 0..8 { n = push(n, (self.seq >> (8 * (7 - i))) & 255) }
+    for i in 0..len(self.base_nonce) { n[i] = n[i] ^ self.base_nonce[i] }
+    n
+  }
+
+  // Sender.Seal
+  fn seal(self, aad: List<Int>, plaintext: List<Int>) -> (Context, Result<List<Int>, Str>) {
+    match self.aead {
+      None => (self, Err("export-only instantiation")),
+      Some(c) => {
+        let ct = c_seal(c, self.next_nonce(), plaintext, aad)
+        (Context { seq: self.seq + 1, ..self }, Ok(ct))
+      },
+    }
+  }
+
+  // Recipient.Open
+  fn open(self, aad: List<Int>, ciphertext: List<Int>) -> (Context, Result<List<Int>, Str>) {
+    match self.aead {
+      None => (self, Err("export-only instantiation")),
+      Some(c) => match c_open(c, self.next_nonce(), ciphertext, aad) {
+        Err(e) => (self, Err(e)),
+        Ok(p) => (Context { seq: self.seq + 1, ..self }, Ok(p)),
+      },
+    }
+  }
+
+  // Export：exporter_context 是字节
+  fn export(self, exporter_context: List<Int>, length: Int) -> Result<List<Int>, Str> {
+    if length < 0 || length > 0xFFFF { return Err("invalid length") }
+    if self.kdf.one_stage() {
+      return self.kdf.labeled_derive(
+        self.suite_id,
+        self.exp_secret,
+        "sec",
+        exporter_context,
+        length,
+      )
+    }
+    self.kdf.labeled_expand(self.suite_id, self.exp_secret, "sec", exporter_context, length)
+  }
+}
+
+// NewSender：(enc, 发送方上下文)
+pub fn new_sender(pk: PublicKey, kdf: KDF, aead: AEAD, info: List<Int>) -> Result<(
+  List<Int>, Context
+), Str> {
+  let (ss, enc) = pk.encap_with(None, None)?
+  Ok((enc, new_context(ss, pk.kem.kem_id, kdf, aead, info)?))
+}
+
+// 确定的封装（同 Go 测试的 setupDerandomizedEncap）：
+//   DHKEM：临时密钥 = DeriveKeyPair(rand)；ML-KEM：rand 是 32 字节封装随机数；
+//   混合：rand[..32] 给 ML-KEM，其余是曲线私钥（MLKEM768-P256 取 rand[32..64]）
+pub fn new_sender_derand(
+  pk: PublicKey,
+  kdf: KDF,
+  aead: AEAD,
+  info: List<Int>,
+  rand: List<Int>,
+) -> Result<(List<Int>, Context), Str> {
+  let id = pk.kem.kem_id
+  let k = kind(id)
+  let (ss, enc) = if k == 0 {
+    pk.encap_with(Some(unwrap(pk.kem.derive_key_pair(rand)?.t)), None)?
+  } else if k == 1 {
+    pk.encap_with(None, Some(rand))?
+  } else {
+    let tr = if id == KEM_MLKEM768_P256 { rand[32..64] } else { rand[32..] }
+    pk.encap_with(Some(ecdh.new_private_key(dh_curve(id), tr)?), Some(rand[..32]))?
+  }
+  Ok((enc, new_context(ss, id, kdf, aead, info)?))
+}
+
+pub fn new_recipient(
+  enc: List<Int>,
+  k: PrivateKey,
+  kdf: KDF,
+  aead: AEAD,
+  info: List<Int>,
+) -> Result<Context, Str> {
+  let ss = k.decap(enc)?
+  new_context(ss, k.kem.kem_id, kdf, aead, info)
+}
+
+// 单次加密：enc || 密文
+pub fn seal(
+  pk: PublicKey,
+  kdf: KDF,
+  aead: AEAD,
+  info: List<Int>,
+  plaintext: List<Int>,
+) -> Result<List<Int>, Str> {
+  let (enc, s) = new_sender(pk, kdf, aead, info)?
+  let (_, ct) = s.seal([], plaintext)
+  Ok(enc + ct?)
+}
+
+pub fn open(
+  k: PrivateKey,
+  kdf: KDF,
+  aead: AEAD,
+  info: List<Int>,
+  ciphertext: List<Int>,
+) -> Result<List<Int>, Str> {
+  let n = k.kem.enc_size()
+  if len(ciphertext) < n { return Err("ciphertext too short") }
+  let r = new_recipient(ciphertext[..n], k, kdf, aead, info)?
+  let (_, p) = r.open([], ciphertext[n..])
+  p
+}

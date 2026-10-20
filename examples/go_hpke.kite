@@ -1,0 +1,335 @@
+// 对拍 tests/go/hpke.go：RFC 9180 与 hpke-pq 的测试向量（确定的封装、累积 1000 次的加密 / 导出摘要）、
+// 各种错误文字、随机密钥的往返，以及 ChaCha20-Poly1305 / XChaCha20-Poly1305。
+// 累积次数默认 20（同 expected）；HPKE_N=1000 时和测试向量里的累积摘要比较（want 一栏）
+use std.fs
+use std.encoding.hex
+use std.encoding.json
+use std.crypto.sha3
+use std.crypto.ecdh
+use std.crypto.hpke
+use std.crypto.chacha20poly1305 as cc
+
+fn hx(b: List<Int>) -> Str { hex.encode_bytes(b) }
+
+fn unhex(s: Str) -> List<Int> { unwrap(hex.decode(s)) }
+
+fn fs_(v: json.Json, k: Str) -> Str {
+  unwrap_or(json.as_str(unwrap_or(json.field(v, k), JNull)), "")
+}
+
+fn fi(v: json.Json, k: Str) -> Int { unwrap_or(json.as_int(unwrap_or(json.field(v, k), JNull)), 0) }
+
+fn arr(v: json.Json, k: Str) -> List<json.Json> {
+  match json.field(v, k) {
+    Some(JArr(xs)) => xs,
+    _ => [],
+  }
+}
+
+fn bl(b: Bool) -> Str { if b { "true" } else { "false" } }
+
+fn res(r: Result<List<Int>, Str>) -> Str {
+  match r {
+    Ok(b) => "ok " + hx(b),
+    Err(e) => "err " + e,
+  }
+}
+
+fn h4(v: Int) -> Str {
+  let d = chars("0123456789abcdef")
+  d[(v >> 12) & 15] + d[(v >> 8) & 15] + d[(v >> 4) & 15] + d[v & 15]
+}
+
+// drawRandomInput：先读 1 字节长度，再读那么多字节
+fn draw(s: sha3.Sponge) -> (List<Int>, sha3.Sponge) {
+  let (l, s1) = s.read(1)
+  let (b, s2) = s1.read(l[0])
+  (b, s2)
+}
+
+fn vector(file: Str, v: json.Json, n: Int) {
+  let mode = fi(v, "mode")
+  let kid = fi(v, "kem_id")
+  let fid = fi(v, "kdf_id")
+  let aid = fi(v, "aead_id")
+  print(
+    "vector " + file + " mode " + h4(mode) + " kem " + h4(kid) + " kdf " + h4(fid) + " aead " + h4(
+      aid,
+    ),
+  )
+  if mode != 0 || kid == 0x21 || kid == 0x40 || fid == 0x12 || fid == 0x13 {
+    print("  skip")
+    return
+  }
+  let kdf = unwrap(hpke.new_kdf(fid))
+  let aead = unwrap(hpke.new_aead(aid))
+  let kem = unwrap(hpke.new_kem(kid))
+  let pkb = unhex(fs_(v, "pkRm"))
+  let pk = unwrap(kem.new_public_key(pkb))
+  print("  pk-eq " + bl(pk.bytes() == pkb) + " kem-eq " + bl(pk.kem.id() == kid))
+  let info = unhex(fs_(v, "info"))
+  let (enc, s0) = unwrap(hpke.new_sender_derand(pk, kdf, aead, info, unhex(fs_(v, "ikmE"))))
+  print(
+    "  enc " + hx(enc) + " size " + bl(len(enc) == kem.enc_size()) + " want " + bl(
+      enc == unhex(fs_(v, "enc")),
+    ),
+  )
+  let skb = unhex(fs_(v, "skRm"))
+  let sk = unwrap(kem.new_private_key(skb))
+  let skb2 = unwrap(sk.bytes())
+  print(
+    "  sk " + hx(skb2) + " eq " + bl(skb2 == skb) + " pub-eq " + bl(sk.public_key().bytes() == pkb),
+  )
+  let d = unwrap(kem.derive_key_pair(unhex(fs_(v, "ikmR"))))
+  print("  derived " + hx(unwrap(d.bytes())) + " pub-eq " + bl(d.public_key().bytes() == pkb))
+  var r = unwrap(hpke.new_recipient(enc, sk, kdf, aead, info))
+  var s = s0
+  let acc_enc = fs_(v, "encryptions_accumulated")
+  if aead.id() != 0xFFFF && acc_enc != "" {
+    var src = sha3.new_shake128()
+    var sink = sha3.new_shake128()
+    var ok = true
+    for _ in 0..n {
+      let (aad, a1) = draw(src)
+      let (pt, a2) = draw(a1)
+      src = a2
+      let (s1, ct) = s.seal(aad, pt)
+      s = s1
+      let c = unwrap(ct)
+      sink = sink.write(c)
+      let (r1, p) = r.open(aad, c)
+      r = r1
+      if unwrap(p) != pt { ok = false }
+    }
+    let (acc, _) = sink.read(16)
+    print(
+      "  acc-enc " + hx(acc) + " open " + bl(ok) + " want " + bl(n != 1000 || hx(acc) == acc_enc),
+    )
+  } else if aead.id() != 0xFFFF {
+    for e in arr(v, "encryptions") {
+      let aad = unhex(fs_(e, "aad"))
+      let pt = unhex(fs_(e, "pt"))
+      let (s1, ct) = s.seal(aad, pt)
+      s = s1
+      let c = unwrap(ct)
+      let (r1, p) = r.open(aad, c)
+      r = r1
+      print(
+        "  ct " + hx(c) + " want " + bl(c == unhex(fs_(e, "ct"))) + " open " + bl(unwrap(p) == pt),
+      )
+    }
+  } else {
+    let (_, e1) = s.seal([], [])
+    let (_, e2) = r.open([], [])
+    print("  export-only " + res(e1) + " / " + res(e2))
+  }
+  let acc_exp = fs_(v, "exports_accumulated")
+  if acc_exp != "" {
+    var src = sha3.new_shake128()
+    var sink = sha3.new_shake128()
+    var ok = true
+    for l in 0..n {
+      let (c, a1) = draw(src)
+      src = a1
+      let val = unwrap(s.export(c, l))
+      sink = sink.write(val)
+      if unwrap(r.export(c, l)) != val { ok = false }
+    }
+    let (acc, _) = sink.read(16)
+    print(
+      "  acc-exp " + hx(acc) + " recv " + bl(ok) + " want " + bl(n != 1000 || hx(acc) == acc_exp),
+    )
+  } else {
+    for e in arr(v, "exports") {
+      let c = unhex(fs_(e, "exporter_context"))
+      let val = unwrap(s.export(c, fi(e, "L")))
+      print(
+        "  export " + hx(val) + " want " + bl(
+          val == unhex(fs_(e, "exported_value")),
+        ) + " recv " + bl(unwrap(r.export(c, fi(e, "L"))) == val),
+      )
+    }
+  }
+}
+
+fn kems() -> List<hpke.KEM> {
+  [
+    hpke.dhkem(ecdh.P256),
+    hpke.dhkem(ecdh.P384),
+    hpke.dhkem(ecdh.P521),
+    hpke.dhkem(ecdh.X25519),
+    hpke.mlkem768(),
+    hpke.mlkem1024(),
+    hpke.mlkem768_p256(),
+    hpke.mlkem1024_p384(),
+    hpke.mlkem768_x25519(),
+  ]
+}
+
+// 确定封装的随机输入：DH 用整段（DeriveKeyPair 的 ikm），ML-KEM 32 字节，混合 32 + 曲线私钥长度
+fn der(kem: hpke.KEM, ikm: List<Int>) -> List<Int> {
+  let id = kem.id()
+  if id == hpke.KEM_MLKEM768 || id == hpke.KEM_MLKEM1024 { return ikm[..32] }
+  if id == hpke.KEM_MLKEM1024_P384 { return ikm[..80] }
+  if id == hpke.KEM_MLKEM768_X25519 || id == hpke.KEM_MLKEM768_P256 { return ikm[..64] }
+  ikm
+}
+
+fn errors_() {
+  print("new-kem " + res(match hpke.new_kem(0x21) {
+    Ok(_) => Ok([]),
+    Err(e) => Err(e),
+  }))
+  print("new-kdf " + res(match hpke.new_kdf(0x12) {
+    Ok(_) => Ok([]),
+    Err(e) => Err(e),
+  }))
+  print("new-aead " + res(match hpke.new_aead(4) {
+    Ok(_) => Ok([]),
+    Err(e) => Err(e),
+  }))
+  let ikm = map(0..80, (i) => i)
+  for kem in kems() {
+    let sk = unwrap(kem.derive_key_pair(ikm))
+    let pk = sk.public_key()
+    let kdf = hpke.hkdf_sha256()
+    let aead = hpke.aes128_gcm()
+    let id = h4(kem.id())
+    let (enc, s0) = unwrap(hpke.new_sender_derand(pk, kdf, aead, __bytes("info"), der(kem, ikm)))
+    let (_, ct) = s0.seal(__bytes("aad"), __bytes("plaintext"))
+    let c = enc + unwrap(ct)
+    print("kem " + id + " pk " + hx(sha3.sum256(pk.bytes())) + " ct " + hx(sha3.sum256(c)))
+    print("  open " + res(hpke.open(sk, kdf, aead, __bytes("info"), c)))
+    print("  wrong-info " + res(hpke.open(sk, kdf, aead, __bytes("wrong"), c)))
+    var bad = c
+    bad[len(bad) - 1] = bad[len(bad) - 1] ^ 0xFF
+    print("  corrupted " + res(hpke.open(sk, kdf, aead, __bytes("info"), bad)))
+    print("  short " + res(hpke.open(sk, kdf, aead, __bytes("info"), c[..kem.enc_size() - 1])))
+    print("  enc-short " + res(match hpke.new_recipient(enc[..len(enc) - 1], sk, kdf, aead, []) {
+      Ok(_) => Ok([]),
+      Err(e) => Err(e),
+    }))
+    print("  pk-short " + res(match kem.new_public_key(pk.bytes()[1..]) {
+      Ok(_) => Ok([]),
+      Err(e) => Err(e),
+    }))
+    print("  sk-short " + res(match kem.new_private_key(unwrap(sk.bytes())[1..]) {
+      Ok(_) => Ok([]),
+      Err(e) => Err(e),
+    }))
+    let r = unwrap(hpke.new_recipient(enc, sk, kdf, aead, __bytes("info")))
+    print(
+      "  export-neg " + res(r.export([], -1)) + " / big " + res(
+        r.export([], 65536),
+      ) + " / huge " + res(r.export([], 8161)),
+    )
+    let (enc2, s2) = unwrap(
+      hpke.new_sender_derand(pk, hpke.shake256(), hpke.export_only(), [], der(kem, ikm)),
+    )
+    let (_, se) = s2.seal([], [])
+    print("  export-only " + res(se) + " / " + res(s2.export(__bytes("ctx"), 40)))
+    let r2 = unwrap(hpke.new_recipient(enc2, sk, hpke.shake256(), hpke.export_only(), []))
+    print("  export-recv " + res(r2.export(__bytes("ctx"), 40)))
+    let kb = unwrap(sk.bytes())
+    let kk = unwrap(kem.new_private_key(kb))
+    let c2 = unwrap(hpke.seal(pk, hpke.hkdf_sha512(), hpke.chacha20_poly1305(), [], []))
+    print(
+      "  roundtrip " + bl(unwrap(kk.bytes()) == kb) + " " + res(
+        hpke.open(kk, hpke.hkdf_sha512(), hpke.chacha20_poly1305(), [], c2),
+      ),
+    )
+  }
+  // X25519 的低阶点、P-256 的非法点
+  let xs = unwrap(hpke.dhkem(ecdh.X25519).derive_key_pair([1, 2, 3]))
+  print("x25519-low-order " + res(match hpke.new_recipient(
+    map(0..32, (_) => 0),
+    xs,
+    hpke.hkdf_sha256(),
+    hpke.aes128_gcm(),
+    [],
+  ) {
+    Ok(_) => Ok([]),
+    Err(e) => Err(e),
+  }))
+  let ps = unwrap(hpke.dhkem(ecdh.P256).derive_key_pair([1, 2, 3]))
+  print("p256-bad-point " + res(match hpke.new_recipient(
+    [4] + map(0..64, (_) => 1),
+    ps,
+    hpke.hkdf_sha256(),
+    hpke.aes128_gcm(),
+    [],
+  ) {
+    Ok(_) => Ok([]),
+    Err(e) => Err(e),
+  }))
+  print("hybrid-seed " + res(match hpke
+    .mlkem768_x25519()
+    .new_private_key([1, 2, 3]) {
+      Ok(_) => Ok([]),
+      Err(e) => Err(e),
+    }))
+  print("p256-zero-key " + res(match hpke
+    .dhkem(ecdh.P256)
+    .new_private_key(map(0..32, (_) => 0)) {
+      Ok(_) => Ok([]),
+      Err(e) => Err(e),
+    }))
+}
+
+fn chacha() {
+  let key = map(0..32, (i) => 0x80 + i)
+  let nonce = [7, 0, 0, 0, 0x40, 0x41, 0x42, 0x43, 0x44, 0x45, 0x46, 0x47]
+  let aad = [0x50, 0x51, 0x52, 0x53, 0xc0, 0xc1, 0xc2, 0xc3, 0xc4, 0xc5, 0xc6, 0xc7]
+  let pt = __bytes(
+    "Ladies and Gentlemen of the class of '99: If I could offer you only one tip for the future, sunscreen would be it.",
+  )
+  let a = unwrap(cc.new(key))
+  let ct = a.seal([], nonce, pt, aad)
+  print("chacha rfc8439 " + hx(ct))
+  print("chacha open " + res(a.open([], nonce, ct, aad)))
+  var bad = ct
+  bad[0] = bad[0] ^ 1
+  print("chacha bad " + res(a.open([], nonce, bad, aad)))
+  print("chacha short " + res(a.open([], nonce, ct[..15], aad)))
+  print("chacha key " + res(match cc.new(key[..31]) {
+    Ok(_) => Ok([]),
+    Err(e) => Err(e),
+  }))
+  let x = unwrap(cc.new_x(key))
+  let xn = map(0..24, (i) => 0x40 + i)
+  for l in [0, 1, 15, 16, 17, 63, 64, 65, 200] {
+    let m = map(0..l, (i) => (i * 7) & 255)
+    let c1 = a.seal([], nonce, m, [])
+    let c2 = x.seal([], xn, m, m[..l / 2])
+    print(
+      "chacha {l} " + hx(sha3.sum256(c1)) + " x " + hx(sha3.sum256(c2)) + " " + bl(
+        unwrap(x.open([], xn, c2, m[..l / 2])) == m,
+      ),
+    )
+  }
+}
+
+fn main() {
+  let n = match __env_get("HPKE_N") {
+    Some(x) => unwrap_or_int(x),
+    None => 20,
+  }
+  for file in ["rfc9180", "hpke-pq"] {
+    let text = unwrap(fs.read("tests/go/testdata/hpke/" + file + ".json"))
+    match unwrap(json.parse(text)) {
+      JArr(vs) => {
+        for v in vs { vector(file, v, n) }
+      },
+      _ => print("bad json"),
+    }
+  }
+  errors_()
+  chacha()
+}
+
+fn unwrap_or_int(s: Str) -> Int {
+  match parse_int(s) {
+    Ok(x) => x,
+    Err(_) => 20,
+  }
+}

@@ -1039,6 +1039,8 @@ Go 1.27 的 encoding/json（v1）改由 v2 实现，语法错误、Compact/Inden
 | `std.crypto.des` / `std.crypto.rc4` | crypto/des、crypto/rc4 | DES、3DES（返回 cipher.Block，可接 CBC 等模式）、RC4 |
 | `std.crypto.dsa` | crypto/dsa | generate_key、sign、verify（随机字节由调用方给出；不含 GenerateParameters） |
 | `std.crypto.elliptic` | crypto/elliptic | P-224/256/384/521 与自定义曲线：add、double、scalar_mult、marshal(_compressed)、unmarshal(_compressed)、generate_key；std.crypto.internal.nistec 增加 P-224 和压缩点解码 |
+| `std.crypto.hpke` | crypto/hpke | HPKE（RFC 9180 base 模式与 ML-KEM / 混合 KEM），KDF 含 HKDF 与 SHAKE，AEAD 含 AES-GCM、ChaCha20-Poly1305、Export-only |
+| `std.crypto.chacha20poly1305` | x/crypto/chacha20poly1305 | ChaCha20-Poly1305 与 XChaCha20-Poly1305 AEAD |
 | `std.crypto.mlkem` | crypto/mlkem | ML-KEM-768/1024：密钥、封装（含 mlkemtest 的确定性封装）、解封装、隐式拒绝 |
 | `std.crypto.mldsa` | crypto/mldsa | ML-DSA-44/65/87：从种子生成密钥、编解码、确定性与 hedged 签名、context、外部 μ、验签；错误文字与 Go 相同 |
 | `std.go.constant` | go/constant | 精确常量：Int（含大整数）、Float（分数 / 512 位浮点）、Complex；make_from_literal、binary_op、shift、compare、to_int/to_float、String/ExactString 与 Go 逐字节相同 |
