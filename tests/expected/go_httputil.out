@@ -1,0 +1,827 @@
+1 req true err=""
+  "GET http://www.techcrunch.com/ HTTP/1.1\r\nAccept: text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8\r\nAccept-Charset: ISO-8859-1,utf-8;q=0.7,*;q=0.7\r\nAccept-Encoding: gzip,deflate\r\nAccept-Language: en-us,en;q=0.5\r\nContent-Length: 7\r\nKeep-Alive: 300\r\nProxy-Connection: keep-alive\r\nUser-Agent: Fake\r\n\r\nabcdef\n"
+1 req false err=""
+  "GET http://www.techcrunch.com/ HTTP/1.1\r\nAccept: text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8\r\nAccept-Charset: ISO-8859-1,utf-8;q=0.7,*;q=0.7\r\nAccept-Encoding: gzip,deflate\r\nAccept-Language: en-us,en;q=0.5\r\nContent-Length: 7\r\nKeep-Alive: 300\r\nProxy-Connection: keep-alive\r\nUser-Agent: Fake\r\n\r\n"
+2 req true err=""
+  "GET / HTTP/1.1\r\nHost: foo.com\r\n\r\n"
+2 req false err=""
+  "GET / HTTP/1.1\r\nHost: foo.com\r\n\r\n"
+3 req true err=""
+  "GET //user@host/is/actually/a/path/ HTTP/1.1\r\nHost: test\r\n\r\n"
+3 req false err=""
+  "GET //user@host/is/actually/a/path/ HTTP/1.1\r\nHost: test\r\n\r\n"
+4 req read err "parse \"../../../../etc/passwd\": invalid URI for request"
+5 req read err "parse \"\": empty url"
+6 req true err=""
+  "POST / HTTP/1.1\r\nHost: foo.com\r\nTransfer-Encoding: chunked\r\n\r\n6\r\nfoobar\r\n0\r\n\r\n"
+6 req false err=""
+  "POST / HTTP/1.1\r\nHost: foo.com\r\nTransfer-Encoding: chunked\r\n\r\n"
+7 req true err=""
+  "POST / HTTP/1.1\r\nHost: foo.com\r\nTransfer-Encoding: chunked\r\n\r\n6\r\nfoobar\r\n0\r\n\r\n"
+7 req false err=""
+  "POST / HTTP/1.1\r\nHost: foo.com\r\nTransfer-Encoding: chunked\r\n\r\n"
+8 req read err "bad Content-Length \"notdigits\""
+9 req true err=""
+  "CONNECT www.google.com:443 HTTP/1.1\r\nHost: www.google.com:443\r\n\r\n"
+9 req false err=""
+  "CONNECT www.google.com:443 HTTP/1.1\r\nHost: www.google.com:443\r\n\r\n"
+10 req true err=""
+  "CONNECT 127.0.0.1:6060 HTTP/1.1\r\nHost: 127.0.0.1:6060\r\n\r\n"
+10 req false err=""
+  "CONNECT 127.0.0.1:6060 HTTP/1.1\r\nHost: 127.0.0.1:6060\r\n\r\n"
+11 req true err=""
+  "CONNECT /_goRPC_ HTTP/1.1\r\n\r\n"
+11 req false err=""
+  "CONNECT /_goRPC_ HTTP/1.1\r\n\r\n"
+12 req true err=""
+  "NOTIFY * HTTP/1.1\r\nServer: foo\r\n\r\n"
+12 req false err=""
+  "NOTIFY * HTTP/1.1\r\nServer: foo\r\n\r\n"
+13 req true err=""
+  "OPTIONS * HTTP/1.1\r\nServer: foo\r\n\r\n"
+13 req false err=""
+  "OPTIONS * HTTP/1.1\r\nServer: foo\r\n\r\n"
+14 req true err=""
+  "GET / HTTP/1.1\r\nHost: issue8261.com\r\nConnection: close\r\n\r\n"
+14 req false err=""
+  "GET / HTTP/1.1\r\nHost: issue8261.com\r\nConnection: close\r\n\r\n"
+15 req true err=""
+  "HEAD / HTTP/1.1\r\nHost: issue8261.com\r\nConnection: close\r\nContent-Length: 0\r\n\r\n"
+15 req false err=""
+  "HEAD / HTTP/1.1\r\nHost: issue8261.com\r\nConnection: close\r\nContent-Length: 0\r\n\r\n"
+16 req true err=""
+  "PRI * HTTP/2.0\r\n\r\n"
+16 req false err=""
+  "PRI * HTTP/2.0\r\n\r\n"
+17 req read err "parse \"http://[]%20%48%54%54%50%2f%31%2e%31%0a%4d%79%48%65%61%64%65%72%3a%20%31%32%33%0a%0a\": invalid port \"%20%48%54%54%50%2f%31%2e%31%0a%4d%79%48%65%61%64%65%72%3a%20%31%32%33%0a%0a\" after host"
+18 req read err "http: message cannot contain multiple Content-Length headers; got [\"3\" \"4\"]"
+19 req read err "http: message cannot contain multiple Content-Length headers; got [\"4\" \"5\"]"
+20 req read err "malformed MIME header initial line: \" Host: foo\""
+21 req read err "malformed MIME header initial line: \"\\tHost: foo\""
+22 resp true err=""
+  "HTTP/1.0 200 OK\r\nConnection: close\r\n\r\nBody here\n"
+22 resp false err=""
+  "HTTP/1.0 200 OK\r\nConnection: close\r\n\r\n"
+23 resp true err=""
+  "HTTP/1.1 200 OK\r\nConnection: close\r\n\r\nBody here\n"
+23 resp false err=""
+  "HTTP/1.1 200 OK\r\nConnection: close\r\n\r\n"
+24 resp true err=""
+  "HTTP/1.1 204 No Content\r\n\r\n"
+24 resp false err=""
+  "HTTP/1.1 204 No Content\r\n\r\n"
+25 resp true err=""
+  "HTTP/1.0 200 OK\r\nContent-Length: 10\r\nConnection: close\r\n\r\nBody here\n"
+25 resp false err=""
+  "HTTP/1.0 200 OK\r\nContent-Length: 10\r\nConnection: close\r\n\r\n"
+26 resp true err=""
+  "HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n13\r\nBody here\ncontinued\r\n0\r\n\r\n"
+26 resp false err=""
+  "HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n"
+27 resp true err=""
+  "HTTP/1.0 200 OK\r\nContent-Length: 10\r\nConnection: close\r\n\r\nBody here\n"
+27 resp false err=""
+  "HTTP/1.0 200 OK\r\nContent-Length: 10\r\nConnection: close\r\n\r\n"
+28 resp true err=""
+  "HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\na\r\nBody here\n\r\n0\r\n\r\n"
+28 resp false err=""
+  "HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n"
+29 resp true err=""
+  "HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n"
+29 resp false err=""
+  "HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n"
+30 resp true err=""
+  "HTTP/1.0 200 OK\r\nConnection: close\r\nContent-Length: 256\r\n\r\n"
+30 resp false err=""
+  "HTTP/1.0 200 OK\r\nConnection: close\r\nContent-Length: 256\r\n\r\n"
+31 resp true err=""
+  "HTTP/1.1 200 OK\r\nContent-Length: 256\r\n\r\n"
+31 resp false err=""
+  "HTTP/1.1 200 OK\r\nContent-Length: 256\r\n\r\n"
+32 resp true err=""
+  "HTTP/1.0 200 OK\r\nConnection: close\r\n\r\n"
+32 resp false err=""
+  "HTTP/1.0 200 OK\r\nConnection: close\r\n\r\n"
+33 resp true err=""
+  "HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n"
+33 resp false err=""
+  "HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n"
+34 resp true err=""
+  "HTTP/1.0 303 \r\nConnection: close\r\n\r\n"
+34 resp false err=""
+  "HTTP/1.0 303 \r\nConnection: close\r\n\r\n"
+35 resp true err=""
+  "HTTP/1.0 303 303\r\nConnection: close\r\n\r\n"
+35 resp false err=""
+  "HTTP/1.0 303 303\r\nConnection: close\r\n\r\n"
+36 resp true err=""
+  "HTTP/1.1 206 Partial Content\r\nConnection: close\r\nContent-Type: multipart/byteranges; boundary=18a75608c8f47cef\r\n\r\nsome body"
+36 resp false err=""
+  "HTTP/1.1 206 Partial Content\r\nConnection: close\r\nContent-Type: multipart/byteranges; boundary=18a75608c8f47cef\r\n\r\n"
+37 resp true err=""
+  "HTTP/1.0 200 OK\r\nConnection: close\r\n\r\nBody here\n"
+37 resp false err=""
+  "HTTP/1.0 200 OK\r\nConnection: close\r\n\r\n"
+38 resp true err=""
+  "HTTP/1.1 206 Partial Content\r\nContent-Length: 6\r\nAccept-Ranges: bytes\r\nContent-Range: bytes 0-5/1862\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nfoobar"
+38 resp false err=""
+  "HTTP/1.1 206 Partial Content\r\nContent-Length: 6\r\nAccept-Ranges: bytes\r\nContent-Range: bytes 0-5/1862\r\nContent-Type: text/plain; charset=utf-8\r\n\r\n"
+39 resp true err=""
+  "HTTP/1.1 200 OK\r\nConnection: close\r\nContent-Length: 256\r\n\r\n"
+39 resp false err=""
+  "HTTP/1.1 200 OK\r\nConnection: close\r\nContent-Length: 256\r\n\r\n"
+40 resp true err=""
+  "HTTP/1.1 200 OK\r\nConnection: close\r\nContent-Length: 256\r\n\r\n"
+40 resp false err=""
+  "HTTP/1.1 200 OK\r\nConnection: close\r\nContent-Length: 256\r\n\r\n"
+41 resp true err=""
+  "HTTP/1.0 200 OK\r\nConnection: close\r\n\r\nBody here\n"
+41 resp false err=""
+  "HTTP/1.0 200 OK\r\nConnection: close\r\n\r\n"
+42 resp true err=""
+  "HTTP/1.0 200 OK\r\nConnection: close\r\nContent-Length: 10\r\n\r\nBody here\n"
+42 resp false err=""
+  "HTTP/1.0 200 OK\r\nConnection: close\r\nContent-Length: 10\r\n\r\n"
+43 resp true err=""
+  "HTTP/1.1 200 OK\r\nContent-Length: 23\r\nConnection: keep-alive\r\nContent-Encoding: gzip\r\nKeep-Alive: timeout=7200\r\n\r\n\x1f\x8b\b\x00\x00\x00\x00\x00\x00\x00s\xf3\xf7\a\x00\xab'\xd4\x1a\x03\x00\x00\x00"
+43 resp false err=""
+  "HTTP/1.1 200 OK\r\nContent-Length: 23\r\nConnection: keep-alive\r\nContent-Encoding: gzip\r\nKeep-Alive: timeout=7200\r\n\r\n"
+44 resp true err=""
+  "HTTP/1.0 401 Unauthorized\r\nConnection: close\r\nContent-Type: text/html\r\nWww-Authenticate: Basic realm=\"\"\r\n\r\nYour Authentication failed.\r\n"
+44 resp false err=""
+  "HTTP/1.0 401 Unauthorized\r\nConnection: close\r\nContent-Type: text/html\r\nWww-Authenticate: Basic realm=\"\"\r\n\r\n"
+45 req read err "EOF"
+46 req read err "malformed HTTP request \"GET\""
+47 req read err "unexpected EOF"
+48 req read err "unexpected EOF"
+49 req read err "unexpected EOF"
+50 req read err "invalid method \"G@T\""
+51 req read err "malformed HTTP version \"HTTP/1.x\""
+52 req read err "parse \"foo\": invalid URI for request"
+53 req read err "malformed HTTP version \"/ HTTP/1.1\""
+54 req true err=""
+  "GET * HTTP/1.1\r\n\r\n"
+54 req false err=""
+  "GET * HTTP/1.1\r\n\r\n"
+55 req true err=""
+  "OPTIONS * HTTP/1.1\r\nHost: x\r\n\r\n"
+55 req false err=""
+  "OPTIONS * HTTP/1.1\r\nHost: x\r\n\r\n"
+56 req true err=""
+  "CONNECT example.com:443 HTTP/1.1\r\nHost: example.com:443\r\n\r\n"
+56 req false err=""
+  "CONNECT example.com:443 HTTP/1.1\r\nHost: example.com:443\r\n\r\n"
+57 req true err=""
+  "CONNECT /path HTTP/1.1\r\nHost: h\r\n\r\n"
+57 req false err=""
+  "CONNECT /path HTTP/1.1\r\nHost: h\r\n\r\n"
+58 req true err=""
+  "GET http://user:pw@h.com:81/a%20b?x=1#f HTTP/1.1\r\n\r\n"
+58 req false err=""
+  "GET http://user:pw@h.com:81/a%20b?x=1#f HTTP/1.1\r\n\r\n"
+59 req read err "too many Host headers"
+60 req true err=""
+  "GET / HTTP/1.1\r\nCache-Control: no-cache\r\nPragma: no-cache\r\n\r\n"
+60 req false err=""
+  "GET / HTTP/1.1\r\nCache-Control: no-cache\r\nPragma: no-cache\r\n\r\n"
+61 req true err=""
+  "GET / HTTP/1.0\r\nConnection: keep-alive\r\n\r\n"
+61 req false err=""
+  "GET / HTTP/1.0\r\nConnection: keep-alive\r\n\r\n"
+62 req true err=""
+  "GET / HTTP/1.0\r\n\r\n"
+62 req false err=""
+  "GET / HTTP/1.0\r\n\r\n"
+63 req true err=""
+  "GET / HTTP/1.1\r\nConnection: foo, Close\r\n\r\n"
+63 req false err=""
+  "GET / HTTP/1.1\r\nConnection: foo, Close\r\n\r\n"
+64 req true err=""
+  "GET / HTTP/0.9\r\n\r\n"
+64 req false err=""
+  "GET / HTTP/0.9\r\n\r\n"
+65 req true err=""
+  "POST / HTTP/1.1\r\nContent-Length: 5\r\n\r\nhello"
+65 req false err=""
+  "POST / HTTP/1.1\r\nContent-Length: 5\r\n\r\n"
+66 req true err="unexpected EOF"
+  ""
+66 req false err=""
+  "POST / HTTP/1.1\r\nContent-Length: 10\r\n\r\n"
+67 req read err "bad Content-Length \"-1\""
+68 req read err "invalid empty Content-Length \"\""
+69 req read err "bad Content-Length \"1x\""
+70 req true err=""
+  "POST / HTTP/1.1\r\nContent-Length: 3\r\n\r\nabc"
+70 req false err=""
+  "POST / HTTP/1.1\r\nContent-Length: 3\r\n\r\n"
+71 req true err=""
+  "POST / HTTP/1.1\r\nContent-Length: 3\r\n\r\nabc"
+71 req false err=""
+  "POST / HTTP/1.1\r\nContent-Length: 3\r\n\r\n"
+72 req read err "bad Content-Length \"99999999999999999999\""
+73 req true err=""
+  "POST / HTTP/1.1\r\nTransfer-Encoding: chunked\r\n\r\n3\r\nabc\r\n0\r\n\r\n"
+73 req false err=""
+  "POST / HTTP/1.1\r\nTransfer-Encoding: chunked\r\n\r\n"
+74 req true err=""
+  "POST / HTTP/1.1\r\nTransfer-Encoding: chunked\r\n\r\n5\r\nabcde\r\n0\r\n\r\n"
+74 req false err=""
+  "POST / HTTP/1.1\r\nTransfer-Encoding: chunked\r\n\r\n"
+75 req read err "unsupported transfer encoding: \"gzip\""
+76 req read err "too many transfer encodings: [\"chunked\" \"chunked\"]"
+77 req true err=""
+  "POST / HTTP/1.0\r\n\r\n"
+77 req false err=""
+  "POST / HTTP/1.0\r\n\r\n"
+78 req true err=""
+  "POST / HTTP/1.1\r\nTransfer-Encoding: chunked\r\n\r\n1\r\nz\r\n0\r\n\r\n"
+78 req false err=""
+  "POST / HTTP/1.1\r\nTransfer-Encoding: chunked\r\n\r\n"
+79 req read err "bad trailer key \"Content-Length\""
+80 req true err=""
+  "POST / HTTP/1.1\r\nTransfer-Encoding: chunked\r\n\r\n0\r\n\r\n"
+80 req false err=""
+  "POST / HTTP/1.1\r\nTransfer-Encoding: chunked\r\n\r\n"
+81 req true err="http: unexpected EOF reading trailer"
+  ""
+81 req false err=""
+  "POST / HTTP/1.1\r\nTransfer-Encoding: chunked\r\n\r\n"
+82 req true err="http: suspiciously long trailer after chunked body"
+  ""
+82 req false err=""
+  "POST / HTTP/1.1\r\nTransfer-Encoding: chunked\r\n\r\n"
+83 req true err="unexpected EOF"
+  ""
+83 req false err=""
+  "POST / HTTP/1.1\r\nTransfer-Encoding: chunked\r\n\r\n"
+84 req true err="malformed chunked encoding"
+  ""
+84 req false err=""
+  "POST / HTTP/1.1\r\nTransfer-Encoding: chunked\r\n\r\n"
+85 req true err="invalid byte in chunk length"
+  ""
+85 req false err=""
+  "POST / HTTP/1.1\r\nTransfer-Encoding: chunked\r\n\r\n"
+86 req true err="chunked line ends with bare LF"
+  ""
+86 req false err=""
+  "POST / HTTP/1.1\r\nTransfer-Encoding: chunked\r\n\r\n"
+87 req true err="invalid CR in chunked line"
+  ""
+87 req false err=""
+  "POST / HTTP/1.1\r\nTransfer-Encoding: chunked\r\n\r\n"
+88 req true err="empty hex number for chunk length"
+  ""
+88 req false err=""
+  "POST / HTTP/1.1\r\nTransfer-Encoding: chunked\r\n\r\n"
+89 req true err="http chunk length too large"
+  ""
+89 req false err=""
+  "POST / HTTP/1.1\r\nTransfer-Encoding: chunked\r\n\r\n"
+90 req true err=""
+  "PRI * HTTP/2.0\r\n\r\n"
+90 req false err=""
+  "PRI * HTTP/2.0\r\n\r\n"
+91 req read err "malformed MIME header initial line: \" bad: x\""
+92 req read err "malformed MIME header: missing colon: \"no colon\""
+93 req read err "parse \"/\\x01\": net/url: invalid control character in URL"
+94 req read err "parse \"http://[::1\": missing ']' in host"
+95 resp read err "unexpected EOF"
+96 resp read err "malformed HTTP response \"HTTP/1.1\""
+97 resp read err "malformed HTTP status code \"2000\""
+98 resp read err "malformed HTTP status code \"abc\""
+99 resp read err "malformed HTTP status code \"-12\""
+100 resp true err=""
+  "HTTP/1.1 012 +12 x\r\nConnection: close\r\n\r\n"
+100 resp false err=""
+  "HTTP/1.1 012 +12 x\r\nConnection: close\r\n\r\n"
+101 resp true err=""
+  "HTTP/1.1 200   OK  \r\nConnection: close\r\n\r\nbody"
+101 resp false err=""
+  "HTTP/1.1 200   OK  \r\nConnection: close\r\n\r\n"
+102 resp true err=""
+  "HTTP/9.9 200 OK\r\nConnection: close\r\n\r\n"
+102 resp false err=""
+  "HTTP/9.9 200 OK\r\nConnection: close\r\n\r\n"
+103 resp read err "malformed HTTP version \"FOO\""
+104 resp read err "unexpected EOF"
+105 resp true err=""
+  "HTTP/1.1 200 OK\r\nContent-Length: 3\r\n\r\nabc"
+105 resp false err=""
+  "HTTP/1.1 200 OK\r\nContent-Length: 3\r\n\r\n"
+106 resp true err=""
+  "HTTP/1.1 200 OK\r\nContent-Length: 3\r\n\r\n"
+106 resp false err=""
+  "HTTP/1.1 200 OK\r\nContent-Length: 3\r\n\r\n"
+107 resp read err "bad Content-Length \"x\""
+108 resp true err=""
+  "HTTP/1.1 204 No Content\r\n\r\n"
+108 resp false err=""
+  "HTTP/1.1 204 No Content\r\n\r\n"
+109 resp true err=""
+  "HTTP/1.1 304 Not Modified\r\nTransfer-Encoding: chunked\r\n\r\n0\r\n\r\n"
+109 resp false err=""
+  "HTTP/1.1 304 Not Modified\r\nTransfer-Encoding: chunked\r\n\r\n0\r\n\r\n"
+110 resp true err=""
+  "HTTP/1.1 101 Switching\r\n\r\n"
+110 resp false err=""
+  "HTTP/1.1 101 Switching\r\n\r\n"
+111 resp true err=""
+  "HTTP/1.1 200 OK\r\nConnection: close\r\nContent-Length: 2\r\n\r\nhi"
+111 resp false err=""
+  "HTTP/1.1 200 OK\r\nConnection: close\r\nContent-Length: 2\r\n\r\n"
+112 resp true err=""
+  "HTTP/1.0 200 OK\r\nContent-Length: 2\r\nConnection: keep-alive\r\n\r\nhi"
+112 resp false err=""
+  "HTTP/1.0 200 OK\r\nContent-Length: 2\r\nConnection: keep-alive\r\n\r\n"
+113 resp true err=""
+  "HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\nTrailer: Foo\r\n\r\n2\r\nhi\r\n0\r\nFoo: bar\r\n\r\n"
+113 resp false err=""
+  "HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\nTrailer: Foo\r\n\r\n"
+114 resp true err=""
+  "HTTP/1.1 200 OK\r\nConnection: close\r\nCache-Control: max-age=1\r\nPragma: no-cache\r\n\r\n"
+114 resp false err=""
+  "HTTP/1.1 200 OK\r\nConnection: close\r\nCache-Control: max-age=1\r\nPragma: no-cache\r\n\r\n"
+115 resp true err=""
+  "HTTP/0.0 200 OK\r\nConnection: close\r\n\r\nx"
+115 resp false err=""
+  "HTTP/0.0 200 OK\r\nConnection: close\r\n\r\n"
+1 out true err=""
+  "GET / HTTP/1.1\r\nHost: example.com\r\nUser-Agent: Go-http-client/1.1\r\nAccept-Encoding: gzip\r\n\r\n"
+1 out false err=""
+  "GET / HTTP/1.1\r\nHost: example.com\r\nUser-Agent: Go-http-client/1.1\r\nAccept-Encoding: gzip\r\n\r\n"
+2 out true err=""
+  "GET / HTTP/1.1\r\nHost: example.com\r\nUser-Agent: Go-http-client/1.1\r\nAccept-Encoding: gzip\r\n\r\n"
+2 out false err=""
+  "GET / HTTP/1.1\r\nHost: example.com\r\nUser-Agent: Go-http-client/1.1\r\nAccept-Encoding: gzip\r\n\r\n"
+3 out true err=""
+  "GET /a%20b?x=1&y HTTP/1.1\r\nHost: example.com\r\nUser-Agent: Go-http-client/1.1\r\nAccept-Encoding: gzip\r\n\r\n"
+3 out false err=""
+  "GET /a%20b?x=1&y HTTP/1.1\r\nHost: example.com\r\nUser-Agent: Go-http-client/1.1\r\nAccept-Encoding: gzip\r\n\r\n"
+4 out true err=""
+  "GET /p/ HTTP/1.1\r\nHost: h.com:8080\r\nUser-Agent: Go-http-client/1.1\r\nAccept-Encoding: gzip\r\n\r\n"
+4 out false err=""
+  "GET /p/ HTTP/1.1\r\nHost: h.com:8080\r\nUser-Agent: Go-http-client/1.1\r\nAccept-Encoding: gzip\r\n\r\n"
+5 out true err=""
+  "GET / HTTP/1.1\r\nHost: other.com:81\r\nUser-Agent: Go-http-client/1.1\r\nAccept-Encoding: gzip\r\n\r\n"
+5 out false err=""
+  "GET / HTTP/1.1\r\nHost: other.com:81\r\nUser-Agent: Go-http-client/1.1\r\nAccept-Encoding: gzip\r\n\r\n"
+6 out true err=""
+  "GET / HTTP/1.1\r\nHost: \r\nUser-Agent: Go-http-client/1.1\r\nAccept-Encoding: gzip\r\n\r\n"
+6 out false err=""
+  "GET / HTTP/1.1\r\nHost: \r\nUser-Agent: Go-http-client/1.1\r\nAccept-Encoding: gzip\r\n\r\n"
+7 out true err=""
+  "GET / HTTP/1.1\r\nHost: [fe80::1]:8080\r\nUser-Agent: Go-http-client/1.1\r\nAccept-Encoding: gzip\r\n\r\n"
+7 out false err=""
+  "GET / HTTP/1.1\r\nHost: [fe80::1]:8080\r\nUser-Agent: Go-http-client/1.1\r\nAccept-Encoding: gzip\r\n\r\n"
+8 out true err=""
+  "GET /x HTTP/1.1\r\nHost: xn--bcher-kva.example\r\nUser-Agent: Go-http-client/1.1\r\nAccept-Encoding: gzip\r\n\r\n"
+8 out false err=""
+  "GET /x HTTP/1.1\r\nHost: xn--bcher-kva.example\r\nUser-Agent: Go-http-client/1.1\r\nAccept-Encoding: gzip\r\n\r\n"
+9 out true err=""
+  "GET /x HTTP/1.1\r\nHost: xn--bcher-kva.example:81\r\nUser-Agent: Go-http-client/1.1\r\nAccept-Encoding: gzip\r\n\r\n"
+9 out false err=""
+  "GET /x HTTP/1.1\r\nHost: xn--bcher-kva.example:81\r\nUser-Agent: Go-http-client/1.1\r\nAccept-Encoding: gzip\r\n\r\n"
+10 out true err=""
+  "CONNECT h.com:443 HTTP/1.1\r\nHost: h.com:443\r\nUser-Agent: Go-http-client/1.1\r\nAccept-Encoding: gzip\r\n\r\n"
+10 out false err=""
+  "CONNECT h.com:443 HTTP/1.1\r\nHost: h.com:443\r\nUser-Agent: Go-http-client/1.1\r\nAccept-Encoding: gzip\r\n\r\n"
+11 out true err="unsupported protocol scheme \"h.com\""
+  ""
+11 out false err="unsupported protocol scheme \"h.com\""
+  ""
+12 out true err="unsupported protocol scheme \"\""
+  ""
+12 out false err="unsupported protocol scheme \"\""
+  ""
+13 out true err=""
+  "GET / HTTP/1.1\r\nHost: h.com\r\nUser-Agent: my agent\r\nX-A: 1\r\nX-A: 3\r\nX-B: 2\r\nAccept-Encoding: gzip\r\n\r\n"
+13 out false err=""
+  "GET / HTTP/1.1\r\nHost: h.com\r\nUser-Agent: my agent\r\nX-A: 1\r\nX-A: 3\r\nX-B: 2\r\nAccept-Encoding: gzip\r\n\r\n"
+14 out true err=""
+  "GET / HTTP/1.1\r\nHost: h.com\r\nAccept-Encoding: gzip\r\n\r\n"
+14 out false err=""
+  "GET / HTTP/1.1\r\nHost: h.com\r\nAccept-Encoding: gzip\r\n\r\n"
+15 out true err="net/http: invalid header …"
+  ""
+15 out false err="net/http: invalid header …"
+  ""
+16 out true err=""
+  "GET / HTTP/1.1\r\nHost: h.com\r\nUser-Agent: Go-http-client/1.1\r\nAccept-Encoding: gzip\r\n\r\n"
+16 out false err=""
+  "GET / HTTP/1.1\r\nHost: h.com\r\nUser-Agent: Go-http-client/1.1\r\nAccept-Encoding: gzip\r\n\r\n"
+17 out true err=""
+  "GET / HTTP/1.1\r\nHost: h.com\r\nUser-Agent: Go-http-client/1.1\r\nConnection: close\r\nAccept-Encoding: gzip\r\n\r\n"
+17 out false err=""
+  "GET / HTTP/1.1\r\nHost: h.com\r\nUser-Agent: Go-http-client/1.1\r\nConnection: close\r\nAccept-Encoding: gzip\r\n\r\n"
+18 out true err=""
+  "GET / HTTP/1.1\r\nHost: h.com\r\nUser-Agent: Go-http-client/1.1\r\nConnection: Close\r\nAccept-Encoding: gzip\r\n\r\n"
+18 out false err=""
+  "GET / HTTP/1.1\r\nHost: h.com\r\nUser-Agent: Go-http-client/1.1\r\nConnection: Close\r\nAccept-Encoding: gzip\r\n\r\n"
+19 out true err=""
+  "POST / HTTP/1.1\r\nHost: h.com\r\nUser-Agent: Go-http-client/1.1\r\nContent-Length: 0\r\nAccept-Encoding: gzip\r\n\r\n"
+19 out false err=""
+  "POST / HTTP/1.1\r\nHost: h.com\r\nUser-Agent: Go-http-client/1.1\r\nContent-Length: 0\r\nAccept-Encoding: gzip\r\n\r\n"
+20 out true err=""
+  "PUT / HTTP/1.1\r\nHost: h.com\r\nUser-Agent: Go-http-client/1.1\r\nTransfer-Encoding: chunked\r\nAccept-Encoding: gzip\r\n\r\n0\r\n\r\n"
+20 out false err=""
+  "PUT / HTTP/1.1\r\nHost: h.com\r\nUser-Agent: Go-http-client/1.1\r\nTransfer-Encoding: chunked\r\nAccept-Encoding: gzip\r\n\r\n"
+21 out true err=""
+  "POST / HTTP/1.1\r\nHost: h.com\r\nUser-Agent: Go-http-client/1.1\r\nContent-Length: 5\r\nAccept-Encoding: gzip\r\n\r\nhello"
+21 out false err=""
+  "POST / HTTP/1.1\r\nHost: h.com\r\nUser-Agent: Go-http-client/1.1\r\nContent-Length: 5\r\nAccept-Encoding: gzip\r\n\r\n"
+22 out true err=""
+  "POST / HTTP/1.1\r\nHost: h.com\r\nUser-Agent: Go-http-client/1.1\r\nTransfer-Encoding: chunked\r\nAccept-Encoding: gzip\r\n\r\n5\r\nhello\r\n0\r\n\r\n"
+22 out false err=""
+  "POST / HTTP/1.1\r\nHost: h.com\r\nUser-Agent: Go-http-client/1.1\r\nTransfer-Encoding: chunked\r\nAccept-Encoding: gzip\r\n\r\n"
+23 out true err=""
+  "GET / HTTP/1.1\r\nHost: h.com\r\nUser-Agent: Go-http-client/1.1\r\nTransfer-Encoding: chunked\r\nAccept-Encoding: gzip\r\n\r\n1\r\nh\r\n4\r\nello\r\n0\r\n\r\n"
+23 out false err=""
+  "GET / HTTP/1.1\r\nHost: h.com\r\nUser-Agent: Go-http-client/1.1\r\nAccept-Encoding: gzip\r\n\r\n"
+24 out true err=""
+  "GET / HTTP/1.1\r\nHost: h.com\r\nUser-Agent: Go-http-client/1.1\r\nAccept-Encoding: gzip\r\n\r\n"
+24 out false err=""
+  "GET / HTTP/1.1\r\nHost: h.com\r\nUser-Agent: Go-http-client/1.1\r\nAccept-Encoding: gzip\r\n\r\n"
+25 out true err=""
+  "DELETE / HTTP/1.1\r\nHost: h.com\r\nUser-Agent: Go-http-client/1.1\r\nTransfer-Encoding: chunked\r\nAccept-Encoding: gzip\r\n\r\n1\r\nx\r\n0\r\n\r\n"
+25 out false err=""
+  "DELETE / HTTP/1.1\r\nHost: h.com\r\nUser-Agent: Go-http-client/1.1\r\nAccept-Encoding: gzip\r\n\r\n"
+26 out true err=""
+  "CONNECT h.com:443 HTTP/1.1\r\nHost: h.com:443\r\nUser-Agent: Go-http-client/1.1\r\nAccept-Encoding: gzip\r\n\r\nraw"
+26 out false err=""
+  "CONNECT h.com:443 HTTP/1.1\r\nHost: h.com:443\r\nUser-Agent: Go-http-client/1.1\r\nAccept-Encoding: gzip\r\n\r\n"
+27 out true err="http: ContentLength=3 with Body length 5"
+  ""
+27 out false err=""
+  "POST / HTTP/1.1\r\nHost: h.com\r\nUser-Agent: Go-http-client/1.1\r\nContent-Length: 3\r\nAccept-Encoding: gzip\r\n\r\n"
+28 out true err="http: ContentLength=5 with Body length 2"
+  ""
+28 out false err=""
+  "POST / HTTP/1.1\r\nHost: h.com\r\nUser-Agent: Go-http-client/1.1\r\nContent-Length: 5\r\nAccept-Encoding: gzip\r\n\r\n"
+29 out true err=""
+  "POST / HTTP/1.1\r\nHost: h.com\r\nUser-Agent: Go-http-client/1.1\r\nContent-Length: 0\r\nAccept-Encoding: gzip\r\n\r\n"
+29 out false err="http: Request.ContentLength=5 with nil Body"
+  ""
+30 out true err=""
+  "POST / HTTP/1.1\r\nHost: h.com\r\nUser-Agent: Go-http-client/1.1\r\nTransfer-Encoding: chunked\r\nAccept-Encoding: gzip\r\n\r\n3\r\nabc\r\n0\r\n\r\n"
+30 out false err=""
+  "POST / HTTP/1.1\r\nHost: h.com\r\nUser-Agent: Go-http-client/1.1\r\nTransfer-Encoding: chunked\r\nAccept-Encoding: gzip\r\n\r\n"
+31 out true err=""
+  "POST / HTTP/1.1\r\nHost: h.com\r\nUser-Agent: Go-http-client/1.1\r\nTransfer-Encoding: chunked\r\nTrailer: X-A,X-T\r\nAccept-Encoding: gzip\r\n\r\n3\r\nabc\r\n0\r\nX-A: 2\r\nX-T: 1\r\n\r\n"
+31 out false err=""
+  "POST / HTTP/1.1\r\nHost: h.com\r\nUser-Agent: Go-http-client/1.1\r\nTransfer-Encoding: chunked\r\nTrailer: X-A,X-T\r\nAccept-Encoding: gzip\r\n\r\n"
+32 out true err="invalid Trailer key \"Content-Length\""
+  ""
+32 out false err="invalid Trailer key \"Content-Length\""
+  ""
+33 out true err="net/http: invalid trailer field name \"Bad Key\""
+  ""
+33 out false err="net/http: invalid trailer field name \"Bad Key\""
+  ""
+34 out true err="net/http: invalid trailer field value for \"X\""
+  ""
+34 out false err="net/http: invalid trailer field value for \"X\""
+  ""
+35 out true err=""
+  "POST / HTTP/1.1\r\nHost: h.com\r\nUser-Agent: Go-http-client/1.1\r\nContent-Length: 3\r\nAccept-Encoding: gzip\r\n\r\nabc"
+35 out false err=""
+  "POST / HTTP/1.1\r\nHost: h.com\r\nUser-Agent: Go-http-client/1.1\r\nContent-Length: 3\r\nAccept-Encoding: gzip\r\n\r\n"
+36 out true err=""
+  "POST / HTTP/1.1\r\nHost: h.com\r\nUser-Agent: Go-http-client/1.1\r\nAccept-Encoding: gzip\r\n\r\nabc"
+36 out false err=""
+  "POST / HTTP/1.1\r\nHost: h.com\r\nUser-Agent: Go-http-client/1.1\r\nAccept-Encoding: gzip\r\n\r\n"
+37 out true err=""
+  "POST / HTTP/1.1\r\nHost: h.com\r\nUser-Agent: Go-http-client/1.1\r\nAccept-Encoding: gzip\r\n\r\n"
+37 out false err=""
+  "POST / HTTP/1.1\r\nHost: h.com\r\nUser-Agent: Go-http-client/1.1\r\nAccept-Encoding: gzip\r\n\r\n"
+38 out true err=""
+  "GET / HTTP/1.1\r\nHost: h.com\r\nUser-Agent: Go-http-client/1.1\r\nAccept-Encoding: gzip\r\n\r\n"
+38 out false err=""
+  "GET / HTTP/1.1\r\nHost: h.com\r\nUser-Agent: Go-http-client/1.1\r\nAccept-Encoding: gzip\r\n\r\n"
+39 out true err=""
+  "POST / HTTP/1.1\r\nHost: h.com\r\nUser-Agent: Go-http-client/1.1\r\nContent-Length: 3\r\nAccept-Encoding: gzip\r\n\r\nabc"
+39 out false err=""
+  "POST / HTTP/1.1\r\nHost: h.com\r\nUser-Agent: Go-http-client/1.1\r\nContent-Length: 3\r\nAccept-Encoding: gzip\r\n\r\n"
+41 out true err="unsupported protocol scheme \"mailto\""
+  ""
+41 out false err="unsupported protocol scheme \"mailto\""
+  ""
+proxy req 0 target 0
+  out GET url="http://back:8080/a/b?x=1" host="front" close=false cl=0 body=""
+  out hdr={"Te":["trailers"] "User-Agent":[""] "X-Forwarded-For":["192.0.2.9"] "X-Keep":["k"]}
+  code=200
+  header={"Content-Length":["2"] "X-Hop":["1"] "X-Ok":["y"]}
+  trailer=nil
+  body="ok"
+proxy req 0 target 1
+  out GET url="http://back/base/a/b?x=1" host="front" close=false cl=0 body=""
+  out hdr={"Te":["trailers"] "User-Agent":[""] "X-Forwarded-For":["192.0.2.9"] "X-Keep":["k"]}
+  code=200
+  header={"Content-Length":["2"] "X-Hop":["1"] "X-Ok":["y"]}
+  trailer=nil
+  body="ok"
+proxy req 0 target 2
+  out GET url="http://back/base/a/b?t=1&x=1" host="front" close=false cl=0 body=""
+  out hdr={"Te":["trailers"] "User-Agent":[""] "X-Forwarded-For":["192.0.2.9"] "X-Keep":["k"]}
+  code=200
+  header={"Content-Length":["2"] "X-Hop":["1"] "X-Ok":["y"]}
+  trailer=nil
+  body="ok"
+proxy req 0 target 3
+  out GET url="https://b2/p%2Fq/a/b?x=1" host="front" close=false cl=0 body=""
+  out hdr={"Te":["trailers"] "User-Agent":[""] "X-Forwarded-For":["192.0.2.9"] "X-Keep":["k"]}
+  code=200
+  header={"Content-Length":["2"] "X-Hop":["1"] "X-Ok":["y"]}
+  trailer=nil
+  body="ok"
+proxy req 0 target 4
+  out GET url="http://back/a/b?x=1" host="front" close=false cl=0 body=""
+  out hdr={"Te":["trailers"] "User-Agent":[""] "X-Forwarded-For":["192.0.2.9"] "X-Keep":["k"]}
+  code=200
+  header={"Content-Length":["2"] "X-Hop":["1"] "X-Ok":["y"]}
+  trailer=nil
+  body="ok"
+proxy req 1 target 0
+  out GET url="http://back:8080/ws" host="front" close=false cl=0 body=""
+  out hdr={"Connection":["Upgrade"] "Upgrade":["websocket"] "User-Agent":["ua"] "X-Forwarded-For":["192.0.2.9"]}
+  code=200
+  header={"Content-Length":["2"] "X-Hop":["1"] "X-Ok":["y"]}
+  trailer=nil
+  body="ok"
+proxy req 1 target 1
+  out GET url="http://back/base/ws" host="front" close=false cl=0 body=""
+  out hdr={"Connection":["Upgrade"] "Upgrade":["websocket"] "User-Agent":["ua"] "X-Forwarded-For":["192.0.2.9"]}
+  code=200
+  header={"Content-Length":["2"] "X-Hop":["1"] "X-Ok":["y"]}
+  trailer=nil
+  body="ok"
+proxy req 1 target 2
+  out GET url="http://back/base/ws?t=1" host="front" close=false cl=0 body=""
+  out hdr={"Connection":["Upgrade"] "Upgrade":["websocket"] "User-Agent":["ua"] "X-Forwarded-For":["192.0.2.9"]}
+  code=200
+  header={"Content-Length":["2"] "X-Hop":["1"] "X-Ok":["y"]}
+  trailer=nil
+  body="ok"
+proxy req 1 target 3
+  out GET url="https://b2/p%2Fq/ws" host="front" close=false cl=0 body=""
+  out hdr={"Connection":["Upgrade"] "Upgrade":["websocket"] "User-Agent":["ua"] "X-Forwarded-For":["192.0.2.9"]}
+  code=200
+  header={"Content-Length":["2"] "X-Hop":["1"] "X-Ok":["y"]}
+  trailer=nil
+  body="ok"
+proxy req 1 target 4
+  out GET url="http://back/ws" host="front" close=false cl=0 body=""
+  out hdr={"Connection":["Upgrade"] "Upgrade":["websocket"] "User-Agent":["ua"] "X-Forwarded-For":["192.0.2.9"]}
+  code=200
+  header={"Content-Length":["2"] "X-Hop":["1"] "X-Ok":["y"]}
+  trailer=nil
+  body="ok"
+proxy req 2 target 0
+  read err "malformed MIME header line: \"Upgrade: web\\x01socket\""
+proxy req 2 target 1
+  read err "malformed MIME header line: \"Upgrade: web\\x01socket\""
+proxy req 2 target 2
+  read err "malformed MIME header line: \"Upgrade: web\\x01socket\""
+proxy req 2 target 3
+  read err "malformed MIME header line: \"Upgrade: web\\x01socket\""
+proxy req 2 target 4
+  read err "malformed MIME header line: \"Upgrade: web\\x01socket\""
+proxy req 3 target 0
+  out POST url="http://back:8080/p" host="front" close=false cl=5 body="hello"
+  out hdr={"Content-Length":["5"] "User-Agent":[""] "X-Forwarded-For":["10.0.0.1, 10.0.0.2, 192.0.2.9"]}
+  code=200
+  header={"Content-Length":["2"] "X-Hop":["1"] "X-Ok":["y"]}
+  trailer=nil
+  body="ok"
+proxy req 3 target 1
+  out POST url="http://back/base/p" host="front" close=false cl=5 body="hello"
+  out hdr={"Content-Length":["5"] "User-Agent":[""] "X-Forwarded-For":["10.0.0.1, 10.0.0.2, 192.0.2.9"]}
+  code=200
+  header={"Content-Length":["2"] "X-Hop":["1"] "X-Ok":["y"]}
+  trailer=nil
+  body="ok"
+proxy req 3 target 2
+  out POST url="http://back/base/p?t=1" host="front" close=false cl=5 body="hello"
+  out hdr={"Content-Length":["5"] "User-Agent":[""] "X-Forwarded-For":["10.0.0.1, 10.0.0.2, 192.0.2.9"]}
+  code=200
+  header={"Content-Length":["2"] "X-Hop":["1"] "X-Ok":["y"]}
+  trailer=nil
+  body="ok"
+proxy req 3 target 3
+  out POST url="https://b2/p%2Fq/p" host="front" close=false cl=5 body="hello"
+  out hdr={"Content-Length":["5"] "User-Agent":[""] "X-Forwarded-For":["10.0.0.1, 10.0.0.2, 192.0.2.9"]}
+  code=200
+  header={"Content-Length":["2"] "X-Hop":["1"] "X-Ok":["y"]}
+  trailer=nil
+  body="ok"
+proxy req 3 target 4
+  out POST url="http://back/p" host="front" close=false cl=5 body="hello"
+  out hdr={"Content-Length":["5"] "User-Agent":[""] "X-Forwarded-For":["10.0.0.1, 10.0.0.2, 192.0.2.9"]}
+  code=200
+  header={"Content-Length":["2"] "X-Hop":["1"] "X-Ok":["y"]}
+  trailer=nil
+  body="ok"
+proxy req 4 target 0
+  out POST url="http://back:8080/c" host="front" close=false cl=-1 body="abc"
+  out hdr={"User-Agent":[""] "X-Forwarded-For":["192.0.2.9"]}
+  code=200
+  header={"Content-Length":["2"] "X-Hop":["1"] "X-Ok":["y"]}
+  trailer=nil
+  body="ok"
+proxy req 4 target 1
+  out POST url="http://back/base/c" host="front" close=false cl=-1 body="abc"
+  out hdr={"User-Agent":[""] "X-Forwarded-For":["192.0.2.9"]}
+  code=200
+  header={"Content-Length":["2"] "X-Hop":["1"] "X-Ok":["y"]}
+  trailer=nil
+  body="ok"
+proxy req 4 target 2
+  out POST url="http://back/base/c?t=1" host="front" close=false cl=-1 body="abc"
+  out hdr={"User-Agent":[""] "X-Forwarded-For":["192.0.2.9"]}
+  code=200
+  header={"Content-Length":["2"] "X-Hop":["1"] "X-Ok":["y"]}
+  trailer=nil
+  body="ok"
+proxy req 4 target 3
+  out POST url="https://b2/p%2Fq/c" host="front" close=false cl=-1 body="abc"
+  out hdr={"User-Agent":[""] "X-Forwarded-For":["192.0.2.9"]}
+  code=200
+  header={"Content-Length":["2"] "X-Hop":["1"] "X-Ok":["y"]}
+  trailer=nil
+  body="ok"
+proxy req 4 target 4
+  out POST url="http://back/c" host="front" close=false cl=-1 body="abc"
+  out hdr={"User-Agent":[""] "X-Forwarded-For":["192.0.2.9"]}
+  code=200
+  header={"Content-Length":["2"] "X-Hop":["1"] "X-Ok":["y"]}
+  trailer=nil
+  body="ok"
+proxy req 5 target 0
+  out GET url="http://back:8080/%2F%20x/y?q=%zz;a" host="front" close=false cl=0 body=""
+  out hdr={"User-Agent":[""] "X-Forwarded-For":["192.0.2.9"]}
+  code=200
+  header={"Content-Length":["2"] "X-Hop":["1"] "X-Ok":["y"]}
+  trailer=nil
+  body="ok"
+proxy req 5 target 1
+  out GET url="http://back/base/%2F%20x/y?q=%zz;a" host="front" close=false cl=0 body=""
+  out hdr={"User-Agent":[""] "X-Forwarded-For":["192.0.2.9"]}
+  code=200
+  header={"Content-Length":["2"] "X-Hop":["1"] "X-Ok":["y"]}
+  trailer=nil
+  body="ok"
+proxy req 5 target 2
+  out GET url="http://back/base/%2F%20x/y?t=1&q=%zz;a" host="front" close=false cl=0 body=""
+  out hdr={"User-Agent":[""] "X-Forwarded-For":["192.0.2.9"]}
+  code=200
+  header={"Content-Length":["2"] "X-Hop":["1"] "X-Ok":["y"]}
+  trailer=nil
+  body="ok"
+proxy req 5 target 3
+  out GET url="https://b2/p%2Fq/%2F%20x/y?q=%zz;a" host="front" close=false cl=0 body=""
+  out hdr={"User-Agent":[""] "X-Forwarded-For":["192.0.2.9"]}
+  code=200
+  header={"Content-Length":["2"] "X-Hop":["1"] "X-Ok":["y"]}
+  trailer=nil
+  body="ok"
+proxy req 5 target 4
+  out GET url="http://back/%2F%20x/y?q=%zz;a" host="front" close=false cl=0 body=""
+  out hdr={"User-Agent":[""] "X-Forwarded-For":["192.0.2.9"]}
+  code=200
+  header={"Content-Length":["2"] "X-Hop":["1"] "X-Ok":["y"]}
+  trailer=nil
+  body="ok"
+proxy req 6 target 0
+  out GET url="http://back:8080/abs?k" host="other" close=false cl=0 body=""
+  out hdr={"User-Agent":[""] "X-Forwarded-For":["192.0.2.9"]}
+  code=200
+  header={"Content-Length":["2"] "X-Hop":["1"] "X-Ok":["y"]}
+  trailer=nil
+  body="ok"
+proxy req 6 target 1
+  out GET url="http://back/base/abs?k" host="other" close=false cl=0 body=""
+  out hdr={"User-Agent":[""] "X-Forwarded-For":["192.0.2.9"]}
+  code=200
+  header={"Content-Length":["2"] "X-Hop":["1"] "X-Ok":["y"]}
+  trailer=nil
+  body="ok"
+proxy req 6 target 2
+  out GET url="http://back/base/abs?t=1&k" host="other" close=false cl=0 body=""
+  out hdr={"User-Agent":[""] "X-Forwarded-For":["192.0.2.9"]}
+  code=200
+  header={"Content-Length":["2"] "X-Hop":["1"] "X-Ok":["y"]}
+  trailer=nil
+  body="ok"
+proxy req 6 target 3
+  out GET url="https://b2/p%2Fq/abs?k" host="other" close=false cl=0 body=""
+  out hdr={"User-Agent":[""] "X-Forwarded-For":["192.0.2.9"]}
+  code=200
+  header={"Content-Length":["2"] "X-Hop":["1"] "X-Ok":["y"]}
+  trailer=nil
+  body="ok"
+proxy req 6 target 4
+  out GET url="http://back/abs?k" host="other" close=false cl=0 body=""
+  out hdr={"User-Agent":[""] "X-Forwarded-For":["192.0.2.9"]}
+  code=200
+  header={"Content-Length":["2"] "X-Hop":["1"] "X-Ok":["y"]}
+  trailer=nil
+  body="ok"
+proxy req 7 target 0
+  out GET url="http://back:8080/" host="" close=false cl=0 body=""
+  out hdr={"User-Agent":[""] "X-Forwarded-For":["192.0.2.9"]}
+  code=200
+  header={"Content-Length":["2"] "X-Hop":["1"] "X-Ok":["y"]}
+  trailer=nil
+  body="ok"
+proxy req 7 target 1
+  out GET url="http://back/base/" host="" close=false cl=0 body=""
+  out hdr={"User-Agent":[""] "X-Forwarded-For":["192.0.2.9"]}
+  code=200
+  header={"Content-Length":["2"] "X-Hop":["1"] "X-Ok":["y"]}
+  trailer=nil
+  body="ok"
+proxy req 7 target 2
+  out GET url="http://back/base/?t=1" host="" close=false cl=0 body=""
+  out hdr={"User-Agent":[""] "X-Forwarded-For":["192.0.2.9"]}
+  code=200
+  header={"Content-Length":["2"] "X-Hop":["1"] "X-Ok":["y"]}
+  trailer=nil
+  body="ok"
+proxy req 7 target 3
+  out GET url="https://b2/p%2Fq/" host="" close=false cl=0 body=""
+  out hdr={"User-Agent":[""] "X-Forwarded-For":["192.0.2.9"]}
+  code=200
+  header={"Content-Length":["2"] "X-Hop":["1"] "X-Ok":["y"]}
+  trailer=nil
+  body="ok"
+proxy req 7 target 4
+  out GET url="http://back/" host="" close=false cl=0 body=""
+  out hdr={"User-Agent":[""] "X-Forwarded-For":["192.0.2.9"]}
+  code=200
+  header={"Content-Length":["2"] "X-Hop":["1"] "X-Ok":["y"]}
+  trailer=nil
+  body="ok"
+proxy resp 0
+  out GET url="http://back:8080/a/b?x=1" host="front" close=false cl=0 body=""
+  out hdr={"Te":["trailers"] "User-Agent":[""] "X-Forwarded-For":["192.0.2.9"] "X-Keep":["k"]}
+  code=200
+  header={"Content-Length":["2"] "X-Hop":["1"] "X-Ok":["y"]}
+  trailer=nil
+  body="ok"
+proxy resp 1
+  out GET url="http://back:8080/a/b?x=1" host="front" close=false cl=0 body=""
+  out hdr={"Te":["trailers"] "User-Agent":[""] "X-Forwarded-For":["192.0.2.9"] "X-Keep":["k"]}
+  code=200
+  header={"Content-Type":["text/plain"] "Trailer":["X-Sum"]}
+  trailer={"X-Sum":["42"]}
+  body="hi"
+proxy resp 2
+  out GET url="http://back:8080/a/b?x=1" host="front" close=false cl=0 body=""
+  out hdr={"Te":["trailers"] "User-Agent":[""] "X-Forwarded-For":["192.0.2.9"] "X-Keep":["k"]}
+  code=200
+  header={"Trailer":["X-Sum"]}
+  trailer={"X-Extra":["e"] "X-Sum":["42"]}
+  body="hi"
+proxy resp 3
+  out GET url="http://back:8080/a/b?x=1" host="front" close=false cl=0 body=""
+  out hdr={"Te":["trailers"] "User-Agent":[""] "X-Forwarded-For":["192.0.2.9"] "X-Keep":["k"]}
+  code=200
+  header={}
+  trailer={"X-Late":["l"]}
+  body="hi"
+proxy resp 4
+  out GET url="http://back:8080/a/b?x=1" host="front" close=false cl=0 body=""
+  out hdr={"Te":["trailers"] "User-Agent":[""] "X-Forwarded-For":["192.0.2.9"] "X-Keep":["k"]}
+  code=204
+  header={"X-A":["1"]}
+  trailer=nil
+  body=""
+proxy resp 5
+  out GET url="http://back:8080/a/b?x=1" host="front" close=false cl=0 body=""
+  out hdr={"Te":["trailers"] "User-Agent":[""] "X-Forwarded-For":["192.0.2.9"] "X-Keep":["k"]}
+  code=404
+  header={"Content-Length":["3"] "Content-Type":["text/html"]}
+  trailer=nil
+  body="no!"
+proxy resp 6
+  out GET url="http://back:8080/a/b?x=1" host="front" close=false cl=0 body=""
+  out hdr={"Te":["trailers"] "User-Agent":[""] "X-Forwarded-For":["192.0.2.9"] "X-Keep":["k"]}
+  code=200
+  header={"X-Old":["1"]}
+  trailer=nil
+  body="body until close"
+proxy resp 7
+  out GET url="http://back:8080/a/b?x=1" host="front" close=false cl=0 body=""
+  out hdr={"Te":["trailers"] "User-Agent":[""] "X-Forwarded-For":["192.0.2.9"] "X-Keep":["k"]}
+  code=302
+  header={"Content-Length":["0"] "Location":["/x"] "Set-Cookie":["a=1" "b=2"]}
+  trailer=nil
+  body=""
+proxy resp 8
+  out GET url="http://back:8080/a/b?x=1" host="front" close=false cl=0 body=""
+  out hdr={"Te":["trailers"] "User-Agent":[""] "X-Forwarded-For":["192.0.2.9"] "X-Keep":["k"]}
+  code=200
+  header={"Content-Length":["4"] "Content-Type":["text/event-stream"]}
+  trailer=nil
+  body="data"

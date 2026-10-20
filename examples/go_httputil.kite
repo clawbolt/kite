@@ -1,0 +1,191 @@
+// 对拍 tests/go/httputil.go：dump_request / dump_response / dump_request_out / 反向代理改写
+use std.fs
+use std.encoding.hex
+use std.strconv
+use std.net.url
+use std.net.http
+use std.net.textproto
+use std.net.http.httptest
+use std.net.http.httputil
+
+fn q(s: Str) -> Str { strconv.quote_go(s) }
+
+fn qb(b: List<Int>) -> Str { strconv.quote_bytes_with(b, 34, false, false) }
+
+fn bs(x: Bool) -> Str { if x { "true" } else { "false" } }
+
+fn hdr(h: textproto.MIMEHeader) -> Str {
+  var ks: List<Str> = []
+  for i in 0..len(h.keys) { if !contains(ks, h.keys[i]) { ks = push(ks, h.keys[i]) } }
+  var parts: List<Str> = []
+  for k in sort(ks) {
+    var vs: List<Str> = []
+    for i in 0..len(h.keys) { if h.keys[i] == k { vs = vs + h.vals[i] } }
+    parts = push(parts, q(k) + ":[" + join(map(vs, q), " ") + "]")
+  }
+  "\{" + join(parts, " ") + "\}"
+}
+
+fn dec(s: Str) -> List<Int> { unwrap(hex.decode(s)) }
+
+fn s(b: List<Int>) -> Str { unwrap(__from_bytes(b)) }
+
+fn lines(p: Str) -> List<List<Str>> {
+  var out: List<List<Str>> = []
+  for l in split(unwrap(fs.read(p)), "\n") { if l != "" { out = push(out, split(l, "|")) } }
+  out
+}
+
+fn dump_out(n: Int, label: Str, r: Result<List<Int>, Str>) {
+  match r {
+    Ok(b) => print("{n} {label} err=\"\"\n  {qb(b)}"),
+    Err(e) => print("{n} {label} err={q(e)}\n  \"\""),
+  }
+}
+
+fn proxy(raw_req: List<Int>, raw_resp: List<Int>, target: Str) {
+  let tu = unwrap(url.parse(target))
+  let inr = match http.read_request(raw_req) {
+    Ok(r) => r,
+    Err(e) => {
+      print("  read err {q(e)}")
+      return
+    },
+  }
+  match httputil.proxy_request(inr, "192.0.2.9:5555", tu) {
+    Err(e) => {
+      // Go：ErrorHandler 回 502，不调 Transport
+      let _ = e
+      print("  code=502\n  header=\{\}\n  trailer=nil\n  body=\"\"")
+      return
+    },
+    Ok(out) => {
+      print(
+        "  out {out.method} url={q(url.to_str(out.url))} host={q(out.host)} close={bs(out.close)} cl={out.content_length} body={qb(
+          out.body,
+        )}",
+      )
+      print("  out hdr={hdr(out.header)}")
+      let res = unwrap(http.read_response(raw_resp, out.method))
+      let pr = unwrap(httputil.proxy_response(res))
+      var rw = httptest.new_recorder().with_header(pr.header)
+      rw = unwrap(rw.write_header(pr.status_code))
+      if len(pr.body) > 0 { rw = rw.write(pr.body).0 }
+      rw = rw.with_header(pr.header_after)
+      let rr = rw.result()
+      let tr = match rr.trailer {
+        Some(t) => hdr(t),
+        None => "nil",
+      }
+      print(
+        "  code={rr.status_code}\n  header={hdr(rr.header)}\n  trailer={tr}\n  body={qb(rw.body)}",
+      )
+    },
+  }
+}
+
+fn main() {
+  var n = 0
+  for p in lines("tests/go/testdata/http/wire.txt") {
+    n += 1
+    if p[0] == "req" {
+      for body in [true, false] {
+        match http.read_request(dec(p[1])) {
+          Err(e) => {
+            print("{n} req read err {q(e)}")
+            break
+          },
+          Ok(r) => dump_out(n, "req {bs(body)}", httputil.dump_request(r, body)),
+        }
+      }
+    } else if p[0] == "resp" {
+      for body in [true, false] {
+        let m = s(dec(p[1]))
+        match http.read_response(dec(p[2]), m) {
+          Err(e) => {
+            print("{n} resp read err {q(e)}")
+            break
+          },
+          Ok(r) => dump_out(n, "resp {bs(body)}", httputil.dump_response(r, m, body)),
+        }
+      }
+    }
+  }
+  n = 0
+  for parts in lines("tests/go/testdata/http/write.txt") {
+    n += 1
+    if parts[0] != "req" { continue }
+    var kv: Map<Str, List<List<Int>>> = Map()
+    for p in parts[1..] {
+      let i = __str_find(p, "=", 0)
+      let k = __str_slice(p, 0, i)
+      kv = set(kv, k, push(unwrap_or(get(kv, k), []), dec(__str_slice(p, i + 1, len(p)))))
+    }
+    let one = (k: Str, d: Str) => match get(kv, k) {
+      Some(vs) => s(vs[0]),
+      None => d,
+    }
+    let hd = (k: Str) => {
+      var h = textproto.new_header()
+      for b in unwrap_or(get(kv, k), []) {
+        let x = s(b)
+        let i = __str_find(x, ":", 0)
+        h = h.add(__str_slice(x, 0, i), __str_slice(x, i + 1, len(x)))
+      }
+      h
+    }
+    let u = match url.parse(one("url", "")) {
+      Ok(x) => x,
+      Err(_) => { continue },
+    }
+    let r = http.OutRequest {
+      host: one("host", ""),
+      header: hd("h"),
+      body: match get(kv, "body") {
+        Some(vs) => Some(vs[0]),
+        None => None,
+      },
+      content_length: unwrap_or(strconv.parse_int_base(one("cl", "0"), 10), 0),
+      transfer_encoding: match get(kv, "te") {
+        Some(vs) => split(s(vs[0]), ","),
+        None => [],
+      },
+      close: one("close", "") == "1",
+      trailer: hd("tr"),
+      ..http.out_request(one("method", ""), u)
+    }
+    for body in [true, false] {
+      let d = match httputil.dump_request_out(r, body) {
+        Err(e) => if starts_with(e, "net/http: invalid header ") {
+          Err("net/http: invalid header …")
+        } else {
+          Err(e)
+        },
+        ok => ok,
+      }
+      dump_out(n, "out {bs(body)}", d)
+    }
+  }
+  var reqs: List<List<Int>> = []
+  var resps: List<List<Int>> = []
+  var targets: List<Str> = []
+  for p in lines("tests/go/testdata/httputil/proxy.txt") {
+    if p[0] == "req" {
+      reqs = push(reqs, dec(p[1]))
+    } else if p[0] == "resp" {
+      resps = push(resps, dec(p[1]))
+    } else {
+      targets = push(targets, s(dec(p[1])))
+    }
+  }
+  for i in 0..len(reqs) {
+    for j in 0..len(targets) {
+      print("proxy req {i} target {j}")
+      proxy(reqs[i], resps[0], targets[j])
+    }
+  }
+  for i in 0..len(resps) {
+    print("proxy resp {i}")
+    proxy(reqs[0], resps[i], targets[0])
+  }
+}

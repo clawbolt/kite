@@ -1,0 +1,42 @@
+// httputil.reverse_proxy：前端服务把请求转给后端（路径拼接到目标前缀、查询串合并、逐跳头去掉）
+use std.net.http
+use std.net.http.httptest
+use std.net.http.httputil
+
+fn backend(r: http.Request) -> http.Response {
+  let conn = unwrap_or(r.header("proxy-authorization"), "-")
+  http.with_header(
+    http.text(
+      200,
+      "{r.method} {r.path}?{r.query} body={r.body} proxy-auth={conn} x-keep={unwrap_or(r.header("x-keep"), "-")}",
+    ),
+    "x-backend",
+    "yes",
+  )
+}
+
+fn main() {
+  let out = httptest.with_server(backend, (back) => {
+    unwrap(httptest.with_server(httputil.reverse_proxy(back + "/api?k=1"), (front) => {
+      let a = unwrap(http.get(front + "/users/7?x=2"))
+      let b = unwrap(
+        http.request(
+          "POST",
+          front + "/items",
+          Map([("proxy-authorization", "secret"), ("x-keep", "1")]),
+          "payload",
+        ),
+      )
+      "{a.status} {a.body} {unwrap_or(a.header("x-backend"), "?")}\n{b.status} {b.body}"
+    }))
+  })
+  print(unwrap(out))
+  // 后端连不上：502
+  let r = unwrap(
+    httptest.with_server(
+      httputil.reverse_proxy("http://127.0.0.1:1"),
+      (front) => unwrap(http.get(front + "/")).status,
+    ),
+  )
+  print(r)
+}

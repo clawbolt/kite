@@ -77,7 +77,11 @@ image/color/palette、path/filepath、go/constant、net/http/cookiejar、crypto/
   DNS（lookup_host / lookup_ip / lookup_addr / lookup_cname / lookup_port，走系统 getaddrinfo；MX/TXT/SRV/NS 未做）。行为测试 examples/net_sockets。
 - std.net.http.httptest（2026-10-20）：new_request（NewRequest，非法参数返回 Err，文字同 Go 的 panic）、ResponseRecorder（不可变值：write / write_string / write_header / flush / result，含 Content-Type 嗅探、头快照、Trailer 和 "Trailer:" 前缀）、valid_trailer_header；
   Go 对拍 tests/go/httptest 619 行。NewServer/Close 改成结构化的 with_server(handler, body)（行为测试 examples/httptest_server）；NewTLSServer、NewUnstartedServer 未做。
-- 计划：httputil、smtp、jsonrpc；之后 DNS 报文（dnsmessage）以支持 MX/TXT/SRV/NS。
+- std.net.http.httputil（2026-10-20）：dump_request / dump_response / dump_request_out（模拟 Transport：校验头和方法、Accept-Encoding: gzip）、
+  反向代理改写（single_joining_slash、join_url_path、rewrite_request_url、remove_hop_by_hop_headers、clean_query_params、upgrade_type、
+  proxy_request、proxy_response），可运行的 reverse_proxy(target)。Go 对拍 tests/go/httputil 827 行（复用 http/wire.txt、write.txt，加 httputil/proxy.txt）；
+  行为测试 examples/httputil_proxy。http.WireResponse 加 trailer_declared，http.request_write_extra。未做：协议升级（101）转发、FlushInterval、ClientConn/ServerConn（已废弃）。
+- 计划：smtp、jsonrpc；之后 DNS 报文（dnsmessage）以支持 MX/TXT/SRV/NS。
 
 ## 可以做（纯数据 / 算法，计划后续批次）
 - crypto/hpke

@@ -1,0 +1,361 @@
+// std.net.http.httputil：对齐 Go 1.27 net/http/httputil
+// - dump_request / dump_response / dump_request_out：报文转储（DumpRequestOut 模拟 http.Transport 写出：
+//   校验头和方法、补 Accept-Encoding: gzip、https 当 http 写）
+// - 反向代理：single_joining_slash、join_url_path、rewrite_request_url、remove_hop_by_hop_headers、clean_query_params、
+//   proxy_request（NewSingleHostReverseProxy 的 ServeHTTP 发往后端前对请求做的全部改写）、
+//   proxy_response（后端响应怎样写回客户端：头、状态码、正文、尾部头）、
+//   reverse_proxy（接到 std.net.http 服务上的可运行反向代理）
+// - new_chunked_writer 对应的功能见 http.chunked_encode / http.chunked_decode
+
+use std.net.http
+use std.net.textproto
+use std.net.url
+use std.net
+use std.strconv
+
+fn hex_len(n: Int) -> Str { strconv.format_int(n, 16) }
+
+fn has_key(h: textproto.MIMEHeader, k: Str) -> Bool { contains(h.keys, k) }
+
+// DumpRequest（服务端收到的请求，比如 http.read_request 的结果）
+pub fn dump_request(r: http.WireRequest, body: Bool) -> Result<List<Int>, Str> {
+  if body && r.body_err != "" { return Err(r.body_err) }
+  let ruri = if r.request_uri != "" { r.request_uri } else { url.request_uri(r.url) }
+  let method = if r.method == "" { "GET" } else { r.method }
+  var out = __bytes("{method} {ruri} HTTP/{r.proto_major}.{r.proto_minor}\r\n")
+  let abs = starts_with(r.request_uri, "http://") || starts_with(r.request_uri, "https://")
+  if !abs {
+    let host = if r.host == "" { r.url.host } else { r.host }
+    if host != "" { out = out + __bytes("Host: " + host + "\r\n") }
+  }
+  let chunked = len(r.transfer_encoding) > 0 && r.transfer_encoding[0] == "chunked"
+  if len(r.transfer_encoding) > 0 {
+    out = out + __bytes("Transfer-Encoding: " + join(r.transfer_encoding, ",") + "\r\n")
+  }
+  out = out + __bytes(
+    http.header_write_subset(r.header, ["Host", "Transfer-Encoding", "Trailer"]) + "\r\n",
+  )
+  if body {
+    if chunked {
+      if len(r.body) > 0 { out = out + __bytes(hex_len(len(r.body)) + "\r\n") + r.body + [13, 10] }
+      out = out + __bytes("0\r\n\r\n")
+    } else {
+      out = out + r.body
+    }
+  }
+  Ok(out)
+}
+
+fn header_end(b: List<Int>) -> Int {
+  var i = 3
+  while i < len(b) {
+    if b[i - 3] == 13 && b[i - 2] == 10 && b[i - 1] == 13 && b[i] == 10 { return i + 1 }
+    i += 1
+  }
+  -1
+}
+
+fn xs(n: Int) -> List<Int> {
+  var b: List<Int> = []
+  for _ in 0..n { b = push(b, 120) }
+  b
+}
+
+// DumpResponse（客户端收到的响应，比如 http.read_response 的结果；method 是对应请求的方法）
+pub fn dump_response(r: http.WireResponse, method: Str, body: Bool) -> Result<List<Int>, Str> {
+  if body && r.body_err != "" { return Err(r.body_err) }
+  var o = http.out_response(r.status_code)
+  o.status = r.status
+  o.proto_major = r.proto_major
+  o.proto_minor = r.proto_minor
+  o.header = r.header
+  o.content_length = r.content_length
+  o.transfer_encoding = r.transfer_encoding
+  o.close = r.close
+  o.trailer = r.trailer
+  o.request_method = method
+  // !body 时 Go 换上一个一读就失败的正文：头照常写出，写到正文时停下
+  let fail = !body && r.content_length != 0
+  o.body = Some(if body {
+    r.body
+  } else if r.content_length > 0 {
+    xs(r.content_length)
+  } else {
+    []
+  })
+  let (b, e) = http.response_write(o)
+  if fail {
+    let i = header_end(b)
+    if i >= 0 { return Ok(b[..i]) }
+  }
+  if e != "" { return Err(e) }
+  Ok(b)
+}
+
+fn validate_headers(h: textproto.MIMEHeader) -> Str {
+  for i in 0..len(h.keys) {
+    let k = h.keys[i]
+    if !http.valid_header_field_name(k) { return "field name " + strconv.quote_go(k) }
+    for v in h.vals[i] {
+      if !http.valid_header_field_value(v) { return "field value for " + strconv.quote_go(k) }
+    }
+  }
+  ""
+}
+
+// DumpRequestOut（客户端要发出的请求，经 http.Transport 写出的样子）
+pub fn dump_request_out(r0: http.OutRequest, body: Bool) -> Result<List<Int>, Str> {
+  var r = r0
+  var dummy = false
+  // drainBody(nil) 得到 NoBody：outgoingLength 为 0
+  if body && is_none(r.body) { r.content_length = 0 }
+  if !body {
+    let cl = match r.body {
+      None => 0,
+      Some(_) => if r.content_length != 0 { r.content_length } else { -1 },
+    }
+    if cl != 0 {
+      r.body = Some(if cl > 0 { xs(cl) } else { [] })
+      dummy = true
+    }
+  }
+  let scheme = r.url.scheme
+  let is_http = scheme == "http" || scheme == "https"
+  if is_http {
+    let e1 = validate_headers(r.header)
+    if e1 != "" { return Err("net/http: invalid header " + e1) }
+    let e2 = validate_headers(r.trailer)
+    if e2 != "" { return Err("net/http: invalid trailer " + e2) }
+  }
+  if !is_http { return Err("unsupported protocol scheme " + strconv.quote_go(scheme)) }
+  if r.method != "" && !http.valid_header_field_name(r.method) {
+    return Err("net/http: invalid method " + strconv.quote_go(r.method))
+  }
+  if r.url.host == "" { return Err("http: no Host in request URL") }
+  if scheme == "https" {
+    var u = r.url
+    u.scheme = "http"
+    r.url = u
+  }
+  var extra = textproto.new_header()
+  if r.header.get("Accept-Encoding") == "" && r.header.get("Range") == "" && r.method != "HEAD" {
+    extra = extra.set("Accept-Encoding", "gzip")
+  }
+  let (b, e) = http.request_write_extra(r, extra)
+  if e != "" { return Err(e) }
+  if dummy {
+    let i = header_end(b)
+    if i >= 0 { return Ok(b[..i]) }
+  }
+  Ok(b)
+}
+
+// ───────────── 反向代理 ─────────────
+
+pub fn single_joining_slash(a: Str, b: Str) -> Str {
+  let aslash = ends_with(a, "/")
+  let bslash = starts_with(b, "/")
+  if aslash && bslash {
+    a + __str_slice(b, 1, len(b))
+  } else if !aslash && !bslash {
+    a + "/" + b
+  } else {
+    a + b
+  }
+}
+
+// joinURLPath：(path, raw_path)
+pub fn join_url_path(a: url.URL, b: url.URL) -> (Str, Str) {
+  if a.raw_path == "" && b.raw_path == "" { return (single_joining_slash(a.path, b.path), "") }
+  let apath = url.escaped_path(a)
+  let bpath = url.escaped_path(b)
+  let aslash = ends_with(apath, "/")
+  let bslash = starts_with(bpath, "/")
+  if aslash && bslash {
+    (a.path + __str_slice(b.path, 1, len(b.path)), apath + __str_slice(bpath, 1, len(bpath)))
+  } else if !aslash && !bslash {
+    (a.path + "/" + b.path, apath + "/" + bpath)
+  } else {
+    (a.path + b.path, apath + bpath)
+  }
+}
+
+pub fn rewrite_request_url(u0: url.URL, target: url.URL) -> url.URL {
+  var u = u0
+  let tq = target.raw_query
+  u.scheme = target.scheme
+  u.host = target.host
+  let (p, rp) = join_url_path(target, u0)
+  u.path = p
+  u.raw_path = rp
+  u.raw_query = if tq == "" || u0.raw_query == "" {
+    tq + u0.raw_query
+  } else {
+    tq + "&" + u0.raw_query
+  }
+  u
+}
+
+pub fn hop_headers() -> List<Str> {
+  [
+    "Connection",
+    "Proxy-Connection",
+    "Keep-Alive",
+    "Proxy-Authenticate",
+    "Proxy-Authorization",
+    "Te",
+    "Trailer",
+    "Transfer-Encoding",
+    "Upgrade",
+  ]
+}
+
+pub fn remove_hop_by_hop_headers(h0: textproto.MIMEHeader) -> textproto.MIMEHeader {
+  var h = h0
+  if has_key(h0, "Connection") {
+    for f in h0.values("Connection") {
+      for sf0 in split(f, ",") {
+        let sf = textproto.trim_string(sf0)
+        if sf != "" { h = h.del(sf) }
+      }
+    }
+  }
+  for f in hop_headers() { h = h.del(f) }
+  h
+}
+
+fn ishex(c: Int) -> Bool { (c >= 48 && c <= 57) || (c >= 97 && c <= 102) || (c >= 65 && c <= 70) }
+
+pub fn clean_query_params(s: Str) -> Str {
+  let b = __bytes(s)
+  var amp = 0
+  for c in b { if c == 38 { amp += 1 } }
+  let re = () => url.encode_query(url.parse_query_all(s).0)
+  if amp + 1 > 10000 { return re() }
+  var i = 0
+  while i < len(b) {
+    if b[i] == 59 { return re() }
+    if b[i] == 37 {
+      if i + 2 >= len(b) || !ishex(b[i + 1]) || !ishex(b[i + 2]) { return re() }
+      i += 3
+    } else {
+      i += 1
+    }
+  }
+  s
+}
+
+fn is_print_ascii(s: Str) -> Bool {
+  for c in __bytes(s) { if c < 32 || c > 126 { return false } }
+  true
+}
+
+pub fn upgrade_type(h: textproto.MIMEHeader) -> Str {
+  if !has_key(h, "Connection")
+    || !http.header_values_contains_token(h.values("Connection"), "Upgrade") {
+    return ""
+  }
+  h.get("Upgrade")
+}
+
+// NewSingleHostReverseProxy(target).ServeHTTP 交给 Transport 的请求：Director 改写 URL（Host 不变）、Close=false、
+// 去掉逐跳头、保留 "Te: trailers"、升级头、X-Forwarded-For 追加客户端 IP、没有 User-Agent 时置空（不发默认 UA）
+pub fn proxy_request(
+  req: http.WireRequest,
+  remote_addr: Str,
+  target: url.URL,
+) -> Result<http.WireRequest, Str> {
+  var out = req
+  if req.content_length == 0 { out.body = [] }
+  out.url = rewrite_request_url(req.url, target)
+  out.close = false
+  let up = upgrade_type(out.header)
+  if !is_print_ascii(up) {
+    return Err("client tried to switch to invalid protocol " + strconv.quote_go(up))
+  }
+  var h = remove_hop_by_hop_headers(out.header)
+  if has_key(req.header, "Te")
+    && http.header_values_contains_token(req.header.values("Te"), "trailers") {
+    h = h.set("Te", "trailers")
+  }
+  if up != "" {
+    h = h.set("Connection", "Upgrade")
+    h = h.set("Upgrade", up)
+  }
+  match net.split_host_port(remote_addr) {
+    Ok((ip, _)) => {
+      let prior = if has_key(h, "X-Forwarded-For") { h.values("X-Forwarded-For") } else { [] }
+      let v = if len(prior) > 0 { join(prior, ", ") + ", " + ip } else { ip }
+      h = h.set("X-Forwarded-For", v)
+    },
+    Err(_) => {},
+  }
+  if !has_key(h, "User-Agent") { h = h.set("User-Agent", "") }
+  out.header = h
+  Ok(out)
+}
+
+// 后端响应写回客户端：header 是 WriteHeader 之前的头；header_after 是正文写完、尾部头并入之后的头
+// （声明过的尾部头直接并入；有未声明的尾部头时全部加 "Trailer:" 前缀）
+pub type ProxiedResponse = {
+  status_code: Int,
+  header: textproto.MIMEHeader,
+  body: List<Int>,
+  header_after: textproto.MIMEHeader,
+}
+
+fn copy_header(dst0: textproto.MIMEHeader, src: textproto.MIMEHeader) -> textproto.MIMEHeader {
+  var dst = dst0
+  for i in 0..len(src.keys) { for v in src.vals[i] { dst = dst.add(src.keys[i], v) } }
+  dst
+}
+
+pub fn proxy_response(res: http.WireResponse) -> Result<ProxiedResponse, Str> {
+  if res.status_code == 101 { return Err("httputil: 不支持协议升级") }
+  if res.body_err != "" { return Err(res.body_err) }
+  var h = copy_header(textproto.new_header(), remove_hop_by_hop_headers(res.header))
+  let announced = res.trailer_declared
+  if announced > 0 { h = h.add("Trailer", join(res.trailer.keys[..announced], ", ")) }
+  var after = h
+  if len(res.trailer.keys) == announced {
+    after = copy_header(after, res.trailer)
+  } else {
+    for i in 0..len(res.trailer.keys) {
+      for v in res.trailer.vals[i] { after = after.add("Trailer:" + res.trailer.keys[i], v) }
+    }
+  }
+  Ok(ProxiedResponse {
+    status_code: res.status_code,
+    header: h,
+    body: res.body,
+    header_after: after,
+  })
+}
+
+// 可运行的反向代理：把 std.net.http 服务收到的请求转给 target（"http://host:port/前缀"），后端出错时回 502
+pub fn reverse_proxy(target: Str) -> fn(http.Request) -> http.Response {
+  let t = unwrap(url.parse(target))
+  (r: http.Request) => {
+    var u = url.empty()
+    u.path = r.path
+    u.raw_query = r.query
+    let u2 = rewrite_request_url(u, t)
+    var hop = map(hop_headers(), lower)
+    match get(r.headers, "connection") {
+      Some(c) => { for f in split(c, ",") { hop = push(hop, lower(trim(f))) } },
+      None => {},
+    }
+    var hs = r.headers
+    for k in keys(r.headers) { if contains(hop, k) || k == "host" { hs = remove(hs, k) } }
+    match http.request(r.method, url.to_str(u2), hs, r.body) {
+      Ok(resp) => {
+        var rh = resp.headers
+        for k in keys(resp.headers) {
+          if contains(map(hop_headers(), lower), k) || k == "content-length" { rh = remove(rh, k) }
+        }
+        http.Response { status: resp.status, headers: rh, body: resp.body }
+      },
+      Err(_) => http.text(502, "Bad Gateway"),
+    }
+  }
+}

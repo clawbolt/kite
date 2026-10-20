@@ -946,6 +946,8 @@ pub type WireResponse = {
   transfer_encoding: List<Str>,
   close: Bool,
   trailer: textproto.MIMEHeader,
+  // Trailer 头声明的键数（读正文之前 Go 的 len(resp.Trailer)）
+  trailer_declared: Int,
   body: List<Int>,
   body_err: Str,
   rest: List<Int>,
@@ -1132,6 +1134,7 @@ type Transfer = {
   chunked: Bool,
   close: Bool,
   trailer: textproto.MIMEHeader,
+  trailer_declared: Int,
   body: List<Int>,
   body_err: Str,
   rest: List<Int>,
@@ -1230,6 +1233,7 @@ fn read_transfer(
     }
     if err != "" { return Err(err) }
   }
+  let declared = len(trailer.keys)
   if is_response && real == -1 && !chunked && body_allowed(status) { close = true }
   var body: List<Int> = []
   var berr = ""
@@ -1271,6 +1275,7 @@ fn read_transfer(
     chunked: chunked,
     close: close,
     trailer: trailer,
+    trailer_declared: declared,
     body: body,
     body_err: berr,
     rest: rest,
@@ -1430,6 +1435,7 @@ pub fn read_response(d: List<Int>, method: Str) -> Result<WireResponse, Str> {
     transfer_encoding: if t.chunked { ["chunked"] } else { [] },
     close: t.close,
     trailer: t.trailer,
+    trailer_declared: t.trailer_declared,
     body: t.body,
     body_err: t.body_err,
     rest: t.rest,
@@ -1666,6 +1672,11 @@ fn lacks_body(m: Str) -> Bool {
 
 // Request.Write
 pub fn request_write(r: OutRequest) -> (List<Int>, Str) {
+  request_write_extra(r, textproto.new_header())
+}
+
+// Request.write 带 extraHeaders（Transport 用，比如 Accept-Encoding: gzip）：写在 Header 之后
+pub fn request_write_extra(r: OutRequest, extra: textproto.MIMEHeader) -> (List<Int>, Str) {
   var host = if r.host != "" { r.host } else { r.url.host }
   host = match punycode_host_port(host) {
     Ok(h) => h,
@@ -1739,7 +1750,7 @@ pub fn request_write(r: OutRequest) -> (List<Int>, Str) {
   out = out + header_write_subset(
     r.header,
     ["Host", "User-Agent", "Content-Length", "Transfer-Encoding", "Trailer"],
-  ) + "\r\n"
+  ) + header_write(extra) + "\r\n"
   let (bb, be) = tw_body(t)
   (__bytes(out) + bb, be)
 }
