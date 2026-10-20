@@ -1,0 +1,97 @@
+// 对拍 tests/go/httptest.go：httptest.new_request 和 ResponseRecorder
+use std.fs
+use std.encoding.hex
+use std.strconv
+use std.net.url
+use std.net.textproto
+use std.net.http.httptest
+
+fn q(s: Str) -> Str { strconv.quote_go(s) }
+
+fn b(x: Bool) -> Str { if x { "true" } else { "false" } }
+
+fn hdr(h: textproto.MIMEHeader) -> Str {
+  var ks: List<Str> = []
+  for i in 0..len(h.keys) { if !contains(ks, h.keys[i]) { ks = push(ks, h.keys[i]) } }
+  var parts: List<Str> = []
+  for k in sort(ks) {
+    var vs: List<Str> = []
+    for i in 0..len(h.keys) { if h.keys[i] == k { vs = vs + h.vals[i] } }
+    parts = push(parts, q(k) + ":[" + join(map(vs, q), " ") + "]")
+  }
+  "\{" + join(parts, " ") + "\}"
+}
+
+fn dec(s: Str) -> Str { unwrap(__from_bytes(unwrap(hex.decode(s)))) }
+
+fn lines_of(path: Str) -> List<Str> {
+  let ls = split(unwrap(fs.read(path)), "\n")
+  ls[..len(ls) - 1]
+}
+
+fn main() {
+  for line in lines_of("tests/go/testdata/httptest/req.txt") {
+    let p = split(line, " ")
+    let m = dec(p[0])
+    let t = dec(p[1])
+    let body = if p[2] == "-" { None } else { Some(__bytes(dec(__str_slice(p[2], 1, len(p[2]))))) }
+    match httptest.new_request(m, t, body) {
+      Err(e) => print("{q(m)} {q(t)} panic {q(e)}"),
+      Ok(tr) => {
+        let r = tr.req
+        print(
+          "{q(m)} {q(t)} {q(r.method)} url={q(url.to_str(r.url))} host={q(r.host)} uri={q(r.request_uri)} {r.proto} {r.proto_major}.{r.proto_minor} cl={r.content_length} close={b(
+            r.close,
+          )} remote={q(tr.remote_addr)} tls={b(tr.tls)} sn={q(tr.tls_server_name)} hdr={hdr(r.header)}",
+        )
+      },
+    }
+  }
+  let blocks = split(trim(unwrap(fs.read("tests/go/testdata/httptest/rec.txt"))), "\n\n")
+  var i = 0
+  for block in blocks {
+    var rw = httptest.new_recorder()
+    print("== {i}")
+    i += 1
+    for line in split(block, "\n") {
+      let sp = __str_find(line, " ", 0)
+      let op = if sp < 0 { line } else { __str_slice(line, 0, sp) }
+      let arg = if sp < 0 { "" } else { __str_slice(line, sp + 1, len(line)) }
+      if op == "H" || op == "A" {
+        let j = __str_find(arg, " ", 0)
+        let k = if j < 0 { arg } else { __str_slice(arg, 0, j) }
+        let v = if j < 0 { "" } else { __str_slice(arg, j + 1, len(arg)) }
+        rw = rw.with_header(if op == "H" { rw.header().set(k, v) } else { rw.header().add(k, v) })
+      } else if op == "D" {
+        rw = rw.with_header(rw.header().del(arg))
+      } else if op == "W" || op == "S" {
+        let (r2, n, e) = if op == "W" {
+          rw.write(unwrap(hex.decode(arg)))
+        } else {
+          rw.write_string(arg)
+        }
+        rw = r2
+        print("  {op} n={n} err={q(e)}")
+      } else if op == "C" {
+        match rw.write_header(unwrap(parse_int(arg))) {
+          Ok(r2) => { rw = r2 },
+          Err(e) => print("  C panic {q(e)}"),
+        }
+      } else if op == "F" {
+        rw = rw.flush()
+      } else if op == "R" {
+        let res = rw.result()
+        let tr = match res.trailer {
+          Some(t) => hdr(t),
+          None => "nil",
+        }
+        print(
+          "  code={rw.code} flushed={b(rw.flushed)} status={q(res.status)} {res.proto} {res.proto_major}.{res.proto_minor} cl={res.content_length}",
+        )
+        print("  header={hdr(res.header)}")
+        print("  trailer={tr}")
+        print("  body={strconv.quote_bytes_with(rw.body, 34, false, false)}")
+      }
+    }
+  }
+}

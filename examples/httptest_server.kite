@@ -1,0 +1,25 @@
+// httptest.with_server：起一个临时 HTTP 服务，回调里用客户端访问，回调结束后服务关闭
+use std.net.http
+use std.net.http.httptest
+
+fn handler(r: http.Request) -> http.Response {
+  if r.path == "/hello" {
+    http.text(200, "hello " + unwrap_or(r.header("x-name"), "?"))
+  } else {
+    http.text(404, "not found")
+  }
+}
+
+fn main() {
+  let out = httptest.with_server(handler, (base) => {
+    let a = unwrap(http.request("GET", base + "/hello", Map([("x-name", "kite")]), ""))
+    let b = unwrap(http.get(base + "/nope"))
+    "{a.status} {a.body} | {b.status} {b.body} | {starts_with(base, "http://127.0.0.1:")}"
+  })
+  print(unwrap(out))
+  // 回调可以多次调用、返回任意类型
+  let n = unwrap(
+    httptest.with_server(handler, (base) => len(unwrap(http.get(base + "/hello")).body)),
+  )
+  print(n)
+}

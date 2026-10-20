@@ -1,0 +1,145 @@
+R
+
+S hi
+R
+
+W 3c68746d6c3e3c626f64793e783c2f626f64793e3c2f68746d6c3e
+R
+
+W 89504e470d0a1a0a72657374
+R
+
+W 00010262696e617279
+R
+
+S {"a":1}
+R
+
+H Content-Type text/plain
+S <html>
+R
+
+H Transfer-Encoding chunked
+S <html>
+R
+
+C 201
+S created
+R
+
+C 204
+S nope
+R
+
+C 304
+W 78
+R
+
+C 100
+S x
+R
+
+C 99
+R
+
+C 1000
+R
+
+C 999
+R
+
+C 404
+C 500
+R
+
+S a
+C 500
+S b
+R
+
+F
+R
+
+H X-Foo 1
+C 200
+H X-Foo 2
+H X-Bar 3
+R
+
+H Content-Length 5
+S hello
+R
+
+H Content-Length  12 
+R
+
+H Content-Length -1
+R
+
+H Content-Length abc
+R
+
+H Content-Length 9223372036854775808
+R
+
+H Content-Length 9223372036854775807
+R
+
+A Trailer Foo, Bar
+A Trailer content-length
+H Content-Type text/plain
+S body
+H Foo 1
+H Bar 2
+H Content-Length 9
+R
+
+H Trailer X-A,If-Match, x-b
+S x
+A X-A 1
+A X-A 2
+A If-Match y
+R
+
+H Trailer:X-Late v1
+A Trailer:X-Late v2
+S x
+R
+
+S x
+H Trailer:Y v
+R
+
+H Trailer Missing
+S x
+R
+
+H X-A 1
+D X-A
+S x
+R
+
+S aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+R
+
+S                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         <html>
+R
+
+W 2020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020203c68746d6c3e
+R
+
+S 
+R
+
+W 
+C 202
+R
+
+C 200
+S <html>
+R
+
+S %PDF-1.4
+S more
+F
+R

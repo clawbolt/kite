@@ -1,0 +1,266 @@
+// std.net.http.httptest：对齐 Go 1.27 net/http/httptest
+// - new_request：NewRequest（Host 默认 example.com，RemoteAddr 192.0.2.1:1234，https:// 目标带 TLS 状态）
+// - ResponseRecorder：不可变值，write / write_string / write_header / flush 返回新的记录器；result 给出 Response
+// - with_server：在 127.0.0.1 的随机端口上起 std.net.http 服务，把根 URL 交给 body，body 返回后关闭服务
+//   （Kite 是结构化并发，没有游离的后台任务，所以用回调代替 NewServer / Close）
+
+use std.net
+use std.net.http
+use std.net.textproto
+use std.strconv
+use std.strings
+
+pub const DEFAULT_REMOTE_ADDR: Str = "1.2.3.4"
+
+pub type TestRequest = {
+  req: http.WireRequest,
+  remote_addr: Str,
+  // TLS：https:// 目标时为 true（Go 里 Version=TLS1.2、HandshakeComplete、ServerName=Host）
+  tls: Bool,
+  tls_server_name: Str,
+}
+
+// NewRequest：body 为 None 对应 Go 的 nil；参数非法时 Err（Go 会 panic，文字相同）
+pub fn new_request(method0: Str, target: Str, body: Option<List<Int>>) -> Result<TestRequest, Str> {
+  let method = if method0 == "" { "GET" } else { method0 }
+  var req = match http.read_request(__bytes(method + " " + target + " HTTP/1.0\r\n\r\n")) {
+    Ok(r) => r,
+    Err(e) => { return Err("invalid NewRequest arguments; " + e) },
+  }
+  req.proto = "HTTP/1.1"
+  req.proto_minor = 1
+  req.close = false
+  match body {
+    Some(b) => {
+      req.content_length = len(b)
+      req.body = b
+    },
+    None => {},
+  }
+  if req.host == "" { req.host = "example.com" }
+  let tls = starts_with(target, "https://")
+  Ok(TestRequest {
+    req: req,
+    remote_addr: "192.0.2.1:1234",
+    tls: tls,
+    tls_server_name: if tls { req.host } else { "" },
+  })
+}
+
+pub type ResponseRecorder = {
+  code: Int,
+  header_map: textproto.MIMEHeader,
+  body: List<Int>,
+  flushed: Bool,
+  snap_header: Option<textproto.MIMEHeader>,
+  wrote_header: Bool,
+}
+
+pub type RecordedResponse = {
+  status: Str,
+  status_code: Int,
+  proto: Str,
+  proto_major: Int,
+  proto_minor: Int,
+  header: textproto.MIMEHeader,
+  body: List<Int>,
+  content_length: Int,
+  // None = Go 的 nil Trailer
+  trailer: Option<textproto.MIMEHeader>,
+}
+
+pub fn new_recorder() -> ResponseRecorder {
+  ResponseRecorder {
+    code: 200,
+    header_map: textproto.new_header(),
+    body: [],
+    flushed: false,
+    snap_header: None,
+    wrote_header: false,
+  }
+}
+
+fn has_key(h: textproto.MIMEHeader, k: Str) -> Bool { contains(h.keys, k) }
+
+impl ResponseRecorder {
+  // Header() 的读取；修改用 with_header
+  fn header(self) -> textproto.MIMEHeader { self.header_map }
+
+  fn with_header(self, h: textproto.MIMEHeader) -> ResponseRecorder {
+    var r = self
+    r.header_map = h
+    r
+  }
+
+  fn implicit_header(self, b: List<Int>) -> ResponseRecorder {
+    if self.wrote_header { return self }
+    var r = self
+    let m = r.header_map
+    if !has_key(m, "Content-Type") && m.get("Transfer-Encoding") == "" {
+      r.header_map = m.set("Content-Type", http.detect_content_type(if len(b) > 512 {
+        b[..512]
+      } else {
+        b
+      }))
+    }
+    unwrap(r.write_header(200))
+  }
+
+  // Write：返回 (记录器, 写入字节数, 错误)；状态码不允许正文时正文照样记录，但返回 0 和 ErrBodyNotAllowed
+  fn write(self, buf: List<Int>) -> (ResponseRecorder, Int, Str) {
+    var r = self.implicit_header(buf)
+    r.body = r.body + buf
+    if !body_allowed_for_status(r.code) {
+      return (r, 0, "http: request method or response status code does not allow body")
+    }
+    (r, len(buf), "")
+  }
+
+  fn write_string(self, s: Str) -> (ResponseRecorder, Int, Str) { self.write(__bytes(s)) }
+
+  // WriteHeader：只有第一次生效；code 不在 100..999 时 Err（Go panic，文字相同）
+  fn write_header(self, code: Int) -> Result<ResponseRecorder, Str> {
+    if self.wrote_header { return Ok(self) }
+    if code < 100 || code > 999 { return Err("invalid WriteHeader code {code}") }
+    var r = self
+    r.code = code
+    r.wrote_header = true
+    r.snap_header = Some(r.header_map)
+    Ok(r)
+  }
+
+  fn flush(self) -> ResponseRecorder {
+    var r = if self.wrote_header { self } else { unwrap(self.write_header(200)) }
+    r.flushed = true
+    r
+  }
+
+  // Result：以第一次写入时的头快照为准；尾部头取自记录器当前的头（Trailer 声明 + "Trailer:" 前缀）
+  fn result(self) -> RecordedResponse {
+    let snap = match self.snap_header {
+      Some(h) => h,
+      None => self.header_map,
+    }
+    let code = if self.code == 0 { 200 } else { self.code }
+    var trailer: Option<textproto.MIMEHeader> = None
+    if has_key(snap, "Trailer") {
+      var t = textproto.new_header()
+      for decl in snap.values("Trailer") {
+        for part in split(decl, ",") {
+          let k = textproto.canonical_mime_header_key(textproto.trim_string(part))
+          if !valid_trailer_header(k) { continue }
+          if !has_key(self.header_map, k) { continue }
+          t = set_values(t, k, self.header_map.values(k))
+        }
+      }
+      trailer = Some(t)
+    }
+    for i in 0..len(self.header_map.keys) {
+      let k = self.header_map.keys[i]
+      if !starts_with(k, "Trailer:") { continue }
+      var t = unwrap_or(trailer, textproto.new_header())
+      for v in self.header_map.vals[i] { t = t.add(__str_slice(k, 8, len(k)), v) }
+      trailer = Some(t)
+    }
+    RecordedResponse {
+      status: strings.pad_left(str(code), 3, "0") + " " + http.status_text(code),
+      status_code: code,
+      proto: "HTTP/1.1",
+      proto_major: 1,
+      proto_minor: 1,
+      header: snap,
+      body: self.body,
+      content_length: parse_content_length(snap.get("Content-Length")),
+      trailer: trailer,
+    }
+  }
+}
+
+// 按原键（不规范化）整体设置一个键的值列表
+fn set_values(h: textproto.MIMEHeader, k: Str, vs: List<Str>) -> textproto.MIMEHeader {
+  var keys: List<Str> = []
+  var vals: List<List<Str>> = []
+  var done = false
+  for i in 0..len(h.keys) {
+    keys = push(keys, h.keys[i])
+    if h.keys[i] == k {
+      vals = push(vals, vs)
+      done = true
+    } else {
+      vals = push(vals, h.vals[i])
+    }
+  }
+  if !done {
+    keys = push(keys, k)
+    vals = push(vals, vs)
+  }
+  textproto.MIMEHeader { keys: keys, vals: vals }
+}
+
+fn body_allowed_for_status(s: Int) -> Bool { !((s >= 100 && s <= 199) || s == 204 || s == 304) }
+
+// httpguts.ValidTrailerHeader
+pub fn valid_trailer_header(name0: Str) -> Bool {
+  let name = textproto.canonical_mime_header_key(name0)
+  !starts_with(name, "If-")
+    && !contains(
+      [
+        "Authorization",
+        "Cache-Control",
+        "Connection",
+        "Content-Encoding",
+        "Content-Length",
+        "Content-Range",
+        "Content-Type",
+        "Expect",
+        "Host",
+        "Keep-Alive",
+        "Max-Forwards",
+        "Pragma",
+        "Proxy-Authenticate",
+        "Proxy-Authorization",
+        "Proxy-Connection",
+        "Range",
+        "Realm",
+        "Te",
+        "Trailer",
+        "Transfer-Encoding",
+        "Www-Authenticate",
+      ],
+      name,
+    )
+}
+
+fn parse_content_length(cl0: Str) -> Int {
+  let cl = textproto.trim_string(cl0)
+  if cl == "" { return -1 }
+  let b = __bytes(cl)
+  var n = 0
+  for c in b {
+    if c < 48 || c > 57 { return -1 }
+    if n > (0x7FFFFFFFFFFFFFFF - (c - 48)) / 10 { return -1 }
+    n = n * 10 + (c - 48)
+  }
+  n
+}
+
+// httptest.NewServer + Close：body 拿到 "http://127.0.0.1:端口"，返回值即 with_server 的返回值
+pub fn with_server<a>(
+  handler: fn(http.Request) -> http.Response,
+  body: fn(Str) -> a,
+) -> Result<a, Str> {
+  let l = net.listen("127.0.0.1", 0)?
+  let url = "http://127.0.0.1:{l.port}"
+  let r = race {
+    {
+      http.serve_with(l, 4, handler)
+      None
+    },
+    Some(body(url)),
+  }
+  l.close()
+  match r {
+    Some(x) => Ok(x),
+    None => Err("httptest: 服务意外退出"),
+  }
+}

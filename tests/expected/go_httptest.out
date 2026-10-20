@@ -1,0 +1,619 @@
+"GET" "/" "GET" url="/" host="example.com" uri="/" HTTP/1.1 1.1 cl=0 close=false remote="192.0.2.1:1234" tls=false sn="" hdr={}
+"GET" "/" "GET" url="/" host="example.com" uri="/" HTTP/1.1 1.1 cl=0 close=false remote="192.0.2.1:1234" tls=false sn="" hdr={}
+"GET" "/" "GET" url="/" host="example.com" uri="/" HTTP/1.1 1.1 cl=3 close=false remote="192.0.2.1:1234" tls=false sn="" hdr={}
+"" "/" "GET" url="/" host="example.com" uri="/" HTTP/1.1 1.1 cl=0 close=false remote="192.0.2.1:1234" tls=false sn="" hdr={}
+"" "/" "GET" url="/" host="example.com" uri="/" HTTP/1.1 1.1 cl=0 close=false remote="192.0.2.1:1234" tls=false sn="" hdr={}
+"" "/" "GET" url="/" host="example.com" uri="/" HTTP/1.1 1.1 cl=3 close=false remote="192.0.2.1:1234" tls=false sn="" hdr={}
+"POST" "/" "POST" url="/" host="example.com" uri="/" HTTP/1.1 1.1 cl=0 close=false remote="192.0.2.1:1234" tls=false sn="" hdr={}
+"POST" "/" "POST" url="/" host="example.com" uri="/" HTTP/1.1 1.1 cl=0 close=false remote="192.0.2.1:1234" tls=false sn="" hdr={}
+"POST" "/" "POST" url="/" host="example.com" uri="/" HTTP/1.1 1.1 cl=3 close=false remote="192.0.2.1:1234" tls=false sn="" hdr={}
+"CONNECT" "/" "CONNECT" url="/" host="example.com" uri="/" HTTP/1.1 1.1 cl=0 close=false remote="192.0.2.1:1234" tls=false sn="" hdr={}
+"CONNECT" "/" "CONNECT" url="/" host="example.com" uri="/" HTTP/1.1 1.1 cl=0 close=false remote="192.0.2.1:1234" tls=false sn="" hdr={}
+"CONNECT" "/" "CONNECT" url="/" host="example.com" uri="/" HTTP/1.1 1.1 cl=3 close=false remote="192.0.2.1:1234" tls=false sn="" hdr={}
+"OPTIONS" "/" "OPTIONS" url="/" host="example.com" uri="/" HTTP/1.1 1.1 cl=0 close=false remote="192.0.2.1:1234" tls=false sn="" hdr={}
+"OPTIONS" "/" "OPTIONS" url="/" host="example.com" uri="/" HTTP/1.1 1.1 cl=0 close=false remote="192.0.2.1:1234" tls=false sn="" hdr={}
+"OPTIONS" "/" "OPTIONS" url="/" host="example.com" uri="/" HTTP/1.1 1.1 cl=3 close=false remote="192.0.2.1:1234" tls=false sn="" hdr={}
+"BAD METHOD" "/" panic "invalid NewRequest arguments; malformed HTTP version \"/ HTTP/1.0\""
+"BAD METHOD" "/" panic "invalid NewRequest arguments; malformed HTTP version \"/ HTTP/1.0\""
+"BAD METHOD" "/" panic "invalid NewRequest arguments; malformed HTTP version \"/ HTTP/1.0\""
+"PUT" "/" "PUT" url="/" host="example.com" uri="/" HTTP/1.1 1.1 cl=0 close=false remote="192.0.2.1:1234" tls=false sn="" hdr={}
+"PUT" "/" "PUT" url="/" host="example.com" uri="/" HTTP/1.1 1.1 cl=0 close=false remote="192.0.2.1:1234" tls=false sn="" hdr={}
+"PUT" "/" "PUT" url="/" host="example.com" uri="/" HTTP/1.1 1.1 cl=3 close=false remote="192.0.2.1:1234" tls=false sn="" hdr={}
+"GET" "/foo" "GET" url="/foo" host="example.com" uri="/foo" HTTP/1.1 1.1 cl=0 close=false remote="192.0.2.1:1234" tls=false sn="" hdr={}
+"GET" "/foo" "GET" url="/foo" host="example.com" uri="/foo" HTTP/1.1 1.1 cl=0 close=false remote="192.0.2.1:1234" tls=false sn="" hdr={}
+"GET" "/foo" "GET" url="/foo" host="example.com" uri="/foo" HTTP/1.1 1.1 cl=3 close=false remote="192.0.2.1:1234" tls=false sn="" hdr={}
+"" "/foo" "GET" url="/foo" host="example.com" uri="/foo" HTTP/1.1 1.1 cl=0 close=false remote="192.0.2.1:1234" tls=false sn="" hdr={}
+"" "/foo" "GET" url="/foo" host="example.com" uri="/foo" HTTP/1.1 1.1 cl=0 close=false remote="192.0.2.1:1234" tls=false sn="" hdr={}
+"" "/foo" "GET" url="/foo" host="example.com" uri="/foo" HTTP/1.1 1.1 cl=3 close=false remote="192.0.2.1:1234" tls=false sn="" hdr={}
+"POST" "/foo" "POST" url="/foo" host="example.com" uri="/foo" HTTP/1.1 1.1 cl=0 close=false remote="192.0.2.1:1234" tls=false sn="" hdr={}
+"POST" "/foo" "POST" url="/foo" host="example.com" uri="/foo" HTTP/1.1 1.1 cl=0 close=false remote="192.0.2.1:1234" tls=false sn="" hdr={}
+"POST" "/foo" "POST" url="/foo" host="example.com" uri="/foo" HTTP/1.1 1.1 cl=3 close=false remote="192.0.2.1:1234" tls=false sn="" hdr={}
+"CONNECT" "/foo" "CONNECT" url="/foo" host="example.com" uri="/foo" HTTP/1.1 1.1 cl=0 close=false remote="192.0.2.1:1234" tls=false sn="" hdr={}
+"CONNECT" "/foo" "CONNECT" url="/foo" host="example.com" uri="/foo" HTTP/1.1 1.1 cl=0 close=false remote="192.0.2.1:1234" tls=false sn="" hdr={}
+"CONNECT" "/foo" "CONNECT" url="/foo" host="example.com" uri="/foo" HTTP/1.1 1.1 cl=3 close=false remote="192.0.2.1:1234" tls=false sn="" hdr={}
+"OPTIONS" "/foo" "OPTIONS" url="/foo" host="example.com" uri="/foo" HTTP/1.1 1.1 cl=0 close=false remote="192.0.2.1:1234" tls=false sn="" hdr={}
+"OPTIONS" "/foo" "OPTIONS" url="/foo" host="example.com" uri="/foo" HTTP/1.1 1.1 cl=0 close=false remote="192.0.2.1:1234" tls=false sn="" hdr={}
+"OPTIONS" "/foo" "OPTIONS" url="/foo" host="example.com" uri="/foo" HTTP/1.1 1.1 cl=3 close=false remote="192.0.2.1:1234" tls=false sn="" hdr={}
+"BAD METHOD" "/foo" panic "invalid NewRequest arguments; malformed HTTP version \"/foo HTTP/1.0\""
+"BAD METHOD" "/foo" panic "invalid NewRequest arguments; malformed HTTP version \"/foo HTTP/1.0\""
+"BAD METHOD" "/foo" panic "invalid NewRequest arguments; malformed HTTP version \"/foo HTTP/1.0\""
+"PUT" "/foo" "PUT" url="/foo" host="example.com" uri="/foo" HTTP/1.1 1.1 cl=0 close=false remote="192.0.2.1:1234" tls=false sn="" hdr={}
+"PUT" "/foo" "PUT" url="/foo" host="example.com" uri="/foo" HTTP/1.1 1.1 cl=0 close=false remote="192.0.2.1:1234" tls=false sn="" hdr={}
+"PUT" "/foo" "PUT" url="/foo" host="example.com" uri="/foo" HTTP/1.1 1.1 cl=3 close=false remote="192.0.2.1:1234" tls=false sn="" hdr={}
+"GET" "/foo?a=1&b=2" "GET" url="/foo?a=1&b=2" host="example.com" uri="/foo?a=1&b=2" HTTP/1.1 1.1 cl=0 close=false remote="192.0.2.1:1234" tls=false sn="" hdr={}
+"GET" "/foo?a=1&b=2" "GET" url="/foo?a=1&b=2" host="example.com" uri="/foo?a=1&b=2" HTTP/1.1 1.1 cl=0 close=false remote="192.0.2.1:1234" tls=false sn="" hdr={}
+"GET" "/foo?a=1&b=2" "GET" url="/foo?a=1&b=2" host="example.com" uri="/foo?a=1&b=2" HTTP/1.1 1.1 cl=3 close=false remote="192.0.2.1:1234" tls=false sn="" hdr={}
+"" "/foo?a=1&b=2" "GET" url="/foo?a=1&b=2" host="example.com" uri="/foo?a=1&b=2" HTTP/1.1 1.1 cl=0 close=false remote="192.0.2.1:1234" tls=false sn="" hdr={}
+"" "/foo?a=1&b=2" "GET" url="/foo?a=1&b=2" host="example.com" uri="/foo?a=1&b=2" HTTP/1.1 1.1 cl=0 close=false remote="192.0.2.1:1234" tls=false sn="" hdr={}
+"" "/foo?a=1&b=2" "GET" url="/foo?a=1&b=2" host="example.com" uri="/foo?a=1&b=2" HTTP/1.1 1.1 cl=3 close=false remote="192.0.2.1:1234" tls=false sn="" hdr={}
+"POST" "/foo?a=1&b=2" "POST" url="/foo?a=1&b=2" host="example.com" uri="/foo?a=1&b=2" HTTP/1.1 1.1 cl=0 close=false remote="192.0.2.1:1234" tls=false sn="" hdr={}
+"POST" "/foo?a=1&b=2" "POST" url="/foo?a=1&b=2" host="example.com" uri="/foo?a=1&b=2" HTTP/1.1 1.1 cl=0 close=false remote="192.0.2.1:1234" tls=false sn="" hdr={}
+"POST" "/foo?a=1&b=2" "POST" url="/foo?a=1&b=2" host="example.com" uri="/foo?a=1&b=2" HTTP/1.1 1.1 cl=3 close=false remote="192.0.2.1:1234" tls=false sn="" hdr={}
+"CONNECT" "/foo?a=1&b=2" "CONNECT" url="/foo?a=1&b=2" host="example.com" uri="/foo?a=1&b=2" HTTP/1.1 1.1 cl=0 close=false remote="192.0.2.1:1234" tls=false sn="" hdr={}
+"CONNECT" "/foo?a=1&b=2" "CONNECT" url="/foo?a=1&b=2" host="example.com" uri="/foo?a=1&b=2" HTTP/1.1 1.1 cl=0 close=false remote="192.0.2.1:1234" tls=false sn="" hdr={}
+"CONNECT" "/foo?a=1&b=2" "CONNECT" url="/foo?a=1&b=2" host="example.com" uri="/foo?a=1&b=2" HTTP/1.1 1.1 cl=3 close=false remote="192.0.2.1:1234" tls=false sn="" hdr={}
+"OPTIONS" "/foo?a=1&b=2" "OPTIONS" url="/foo?a=1&b=2" host="example.com" uri="/foo?a=1&b=2" HTTP/1.1 1.1 cl=0 close=false remote="192.0.2.1:1234" tls=false sn="" hdr={}
+"OPTIONS" "/foo?a=1&b=2" "OPTIONS" url="/foo?a=1&b=2" host="example.com" uri="/foo?a=1&b=2" HTTP/1.1 1.1 cl=0 close=false remote="192.0.2.1:1234" tls=false sn="" hdr={}
+"OPTIONS" "/foo?a=1&b=2" "OPTIONS" url="/foo?a=1&b=2" host="example.com" uri="/foo?a=1&b=2" HTTP/1.1 1.1 cl=3 close=false remote="192.0.2.1:1234" tls=false sn="" hdr={}
+"BAD METHOD" "/foo?a=1&b=2" panic "invalid NewRequest arguments; malformed HTTP version \"/foo?a=1&b=2 HTTP/1.0\""
+"BAD METHOD" "/foo?a=1&b=2" panic "invalid NewRequest arguments; malformed HTTP version \"/foo?a=1&b=2 HTTP/1.0\""
+"BAD METHOD" "/foo?a=1&b=2" panic "invalid NewRequest arguments; malformed HTTP version \"/foo?a=1&b=2 HTTP/1.0\""
+"PUT" "/foo?a=1&b=2" "PUT" url="/foo?a=1&b=2" host="example.com" uri="/foo?a=1&b=2" HTTP/1.1 1.1 cl=0 close=false remote="192.0.2.1:1234" tls=false sn="" hdr={}
+"PUT" "/foo?a=1&b=2" "PUT" url="/foo?a=1&b=2" host="example.com" uri="/foo?a=1&b=2" HTTP/1.1 1.1 cl=0 close=false remote="192.0.2.1:1234" tls=false sn="" hdr={}
+"PUT" "/foo?a=1&b=2" "PUT" url="/foo?a=1&b=2" host="example.com" uri="/foo?a=1&b=2" HTTP/1.1 1.1 cl=3 close=false remote="192.0.2.1:1234" tls=false sn="" hdr={}
+"GET" "http://example.com/x" "GET" url="http://example.com/x" host="example.com" uri="http://example.com/x" HTTP/1.1 1.1 cl=0 close=false remote="192.0.2.1:1234" tls=false sn="" hdr={}
+"GET" "http://example.com/x" "GET" url="http://example.com/x" host="example.com" uri="http://example.com/x" HTTP/1.1 1.1 cl=0 close=false remote="192.0.2.1:1234" tls=false sn="" hdr={}
+"GET" "http://example.com/x" "GET" url="http://example.com/x" host="example.com" uri="http://example.com/x" HTTP/1.1 1.1 cl=3 close=false remote="192.0.2.1:1234" tls=false sn="" hdr={}
+"" "http://example.com/x" "GET" url="http://example.com/x" host="example.com" uri="http://example.com/x" HTTP/1.1 1.1 cl=0 close=false remote="192.0.2.1:1234" tls=false sn="" hdr={}
+"" "http://example.com/x" "GET" url="http://example.com/x" host="example.com" uri="http://example.com/x" HTTP/1.1 1.1 cl=0 close=false remote="192.0.2.1:1234" tls=false sn="" hdr={}
+"" "http://example.com/x" "GET" url="http://example.com/x" host="example.com" uri="http://example.com/x" HTTP/1.1 1.1 cl=3 close=false remote="192.0.2.1:1234" tls=false sn="" hdr={}
+"POST" "http://example.com/x" "POST" url="http://example.com/x" host="example.com" uri="http://example.com/x" HTTP/1.1 1.1 cl=0 close=false remote="192.0.2.1:1234" tls=false sn="" hdr={}
+"POST" "http://example.com/x" "POST" url="http://example.com/x" host="example.com" uri="http://example.com/x" HTTP/1.1 1.1 cl=0 close=false remote="192.0.2.1:1234" tls=false sn="" hdr={}
+"POST" "http://example.com/x" "POST" url="http://example.com/x" host="example.com" uri="http://example.com/x" HTTP/1.1 1.1 cl=3 close=false remote="192.0.2.1:1234" tls=false sn="" hdr={}
+"CONNECT" "http://example.com/x" "CONNECT" url="//http://example.com/x" host="http:" uri="http://example.com/x" HTTP/1.1 1.1 cl=0 close=false remote="192.0.2.1:1234" tls=false sn="" hdr={}
+"CONNECT" "http://example.com/x" "CONNECT" url="//http://example.com/x" host="http:" uri="http://example.com/x" HTTP/1.1 1.1 cl=0 close=false remote="192.0.2.1:1234" tls=false sn="" hdr={}
+"CONNECT" "http://example.com/x" "CONNECT" url="//http://example.com/x" host="http:" uri="http://example.com/x" HTTP/1.1 1.1 cl=3 close=false remote="192.0.2.1:1234" tls=false sn="" hdr={}
+"OPTIONS" "http://example.com/x" "OPTIONS" url="http://example.com/x" host="example.com" uri="http://example.com/x" HTTP/1.1 1.1 cl=0 close=false remote="192.0.2.1:1234" tls=false sn="" hdr={}
+"OPTIONS" "http://example.com/x" "OPTIONS" url="http://example.com/x" host="example.com" uri="http://example.com/x" HTTP/1.1 1.1 cl=0 close=false remote="192.0.2.1:1234" tls=false sn="" hdr={}
+"OPTIONS" "http://example.com/x" "OPTIONS" url="http://example.com/x" host="example.com" uri="http://example.com/x" HTTP/1.1 1.1 cl=3 close=false remote="192.0.2.1:1234" tls=false sn="" hdr={}
+"BAD METHOD" "http://example.com/x" panic "invalid NewRequest arguments; malformed HTTP version \"http://example.com/x HTTP/1.0\""
+"BAD METHOD" "http://example.com/x" panic "invalid NewRequest arguments; malformed HTTP version \"http://example.com/x HTTP/1.0\""
+"BAD METHOD" "http://example.com/x" panic "invalid NewRequest arguments; malformed HTTP version \"http://example.com/x HTTP/1.0\""
+"PUT" "http://example.com/x" "PUT" url="http://example.com/x" host="example.com" uri="http://example.com/x" HTTP/1.1 1.1 cl=0 close=false remote="192.0.2.1:1234" tls=false sn="" hdr={}
+"PUT" "http://example.com/x" "PUT" url="http://example.com/x" host="example.com" uri="http://example.com/x" HTTP/1.1 1.1 cl=0 close=false remote="192.0.2.1:1234" tls=false sn="" hdr={}
+"PUT" "http://example.com/x" "PUT" url="http://example.com/x" host="example.com" uri="http://example.com/x" HTTP/1.1 1.1 cl=3 close=false remote="192.0.2.1:1234" tls=false sn="" hdr={}
+"GET" "https://example.com/x" "GET" url="https://example.com/x" host="example.com" uri="https://example.com/x" HTTP/1.1 1.1 cl=0 close=false remote="192.0.2.1:1234" tls=true sn="example.com" hdr={}
+"GET" "https://example.com/x" "GET" url="https://example.com/x" host="example.com" uri="https://example.com/x" HTTP/1.1 1.1 cl=0 close=false remote="192.0.2.1:1234" tls=true sn="example.com" hdr={}
+"GET" "https://example.com/x" "GET" url="https://example.com/x" host="example.com" uri="https://example.com/x" HTTP/1.1 1.1 cl=3 close=false remote="192.0.2.1:1234" tls=true sn="example.com" hdr={}
+"" "https://example.com/x" "GET" url="https://example.com/x" host="example.com" uri="https://example.com/x" HTTP/1.1 1.1 cl=0 close=false remote="192.0.2.1:1234" tls=true sn="example.com" hdr={}
+"" "https://example.com/x" "GET" url="https://example.com/x" host="example.com" uri="https://example.com/x" HTTP/1.1 1.1 cl=0 close=false remote="192.0.2.1:1234" tls=true sn="example.com" hdr={}
+"" "https://example.com/x" "GET" url="https://example.com/x" host="example.com" uri="https://example.com/x" HTTP/1.1 1.1 cl=3 close=false remote="192.0.2.1:1234" tls=true sn="example.com" hdr={}
+"POST" "https://example.com/x" "POST" url="https://example.com/x" host="example.com" uri="https://example.com/x" HTTP/1.1 1.1 cl=0 close=false remote="192.0.2.1:1234" tls=true sn="example.com" hdr={}
+"POST" "https://example.com/x" "POST" url="https://example.com/x" host="example.com" uri="https://example.com/x" HTTP/1.1 1.1 cl=0 close=false remote="192.0.2.1:1234" tls=true sn="example.com" hdr={}
+"POST" "https://example.com/x" "POST" url="https://example.com/x" host="example.com" uri="https://example.com/x" HTTP/1.1 1.1 cl=3 close=false remote="192.0.2.1:1234" tls=true sn="example.com" hdr={}
+"CONNECT" "https://example.com/x" "CONNECT" url="//https://example.com/x" host="https:" uri="https://example.com/x" HTTP/1.1 1.1 cl=0 close=false remote="192.0.2.1:1234" tls=true sn="https:" hdr={}
+"CONNECT" "https://example.com/x" "CONNECT" url="//https://example.com/x" host="https:" uri="https://example.com/x" HTTP/1.1 1.1 cl=0 close=false remote="192.0.2.1:1234" tls=true sn="https:" hdr={}
+"CONNECT" "https://example.com/x" "CONNECT" url="//https://example.com/x" host="https:" uri="https://example.com/x" HTTP/1.1 1.1 cl=3 close=false remote="192.0.2.1:1234" tls=true sn="https:" hdr={}
+"OPTIONS" "https://example.com/x" "OPTIONS" url="https://example.com/x" host="example.com" uri="https://example.com/x" HTTP/1.1 1.1 cl=0 close=false remote="192.0.2.1:1234" tls=true sn="example.com" hdr={}
+"OPTIONS" "https://example.com/x" "OPTIONS" url="https://example.com/x" host="example.com" uri="https://example.com/x" HTTP/1.1 1.1 cl=0 close=false remote="192.0.2.1:1234" tls=true sn="example.com" hdr={}
+"OPTIONS" "https://example.com/x" "OPTIONS" url="https://example.com/x" host="example.com" uri="https://example.com/x" HTTP/1.1 1.1 cl=3 close=false remote="192.0.2.1:1234" tls=true sn="example.com" hdr={}
+"BAD METHOD" "https://example.com/x" panic "invalid NewRequest arguments; malformed HTTP version \"https://example.com/x HTTP/1.0\""
+"BAD METHOD" "https://example.com/x" panic "invalid NewRequest arguments; malformed HTTP version \"https://example.com/x HTTP/1.0\""
+"BAD METHOD" "https://example.com/x" panic "invalid NewRequest arguments; malformed HTTP version \"https://example.com/x HTTP/1.0\""
+"PUT" "https://example.com/x" "PUT" url="https://example.com/x" host="example.com" uri="https://example.com/x" HTTP/1.1 1.1 cl=0 close=false remote="192.0.2.1:1234" tls=true sn="example.com" hdr={}
+"PUT" "https://example.com/x" "PUT" url="https://example.com/x" host="example.com" uri="https://example.com/x" HTTP/1.1 1.1 cl=0 close=false remote="192.0.2.1:1234" tls=true sn="example.com" hdr={}
+"PUT" "https://example.com/x" "PUT" url="https://example.com/x" host="example.com" uri="https://example.com/x" HTTP/1.1 1.1 cl=3 close=false remote="192.0.2.1:1234" tls=true sn="example.com" hdr={}
+"GET" "https://golang.org:443/p" "GET" url="https://golang.org:443/p" host="golang.org:443" uri="https://golang.org:443/p" HTTP/1.1 1.1 cl=0 close=false remote="192.0.2.1:1234" tls=true sn="golang.org:443" hdr={}
+"GET" "https://golang.org:443/p" "GET" url="https://golang.org:443/p" host="golang.org:443" uri="https://golang.org:443/p" HTTP/1.1 1.1 cl=0 close=false remote="192.0.2.1:1234" tls=true sn="golang.org:443" hdr={}
+"GET" "https://golang.org:443/p" "GET" url="https://golang.org:443/p" host="golang.org:443" uri="https://golang.org:443/p" HTTP/1.1 1.1 cl=3 close=false remote="192.0.2.1:1234" tls=true sn="golang.org:443" hdr={}
+"" "https://golang.org:443/p" "GET" url="https://golang.org:443/p" host="golang.org:443" uri="https://golang.org:443/p" HTTP/1.1 1.1 cl=0 close=false remote="192.0.2.1:1234" tls=true sn="golang.org:443" hdr={}
+"" "https://golang.org:443/p" "GET" url="https://golang.org:443/p" host="golang.org:443" uri="https://golang.org:443/p" HTTP/1.1 1.1 cl=0 close=false remote="192.0.2.1:1234" tls=true sn="golang.org:443" hdr={}
+"" "https://golang.org:443/p" "GET" url="https://golang.org:443/p" host="golang.org:443" uri="https://golang.org:443/p" HTTP/1.1 1.1 cl=3 close=false remote="192.0.2.1:1234" tls=true sn="golang.org:443" hdr={}
+"POST" "https://golang.org:443/p" "POST" url="https://golang.org:443/p" host="golang.org:443" uri="https://golang.org:443/p" HTTP/1.1 1.1 cl=0 close=false remote="192.0.2.1:1234" tls=true sn="golang.org:443" hdr={}
+"POST" "https://golang.org:443/p" "POST" url="https://golang.org:443/p" host="golang.org:443" uri="https://golang.org:443/p" HTTP/1.1 1.1 cl=0 close=false remote="192.0.2.1:1234" tls=true sn="golang.org:443" hdr={}
+"POST" "https://golang.org:443/p" "POST" url="https://golang.org:443/p" host="golang.org:443" uri="https://golang.org:443/p" HTTP/1.1 1.1 cl=3 close=false remote="192.0.2.1:1234" tls=true sn="golang.org:443" hdr={}
+"CONNECT" "https://golang.org:443/p" "CONNECT" url="//https://golang.org:443/p" host="https:" uri="https://golang.org:443/p" HTTP/1.1 1.1 cl=0 close=false remote="192.0.2.1:1234" tls=true sn="https:" hdr={}
+"CONNECT" "https://golang.org:443/p" "CONNECT" url="//https://golang.org:443/p" host="https:" uri="https://golang.org:443/p" HTTP/1.1 1.1 cl=0 close=false remote="192.0.2.1:1234" tls=true sn="https:" hdr={}
+"CONNECT" "https://golang.org:443/p" "CONNECT" url="//https://golang.org:443/p" host="https:" uri="https://golang.org:443/p" HTTP/1.1 1.1 cl=3 close=false remote="192.0.2.1:1234" tls=true sn="https:" hdr={}
+"OPTIONS" "https://golang.org:443/p" "OPTIONS" url="https://golang.org:443/p" host="golang.org:443" uri="https://golang.org:443/p" HTTP/1.1 1.1 cl=0 close=false remote="192.0.2.1:1234" tls=true sn="golang.org:443" hdr={}
+"OPTIONS" "https://golang.org:443/p" "OPTIONS" url="https://golang.org:443/p" host="golang.org:443" uri="https://golang.org:443/p" HTTP/1.1 1.1 cl=0 close=false remote="192.0.2.1:1234" tls=true sn="golang.org:443" hdr={}
+"OPTIONS" "https://golang.org:443/p" "OPTIONS" url="https://golang.org:443/p" host="golang.org:443" uri="https://golang.org:443/p" HTTP/1.1 1.1 cl=3 close=false remote="192.0.2.1:1234" tls=true sn="golang.org:443" hdr={}
+"BAD METHOD" "https://golang.org:443/p" panic "invalid NewRequest arguments; malformed HTTP version \"https://golang.org:443/p HTTP/1.0\""
+"BAD METHOD" "https://golang.org:443/p" panic "invalid NewRequest arguments; malformed HTTP version \"https://golang.org:443/p HTTP/1.0\""
+"BAD METHOD" "https://golang.org:443/p" panic "invalid NewRequest arguments; malformed HTTP version \"https://golang.org:443/p HTTP/1.0\""
+"PUT" "https://golang.org:443/p" "PUT" url="https://golang.org:443/p" host="golang.org:443" uri="https://golang.org:443/p" HTTP/1.1 1.1 cl=0 close=false remote="192.0.2.1:1234" tls=true sn="golang.org:443" hdr={}
+"PUT" "https://golang.org:443/p" "PUT" url="https://golang.org:443/p" host="golang.org:443" uri="https://golang.org:443/p" HTTP/1.1 1.1 cl=0 close=false remote="192.0.2.1:1234" tls=true sn="golang.org:443" hdr={}
+"PUT" "https://golang.org:443/p" "PUT" url="https://golang.org:443/p" host="golang.org:443" uri="https://golang.org:443/p" HTTP/1.1 1.1 cl=3 close=false remote="192.0.2.1:1234" tls=true sn="golang.org:443" hdr={}
+"GET" "http://foo.com:8080/a?b#c" "GET" url="http://foo.com:8080/a?b#c" host="foo.com:8080" uri="http://foo.com:8080/a?b#c" HTTP/1.1 1.1 cl=0 close=false remote="192.0.2.1:1234" tls=false sn="" hdr={}
+"GET" "http://foo.com:8080/a?b#c" "GET" url="http://foo.com:8080/a?b#c" host="foo.com:8080" uri="http://foo.com:8080/a?b#c" HTTP/1.1 1.1 cl=0 close=false remote="192.0.2.1:1234" tls=false sn="" hdr={}
+"GET" "http://foo.com:8080/a?b#c" "GET" url="http://foo.com:8080/a?b#c" host="foo.com:8080" uri="http://foo.com:8080/a?b#c" HTTP/1.1 1.1 cl=3 close=false remote="192.0.2.1:1234" tls=false sn="" hdr={}
+"" "http://foo.com:8080/a?b#c" "GET" url="http://foo.com:8080/a?b#c" host="foo.com:8080" uri="http://foo.com:8080/a?b#c" HTTP/1.1 1.1 cl=0 close=false remote="192.0.2.1:1234" tls=false sn="" hdr={}
+"" "http://foo.com:8080/a?b#c" "GET" url="http://foo.com:8080/a?b#c" host="foo.com:8080" uri="http://foo.com:8080/a?b#c" HTTP/1.1 1.1 cl=0 close=false remote="192.0.2.1:1234" tls=false sn="" hdr={}
+"" "http://foo.com:8080/a?b#c" "GET" url="http://foo.com:8080/a?b#c" host="foo.com:8080" uri="http://foo.com:8080/a?b#c" HTTP/1.1 1.1 cl=3 close=false remote="192.0.2.1:1234" tls=false sn="" hdr={}
+"POST" "http://foo.com:8080/a?b#c" "POST" url="http://foo.com:8080/a?b#c" host="foo.com:8080" uri="http://foo.com:8080/a?b#c" HTTP/1.1 1.1 cl=0 close=false remote="192.0.2.1:1234" tls=false sn="" hdr={}
+"POST" "http://foo.com:8080/a?b#c" "POST" url="http://foo.com:8080/a?b#c" host="foo.com:8080" uri="http://foo.com:8080/a?b#c" HTTP/1.1 1.1 cl=0 close=false remote="192.0.2.1:1234" tls=false sn="" hdr={}
+"POST" "http://foo.com:8080/a?b#c" "POST" url="http://foo.com:8080/a?b#c" host="foo.com:8080" uri="http://foo.com:8080/a?b#c" HTTP/1.1 1.1 cl=3 close=false remote="192.0.2.1:1234" tls=false sn="" hdr={}
+"CONNECT" "http://foo.com:8080/a?b#c" "CONNECT" url="//http://foo.com:8080/a?b#c" host="http:" uri="http://foo.com:8080/a?b#c" HTTP/1.1 1.1 cl=0 close=false remote="192.0.2.1:1234" tls=false sn="" hdr={}
+"CONNECT" "http://foo.com:8080/a?b#c" "CONNECT" url="//http://foo.com:8080/a?b#c" host="http:" uri="http://foo.com:8080/a?b#c" HTTP/1.1 1.1 cl=0 close=false remote="192.0.2.1:1234" tls=false sn="" hdr={}
+"CONNECT" "http://foo.com:8080/a?b#c" "CONNECT" url="//http://foo.com:8080/a?b#c" host="http:" uri="http://foo.com:8080/a?b#c" HTTP/1.1 1.1 cl=3 close=false remote="192.0.2.1:1234" tls=false sn="" hdr={}
+"OPTIONS" "http://foo.com:8080/a?b#c" "OPTIONS" url="http://foo.com:8080/a?b#c" host="foo.com:8080" uri="http://foo.com:8080/a?b#c" HTTP/1.1 1.1 cl=0 close=false remote="192.0.2.1:1234" tls=false sn="" hdr={}
+"OPTIONS" "http://foo.com:8080/a?b#c" "OPTIONS" url="http://foo.com:8080/a?b#c" host="foo.com:8080" uri="http://foo.com:8080/a?b#c" HTTP/1.1 1.1 cl=0 close=false remote="192.0.2.1:1234" tls=false sn="" hdr={}
+"OPTIONS" "http://foo.com:8080/a?b#c" "OPTIONS" url="http://foo.com:8080/a?b#c" host="foo.com:8080" uri="http://foo.com:8080/a?b#c" HTTP/1.1 1.1 cl=3 close=false remote="192.0.2.1:1234" tls=false sn="" hdr={}
+"BAD METHOD" "http://foo.com:8080/a?b#c" panic "invalid NewRequest arguments; malformed HTTP version \"http://foo.com:8080/a?b#c HTTP/1.0\""
+"BAD METHOD" "http://foo.com:8080/a?b#c" panic "invalid NewRequest arguments; malformed HTTP version \"http://foo.com:8080/a?b#c HTTP/1.0\""
+"BAD METHOD" "http://foo.com:8080/a?b#c" panic "invalid NewRequest arguments; malformed HTTP version \"http://foo.com:8080/a?b#c HTTP/1.0\""
+"PUT" "http://foo.com:8080/a?b#c" "PUT" url="http://foo.com:8080/a?b#c" host="foo.com:8080" uri="http://foo.com:8080/a?b#c" HTTP/1.1 1.1 cl=0 close=false remote="192.0.2.1:1234" tls=false sn="" hdr={}
+"PUT" "http://foo.com:8080/a?b#c" "PUT" url="http://foo.com:8080/a?b#c" host="foo.com:8080" uri="http://foo.com:8080/a?b#c" HTTP/1.1 1.1 cl=0 close=false remote="192.0.2.1:1234" tls=false sn="" hdr={}
+"PUT" "http://foo.com:8080/a?b#c" "PUT" url="http://foo.com:8080/a?b#c" host="foo.com:8080" uri="http://foo.com:8080/a?b#c" HTTP/1.1 1.1 cl=3 close=false remote="192.0.2.1:1234" tls=false sn="" hdr={}
+"GET" "*" "GET" url="*" host="example.com" uri="*" HTTP/1.1 1.1 cl=0 close=false remote="192.0.2.1:1234" tls=false sn="" hdr={}
+"GET" "*" "GET" url="*" host="example.com" uri="*" HTTP/1.1 1.1 cl=0 close=false remote="192.0.2.1:1234" tls=false sn="" hdr={}
+"GET" "*" "GET" url="*" host="example.com" uri="*" HTTP/1.1 1.1 cl=3 close=false remote="192.0.2.1:1234" tls=false sn="" hdr={}
+"" "*" "GET" url="*" host="example.com" uri="*" HTTP/1.1 1.1 cl=0 close=false remote="192.0.2.1:1234" tls=false sn="" hdr={}
+"" "*" "GET" url="*" host="example.com" uri="*" HTTP/1.1 1.1 cl=0 close=false remote="192.0.2.1:1234" tls=false sn="" hdr={}
+"" "*" "GET" url="*" host="example.com" uri="*" HTTP/1.1 1.1 cl=3 close=false remote="192.0.2.1:1234" tls=false sn="" hdr={}
+"POST" "*" "POST" url="*" host="example.com" uri="*" HTTP/1.1 1.1 cl=0 close=false remote="192.0.2.1:1234" tls=false sn="" hdr={}
+"POST" "*" "POST" url="*" host="example.com" uri="*" HTTP/1.1 1.1 cl=0 close=false remote="192.0.2.1:1234" tls=false sn="" hdr={}
+"POST" "*" "POST" url="*" host="example.com" uri="*" HTTP/1.1 1.1 cl=3 close=false remote="192.0.2.1:1234" tls=false sn="" hdr={}
+"CONNECT" "*" "CONNECT" url="//*" host="*" uri="*" HTTP/1.1 1.1 cl=0 close=false remote="192.0.2.1:1234" tls=false sn="" hdr={}
+"CONNECT" "*" "CONNECT" url="//*" host="*" uri="*" HTTP/1.1 1.1 cl=0 close=false remote="192.0.2.1:1234" tls=false sn="" hdr={}
+"CONNECT" "*" "CONNECT" url="//*" host="*" uri="*" HTTP/1.1 1.1 cl=3 close=false remote="192.0.2.1:1234" tls=false sn="" hdr={}
+"OPTIONS" "*" "OPTIONS" url="*" host="example.com" uri="*" HTTP/1.1 1.1 cl=0 close=false remote="192.0.2.1:1234" tls=false sn="" hdr={}
+"OPTIONS" "*" "OPTIONS" url="*" host="example.com" uri="*" HTTP/1.1 1.1 cl=0 close=false remote="192.0.2.1:1234" tls=false sn="" hdr={}
+"OPTIONS" "*" "OPTIONS" url="*" host="example.com" uri="*" HTTP/1.1 1.1 cl=3 close=false remote="192.0.2.1:1234" tls=false sn="" hdr={}
+"BAD METHOD" "*" panic "invalid NewRequest arguments; malformed HTTP version \"* HTTP/1.0\""
+"BAD METHOD" "*" panic "invalid NewRequest arguments; malformed HTTP version \"* HTTP/1.0\""
+"BAD METHOD" "*" panic "invalid NewRequest arguments; malformed HTTP version \"* HTTP/1.0\""
+"PUT" "*" "PUT" url="*" host="example.com" uri="*" HTTP/1.1 1.1 cl=0 close=false remote="192.0.2.1:1234" tls=false sn="" hdr={}
+"PUT" "*" "PUT" url="*" host="example.com" uri="*" HTTP/1.1 1.1 cl=0 close=false remote="192.0.2.1:1234" tls=false sn="" hdr={}
+"PUT" "*" "PUT" url="*" host="example.com" uri="*" HTTP/1.1 1.1 cl=3 close=false remote="192.0.2.1:1234" tls=false sn="" hdr={}
+"GET" "example.com:443" "GET" url="example.com:443" host="example.com" uri="example.com:443" HTTP/1.1 1.1 cl=0 close=false remote="192.0.2.1:1234" tls=false sn="" hdr={}
+"GET" "example.com:443" "GET" url="example.com:443" host="example.com" uri="example.com:443" HTTP/1.1 1.1 cl=0 close=false remote="192.0.2.1:1234" tls=false sn="" hdr={}
+"GET" "example.com:443" "GET" url="example.com:443" host="example.com" uri="example.com:443" HTTP/1.1 1.1 cl=3 close=false remote="192.0.2.1:1234" tls=false sn="" hdr={}
+"" "example.com:443" "GET" url="example.com:443" host="example.com" uri="example.com:443" HTTP/1.1 1.1 cl=0 close=false remote="192.0.2.1:1234" tls=false sn="" hdr={}
+"" "example.com:443" "GET" url="example.com:443" host="example.com" uri="example.com:443" HTTP/1.1 1.1 cl=0 close=false remote="192.0.2.1:1234" tls=false sn="" hdr={}
+"" "example.com:443" "GET" url="example.com:443" host="example.com" uri="example.com:443" HTTP/1.1 1.1 cl=3 close=false remote="192.0.2.1:1234" tls=false sn="" hdr={}
+"POST" "example.com:443" "POST" url="example.com:443" host="example.com" uri="example.com:443" HTTP/1.1 1.1 cl=0 close=false remote="192.0.2.1:1234" tls=false sn="" hdr={}
+"POST" "example.com:443" "POST" url="example.com:443" host="example.com" uri="example.com:443" HTTP/1.1 1.1 cl=0 close=false remote="192.0.2.1:1234" tls=false sn="" hdr={}
+"POST" "example.com:443" "POST" url="example.com:443" host="example.com" uri="example.com:443" HTTP/1.1 1.1 cl=3 close=false remote="192.0.2.1:1234" tls=false sn="" hdr={}
+"CONNECT" "example.com:443" "CONNECT" url="//example.com:443" host="example.com:443" uri="example.com:443" HTTP/1.1 1.1 cl=0 close=false remote="192.0.2.1:1234" tls=false sn="" hdr={}
+"CONNECT" "example.com:443" "CONNECT" url="//example.com:443" host="example.com:443" uri="example.com:443" HTTP/1.1 1.1 cl=0 close=false remote="192.0.2.1:1234" tls=false sn="" hdr={}
+"CONNECT" "example.com:443" "CONNECT" url="//example.com:443" host="example.com:443" uri="example.com:443" HTTP/1.1 1.1 cl=3 close=false remote="192.0.2.1:1234" tls=false sn="" hdr={}
+"OPTIONS" "example.com:443" "OPTIONS" url="example.com:443" host="example.com" uri="example.com:443" HTTP/1.1 1.1 cl=0 close=false remote="192.0.2.1:1234" tls=false sn="" hdr={}
+"OPTIONS" "example.com:443" "OPTIONS" url="example.com:443" host="example.com" uri="example.com:443" HTTP/1.1 1.1 cl=0 close=false remote="192.0.2.1:1234" tls=false sn="" hdr={}
+"OPTIONS" "example.com:443" "OPTIONS" url="example.com:443" host="example.com" uri="example.com:443" HTTP/1.1 1.1 cl=3 close=false remote="192.0.2.1:1234" tls=false sn="" hdr={}
+"BAD METHOD" "example.com:443" panic "invalid NewRequest arguments; malformed HTTP version \"example.com:443 HTTP/1.0\""
+"BAD METHOD" "example.com:443" panic "invalid NewRequest arguments; malformed HTTP version \"example.com:443 HTTP/1.0\""
+"BAD METHOD" "example.com:443" panic "invalid NewRequest arguments; malformed HTTP version \"example.com:443 HTTP/1.0\""
+"PUT" "example.com:443" "PUT" url="example.com:443" host="example.com" uri="example.com:443" HTTP/1.1 1.1 cl=0 close=false remote="192.0.2.1:1234" tls=false sn="" hdr={}
+"PUT" "example.com:443" "PUT" url="example.com:443" host="example.com" uri="example.com:443" HTTP/1.1 1.1 cl=0 close=false remote="192.0.2.1:1234" tls=false sn="" hdr={}
+"PUT" "example.com:443" "PUT" url="example.com:443" host="example.com" uri="example.com:443" HTTP/1.1 1.1 cl=3 close=false remote="192.0.2.1:1234" tls=false sn="" hdr={}
+"GET" "//host/path" "GET" url="//host/path" host="example.com" uri="//host/path" HTTP/1.1 1.1 cl=0 close=false remote="192.0.2.1:1234" tls=false sn="" hdr={}
+"GET" "//host/path" "GET" url="//host/path" host="example.com" uri="//host/path" HTTP/1.1 1.1 cl=0 close=false remote="192.0.2.1:1234" tls=false sn="" hdr={}
+"GET" "//host/path" "GET" url="//host/path" host="example.com" uri="//host/path" HTTP/1.1 1.1 cl=3 close=false remote="192.0.2.1:1234" tls=false sn="" hdr={}
+"" "//host/path" "GET" url="//host/path" host="example.com" uri="//host/path" HTTP/1.1 1.1 cl=0 close=false remote="192.0.2.1:1234" tls=false sn="" hdr={}
+"" "//host/path" "GET" url="//host/path" host="example.com" uri="//host/path" HTTP/1.1 1.1 cl=0 close=false remote="192.0.2.1:1234" tls=false sn="" hdr={}
+"" "//host/path" "GET" url="//host/path" host="example.com" uri="//host/path" HTTP/1.1 1.1 cl=3 close=false remote="192.0.2.1:1234" tls=false sn="" hdr={}
+"POST" "//host/path" "POST" url="//host/path" host="example.com" uri="//host/path" HTTP/1.1 1.1 cl=0 close=false remote="192.0.2.1:1234" tls=false sn="" hdr={}
+"POST" "//host/path" "POST" url="//host/path" host="example.com" uri="//host/path" HTTP/1.1 1.1 cl=0 close=false remote="192.0.2.1:1234" tls=false sn="" hdr={}
+"POST" "//host/path" "POST" url="//host/path" host="example.com" uri="//host/path" HTTP/1.1 1.1 cl=3 close=false remote="192.0.2.1:1234" tls=false sn="" hdr={}
+"CONNECT" "//host/path" "CONNECT" url="//host/path" host="example.com" uri="//host/path" HTTP/1.1 1.1 cl=0 close=false remote="192.0.2.1:1234" tls=false sn="" hdr={}
+"CONNECT" "//host/path" "CONNECT" url="//host/path" host="example.com" uri="//host/path" HTTP/1.1 1.1 cl=0 close=false remote="192.0.2.1:1234" tls=false sn="" hdr={}
+"CONNECT" "//host/path" "CONNECT" url="//host/path" host="example.com" uri="//host/path" HTTP/1.1 1.1 cl=3 close=false remote="192.0.2.1:1234" tls=false sn="" hdr={}
+"OPTIONS" "//host/path" "OPTIONS" url="//host/path" host="example.com" uri="//host/path" HTTP/1.1 1.1 cl=0 close=false remote="192.0.2.1:1234" tls=false sn="" hdr={}
+"OPTIONS" "//host/path" "OPTIONS" url="//host/path" host="example.com" uri="//host/path" HTTP/1.1 1.1 cl=0 close=false remote="192.0.2.1:1234" tls=false sn="" hdr={}
+"OPTIONS" "//host/path" "OPTIONS" url="//host/path" host="example.com" uri="//host/path" HTTP/1.1 1.1 cl=3 close=false remote="192.0.2.1:1234" tls=false sn="" hdr={}
+"BAD METHOD" "//host/path" panic "invalid NewRequest arguments; malformed HTTP version \"//host/path HTTP/1.0\""
+"BAD METHOD" "//host/path" panic "invalid NewRequest arguments; malformed HTTP version \"//host/path HTTP/1.0\""
+"BAD METHOD" "//host/path" panic "invalid NewRequest arguments; malformed HTTP version \"//host/path HTTP/1.0\""
+"PUT" "//host/path" "PUT" url="//host/path" host="example.com" uri="//host/path" HTTP/1.1 1.1 cl=0 close=false remote="192.0.2.1:1234" tls=false sn="" hdr={}
+"PUT" "//host/path" "PUT" url="//host/path" host="example.com" uri="//host/path" HTTP/1.1 1.1 cl=0 close=false remote="192.0.2.1:1234" tls=false sn="" hdr={}
+"PUT" "//host/path" "PUT" url="//host/path" host="example.com" uri="//host/path" HTTP/1.1 1.1 cl=3 close=false remote="192.0.2.1:1234" tls=false sn="" hdr={}
+"GET" "/a%20b" "GET" url="/a%20b" host="example.com" uri="/a%20b" HTTP/1.1 1.1 cl=0 close=false remote="192.0.2.1:1234" tls=false sn="" hdr={}
+"GET" "/a%20b" "GET" url="/a%20b" host="example.com" uri="/a%20b" HTTP/1.1 1.1 cl=0 close=false remote="192.0.2.1:1234" tls=false sn="" hdr={}
+"GET" "/a%20b" "GET" url="/a%20b" host="example.com" uri="/a%20b" HTTP/1.1 1.1 cl=3 close=false remote="192.0.2.1:1234" tls=false sn="" hdr={}
+"" "/a%20b" "GET" url="/a%20b" host="example.com" uri="/a%20b" HTTP/1.1 1.1 cl=0 close=false remote="192.0.2.1:1234" tls=false sn="" hdr={}
+"" "/a%20b" "GET" url="/a%20b" host="example.com" uri="/a%20b" HTTP/1.1 1.1 cl=0 close=false remote="192.0.2.1:1234" tls=false sn="" hdr={}
+"" "/a%20b" "GET" url="/a%20b" host="example.com" uri="/a%20b" HTTP/1.1 1.1 cl=3 close=false remote="192.0.2.1:1234" tls=false sn="" hdr={}
+"POST" "/a%20b" "POST" url="/a%20b" host="example.com" uri="/a%20b" HTTP/1.1 1.1 cl=0 close=false remote="192.0.2.1:1234" tls=false sn="" hdr={}
+"POST" "/a%20b" "POST" url="/a%20b" host="example.com" uri="/a%20b" HTTP/1.1 1.1 cl=0 close=false remote="192.0.2.1:1234" tls=false sn="" hdr={}
+"POST" "/a%20b" "POST" url="/a%20b" host="example.com" uri="/a%20b" HTTP/1.1 1.1 cl=3 close=false remote="192.0.2.1:1234" tls=false sn="" hdr={}
+"CONNECT" "/a%20b" "CONNECT" url="/a%20b" host="example.com" uri="/a%20b" HTTP/1.1 1.1 cl=0 close=false remote="192.0.2.1:1234" tls=false sn="" hdr={}
+"CONNECT" "/a%20b" "CONNECT" url="/a%20b" host="example.com" uri="/a%20b" HTTP/1.1 1.1 cl=0 close=false remote="192.0.2.1:1234" tls=false sn="" hdr={}
+"CONNECT" "/a%20b" "CONNECT" url="/a%20b" host="example.com" uri="/a%20b" HTTP/1.1 1.1 cl=3 close=false remote="192.0.2.1:1234" tls=false sn="" hdr={}
+"OPTIONS" "/a%20b" "OPTIONS" url="/a%20b" host="example.com" uri="/a%20b" HTTP/1.1 1.1 cl=0 close=false remote="192.0.2.1:1234" tls=false sn="" hdr={}
+"OPTIONS" "/a%20b" "OPTIONS" url="/a%20b" host="example.com" uri="/a%20b" HTTP/1.1 1.1 cl=0 close=false remote="192.0.2.1:1234" tls=false sn="" hdr={}
+"OPTIONS" "/a%20b" "OPTIONS" url="/a%20b" host="example.com" uri="/a%20b" HTTP/1.1 1.1 cl=3 close=false remote="192.0.2.1:1234" tls=false sn="" hdr={}
+"BAD METHOD" "/a%20b" panic "invalid NewRequest arguments; malformed HTTP version \"/a%20b HTTP/1.0\""
+"BAD METHOD" "/a%20b" panic "invalid NewRequest arguments; malformed HTTP version \"/a%20b HTTP/1.0\""
+"BAD METHOD" "/a%20b" panic "invalid NewRequest arguments; malformed HTTP version \"/a%20b HTTP/1.0\""
+"PUT" "/a%20b" "PUT" url="/a%20b" host="example.com" uri="/a%20b" HTTP/1.1 1.1 cl=0 close=false remote="192.0.2.1:1234" tls=false sn="" hdr={}
+"PUT" "/a%20b" "PUT" url="/a%20b" host="example.com" uri="/a%20b" HTTP/1.1 1.1 cl=0 close=false remote="192.0.2.1:1234" tls=false sn="" hdr={}
+"PUT" "/a%20b" "PUT" url="/a%20b" host="example.com" uri="/a%20b" HTTP/1.1 1.1 cl=3 close=false remote="192.0.2.1:1234" tls=false sn="" hdr={}
+"GET" "/%zz" panic "invalid NewRequest arguments; parse \"/%zz\": invalid URL escape \"%zz\""
+"GET" "/%zz" panic "invalid NewRequest arguments; parse \"/%zz\": invalid URL escape \"%zz\""
+"GET" "/%zz" panic "invalid NewRequest arguments; parse \"/%zz\": invalid URL escape \"%zz\""
+"" "/%zz" panic "invalid NewRequest arguments; parse \"/%zz\": invalid URL escape \"%zz\""
+"" "/%zz" panic "invalid NewRequest arguments; parse \"/%zz\": invalid URL escape \"%zz\""
+"" "/%zz" panic "invalid NewRequest arguments; parse \"/%zz\": invalid URL escape \"%zz\""
+"POST" "/%zz" panic "invalid NewRequest arguments; parse \"/%zz\": invalid URL escape \"%zz\""
+"POST" "/%zz" panic "invalid NewRequest arguments; parse \"/%zz\": invalid URL escape \"%zz\""
+"POST" "/%zz" panic "invalid NewRequest arguments; parse \"/%zz\": invalid URL escape \"%zz\""
+"CONNECT" "/%zz" panic "invalid NewRequest arguments; parse \"/%zz\": invalid URL escape \"%zz\""
+"CONNECT" "/%zz" panic "invalid NewRequest arguments; parse \"/%zz\": invalid URL escape \"%zz\""
+"CONNECT" "/%zz" panic "invalid NewRequest arguments; parse \"/%zz\": invalid URL escape \"%zz\""
+"OPTIONS" "/%zz" panic "invalid NewRequest arguments; parse \"/%zz\": invalid URL escape \"%zz\""
+"OPTIONS" "/%zz" panic "invalid NewRequest arguments; parse \"/%zz\": invalid URL escape \"%zz\""
+"OPTIONS" "/%zz" panic "invalid NewRequest arguments; parse \"/%zz\": invalid URL escape \"%zz\""
+"BAD METHOD" "/%zz" panic "invalid NewRequest arguments; malformed HTTP version \"/%zz HTTP/1.0\""
+"BAD METHOD" "/%zz" panic "invalid NewRequest arguments; malformed HTTP version \"/%zz HTTP/1.0\""
+"BAD METHOD" "/%zz" panic "invalid NewRequest arguments; malformed HTTP version \"/%zz HTTP/1.0\""
+"PUT" "/%zz" panic "invalid NewRequest arguments; parse \"/%zz\": invalid URL escape \"%zz\""
+"PUT" "/%zz" panic "invalid NewRequest arguments; parse \"/%zz\": invalid URL escape \"%zz\""
+"PUT" "/%zz" panic "invalid NewRequest arguments; parse \"/%zz\": invalid URL escape \"%zz\""
+"GET" "" panic "invalid NewRequest arguments; parse \"\": empty url"
+"GET" "" panic "invalid NewRequest arguments; parse \"\": empty url"
+"GET" "" panic "invalid NewRequest arguments; parse \"\": empty url"
+"" "" panic "invalid NewRequest arguments; parse \"\": empty url"
+"" "" panic "invalid NewRequest arguments; parse \"\": empty url"
+"" "" panic "invalid NewRequest arguments; parse \"\": empty url"
+"POST" "" panic "invalid NewRequest arguments; parse \"\": empty url"
+"POST" "" panic "invalid NewRequest arguments; parse \"\": empty url"
+"POST" "" panic "invalid NewRequest arguments; parse \"\": empty url"
+"CONNECT" "" "CONNECT" url="" host="example.com" uri="" HTTP/1.1 1.1 cl=0 close=false remote="192.0.2.1:1234" tls=false sn="" hdr={}
+"CONNECT" "" "CONNECT" url="" host="example.com" uri="" HTTP/1.1 1.1 cl=0 close=false remote="192.0.2.1:1234" tls=false sn="" hdr={}
+"CONNECT" "" "CONNECT" url="" host="example.com" uri="" HTTP/1.1 1.1 cl=3 close=false remote="192.0.2.1:1234" tls=false sn="" hdr={}
+"OPTIONS" "" panic "invalid NewRequest arguments; parse \"\": empty url"
+"OPTIONS" "" panic "invalid NewRequest arguments; parse \"\": empty url"
+"OPTIONS" "" panic "invalid NewRequest arguments; parse \"\": empty url"
+"BAD METHOD" "" panic "invalid NewRequest arguments; malformed HTTP version \" HTTP/1.0\""
+"BAD METHOD" "" panic "invalid NewRequest arguments; malformed HTTP version \" HTTP/1.0\""
+"BAD METHOD" "" panic "invalid NewRequest arguments; malformed HTTP version \" HTTP/1.0\""
+"PUT" "" panic "invalid NewRequest arguments; parse \"\": empty url"
+"PUT" "" panic "invalid NewRequest arguments; parse \"\": empty url"
+"PUT" "" panic "invalid NewRequest arguments; parse \"\": empty url"
+"GET" "foo bar" panic "invalid NewRequest arguments; malformed HTTP version \"bar HTTP/1.0\""
+"GET" "foo bar" panic "invalid NewRequest arguments; malformed HTTP version \"bar HTTP/1.0\""
+"GET" "foo bar" panic "invalid NewRequest arguments; malformed HTTP version \"bar HTTP/1.0\""
+"" "foo bar" panic "invalid NewRequest arguments; malformed HTTP version \"bar HTTP/1.0\""
+"" "foo bar" panic "invalid NewRequest arguments; malformed HTTP version \"bar HTTP/1.0\""
+"" "foo bar" panic "invalid NewRequest arguments; malformed HTTP version \"bar HTTP/1.0\""
+"POST" "foo bar" panic "invalid NewRequest arguments; malformed HTTP version \"bar HTTP/1.0\""
+"POST" "foo bar" panic "invalid NewRequest arguments; malformed HTTP version \"bar HTTP/1.0\""
+"POST" "foo bar" panic "invalid NewRequest arguments; malformed HTTP version \"bar HTTP/1.0\""
+"CONNECT" "foo bar" panic "invalid NewRequest arguments; malformed HTTP version \"bar HTTP/1.0\""
+"CONNECT" "foo bar" panic "invalid NewRequest arguments; malformed HTTP version \"bar HTTP/1.0\""
+"CONNECT" "foo bar" panic "invalid NewRequest arguments; malformed HTTP version \"bar HTTP/1.0\""
+"OPTIONS" "foo bar" panic "invalid NewRequest arguments; malformed HTTP version \"bar HTTP/1.0\""
+"OPTIONS" "foo bar" panic "invalid NewRequest arguments; malformed HTTP version \"bar HTTP/1.0\""
+"OPTIONS" "foo bar" panic "invalid NewRequest arguments; malformed HTTP version \"bar HTTP/1.0\""
+"BAD METHOD" "foo bar" panic "invalid NewRequest arguments; malformed HTTP version \"foo bar HTTP/1.0\""
+"BAD METHOD" "foo bar" panic "invalid NewRequest arguments; malformed HTTP version \"foo bar HTTP/1.0\""
+"BAD METHOD" "foo bar" panic "invalid NewRequest arguments; malformed HTTP version \"foo bar HTTP/1.0\""
+"PUT" "foo bar" panic "invalid NewRequest arguments; malformed HTTP version \"bar HTTP/1.0\""
+"PUT" "foo bar" panic "invalid NewRequest arguments; malformed HTTP version \"bar HTTP/1.0\""
+"PUT" "foo bar" panic "invalid NewRequest arguments; malformed HTTP version \"bar HTTP/1.0\""
+"GET" "/\x7f" panic "invalid NewRequest arguments; parse \"/\\x7f\": net/url: invalid control character in URL"
+"GET" "/\x7f" panic "invalid NewRequest arguments; parse \"/\\x7f\": net/url: invalid control character in URL"
+"GET" "/\x7f" panic "invalid NewRequest arguments; parse \"/\\x7f\": net/url: invalid control character in URL"
+"" "/\x7f" panic "invalid NewRequest arguments; parse \"/\\x7f\": net/url: invalid control character in URL"
+"" "/\x7f" panic "invalid NewRequest arguments; parse \"/\\x7f\": net/url: invalid control character in URL"
+"" "/\x7f" panic "invalid NewRequest arguments; parse \"/\\x7f\": net/url: invalid control character in URL"
+"POST" "/\x7f" panic "invalid NewRequest arguments; parse \"/\\x7f\": net/url: invalid control character in URL"
+"POST" "/\x7f" panic "invalid NewRequest arguments; parse \"/\\x7f\": net/url: invalid control character in URL"
+"POST" "/\x7f" panic "invalid NewRequest arguments; parse \"/\\x7f\": net/url: invalid control character in URL"
+"CONNECT" "/\x7f" panic "invalid NewRequest arguments; parse \"/\\x7f\": net/url: invalid control character in URL"
+"CONNECT" "/\x7f" panic "invalid NewRequest arguments; parse \"/\\x7f\": net/url: invalid control character in URL"
+"CONNECT" "/\x7f" panic "invalid NewRequest arguments; parse \"/\\x7f\": net/url: invalid control character in URL"
+"OPTIONS" "/\x7f" panic "invalid NewRequest arguments; parse \"/\\x7f\": net/url: invalid control character in URL"
+"OPTIONS" "/\x7f" panic "invalid NewRequest arguments; parse \"/\\x7f\": net/url: invalid control character in URL"
+"OPTIONS" "/\x7f" panic "invalid NewRequest arguments; parse \"/\\x7f\": net/url: invalid control character in URL"
+"BAD METHOD" "/\x7f" panic "invalid NewRequest arguments; malformed HTTP version \"/\\x7f HTTP/1.0\""
+"BAD METHOD" "/\x7f" panic "invalid NewRequest arguments; malformed HTTP version \"/\\x7f HTTP/1.0\""
+"BAD METHOD" "/\x7f" panic "invalid NewRequest arguments; malformed HTTP version \"/\\x7f HTTP/1.0\""
+"PUT" "/\x7f" panic "invalid NewRequest arguments; parse \"/\\x7f\": net/url: invalid control character in URL"
+"PUT" "/\x7f" panic "invalid NewRequest arguments; parse \"/\\x7f\": net/url: invalid control character in URL"
+"PUT" "/\x7f" panic "invalid NewRequest arguments; parse \"/\\x7f\": net/url: invalid control character in URL"
+"GET" "http://[::1]:80/" "GET" url="http://[::1]:80/" host="[::1]:80" uri="http://[::1]:80/" HTTP/1.1 1.1 cl=0 close=false remote="192.0.2.1:1234" tls=false sn="" hdr={}
+"GET" "http://[::1]:80/" "GET" url="http://[::1]:80/" host="[::1]:80" uri="http://[::1]:80/" HTTP/1.1 1.1 cl=0 close=false remote="192.0.2.1:1234" tls=false sn="" hdr={}
+"GET" "http://[::1]:80/" "GET" url="http://[::1]:80/" host="[::1]:80" uri="http://[::1]:80/" HTTP/1.1 1.1 cl=3 close=false remote="192.0.2.1:1234" tls=false sn="" hdr={}
+"" "http://[::1]:80/" "GET" url="http://[::1]:80/" host="[::1]:80" uri="http://[::1]:80/" HTTP/1.1 1.1 cl=0 close=false remote="192.0.2.1:1234" tls=false sn="" hdr={}
+"" "http://[::1]:80/" "GET" url="http://[::1]:80/" host="[::1]:80" uri="http://[::1]:80/" HTTP/1.1 1.1 cl=0 close=false remote="192.0.2.1:1234" tls=false sn="" hdr={}
+"" "http://[::1]:80/" "GET" url="http://[::1]:80/" host="[::1]:80" uri="http://[::1]:80/" HTTP/1.1 1.1 cl=3 close=false remote="192.0.2.1:1234" tls=false sn="" hdr={}
+"POST" "http://[::1]:80/" "POST" url="http://[::1]:80/" host="[::1]:80" uri="http://[::1]:80/" HTTP/1.1 1.1 cl=0 close=false remote="192.0.2.1:1234" tls=false sn="" hdr={}
+"POST" "http://[::1]:80/" "POST" url="http://[::1]:80/" host="[::1]:80" uri="http://[::1]:80/" HTTP/1.1 1.1 cl=0 close=false remote="192.0.2.1:1234" tls=false sn="" hdr={}
+"POST" "http://[::1]:80/" "POST" url="http://[::1]:80/" host="[::1]:80" uri="http://[::1]:80/" HTTP/1.1 1.1 cl=3 close=false remote="192.0.2.1:1234" tls=false sn="" hdr={}
+"CONNECT" "http://[::1]:80/" "CONNECT" url="//http://[::1]:80/" host="http:" uri="http://[::1]:80/" HTTP/1.1 1.1 cl=0 close=false remote="192.0.2.1:1234" tls=false sn="" hdr={}
+"CONNECT" "http://[::1]:80/" "CONNECT" url="//http://[::1]:80/" host="http:" uri="http://[::1]:80/" HTTP/1.1 1.1 cl=0 close=false remote="192.0.2.1:1234" tls=false sn="" hdr={}
+"CONNECT" "http://[::1]:80/" "CONNECT" url="//http://[::1]:80/" host="http:" uri="http://[::1]:80/" HTTP/1.1 1.1 cl=3 close=false remote="192.0.2.1:1234" tls=false sn="" hdr={}
+"OPTIONS" "http://[::1]:80/" "OPTIONS" url="http://[::1]:80/" host="[::1]:80" uri="http://[::1]:80/" HTTP/1.1 1.1 cl=0 close=false remote="192.0.2.1:1234" tls=false sn="" hdr={}
+"OPTIONS" "http://[::1]:80/" "OPTIONS" url="http://[::1]:80/" host="[::1]:80" uri="http://[::1]:80/" HTTP/1.1 1.1 cl=0 close=false remote="192.0.2.1:1234" tls=false sn="" hdr={}
+"OPTIONS" "http://[::1]:80/" "OPTIONS" url="http://[::1]:80/" host="[::1]:80" uri="http://[::1]:80/" HTTP/1.1 1.1 cl=3 close=false remote="192.0.2.1:1234" tls=false sn="" hdr={}
+"BAD METHOD" "http://[::1]:80/" panic "invalid NewRequest arguments; malformed HTTP version \"http://[::1]:80/ HTTP/1.0\""
+"BAD METHOD" "http://[::1]:80/" panic "invalid NewRequest arguments; malformed HTTP version \"http://[::1]:80/ HTTP/1.0\""
+"BAD METHOD" "http://[::1]:80/" panic "invalid NewRequest arguments; malformed HTTP version \"http://[::1]:80/ HTTP/1.0\""
+"PUT" "http://[::1]:80/" "PUT" url="http://[::1]:80/" host="[::1]:80" uri="http://[::1]:80/" HTTP/1.1 1.1 cl=0 close=false remote="192.0.2.1:1234" tls=false sn="" hdr={}
+"PUT" "http://[::1]:80/" "PUT" url="http://[::1]:80/" host="[::1]:80" uri="http://[::1]:80/" HTTP/1.1 1.1 cl=0 close=false remote="192.0.2.1:1234" tls=false sn="" hdr={}
+"PUT" "http://[::1]:80/" "PUT" url="http://[::1]:80/" host="[::1]:80" uri="http://[::1]:80/" HTTP/1.1 1.1 cl=3 close=false remote="192.0.2.1:1234" tls=false sn="" hdr={}
+"GET" "https://user:pw@h/" "GET" url="https://user:pw@h/" host="h" uri="https://user:pw@h/" HTTP/1.1 1.1 cl=0 close=false remote="192.0.2.1:1234" tls=true sn="h" hdr={}
+"GET" "https://user:pw@h/" "GET" url="https://user:pw@h/" host="h" uri="https://user:pw@h/" HTTP/1.1 1.1 cl=0 close=false remote="192.0.2.1:1234" tls=true sn="h" hdr={}
+"GET" "https://user:pw@h/" "GET" url="https://user:pw@h/" host="h" uri="https://user:pw@h/" HTTP/1.1 1.1 cl=3 close=false remote="192.0.2.1:1234" tls=true sn="h" hdr={}
+"" "https://user:pw@h/" "GET" url="https://user:pw@h/" host="h" uri="https://user:pw@h/" HTTP/1.1 1.1 cl=0 close=false remote="192.0.2.1:1234" tls=true sn="h" hdr={}
+"" "https://user:pw@h/" "GET" url="https://user:pw@h/" host="h" uri="https://user:pw@h/" HTTP/1.1 1.1 cl=0 close=false remote="192.0.2.1:1234" tls=true sn="h" hdr={}
+"" "https://user:pw@h/" "GET" url="https://user:pw@h/" host="h" uri="https://user:pw@h/" HTTP/1.1 1.1 cl=3 close=false remote="192.0.2.1:1234" tls=true sn="h" hdr={}
+"POST" "https://user:pw@h/" "POST" url="https://user:pw@h/" host="h" uri="https://user:pw@h/" HTTP/1.1 1.1 cl=0 close=false remote="192.0.2.1:1234" tls=true sn="h" hdr={}
+"POST" "https://user:pw@h/" "POST" url="https://user:pw@h/" host="h" uri="https://user:pw@h/" HTTP/1.1 1.1 cl=0 close=false remote="192.0.2.1:1234" tls=true sn="h" hdr={}
+"POST" "https://user:pw@h/" "POST" url="https://user:pw@h/" host="h" uri="https://user:pw@h/" HTTP/1.1 1.1 cl=3 close=false remote="192.0.2.1:1234" tls=true sn="h" hdr={}
+"CONNECT" "https://user:pw@h/" "CONNECT" url="//https://user:pw@h/" host="https:" uri="https://user:pw@h/" HTTP/1.1 1.1 cl=0 close=false remote="192.0.2.1:1234" tls=true sn="https:" hdr={}
+"CONNECT" "https://user:pw@h/" "CONNECT" url="//https://user:pw@h/" host="https:" uri="https://user:pw@h/" HTTP/1.1 1.1 cl=0 close=false remote="192.0.2.1:1234" tls=true sn="https:" hdr={}
+"CONNECT" "https://user:pw@h/" "CONNECT" url="//https://user:pw@h/" host="https:" uri="https://user:pw@h/" HTTP/1.1 1.1 cl=3 close=false remote="192.0.2.1:1234" tls=true sn="https:" hdr={}
+"OPTIONS" "https://user:pw@h/" "OPTIONS" url="https://user:pw@h/" host="h" uri="https://user:pw@h/" HTTP/1.1 1.1 cl=0 close=false remote="192.0.2.1:1234" tls=true sn="h" hdr={}
+"OPTIONS" "https://user:pw@h/" "OPTIONS" url="https://user:pw@h/" host="h" uri="https://user:pw@h/" HTTP/1.1 1.1 cl=0 close=false remote="192.0.2.1:1234" tls=true sn="h" hdr={}
+"OPTIONS" "https://user:pw@h/" "OPTIONS" url="https://user:pw@h/" host="h" uri="https://user:pw@h/" HTTP/1.1 1.1 cl=3 close=false remote="192.0.2.1:1234" tls=true sn="h" hdr={}
+"BAD METHOD" "https://user:pw@h/" panic "invalid NewRequest arguments; malformed HTTP version \"https://user:pw@h/ HTTP/1.0\""
+"BAD METHOD" "https://user:pw@h/" panic "invalid NewRequest arguments; malformed HTTP version \"https://user:pw@h/ HTTP/1.0\""
+"BAD METHOD" "https://user:pw@h/" panic "invalid NewRequest arguments; malformed HTTP version \"https://user:pw@h/ HTTP/1.0\""
+"PUT" "https://user:pw@h/" "PUT" url="https://user:pw@h/" host="h" uri="https://user:pw@h/" HTTP/1.1 1.1 cl=0 close=false remote="192.0.2.1:1234" tls=true sn="h" hdr={}
+"PUT" "https://user:pw@h/" "PUT" url="https://user:pw@h/" host="h" uri="https://user:pw@h/" HTTP/1.1 1.1 cl=0 close=false remote="192.0.2.1:1234" tls=true sn="h" hdr={}
+"PUT" "https://user:pw@h/" "PUT" url="https://user:pw@h/" host="h" uri="https://user:pw@h/" HTTP/1.1 1.1 cl=3 close=false remote="192.0.2.1:1234" tls=true sn="h" hdr={}
+"GET" "/?q=%E4%BD%A0" "GET" url="/?q=%E4%BD%A0" host="example.com" uri="/?q=%E4%BD%A0" HTTP/1.1 1.1 cl=0 close=false remote="192.0.2.1:1234" tls=false sn="" hdr={}
+"GET" "/?q=%E4%BD%A0" "GET" url="/?q=%E4%BD%A0" host="example.com" uri="/?q=%E4%BD%A0" HTTP/1.1 1.1 cl=0 close=false remote="192.0.2.1:1234" tls=false sn="" hdr={}
+"GET" "/?q=%E4%BD%A0" "GET" url="/?q=%E4%BD%A0" host="example.com" uri="/?q=%E4%BD%A0" HTTP/1.1 1.1 cl=3 close=false remote="192.0.2.1:1234" tls=false sn="" hdr={}
+"" "/?q=%E4%BD%A0" "GET" url="/?q=%E4%BD%A0" host="example.com" uri="/?q=%E4%BD%A0" HTTP/1.1 1.1 cl=0 close=false remote="192.0.2.1:1234" tls=false sn="" hdr={}
+"" "/?q=%E4%BD%A0" "GET" url="/?q=%E4%BD%A0" host="example.com" uri="/?q=%E4%BD%A0" HTTP/1.1 1.1 cl=0 close=false remote="192.0.2.1:1234" tls=false sn="" hdr={}
+"" "/?q=%E4%BD%A0" "GET" url="/?q=%E4%BD%A0" host="example.com" uri="/?q=%E4%BD%A0" HTTP/1.1 1.1 cl=3 close=false remote="192.0.2.1:1234" tls=false sn="" hdr={}
+"POST" "/?q=%E4%BD%A0" "POST" url="/?q=%E4%BD%A0" host="example.com" uri="/?q=%E4%BD%A0" HTTP/1.1 1.1 cl=0 close=false remote="192.0.2.1:1234" tls=false sn="" hdr={}
+"POST" "/?q=%E4%BD%A0" "POST" url="/?q=%E4%BD%A0" host="example.com" uri="/?q=%E4%BD%A0" HTTP/1.1 1.1 cl=0 close=false remote="192.0.2.1:1234" tls=false sn="" hdr={}
+"POST" "/?q=%E4%BD%A0" "POST" url="/?q=%E4%BD%A0" host="example.com" uri="/?q=%E4%BD%A0" HTTP/1.1 1.1 cl=3 close=false remote="192.0.2.1:1234" tls=false sn="" hdr={}
+"CONNECT" "/?q=%E4%BD%A0" "CONNECT" url="/?q=%E4%BD%A0" host="example.com" uri="/?q=%E4%BD%A0" HTTP/1.1 1.1 cl=0 close=false remote="192.0.2.1:1234" tls=false sn="" hdr={}
+"CONNECT" "/?q=%E4%BD%A0" "CONNECT" url="/?q=%E4%BD%A0" host="example.com" uri="/?q=%E4%BD%A0" HTTP/1.1 1.1 cl=0 close=false remote="192.0.2.1:1234" tls=false sn="" hdr={}
+"CONNECT" "/?q=%E4%BD%A0" "CONNECT" url="/?q=%E4%BD%A0" host="example.com" uri="/?q=%E4%BD%A0" HTTP/1.1 1.1 cl=3 close=false remote="192.0.2.1:1234" tls=false sn="" hdr={}
+"OPTIONS" "/?q=%E4%BD%A0" "OPTIONS" url="/?q=%E4%BD%A0" host="example.com" uri="/?q=%E4%BD%A0" HTTP/1.1 1.1 cl=0 close=false remote="192.0.2.1:1234" tls=false sn="" hdr={}
+"OPTIONS" "/?q=%E4%BD%A0" "OPTIONS" url="/?q=%E4%BD%A0" host="example.com" uri="/?q=%E4%BD%A0" HTTP/1.1 1.1 cl=0 close=false remote="192.0.2.1:1234" tls=false sn="" hdr={}
+"OPTIONS" "/?q=%E4%BD%A0" "OPTIONS" url="/?q=%E4%BD%A0" host="example.com" uri="/?q=%E4%BD%A0" HTTP/1.1 1.1 cl=3 close=false remote="192.0.2.1:1234" tls=false sn="" hdr={}
+"BAD METHOD" "/?q=%E4%BD%A0" panic "invalid NewRequest arguments; malformed HTTP version \"/?q=%E4%BD%A0 HTTP/1.0\""
+"BAD METHOD" "/?q=%E4%BD%A0" panic "invalid NewRequest arguments; malformed HTTP version \"/?q=%E4%BD%A0 HTTP/1.0\""
+"BAD METHOD" "/?q=%E4%BD%A0" panic "invalid NewRequest arguments; malformed HTTP version \"/?q=%E4%BD%A0 HTTP/1.0\""
+"PUT" "/?q=%E4%BD%A0" "PUT" url="/?q=%E4%BD%A0" host="example.com" uri="/?q=%E4%BD%A0" HTTP/1.1 1.1 cl=0 close=false remote="192.0.2.1:1234" tls=false sn="" hdr={}
+"PUT" "/?q=%E4%BD%A0" "PUT" url="/?q=%E4%BD%A0" host="example.com" uri="/?q=%E4%BD%A0" HTTP/1.1 1.1 cl=0 close=false remote="192.0.2.1:1234" tls=false sn="" hdr={}
+"PUT" "/?q=%E4%BD%A0" "PUT" url="/?q=%E4%BD%A0" host="example.com" uri="/?q=%E4%BD%A0" HTTP/1.1 1.1 cl=3 close=false remote="192.0.2.1:1234" tls=false sn="" hdr={}
+"GET" "https:/x" "GET" url="https:/x" host="example.com" uri="https:/x" HTTP/1.1 1.1 cl=0 close=false remote="192.0.2.1:1234" tls=false sn="" hdr={}
+"GET" "https:/x" "GET" url="https:/x" host="example.com" uri="https:/x" HTTP/1.1 1.1 cl=0 close=false remote="192.0.2.1:1234" tls=false sn="" hdr={}
+"GET" "https:/x" "GET" url="https:/x" host="example.com" uri="https:/x" HTTP/1.1 1.1 cl=3 close=false remote="192.0.2.1:1234" tls=false sn="" hdr={}
+"" "https:/x" "GET" url="https:/x" host="example.com" uri="https:/x" HTTP/1.1 1.1 cl=0 close=false remote="192.0.2.1:1234" tls=false sn="" hdr={}
+"" "https:/x" "GET" url="https:/x" host="example.com" uri="https:/x" HTTP/1.1 1.1 cl=0 close=false remote="192.0.2.1:1234" tls=false sn="" hdr={}
+"" "https:/x" "GET" url="https:/x" host="example.com" uri="https:/x" HTTP/1.1 1.1 cl=3 close=false remote="192.0.2.1:1234" tls=false sn="" hdr={}
+"POST" "https:/x" "POST" url="https:/x" host="example.com" uri="https:/x" HTTP/1.1 1.1 cl=0 close=false remote="192.0.2.1:1234" tls=false sn="" hdr={}
+"POST" "https:/x" "POST" url="https:/x" host="example.com" uri="https:/x" HTTP/1.1 1.1 cl=0 close=false remote="192.0.2.1:1234" tls=false sn="" hdr={}
+"POST" "https:/x" "POST" url="https:/x" host="example.com" uri="https:/x" HTTP/1.1 1.1 cl=3 close=false remote="192.0.2.1:1234" tls=false sn="" hdr={}
+"CONNECT" "https:/x" "CONNECT" url="//https:/x" host="https:" uri="https:/x" HTTP/1.1 1.1 cl=0 close=false remote="192.0.2.1:1234" tls=false sn="" hdr={}
+"CONNECT" "https:/x" "CONNECT" url="//https:/x" host="https:" uri="https:/x" HTTP/1.1 1.1 cl=0 close=false remote="192.0.2.1:1234" tls=false sn="" hdr={}
+"CONNECT" "https:/x" "CONNECT" url="//https:/x" host="https:" uri="https:/x" HTTP/1.1 1.1 cl=3 close=false remote="192.0.2.1:1234" tls=false sn="" hdr={}
+"OPTIONS" "https:/x" "OPTIONS" url="https:/x" host="example.com" uri="https:/x" HTTP/1.1 1.1 cl=0 close=false remote="192.0.2.1:1234" tls=false sn="" hdr={}
+"OPTIONS" "https:/x" "OPTIONS" url="https:/x" host="example.com" uri="https:/x" HTTP/1.1 1.1 cl=0 close=false remote="192.0.2.1:1234" tls=false sn="" hdr={}
+"OPTIONS" "https:/x" "OPTIONS" url="https:/x" host="example.com" uri="https:/x" HTTP/1.1 1.1 cl=3 close=false remote="192.0.2.1:1234" tls=false sn="" hdr={}
+"BAD METHOD" "https:/x" panic "invalid NewRequest arguments; malformed HTTP version \"https:/x HTTP/1.0\""
+"BAD METHOD" "https:/x" panic "invalid NewRequest arguments; malformed HTTP version \"https:/x HTTP/1.0\""
+"BAD METHOD" "https:/x" panic "invalid NewRequest arguments; malformed HTTP version \"https:/x HTTP/1.0\""
+"PUT" "https:/x" "PUT" url="https:/x" host="example.com" uri="https:/x" HTTP/1.1 1.1 cl=0 close=false remote="192.0.2.1:1234" tls=false sn="" hdr={}
+"PUT" "https:/x" "PUT" url="https:/x" host="example.com" uri="https:/x" HTTP/1.1 1.1 cl=0 close=false remote="192.0.2.1:1234" tls=false sn="" hdr={}
+"PUT" "https:/x" "PUT" url="https:/x" host="example.com" uri="https:/x" HTTP/1.1 1.1 cl=3 close=false remote="192.0.2.1:1234" tls=false sn="" hdr={}
+== 0
+  code=200 flushed=false status="200 OK" HTTP/1.1 1.1 cl=-1
+  header={}
+  trailer=nil
+  body=""
+== 1
+  S n=2 err=""
+  code=200 flushed=false status="200 OK" HTTP/1.1 1.1 cl=-1
+  header={"Content-Type":["text/plain; charset=utf-8"]}
+  trailer=nil
+  body="hi"
+== 2
+  W n=27 err=""
+  code=200 flushed=false status="200 OK" HTTP/1.1 1.1 cl=-1
+  header={"Content-Type":["text/html; charset=utf-8"]}
+  trailer=nil
+  body="<html><body>x</body></html>"
+== 3
+  W n=12 err=""
+  code=200 flushed=false status="200 OK" HTTP/1.1 1.1 cl=-1
+  header={"Content-Type":["image/png"]}
+  trailer=nil
+  body="\x89PNG\r\n\x1a\nrest"
+== 4
+  W n=9 err=""
+  code=200 flushed=false status="200 OK" HTTP/1.1 1.1 cl=-1
+  header={"Content-Type":["application/octet-stream"]}
+  trailer=nil
+  body="\x00\x01\x02binary"
+== 5
+  S n=7 err=""
+  code=200 flushed=false status="200 OK" HTTP/1.1 1.1 cl=-1
+  header={"Content-Type":["text/plain; charset=utf-8"]}
+  trailer=nil
+  body="{\"a\":1}"
+== 6
+  S n=6 err=""
+  code=200 flushed=false status="200 OK" HTTP/1.1 1.1 cl=-1
+  header={"Content-Type":["text/plain"]}
+  trailer=nil
+  body="<html>"
+== 7
+  S n=6 err=""
+  code=200 flushed=false status="200 OK" HTTP/1.1 1.1 cl=-1
+  header={"Transfer-Encoding":["chunked"]}
+  trailer=nil
+  body="<html>"
+== 8
+  S n=7 err=""
+  code=201 flushed=false status="201 Created" HTTP/1.1 1.1 cl=-1
+  header={}
+  trailer=nil
+  body="created"
+== 9
+  S n=0 err="http: request method or response status code does not allow body"
+  code=204 flushed=false status="204 No Content" HTTP/1.1 1.1 cl=-1
+  header={}
+  trailer=nil
+  body="nope"
+== 10
+  W n=0 err="http: request method or response status code does not allow body"
+  code=304 flushed=false status="304 Not Modified" HTTP/1.1 1.1 cl=-1
+  header={}
+  trailer=nil
+  body="x"
+== 11
+  S n=0 err="http: request method or response status code does not allow body"
+  code=100 flushed=false status="100 Continue" HTTP/1.1 1.1 cl=-1
+  header={}
+  trailer=nil
+  body="x"
+== 12
+  C panic "invalid WriteHeader code 99"
+  code=200 flushed=false status="200 OK" HTTP/1.1 1.1 cl=-1
+  header={}
+  trailer=nil
+  body=""
+== 13
+  C panic "invalid WriteHeader code 1000"
+  code=200 flushed=false status="200 OK" HTTP/1.1 1.1 cl=-1
+  header={}
+  trailer=nil
+  body=""
+== 14
+  code=999 flushed=false status="999 " HTTP/1.1 1.1 cl=-1
+  header={}
+  trailer=nil
+  body=""
+== 15
+  code=404 flushed=false status="404 Not Found" HTTP/1.1 1.1 cl=-1
+  header={}
+  trailer=nil
+  body=""
+== 16
+  S n=1 err=""
+  S n=1 err=""
+  code=200 flushed=false status="200 OK" HTTP/1.1 1.1 cl=-1
+  header={"Content-Type":["text/plain; charset=utf-8"]}
+  trailer=nil
+  body="ab"
+== 17
+  code=200 flushed=true status="200 OK" HTTP/1.1 1.1 cl=-1
+  header={}
+  trailer=nil
+  body=""
+== 18
+  code=200 flushed=false status="200 OK" HTTP/1.1 1.1 cl=-1
+  header={"X-Foo":["1"]}
+  trailer=nil
+  body=""
+== 19
+  S n=5 err=""
+  code=200 flushed=false status="200 OK" HTTP/1.1 1.1 cl=5
+  header={"Content-Length":["5"] "Content-Type":["text/plain; charset=utf-8"]}
+  trailer=nil
+  body="hello"
+== 20
+  code=200 flushed=false status="200 OK" HTTP/1.1 1.1 cl=12
+  header={"Content-Length":[" 12 "]}
+  trailer=nil
+  body=""
+== 21
+  code=200 flushed=false status="200 OK" HTTP/1.1 1.1 cl=-1
+  header={"Content-Length":["-1"]}
+  trailer=nil
+  body=""
+== 22
+  code=200 flushed=false status="200 OK" HTTP/1.1 1.1 cl=-1
+  header={"Content-Length":["abc"]}
+  trailer=nil
+  body=""
+== 23
+  code=200 flushed=false status="200 OK" HTTP/1.1 1.1 cl=-1
+  header={"Content-Length":["9223372036854775808"]}
+  trailer=nil
+  body=""
+== 24
+  code=200 flushed=false status="200 OK" HTTP/1.1 1.1 cl=9223372036854775807
+  header={"Content-Length":["9223372036854775807"]}
+  trailer=nil
+  body=""
+== 25
+  S n=4 err=""
+  code=200 flushed=false status="200 OK" HTTP/1.1 1.1 cl=-1
+  header={"Content-Type":["text/plain"] "Trailer":["Foo, Bar" "content-length"]}
+  trailer={"Bar":["2"] "Foo":["1"]}
+  body="body"
+== 26
+  S n=1 err=""
+  code=200 flushed=false status="200 OK" HTTP/1.1 1.1 cl=-1
+  header={"Content-Type":["text/plain; charset=utf-8"] "Trailer":["X-A,If-Match, x-b"]}
+  trailer={"X-A":["1" "2"]}
+  body="x"
+== 27
+  S n=1 err=""
+  code=200 flushed=false status="200 OK" HTTP/1.1 1.1 cl=-1
+  header={"Content-Type":["text/plain; charset=utf-8"] "Trailer:X-Late":["v1" "v2"]}
+  trailer={"X-Late":["v1" "v2"]}
+  body="x"
+== 28
+  S n=1 err=""
+  code=200 flushed=false status="200 OK" HTTP/1.1 1.1 cl=-1
+  header={"Content-Type":["text/plain; charset=utf-8"]}
+  trailer={"Y":["v"]}
+  body="x"
+== 29
+  S n=1 err=""
+  code=200 flushed=false status="200 OK" HTTP/1.1 1.1 cl=-1
+  header={"Content-Type":["text/plain; charset=utf-8"] "Trailer":["Missing"]}
+  trailer={}
+  body="x"
+== 30
+  S n=1 err=""
+  code=200 flushed=false status="200 OK" HTTP/1.1 1.1 cl=-1
+  header={"Content-Type":["text/plain; charset=utf-8"]}
+  trailer=nil
+  body="x"
+== 31
+  S n=600 err=""
+  code=200 flushed=false status="200 OK" HTTP/1.1 1.1 cl=-1
+  header={"Content-Type":["text/plain; charset=utf-8"]}
+  trailer=nil
+  body="aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+== 32
+  S n=606 err=""
+  code=200 flushed=false status="200 OK" HTTP/1.1 1.1 cl=-1
+  header={"Content-Type":["text/plain; charset=utf-8"]}
+  trailer=nil
+  body="                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        <html>"
+== 33
+  W n=606 err=""
+  code=200 flushed=false status="200 OK" HTTP/1.1 1.1 cl=-1
+  header={"Content-Type":["text/plain; charset=utf-8"]}
+  trailer=nil
+  body="                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        <html>"
+== 34
+  S n=0 err=""
+  code=200 flushed=false status="200 OK" HTTP/1.1 1.1 cl=-1
+  header={"Content-Type":["text/plain; charset=utf-8"]}
+  trailer=nil
+  body=""
+== 35
+  W n=0 err=""
+  code=200 flushed=false status="200 OK" HTTP/1.1 1.1 cl=-1
+  header={"Content-Type":["text/plain; charset=utf-8"]}
+  trailer=nil
+  body=""
+== 36
+  S n=6 err=""
+  code=200 flushed=false status="200 OK" HTTP/1.1 1.1 cl=-1
+  header={}
+  trailer=nil
+  body="<html>"
+== 37
+  S n=8 err=""
+  S n=4 err=""
+  code=200 flushed=true status="200 OK" HTTP/1.1 1.1 cl=-1
+  header={"Content-Type":["application/pdf"]}
+  trailer=nil
+  body="%PDF-1.4more"

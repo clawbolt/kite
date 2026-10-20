@@ -75,7 +75,9 @@ image/color/palette、path/filepath、go/constant、net/http/cookiejar、crypto/
 - std.net（2026-10-20）：IP / IPMask / IPNet / HardwareAddr 的纯函数（parse_ip、parse_cidr、cidr_mask、ip_mask、ip_to4/to16、ip_is_*、ipnet_contains/string、mask_size、parse_mac 等，Go 对拍 tests/go/net_ip 2107 行，输入是 Go 测试里的全部字符串字面量）；
   UDP（listen_udp / dial_udp → PacketConn，read_from / write_to）、Unix 流套接字（listen_unix / dial_unix / close_unix）、unixgram、TCP 支持 IPv6、
   DNS（lookup_host / lookup_ip / lookup_addr / lookup_cname / lookup_port，走系统 getaddrinfo；MX/TXT/SRV/NS 未做）。行为测试 examples/net_sockets。
-- 计划：httptest、httputil、smtp、jsonrpc；之后 DNS 报文（dnsmessage）以支持 MX/TXT/SRV/NS。
+- std.net.http.httptest（2026-10-20）：new_request（NewRequest，非法参数返回 Err，文字同 Go 的 panic）、ResponseRecorder（不可变值：write / write_string / write_header / flush / result，含 Content-Type 嗅探、头快照、Trailer 和 "Trailer:" 前缀）、valid_trailer_header；
+  Go 对拍 tests/go/httptest 619 行。NewServer/Close 改成结构化的 with_server(handler, body)（行为测试 examples/httptest_server）；NewTLSServer、NewUnstartedServer 未做。
+- 计划：httputil、smtp、jsonrpc；之后 DNS 报文（dnsmessage）以支持 MX/TXT/SRV/NS。
 
 ## 可以做（纯数据 / 算法，计划后续批次）
 - crypto/hpke
