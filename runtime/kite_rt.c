@@ -188,6 +188,7 @@ static void gc_add_root(V *p, size_t n) { gc_roots[gc_nroots] = p; gc_root_n[gc_
 
 static size_t bhash(uintptr_t k) { return (size_t)((k >> 18) * 11400714819323198485ull); }
 static void btab_put(uintptr_t key, Block *b);
+static inline int bcovers(Block *b, uintptr_t key);
 static void btab_grow(void) {
     Block **old = btab;
     btab_cap = btab_cap ? btab_cap * 2 : 1024; btab = calloc(btab_cap, sizeof(Block *)); btab_n = 0;
@@ -196,11 +197,19 @@ static void btab_grow(void) {
         for (uintptr_t k = (uintptr_t)b->base; k < (uintptr_t)b->base + b->lsize; k += ARENA) btab_put(k, b);
     free(old);
 }
+/* 同一 (区块, 键) 只能登记一次：btab_grow 会从区块链表重新登记全部区块，而调用者在登记前已把新区块挂上链表，
+   不去重的话会留下重复项；btab_del 只删一项，剩下的那项指向已释放 / 进了备用池的区块，
+   保守扫描碰到落在那里的旧指针就会读到空的 alloc 表而段错误（与地址布局有关，所以是偶发的） */
 static void btab_put(uintptr_t key, Block *b) {
     if ((btab_n + 1) * 2 > btab_cap) btab_grow();
-    size_t i = bhash(key) & (btab_cap - 1);
-    while (btab[i] && btab[i] != (Block *)1) i = (i + 1) & (btab_cap - 1);
-    btab[i] = b; btab_n++;
+    size_t i = bhash(key) & (btab_cap - 1), slot = (size_t)-1;
+    while (btab[i]) {
+        if (btab[i] == (Block *)1) { if (slot == (size_t)-1) slot = i; }
+        else if (btab[i] == b && bcovers(b, key)) return;
+        i = (i + 1) & (btab_cap - 1);
+    }
+    if (slot == (size_t)-1) { slot = i; btab_n++; }
+    btab[slot] = b;
 }
 static inline int bcovers(Block *b, uintptr_t key) {
     return (uintptr_t)b->base <= key && key < (uintptr_t)b->base + (b->large ? b->lsize : ARENA);
