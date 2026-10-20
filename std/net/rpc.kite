@@ -1,0 +1,278 @@
+// std.net.rpc：对齐 Go 1.27 net/rpc 的 gob 编码部分（Server / Client，线上格式逐字节同 Go）
+//
+// 请求 = gob 编码的 Request{ServiceMethod, Seq} + 参数值；应答 = Response{ServiceMethod, Seq, Error} + 回复值
+//   （出错时回复是空结构体 struct{}{}）。每个连接一个 gob 编码器，类型描述只发一次。
+// Go 靠反射找方法；Kite 没有反射，方法是 Method { arg, reply, f }：arg / reply 是 gob.Type，
+//   f 拿到解码好的参数值，返回回复值或错误文字（Err("") 时按 Go 的规则照常发回复，回复取零值）。
+// 服务端：s = rpc.new_server()；s = rpc.register(s, "Arith", "Multiply", m)?；(s, out) = rpc.serve_bytes(s, input)
+//   按顺序处理请求（Go 的 ServeCodec 每个调用一个 goroutine）：方法名格式不对 / 找不到服务或方法时读掉参数、
+//   回送错误；参数解码失败回送那个错误；请求头读到结尾或解码失败就停止（同 Go）。
+// 客户端是不可变值：c = rpc.new_client()；(c, r) = rpc.go_call(c, "Arith.Multiply", 参数类型, 参数值, 回复类型)
+//   得到序号；rpc.feed(c, 应答字节) 交给它服务端的应答；(c, r) = rpc.wait(c, seq) 取结果；rpc.call 是两者合起来；
+//   rpc.close(c)；c.enc.bytes() 是发出的全部字节。错误文字同 Go：服务端错误原样、"reading body …"、
+//   "reading error body: …"、"unexpected EOF"、"connection is shut down"。
+// gob 的类型编号表（Registry）在 Go 里是进程全局的；这里服务端和客户端各带一个，可以用 *_with 共用一个。
+// 与 Go 的差异：没有真实连接（std.net 的连接只收发 UTF-8 文本），只有字节脚本；
+//   没有 HTTP 隧道（DialHTTP / HandleHTTP）和 debug 页面；Request / Response 的类型名在本包里注册为 Request / Response，
+//   用户别再定义同名的 TNamed。
+
+use std.encoding.gob
+use std.strings
+
+pub type Method = { arg: gob.Type, reply: gob.Type, f: fn(gob.Value) -> Result<gob.Value, Str> }
+
+pub fn request_type() -> gob.Type {
+  TNamed("Request", TStruct([
+    ("ServiceMethod", TString),
+    ("Seq", TUint(64)),
+    ("next", TPtr(TRef("Request"))),
+  ]))
+}
+
+pub fn response_type() -> gob.Type {
+  TNamed(
+    "Response",
+    TStruct([
+      ("ServiceMethod", TString),
+      ("Seq", TUint(64)),
+      ("Error", TString),
+      ("next", TPtr(TRef("Response"))),
+    ]),
+  )
+}
+
+fn invalid_request() -> (gob.Type, gob.Value) { (TStruct([]), VStruct([])) }
+
+// ───────────── 服务端 ─────────────
+
+pub type Server = { services: Map<Str, Map<Str, Method>>, reg: gob.Registry }
+
+pub fn new_server() -> Server { new_server_with(gob.new_registry("main")) }
+
+pub fn new_server_with(reg: gob.Registry) -> Server { Server { services: Map(), reg: reg } }
+
+pub fn register(s: Server, service: Str, name: Str, m: Method) -> Result<Server, Str> {
+  let ms = unwrap_or(get(s.services, service), Map())
+  if contains(ms, name) { return Err("rpc: method already defined: " + service + "." + name) }
+  Ok(Server { services: set(s.services, service, set(ms, name, m)), ..s })
+}
+
+fn vstr(v: gob.Value) -> Str {
+  match v {
+    VStr(x) => x,
+    _ => "",
+  }
+}
+
+fn vuint(v: gob.Value) -> Int {
+  match v {
+    VUint(x) => x,
+    _ => 0,
+  }
+}
+
+fn fields(v: gob.Value) -> List<gob.Value> {
+  match v {
+    VStruct(xs) => xs,
+    _ => [],
+  }
+}
+
+fn lookup(s: Server, sm: Str) -> Result<Method, Str> {
+  let dot = strings.last_index(sm, ".")
+  if dot < 0 { return Err("rpc: service/method request ill-formed: " + sm) }
+  let cs = chars(sm)
+  let svc = join(cs[..dot], "")
+  let m = join(cs[dot + 1..], "")
+  let Some(ms) = get(s.services, svc) else { return Err("rpc: can't find service " + sm) }
+  let Some(x) = get(ms, m) else { return Err("rpc: can't find method " + sm) }
+  Ok(x)
+}
+
+// sendResponse：(编码器, 是否出错)
+fn send(enc0: gob.Encoder, sm: Str, seq: Int, errmsg: Str, rt: gob.Type, rv: gob.Value) -> (
+  gob.Encoder,
+  Bool,
+) {
+  let (bt, bv) = if errmsg != "" { invalid_request() } else { (rt, rv) }
+  let (enc1, r1) = enc0.encode(response_type(), VStruct([VStr(sm), VUint(seq), VStr(errmsg), VNil]))
+  if let Err(_) = r1 { return (enc1, true) }
+  let (enc2, r2) = enc1.encode(bt, bv)
+  match r2 {
+    Ok(_) => (enc2, false),
+    Err(_) => (enc2, true),
+  }
+}
+
+// ServeCodec：处理 input 里的全部请求，返回写出的字节
+pub fn serve_bytes(s: Server, input: List<Int>) -> (Server, List<Int>) {
+  var dec = gob.new_decoder_with(input, s.reg)
+  var enc = gob.new_encoder_with(s.reg)
+  loop {
+    dec = gob.Decoder { reg: enc.registry(), ..dec }
+    let (d1, hr) = dec.decode_into(request_type())
+    dec = d1
+    let hv = match hr {
+      Ok(v) => v,
+      Err(_) => { break },
+    }
+    let sm = vstr(fields(hv)[0])
+    let seq = vuint(fields(hv)[1])
+    let m = match lookup(s, sm) {
+      Ok(x) => x,
+      Err(e) => {
+        let (d2, _) = dec.decode_ignore()
+        dec = d2
+        let (inv_t, inv_v) = invalid_request()
+        let (e2, bad) = send(enc, sm, seq, e, inv_t, inv_v)
+        enc = e2
+        if bad { break }
+        continue
+      },
+    }
+    let (d3, ar) = dec.decode_into(m.arg)
+    dec = d3
+    let arg = match ar {
+      Ok(v) => v,
+      Err(e) => {
+        let (inv_t, inv_v) = invalid_request()
+        let (e2, bad) = send(enc, sm, seq, e, inv_t, inv_v)
+        enc = e2
+        if bad { break }
+        continue
+      },
+    }
+    let f = m.f
+    let (errmsg, rv) = match f(arg) {
+      Ok(v) => ("", v),
+      Err(e) => (e, enc.registry().zero(m.reply)),
+    }
+    let (e2, bad) = send(enc, sm, seq, errmsg, m.reply, rv)
+    enc = e2
+    if bad { break }
+  }
+  (Server { reg: enc.registry(), ..s }, enc.bytes())
+}
+
+// ───────────── 客户端 ─────────────
+
+pub type Client = {
+  enc: gob.Encoder,
+  dec: gob.Decoder,
+  seq: Int,
+  // 未完成的调用：序号 → 回复类型（按发出顺序）
+  pending: List<(Int, gob.Type)>,
+  done: Map<Int, Result<gob.Value, Str>>,
+  // 非空 = 输入循环已结束（原因）
+  shut: Str,
+  closing: Bool,
+}
+
+pub fn new_client() -> Client { new_client_with(gob.new_registry("main")) }
+
+pub fn new_client_with(reg: gob.Registry) -> Client {
+  Client {
+    enc: gob.new_encoder_with(reg),
+    dec: gob.new_decoder_with([], reg),
+    seq: 0,
+    pending: [],
+    done: Map(),
+    shut: "",
+    closing: false,
+  }
+}
+
+pub fn registry(c: Client) -> gob.Registry { c.enc.registry() }
+
+// 追加服务端发来的应答字节
+pub fn feed(c: Client, bs: List<Int>) -> Client {
+  Client { dec: gob.Decoder { data: c.dec.data + bs, ..c.dec }, ..c }
+}
+
+// Client.Go：发出一个调用，得到序号；已关闭时 Err("connection is shut down")；编码失败时为那个错误
+pub fn go_call(c: Client, method: Str, at: gob.Type, av: gob.Value, rt: gob.Type) -> (
+  Client,
+  Result<Int, Str>,
+) {
+  if c.shut != "" || c.closing { return (c, Err("connection is shut down")) }
+  let seq = c.seq
+  let (e1, r1) = c.enc.encode(request_type(), VStruct([VStr(method), VUint(seq), VNil]))
+  let c1 = Client { enc: e1, seq: seq + 1, ..c }
+  if let Err(e) = r1 { return (c1, Err(e)) }
+  let (e2, r2) = c1.enc.encode(at, av)
+  let c2 = Client { enc: e2, ..c1 }
+  if let Err(e) = r2 { return (c2, Err(e)) }
+  (Client { pending: push(c2.pending, (seq, rt)), ..c2 }, Ok(seq))
+}
+
+fn shutdown(c: Client, err0: Str) -> Client {
+  let err = if err0 == "EOF" {
+    if c.closing { "connection is shut down" } else { "unexpected EOF" }
+  } else {
+    err0
+  }
+  var done = c.done
+  for p in c.pending { done = set(done, p.0, Err(err)) }
+  Client { done: done, pending: [], shut: err, ..c }
+}
+
+fn with_reg(c: Client) -> Client {
+  Client { dec: gob.Decoder { reg: c.enc.registry(), ..c.dec }, ..c }
+}
+
+// input 循环的一步：读一个应答
+fn pump(c0: Client) -> Client {
+  let c = with_reg(c0)
+  let (d1, hr) = c.dec.decode_into(response_type())
+  let hv = match hr {
+    Ok(v) => v,
+    Err(e) => { return shutdown(Client { dec: d1, ..c }, e) },
+  }
+  let seq = vuint(fields(hv)[1])
+  let errmsg = vstr(fields(hv)[2])
+  let found = filter(c.pending, (p) => p.0 == seq)
+  let c1 = Client { dec: d1, pending: filter(c.pending, (p) => p.0 != seq), ..c }
+  if len(found) == 0 || errmsg != "" {
+    let c2 = if len(found) > 0 { Client { done: set(c1.done, seq, Err(errmsg)), ..c1 } } else { c1 }
+    let (d2, br) = c2.dec.decode_ignore()
+    let c3 = Client { dec: d2, ..c2 }
+    return match br {
+      Ok(_) => c3,
+      Err(e) => shutdown(c3, "reading error body: " + e),
+    }
+  }
+  let (d2, br) = c1.dec.decode_into(found[0].1)
+  let c2 = Client { dec: d2, ..c1 }
+  match br {
+    Ok(v) => Client { done: set(c2.done, seq, Ok(v)), ..c2 },
+    Err(e) => shutdown(Client { done: set(c2.done, seq, Err("reading body " + e)), ..c2 }, e),
+  }
+}
+
+// call.Done 之后的结果
+pub fn wait(c0: Client, seq: Int) -> (Client, Result<gob.Value, Str>) {
+  var c = c0
+  loop {
+    if let Some(v) = get(c.done, seq) { return (Client { done: remove(c.done, seq), ..c }, v) }
+    if !any(c.pending, (p) => p.0 == seq) { return (c, Err("rpc: no such call {seq}")) }
+    c = pump(c)
+  }
+  (c, Err("unreachable"))
+}
+
+pub fn call(c: Client, method: Str, at: gob.Type, av: gob.Value, rt: gob.Type) -> (
+  Client,
+  Result<gob.Value, Str>,
+) {
+  let (c1, r) = go_call(c, method, at, av, rt)
+  match r {
+    Err(e) => (c1, Err(e)),
+    Ok(seq) => wait(c1, seq),
+  }
+}
+
+// Client.Close：已关闭过时 Err("connection is shut down")；未完成的调用都以这个错误结束
+pub fn close(c: Client) -> (Client, Result<(), Str>) {
+  if c.closing { return (c, Err("connection is shut down")) }
+  (shutdown(Client { closing: true, ..c }, "EOF"), Ok(()))
+}

@@ -116,11 +116,13 @@ image/color/palette、path/filepath、go/constant、net/http/cookiejar、crypto/
   没有反射：调用方给出 Type（TInt(位数)…TNamed / TRef / TExt）和 Value；类型编号表是显式传递的 Registry。另有 decode() 按线上类型解出 (Type, Value)。
   对拍 tests/go/gob 1528 行：各种基本 / 复合 / 接口值的编码字节和回读、跨类型解码的错误、截断与逐字节翻转的坏数据（有目标类型和 Decode(nil) 两种）。
   差异：map 按给出顺序编码；Debug 转储没移植；非法 UTF-8 字符串替换成 U+FFFD。
+- std.net.rpc（2026-10-21）：net/rpc 的 gob 编码 Server / Client（请求 / 应答字节、方法查找错误、参数解码错误、
+  ServerError、reading body / reading error body、截断应答、connection is shut down 同 Go）；方法是 Method{arg, reply, f}。
+  只有字节脚本（std.net 连接只收发 UTF-8 文本）；HTTP 隧道与 debug 页面不移植。对拍 tests/go/rpc。
 
 ## 可以做（纯数据 / 算法，计划后续批次）
 - debug/dwarf、debug/macho、debug/pe、debug/plan9obj
 - html/template（上下文转义）
-- net/rpc（gob 编码部分，encoding/gob 已有）
 - io/fs（ValidPath / Glob / WalkDir 的纯逻辑）、testing/fstest（MapFS）、testing/iotest
 - hash/maphash（种子随机，只能对拍确定性的部分）、expvar、time/tzdata（时区数据）
 - os/user（读 /etc/passwd、/etc/group）、os/exec（借 system）

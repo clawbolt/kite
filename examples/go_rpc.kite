@@ -1,0 +1,187 @@
+// 对拍 tests/go/rpc.go：net/rpc（gob 编码）服务端 / 客户端的字节和错误
+use std.net.rpc
+use std.encoding.gob
+use std.encoding.hex
+use std.strings
+
+fn ival(v: gob.Value) -> Int {
+  match v {
+    VInt(x) => x,
+    _ => 0,
+  }
+}
+
+fn sval(v: gob.Value) -> Str {
+  match v {
+    VStr(x) => x,
+    _ => "",
+  }
+}
+
+fn flds(v: gob.Value) -> List<gob.Value> {
+  match v {
+    VStruct(xs) => xs,
+    _ => [],
+  }
+}
+
+fn errs(r: Result<gob.Value, Str>) -> Str {
+  match r {
+    Ok(_) => "ok",
+    Err(e) => "err " + e,
+  }
+}
+
+fn args_v(a: Int, b: Int) -> gob.Value { VStruct([VInt(a), VInt(b)]) }
+
+fn main() {
+  let int_ = TInt(0)
+  let args = TNamed("Args", TStruct([("A", int_), ("B", int_)]))
+  let quo = TNamed("Quotient", TStruct([("Quo", int_), ("Rem", int_)]))
+  let m = (at: gob.Type, rt: gob.Type, f: fn(gob.Value) -> Result<gob.Value, Str>) => rpc.Method {
+    arg: at,
+    reply: rt,
+    f: f,
+  }
+  var srv = rpc.new_server()
+  srv = unwrap(rpc.register(srv, "Arith", "Multiply", m(args, int_, (v) => Ok(VInt(ival(flds(v)[
+    0
+  ]) * ival(flds(v)[1]))))))
+  srv = unwrap(rpc.register(
+    srv,
+    "Arith",
+    "Divide",
+    m(args, quo, (v) => {
+      let a = ival(flds(v)[0])
+      let b = ival(flds(v)[1])
+      if b == 0 { return Err("divide by zero") }
+      Ok(VStruct([VInt(a / b), VInt(a % b)]))
+    }),
+  ))
+  srv = unwrap(rpc.register(
+    srv,
+    "Arith",
+    "Sum",
+    m(TSlice(int_), int_, (v) => {
+      let xs = match v {
+        VList(x) => x,
+        _ => [],
+      }
+      Ok(VInt(fold(xs, 0, (acc, x) => acc + ival(x))))
+    }),
+  ))
+  srv = unwrap(rpc.register(srv, "Arith", "Fail", m(TString, TString, (_) => Err(""))))
+  srv = unwrap(
+    rpc.register(srv, "Str", "Echo", m(TString, TString, (v) => Ok(VStr(sval(v) + "!")))),
+  )
+  srv = unwrap(
+    rpc.register(
+      srv,
+      "Str",
+      "Split",
+      m(
+        TString,
+        TSlice(TString),
+        (v) => Ok(VList(map(strings.split(sval(v), ","), (x) => VStr(x)))),
+      ),
+    ),
+  )
+
+  // 1. 手工拼请求
+  var e = gob.new_encoder_with(srv.reg)
+  let reqs = [
+    ("Arith.Multiply", args, args_v(7, 8)),
+    ("Arith.Divide", args, args_v(17, 5)),
+    ("Arith.Divide", args, args_v(1, 0)),
+    ("Arith.Sum", TSlice(int_), VList([VInt(1), VInt(2), VInt(3)])),
+    ("Str.Echo", TString, VStr("hi")),
+    ("Str.Split", TString, VStr("a,b,,c")),
+    ("NoDot", int_, VInt(1)),
+    ("Nope.Multiply", args, args_v(0, 0)),
+    ("Arith.Nope", args, args_v(0, 0)),
+    ("Arith.Multiply", TString, VStr("wrong")),
+    ("Arith.Fail", TString, VStr("x")),
+    ("Arith.Multiply", args, args_v(-3, 4)),
+  ]
+  var seq = 0
+  for r in reqs {
+    e = e.encode(rpc.request_type(), VStruct([VStr(r.0), VUint(seq), VNil])).0
+    e = e.encode(r.1, r.2).0
+    seq += 1
+  }
+  srv = rpc.Server { reg: e.registry(), ..srv }
+  let data = e.bytes()
+  print("req " + hex.encode_bytes(data))
+  let (s1, out) = rpc.serve_bytes(srv, data)
+  srv = s1
+  print("resp " + hex.encode_bytes(out))
+  var n = 1
+  while n < len(data) {
+    let (s2, o) = rpc.serve_bytes(srv, data[..n])
+    srv = s2
+    print("trunc {n} " + hex.encode_bytes(o))
+    n += 37
+  }
+  let (s3, g) = rpc.serve_bytes(srv, [3, 4, 0, 5])
+  srv = s3
+  print("garbage " + hex.encode_bytes(g))
+
+  // 2. 客户端
+  var cl = rpc.new_client_with(srv.reg)
+  let calls = [
+    ("Arith.Multiply", args, args_v(6, 7), int_),
+    ("Arith.Divide", args, args_v(9, 2), quo),
+    ("Arith.Divide", args, args_v(9, 0), quo),
+    ("Arith.Nope", args, args_v(0, 0), int_),
+    ("Str.Echo", TString, VStr("yo"), TString),
+    ("Str.Echo", TString, VStr("z"), int_),
+    ("Arith.Multiply", args, args_v(1, 1), int_),
+  ]
+  for c in calls { cl = rpc.go_call(cl, c.0, c.1, c.2, c.3).0 }
+  let sent = cl.enc.bytes()
+  print("client req " + hex.encode_bytes(sent))
+  let (s4, resp) = rpc.serve_bytes(rpc.Server { reg: rpc.registry(cl), ..srv }, sent)
+  srv = s4
+  print("client resp " + hex.encode_bytes(resp))
+  cl = rpc.feed(cl, resp)
+  let (cl1, a1) = rpc.wait(cl, 0)
+  print("c1 " + errs(a1) + " {ival(unwrap(a1))}")
+  let (cl2, a2) = rpc.wait(cl1, 1)
+  let q = flds(unwrap(a2))
+  print("c2 " + errs(a2) + " {ival(q[0])} {ival(q[1])}")
+  let (cl3, a3) = rpc.wait(cl2, 2)
+  print("c3 " + errs(a3))
+  let (cl4, a4) = rpc.wait(cl3, 3)
+  print("c4 " + errs(a4))
+  let (cl5, a5) = rpc.wait(cl4, 4)
+  print("c5 " + errs(a5) + " " + sval(unwrap(a5)))
+  let (cl6, a6) = rpc.wait(cl5, 5)
+  print("c6 " + errs(a6))
+  let (cl7, a7) = rpc.wait(cl6, 6)
+  print("c7 " + errs(a7))
+  let (cl8, a8) = rpc.call(cl7, "Arith.Multiply", args, args_v(1, 1), int_)
+  print("after " + errs(a8))
+  let (cl9, z1) = rpc.close(cl8)
+  let (_, z2) = rpc.close(cl9)
+  let ue = (r: Result<(), Str>) => match r {
+    Ok(_) => "ok",
+    Err(x) => "err " + x,
+  }
+  print("close " + ue(z1) + " " + ue(z2))
+
+  // 3. 应答被截断
+  for k in [0, 5, 30, 60, 90] {
+    let (c0, _) = rpc.go_call(
+      rpc.new_client_with(srv.reg),
+      "Arith.Multiply",
+      args,
+      args_v(2, 3),
+      int_,
+    )
+    let (s5, r) = rpc.serve_bytes(rpc.Server { reg: rpc.registry(c0), ..srv }, c0.enc.bytes())
+    srv = s5
+    let nn = if k > len(r) { len(r) } else { k }
+    let (_, x) = rpc.wait(rpc.feed(c0, r[..nn]), 0)
+    print("short {nn} " + errs(x) + " {ival(unwrap_or(x, VInt(0)))}")
+  }
+}
