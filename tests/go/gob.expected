@@ -1,0 +1,1528 @@
+int enc ok 0304000e
+int dec ok 7
+int-neg enc ok 03040001
+int-neg dec ok -1
+int-min enc ok 0b0400f8ffffffffffffffff
+int-min dec ok -9223372036854775808
+int8 enc ok 040400ffc7
+int8 dec ok -100
+uint enc ok 0b0600f88000000000000005
+uint dec ok 9223372036854775813
+uint-small enc ok 040600ffc8
+uint-small dec ok 200
+float enc ok 050800fef83f
+float dec ok 1.5
+float-neg-zero enc ok 040800ff80
+float-neg-zero dec ok -0
+float32 enc ok 080800fba09999b93f
+float32 dec ok 0.10000000149011612
+complex enc ok 070e00fef83fffc0
+complex dec ok c(1.5,-2)
+string enc ok 110c000e68c3a96c6c6f2c20e4b896e7958c
+string dec ok "héllo, 世界"
+string-empty enc ok 030c0000
+string-empty dec ok ""
+bytes enc ok 070a0004000102ff
+bytes dec ok b000102ff
+bool-true enc ok 03020001
+bool-true dec ok true
+bool-false enc ok 03020000
+bool-false dec ok false
+slice enc ok 0b7f020102ff80000104000009ff8000030203fe0258
+slice dec ok [1, -2, 300]
+slice-empty enc ok 0b7f020102ff80000104000004ff800000
+slice-empty dec ok []
+strings enc ok 0cff81020102ff8200010c000009ff8200030161000163
+strings dec ok ["a", "", "c"]
+array enc ok 0eff83010102ff840001040106000007ff840003000a00
+array dec ok [0, 5, 0]
+map enc ok 0eff85040102ff8600010c0104000007ff860001016b12
+map dec ok map["k":9]
+map-empty enc ok 0eff87040102ff88000104010c000004ff880000
+map-empty dec ok map[]
+ptr enc ok 1fff8903010105496e6e657201ff8a000102010158010400010159010c00000008ff8a010601017900
+ptr dec ok {3, "y"}
+inner enc ok 1fff8903010105496e6e657201ff8a000102010158010400010159010c00000003ff8a00
+inner dec ok {0, ""}
+struct-zero enc ok 63ff8b030101015401ff8c00010d010141010400010142010c0001014301ff800001014401ff860001014501ff8e0001014601ff8a0001014701ff8a0001014801080001014901100001014a01ff900001014c01060001014d010e0001014e010a0000000b7f020102ff8000010400000eff85040102ff8600010c0104000017ff8d010101075b325d626f6f6c01ff8e000102010400001fff8903010105496e6e657201ff8a000102010158010400010159010c0000001bff8f0201010c5b5d6d61696e2e496e6e657201ff900001ff8a000009ff8c05020000020000
+struct-zero dec ok {0, "", [], map[], [false, false], nil, {0, ""}, 0, nil, [], 0, 0, c(0,0), b}
+struct enc ok 63ff8b030101015401ff8c00010d010141010400010142010c0001014301ff800001014401ff860001014501ff8e0001014601ff8a0001014701ff8a0001014801080001014901100001014a01ff900001014c01060001014d010e0001014e010a0000000b7f020102ff8000010400000eff85040102ff8600010c0104000017ff8d010101075b325d626f6f6c01ff8e000102010400001fff8903010105496e6e657201ff8a000102010158010400010159010c0000001bff8f0201010c5b5d6d61696e2e496e6e657201ff900001ff8a000048ff8c01090103626565010202040101036f6e65020102000101010200010201670001fe044001066d61696e2e50ff91030101015001ff9200010201015801040001015901040000001bff920501060108000102010e000001ffc80100fef03f01026e6e00
+struct dec ok {-5, "bee", [1, 2], map["one":1], [false, true], {1, ""}, {0, "g"}, 2.5, I({3, 4}), [{7, ""}, {0, ""}], 0, 200, c(0,1), b6e6e}
+holder-p enc ok 23ff9303010106486f6c64657201ff9400010201044e616d65010c00010156011000000028ff9401017001066d61696e2e50ff91030101015001ff92000102010158010400010159010400000009ff9205010201040000
+holder-p dec ok {"p", I({1, 2})}
+holder-qptr enc ok 23ff9303010106486f6c64657201ff9400010201044e616d65010c00010156011000000023ff9401017101072a6d61696e2e51ff95030101015101ff9600010101015a010c00000009ff960501027a7a0000
+holder-qptr dec ok {"q", I({"zz"})}
+holder-int enc ok 23ff9303010106486f6c64657201ff9400010201044e616d65010c0001015601100000000cff940203696e740402005400
+holder-int dec ok {"", I(42)}
+holder-nested enc err gob: type not registered for interface: main.Holder 23ff9303010106486f6c64657201ff9400010201044e616d65010c000101560110000000
+holder-nested dec err unexpected EOF
+holder-slice enc err gob: type not registered for interface: []interface {} 23ff9303010106486f6c64657201ff9400010201044e616d65010c000101560110000000
+holder-slice dec err unexpected EOF
+anys enc err gob: type not registered for interface: main.Holder 0cff97020102ff98000110000026ff980004066d61696e2e50ff91030101015001ff92000102010158010400010159010400000025ff92050102010200072a6d61696e2e51ff95030101015101ff9600010101015a010c000000
+anys dec err unexpected EOF
+node enc ok 22ff99030101044e6f646501ff9a00010201015601040001044e65787401ff9a0000000dff9a0102010104010106000000
+node dec ok {1, {2, {3, nil}}}
+holder-node enc ok 23ff9303010106486f6c64657201ff9400010201044e616d65010c0001015601100000002aff9402046e6f6465ff99030101044e6f646501ff9a00010201015601040001044e65787401ff9a00000007ff9a0301100000
+holder-node dec ok {"", I({8, nil})}
+named enc ok 38ff9b030101054e616d656401ff9c00010501014c01ff9e0001014d01ffa0000102535301ffa2000102505001ffa40001014101ffa600000015ff9d02010107496e744c69737401ff9e000104000021ff9f040101106d61705b737472696e675d5b5d696e7401ffa000010c01ff8000000b7f020102ff80000104000019ffa10201010a5b5d5b5d737472696e6701ffa20001ff8200000cff81020102ff8200010c000018ffa3020101095b5d2a6d61696e2e5001ffa40001ff9200001bff91030101015001ff92000102010158010400010159010400000019ffa5010101095b335d75696e74313601ffa60001060106000026ff9c0102080a0101016d010201030101610002016201630101010201040001030100feffff00
+named dec ok {[4, 5], map["m":[1]], [["a"], [], ["b", "c"]], [{1, 2}], [1, 0, 65535]}
+intlist enc ok 15ff9d02010107496e744c69737401ff9e000104000006ff9e00021210
+intlist dec ok [9, 8]
+withg enc ok 29ffa703010105576974684701ffa80001030101410104000102474701ffaa000102475001ffaa0000000dffa9050101014701ffaa0000000dffa80102010301020301017000
+withg dec ok {1, b010203, b70}
+withg-zero enc ok 29ffa703010105576974684701ffa80001030101410104000102474701ffaa000102475001ffaa0000000dffa9050101014701ffaa00000003ffa800
+withg-zero dec ok {0, b, nil}
+g enc ok 0dffa9050101014701ffaa00000005ffaa000107
+g dec ok b07
+empty enc ok 11ffab03010105456d70747901ffac00000003ffac00
+empty dec ok {}
+u enc err gob: type main.U has no exported fields 0dffad030101015501ffae000000
+u dec err unexpected EOF
+ptrslice enc err gob: encodeArray: nil element 1dffaf03010108507472536c69636501ffb000010101015001ffb200000014ffb1020101065b5d2a696e7401ffb20001040000
+ptrslice dec err unexpected EOF
+holder-unreg enc err gob: type not registered for interface: main.T4 23ff9303010106486f6c64657201ff9400010201044e616d65010c000101560110000000
+holder-unreg dec err unexpected EOF
+big-uint8s enc ok 030a0000
+big-uint8s dec ok b
+nested-maps enc ok 0fffb3040102ffb400010c01ff8600000eff85040102ff8600010c010400000affb40001016101016202
+nested-maps dec ok map["a":map["b":1]]
+uintptr enc ok 0306004d
+uintptr dec ok 77
+complex64 enc ok 060e00fef03f40
+complex64 dec ok c(1,2)
+i16s enc ok 0cffb5020102ffb6000104000008ffb6000201fefffe
+i16s dec ok [-1, 32767]
+u32arr enc ok 0effb7010102ffb8000106010400000affb8000201fcffffffff
+u32arr dec ok [1, 4294967295]
+f32s enc ok 0cffb9020102ffba00010800000affba0002fee03ffef0bf
+f32s dec ok [0.5, -1]
+c64s enc ok 0cffbb020102ffbc00010e00000cffbc0002fef03f0000fe08c0
+c64s dec ok [c(1,0), c(0,-3)]
+c128s enc ok 0cffbd020102ffbe00010e000006ffbe00014040
+c128s dec ok [c(2,2)]
+bools enc ok 0cffbf020102ffc0000102000006ffc000020100
+bools dec ok [true, false]
+uints enc ok 0cffc1020102ffc200010600000effc2000200f8ffffffffffffffff
+uints dec ok [0, 18446744073709551615]
+uptrs enc ok 0cffc3020102ffc4000106000005ffc4000103
+uptrs dec ok [3]
+i8s enc ok 0cffc5020102ffc6000104000008ffc60002fffffffe
+i8s dec ok [-128, 127]
+i32s enc ok 0cffc7020102ffc8000104000005ffc8000109
+i32s dec ok [-5]
+i64s enc ok 0cffc9020102ffca00010400000bffca0001fa020000000000
+i64s dec ok [1099511627776]
+u16s enc ok 0cffcb020102ffcc000106000005ffcc000109
+u16s dec ok [9]
+u64s enc ok 0cffcd020102ffce00010600000dffce0001f88000000000000000
+u64s dec ok [9223372036854775808]
+f64s enc ok 0cffcf020102ffd0000108000013ffd00003fef07ffef0fff82be6708b68120000
+f64s dec ok [+Inf, -Inf, 1e-310]
+mapstruct enc ok 0fffd1040102ffd200010401ff9200001bff91030101015001ff9200010201015801040001015901040000000affd20001020102010400
+mapstruct dec ok map[1:{1, 2}]
+arrstruct enc ok 0fffd3010102ffd40001ff8a010400001fff8903010105496e6e657201ff8a000102010158010400010159010c00000008ffd4000201020000
+arrstruct dec ok [{1, ""}, {0, ""}]
+iface-ints enc ok 23ff9303010106486f6c64657201ff9400010201044e616d65010c00010156011000000014ff9402055b5d696e747f020102ff80000104000008ff80040002020400
+iface-ints dec ok {"", I([1, 2])}
+iface-map enc err gob: type not registered for interface: map[string]int 23ff9303010106486f6c64657201ff9400010201044e616d65010c000101560110000000
+iface-map dec err unexpected EOF
+iface-bytes enc ok 23ff9303010106486f6c64657201ff9400010201044e616d65010c00010156011000000011ff9402075b5d75696e74380a0300010100
+iface-bytes dec ok {"", I(b01)}
+iface-string enc ok 23ff9303010106486f6c64657201ff9400010201044e616d65010c00010156011000000010ff940206737472696e670c0300017800
+iface-string dec ok {"", I("x")}
+iface-float enc ok 23ff9303010106486f6c64657201ff9400010201044e616d65010c00010156011000000012ff940207666c6f61743634080400fef83f00
+iface-float dec ok {"", I(1.5)}
+iface-uint8 enc ok 23ff9303010106486f6c64657201ff9400010201044e616d65010c0001015601100000000eff94020575696e74380602000300
+iface-uint8 dec ok {"", I(3)}
+iface-bool enc ok 23ff9303010106486f6c64657201ff9400010201044e616d65010c0001015601100000000dff940204626f6f6c0202000000
+iface-bool dec ok {"", I(false)}
+iface-complex enc ok 23ff9303010106486f6c64657201ff9400010201044e616d65010c00010156011000000015ff940209636f6d706c657836340e0500fef03f0000
+iface-complex dec ok {"", I(c(1,0))}
+iface-strings enc ok 23ff9303010106486f6c64657201ff9400010201044e616d65010c00010156011000000018ff9402085b5d737472696e67ff81020102ff8200010c00000aff820600020170017100
+iface-strings dec ok {"", I(["p", "q"])}
+box-nested enc ok 23ff9303010106486f6c64657201ff9400010201044e616d65010c00010156011000000026ff9401016801086d61696e2e426f78ffd503010103426f7801ffd600010101014201100000003fffd63b01086d61696e2e426f78ffd62301066d61696e2e50ff91030101015001ff92000102010158010400010159010400000009ff9205010e011000000000
+box-nested dec ok {"h", I({I({I({7, 8})})})}
+box-mixed enc ok 0dffd7020102ffd80001ffd6000017ffd503010103426f7801ffd6000101010142011000000027ffd8000401066d61696e2e50ff91030101015001ff92000102010158010400010159010400000027ff920501020104000001072a6d61696e2e51ff95030101015101ff9600010101015a010c00000021ff960401017a000001086d61696e2e426f78ffd60a0103696e7404020006000000
+box-mixed dec ok [{I({1, 2})}, {I({"z"})}, {I({I(3)})}, {nil}]
+withbin enc ok 22ffd9030101075769746842696e01ffda00010201014e01040001014201ffdc0000000fffdb0601010342696e01ffdc0000000affda0104010362696e00
+withbin dec ok {2, b62696e}
+bin enc ok 0fffdb0601010342696e01ffdc00000006ffdc00020909
+bin dec ok b0909
+multi ok ok ok ok
+multi 1bff91030101015001ff92000102010158010400010159010400000007ff92010201040007ff92010601080023ff9303010106486f6c64657201ff9400010201044e616d65010c00010156011000000013ff9402066d61696e2e50ff9205010a010c00000304000a
+multi ok {1, 2} ok {3, 4} ok {"", I({5, 6})} ok 5 err EOF
+ignore ok ok ok ok 5
+t1 ok {300, "b", [1, 200]}
+t2 err gob: wrong type (int) for received field T1.C
+t3 ok {0, "b"}
+t4 err gob: type mismatch: no fields matched compiling decoder for T4
+t1-int err gob: decoding into local type *int, received remote type T1 = struct { A int; B string; C []int; }
+t1-any err gob: local interface type *interface {} can only be decoded from remote interface type; received concrete type T1 = struct { A int; B string; C []int; }
+s8 err value for "A" out of range
+c8 err value for "element of C" out of range
+cbytes err gob: wrong type ([]uint8) for received field T1.C
+carray err gob: wrong type ([2]int) for received field T1.C
+bbytes err gob: wrong type ([]uint8) for received field T1.B
+auint err gob: wrong type (uint) for received field T1.A
+aptr ok {300}
+aptr2 ok {300}
+int-int8 err value for "*int8" out of range
+uint-uint8 err value for "*uint8" out of range
+uint-uint16 ok 65535
+float-float32 err value for "*float32" out of range
+float-float32-ok ok 1.0000000150474662e+30
+sf err value for "element of F" out of range
+int-string err gob: decoding into local type *string, received remote type int
+ints-strings err gob: decoding into local type *[]string, received remote type []int
+map-map ok map["x":1]
+map-int8 err value for "*map[string]int8" out of range
+array-len err gob: decoding into local type *[2]int, received remote type [3]int
+array-ok ok [1, 2, 3]
+holder-p ok {"", I({1, 2})}
+holder-inner err gob: type mismatch: no fields matched compiling decoder for Inner
+p-from-holder err gob: type mismatch: no fields matched compiling decoder for P
+any-from-int err gob: local interface type *interface {} can only be decoded from remote interface type; received concrete type int
+g-from-int err gob: decoding into local type *main.G, received remote type int
+withg-t1 ok {300, b, nil}
+node-node ok {1, {2, nil}}
+empty-t1 ok {}
+next-int err gob: wrong type (int) for received field Node.Next
+empty-stream err EOF
+trunc 1 err unexpected EOF
+trunc 4 err unexpected EOF
+trunc 7 err unexpected EOF
+trunc 10 err unexpected EOF
+trunc 13 err unexpected EOF
+trunc 16 err unexpected EOF
+trunc 19 err unexpected EOF
+trunc 22 err unexpected EOF
+trunc 25 err unexpected EOF
+trunc 28 err unexpected EOF
+trunc 31 err unexpected EOF
+trunc 34 err unexpected EOF
+trunc 37 err unexpected EOF
+trunc 40 err unexpected EOF
+trunc 43 err unexpected EOF
+trunc 46 err unexpected EOF
+trunc 49 err unexpected EOF
+trunc 52 err unexpected EOF
+trunc 55 err unexpected EOF
+trunc 58 err unexpected EOF
+trunc 61 err unexpected EOF
+trunc 64 err unexpected EOF
+flip 0 01 err EOF
+flip 0 80 err gob: encoded unsigned integer out of range
+flip 0 ff err gob: encoded unsigned integer out of range
+flip 1 01 err gob: bad data: field numbers out of bounds
+flip 1 80 err gob: encoded unsigned integer out of range
+flip 1 ff err gob: unknown type id or corrupted data
+flip 2 01 err gob: unknown type id or corrupted data
+flip 2 80 err gob: duplicate type received
+flip 2 ff err gob: bad data: undefined type CommonType = struct { Name string; Id int; }
+flip 3 01 err gob: bad data: field numbers out of bounds
+flip 3 80 err gob: encoded unsigned integer out of range
+flip 3 ff err gob: bad data: field numbers out of bounds
+flip 4 01 err gob: bad data: field numbers out of bounds
+flip 4 80 err gob: encoded unsigned integer out of range
+flip 4 ff err gob: bad data: field numbers out of bounds
+flip 5 01 err gob: bad data: field numbers out of bounds
+flip 5 80 err gob: encoded unsigned integer out of range
+flip 5 ff err gob: bad data: field numbers out of bounds
+flip 6 01 err gob: bad data: field numbers out of bounds
+flip 6 80 err gob: encoded unsigned integer out of range
+flip 6 ff err gob: bad string slice length: 0
+flip 7 01 ok {300, "b", [1, 200]}
+flip 7 80 ok {300, "b", [1, 200]}
+flip 7 ff ok {300, "b", [1, 200]}
+flip 8 01 ok {300, "b", [1, 200]}
+flip 8 80 ok {300, "b", [1, 200]}
+flip 8 ff ok {300, "b", [1, 200]}
+flip 9 01 err gob: bad data: field numbers out of bounds
+flip 9 80 err gob: encoded unsigned integer out of range
+flip 9 ff err gob: bad data: field numbers out of bounds
+flip 10 01 err gob: bad data: field numbers out of bounds
+flip 10 80 err gob: encoded unsigned integer out of range
+flip 10 ff err gob: encoded unsigned integer out of range
+flip 11 01 ok {300, "b", [1, 200]}
+flip 11 80 ok {300, "b", [1, 200]}
+flip 11 ff ok {300, "b", [1, 200]}
+flip 12 01 err gob: bad data: field numbers out of bounds
+flip 12 80 err gob: encoded unsigned integer out of range
+flip 12 ff err gob: bad data: field numbers out of bounds
+flip 13 01 err gob: bad string slice length: 0
+flip 13 80 err gob: encoded unsigned integer out of range
+flip 13 ff err gob: bad data: field numbers out of bounds
+flip 14 01 err gob: bad data: field numbers out of bounds
+flip 14 80 err gob: encoded unsigned integer out of range
+flip 14 ff err gob: bad data: field numbers out of bounds
+flip 15 01 err gob: bad string slice length: 0
+flip 15 80 err gob: encoded unsigned integer out of range
+flip 15 ff err gob: bad data: field numbers out of bounds
+flip 16 01 err gob: bad data: field numbers out of bounds
+flip 16 80 err gob: encoded unsigned integer out of range
+flip 16 ff err gob: bad string slice length: 0
+flip 17 01 ok {0, "b", [1, 200]}
+flip 17 80 ok {0, "b", [1, 200]}
+flip 17 ff ok {0, "b", [1, 200]}
+flip 18 01 err gob: bad data: field numbers out of bounds
+flip 18 80 err gob: encoded unsigned integer out of range
+flip 18 ff err gob: bad data: field numbers out of bounds
+flip 19 01 err gob: wrong type (int) for received field T1.A
+flip 19 80 err gob: encoded unsigned integer out of range
+flip 19 ff err gob: bad data: field numbers out of bounds
+flip 20 01 err gob: bad data: field numbers out of bounds
+flip 20 80 err gob: encoded unsigned integer out of range
+flip 20 ff err gob: bad data: field numbers out of bounds
+flip 21 01 err gob: bad string slice length: 0
+flip 21 80 err gob: encoded unsigned integer out of range
+flip 21 ff err gob: bad data: field numbers out of bounds
+flip 22 01 err gob: bad data: field numbers out of bounds
+flip 22 80 err gob: encoded unsigned integer out of range
+flip 22 ff err gob: bad string slice length: 0
+flip 23 01 err gob: wrong type ([]int) for received field T1.C
+flip 23 80 ok {300, "", [1, 200]}
+flip 23 ff ok {300, "", [1, 200]}
+flip 24 01 err gob: bad data: field numbers out of bounds
+flip 24 80 err gob: encoded unsigned integer out of range
+flip 24 ff err gob: bad data: field numbers out of bounds
+flip 25 01 err gob: wrong type (string) for received field T1.B
+flip 25 80 err gob: encoded unsigned integer out of range
+flip 25 ff err gob: encoded unsigned integer out of range
+flip 26 01 err gob: bad data: field numbers out of bounds
+flip 26 80 err gob: encoded unsigned integer out of range
+flip 26 ff err gob: bad data: field numbers out of bounds
+flip 27 01 err gob: bad data: field numbers out of bounds
+flip 27 80 err gob: encoded unsigned integer out of range
+flip 27 ff err gob: bad data: field numbers out of bounds
+flip 28 01 err gob: bad data: field numbers out of bounds
+flip 28 80 err gob: encoded unsigned integer out of range
+flip 28 ff err gob: bad string slice length: 0
+flip 29 01 err gob: wrong type (string) for received field T1.B
+flip 29 80 ok {300, "b", []}
+flip 29 ff ok {300, "b", []}
+flip 30 01 err gob: bad data: field numbers out of bounds
+flip 30 80 err gob: encoded unsigned integer out of range
+flip 30 ff err gob: bad data: field numbers out of bounds
+flip 31 01 err gob: wrong type ([]int) for received field T1.C
+flip 31 80 err gob: encoded unsigned integer out of range
+flip 31 ff err gob: encoded unsigned integer out of range
+flip 32 01 err gob: wrong type ([]int) for received field T1.C
+flip 32 80 err gob: wrong type ([]int) for received field T1.C
+flip 32 ff err gob: wrong type ([]int) for received field T1.C
+flip 33 01 err gob: bad data: field numbers out of bounds
+flip 33 80 err gob: encoded unsigned integer out of range
+flip 33 ff ok {300, "b", [1, 200]}
+flip 34 01 err gob: bad data: field numbers out of bounds
+flip 34 80 err gob: encoded unsigned integer out of range
+flip 34 ff ok {300, "b", [1, 200]}
+flip 35 01 ok {300, "b", [1, 200]}
+flip 35 80 err gob: encoded unsigned integer out of range
+flip 35 ff err gob: invalid uint data length 1: exceeds input size 0
+flip 36 01 err EOF
+flip 36 80 err gob: encoded unsigned integer out of range
+flip 36 ff err gob: encoded unsigned integer out of range
+flip 37 01 err gob: unknown type id or corrupted data
+flip 37 80 err gob: type mismatch in decoder: want struct type main.T1; got non-struct
+flip 37 ff err gob: encoded unsigned integer out of range
+flip 38 01 err gob: decoding array or slice: length exceeds input size (4 elements)
+flip 38 80 err gob: encoded unsigned integer out of range
+flip 38 ff err gob: bad data: field numbers out of bounds
+flip 39 01 err gob: bad data: field numbers out of bounds
+flip 39 80 err gob: encoded unsigned integer out of range
+flip 39 ff err gob: bad data: field numbers out of bounds
+flip 40 01 err gob: bad data: field numbers out of bounds
+flip 40 80 err gob: encoded unsigned integer out of range
+flip 40 ff err gob: bad data: field numbers out of bounds
+flip 41 01 err gob: bad data: field numbers out of bounds
+flip 41 80 err gob: encoded unsigned integer out of range
+flip 41 ff err gob: encoded unsigned integer out of range
+flip 42 01 ok {300, "b", [1, 200]}
+flip 42 80 ok {300, "b", [1, 200]}
+flip 42 ff ok {300, "b", [1, 200]}
+flip 43 01 err gob: bad data: field numbers out of bounds
+flip 43 80 err gob: encoded unsigned integer out of range
+flip 43 ff err gob: bad data: field numbers out of bounds
+flip 44 01 err gob: wrong type ([]int) for received field T1.C
+flip 44 80 err gob: encoded unsigned integer out of range
+flip 44 ff err gob: bad data: field numbers out of bounds
+flip 45 01 err gob: wrong type ([]int) for received field T1.C
+flip 45 80 err gob: encoded unsigned integer out of range
+flip 45 ff err gob: invalid uint data length 5: exceeds input size 2
+flip 46 01 err gob: bad data: field numbers out of bounds
+flip 46 80 err gob: encoded unsigned integer out of range
+flip 46 ff ok {300, "b", [1, 200]}
+flip 47 01 ok {300, "b", [1, 200]}
+flip 47 80 err gob: encoded unsigned integer out of range
+flip 47 ff err gob: invalid uint data length 1: exceeds input size 0
+flip 48 01 err unexpected EOF
+flip 48 80 err gob: encoded unsigned integer out of range
+flip 48 ff err gob: encoded unsigned integer out of range
+flip 49 01 err gob: bad data: field numbers out of bounds
+flip 49 80 err gob: duplicate type received
+flip 49 ff err gob: unknown type id or corrupted data
+flip 50 01 err gob: bad data: field numbers out of bounds
+flip 50 80 err gob: unknown type id or corrupted data
+flip 50 ff err gob: duplicate type received
+flip 51 01 ok {0, "", []}
+flip 51 80 err gob: encoded unsigned integer out of range
+flip 51 ff err gob: bad data: field numbers out of bounds
+flip 52 01 err gob: bad data: field numbers out of bounds
+flip 52 80 err gob: decoding int array or slice: length exceeds input size (88 elements)
+flip 52 ff err gob: decoding int array or slice: length exceeds input size (88 elements)
+flip 53 01 ok {428, "b", [1, 200]}
+flip 53 80 ok {16684, "b", [1, 200]}
+flip 53 ff ok {32428, "b", [1, 200]}
+flip 54 01 ok {-301, "b", [1, 200]}
+flip 54 80 ok {364, "b", [1, 200]}
+flip 54 ff ok {-340, "b", [1, 200]}
+flip 55 01 ok {300, "", []}
+flip 55 80 err gob: encoded unsigned integer out of range
+flip 55 ff err gob: bad data: field numbers out of bounds
+flip 56 01 err gob: bad data: field numbers out of bounds
+flip 56 80 err gob: encoded unsigned integer out of range
+flip 56 ff err gob: bad string slice length: 0
+flip 57 01 ok {300, "c", [1, 200]}
+flip 57 80 ok {300, "�", [1, 200]}
+flip 57 ff ok {300, "�", [1, 200]}
+flip 58 01 ok {300, "b", []}
+flip 58 80 err gob: encoded unsigned integer out of range
+flip 58 ff err gob: bad data: field numbers out of bounds
+flip 59 01 ok {300, "b", [1, 200, 0]}
+flip 59 80 err gob: encoded unsigned integer out of range
+flip 59 ff err gob: encoded unsigned integer out of range
+flip 60 01 ok {300, "b", [-2, 200]}
+flip 60 80 err gob: encoded unsigned integer out of range
+flip 60 ff ok {300, "b", [8323272, 0]}
+flip 61 01 err gob: encoded unsigned integer out of range
+flip 61 80 err gob: bad data: field numbers out of bounds
+flip 61 ff err gob: bad data: field numbers out of bounds
+flip 62 01 ok {300, "b", [1, 72]}
+flip 62 80 ok {300, "b", [1, 16584]}
+flip 62 ff ok {300, "b", [1, 32584]}
+flip 63 01 ok {300, "b", [1, -201]}
+flip 63 80 ok {300, "b", [1, 136]}
+flip 63 ff ok {300, "b", [1, -184]}
+flip 64 01 err gob: bad data: field numbers out of bounds
+flip 64 80 err gob: encoded unsigned integer out of range
+flip 64 ff err gob: invalid uint data length 1: exceeds input size 0
+hflip 0 err extra data in buffer
+hflip 1 err gob: bad data: field numbers out of bounds
+hflip 2 err gob: unknown type id or corrupted data
+hflip 3 err gob: bad data: field numbers out of bounds
+hflip 4 err gob: bad data: field numbers out of bounds
+hflip 5 err gob: bad data: field numbers out of bounds
+hflip 6 err gob: bad data: field numbers out of bounds
+hflip 7 ok {"n", I({1, 2})}
+hflip 8 ok {"n", I({1, 2})}
+hflip 9 ok {"n", I({1, 2})}
+hflip 10 ok {"n", I({1, 2})}
+hflip 11 ok {"n", I({1, 2})}
+hflip 12 ok {"n", I({1, 2})}
+hflip 13 err gob: bad data: field numbers out of bounds
+hflip 14 err value for "Id" out of range
+hflip 15 ok {"n", I({1, 2})}
+hflip 16 err gob: bad data: field numbers out of bounds
+hflip 17 err gob: bad data: field numbers out of bounds
+hflip 18 err gob: decoding array or slice: length exceeds input size (6 elements)
+hflip 19 err gob: bad data: field numbers out of bounds
+hflip 20 err gob: bad data: field numbers out of bounds
+hflip 21 ok {"", I({1, 2})}
+hflip 22 ok {"", I({1, 2})}
+hflip 23 ok {"", I({1, 2})}
+hflip 24 ok {"", I({1, 2})}
+hflip 25 err gob: bad data: field numbers out of bounds
+hflip 26 err gob: wrong type (string) for received field Holder.Name
+hflip 27 err gob: bad data: field numbers out of bounds
+hflip 28 err gob: bad data: field numbers out of bounds
+hflip 29 err gob: bad data: undefined type <nil>
+hflip 30 ok {"n", nil}
+hflip 31 err gob: bad data: field numbers out of bounds
+hflip 32 err gob: wrong type (interface {}) for received field Holder.V
+hflip 33 err gob: bad data: field numbers out of bounds
+hflip 34 err gob: bad data: field numbers out of bounds
+hflip 35 ok {"n", I({1, 2})}
+hflip 36 ok {"n", I({0, 0})}
+hflip 37 err gob: bad data: field numbers out of bounds
+hflip 38 err gob: unknown type id or corrupted data
+hflip 39 err gob: bad data: field numbers out of bounds
+hflip 40 err gob: bad data: field numbers out of bounds
+hflip 41 ok {"j", I({1, 2})}
+hflip 42 err gob: bad data: field numbers out of bounds
+hflip 43 err gob: name not registered for interface: "ma"
+hflip 44 err gob: name not registered for interface: "iain.P"
+hflip 45 err gob: name not registered for interface: "mein.P"
+hflip 46 err gob: name not registered for interface: "mamn.P"
+hflip 47 err gob: name not registered for interface: "maij.P"
+hflip 48 err gob: name not registered for interface: "main*P"
+hflip 49 err gob: name not registered for interface: "main.T"
+hflip 50 err gob: unknown type id or corrupted data
+hflip 51 err gob: unknown type id or corrupted data
+hflip 52 err gob: bad data: field numbers out of bounds
+hflip 53 err gob: bad data: field numbers out of bounds
+hflip 54 err gob: bad data: field numbers out of bounds
+hflip 55 err gob: bad data: field numbers out of bounds
+hflip 56 ok {"n", I({1, 2})}
+hflip 57 err gob: bad data: field numbers out of bounds
+hflip 58 err value for "Id" out of range
+hflip 59 ok {"n", I({1, 2})}
+hflip 60 err gob: bad data: field numbers out of bounds
+hflip 61 err gob: bad data: field numbers out of bounds
+hflip 62 err gob: decoding array or slice: length exceeds input size (6 elements)
+hflip 63 err gob: bad data: field numbers out of bounds
+hflip 64 err gob: bad data: field numbers out of bounds
+hflip 65 ok {"n", I({0, 2})}
+hflip 66 err gob: bad data: field numbers out of bounds
+hflip 67 err gob: wrong type (int) for received field P.X
+hflip 68 err gob: bad data: field numbers out of bounds
+hflip 69 err gob: bad data: field numbers out of bounds
+hflip 70 err gob: bad data: undefined type <nil>
+hflip 71 ok {"n", I({1, 0})}
+hflip 72 err gob: bad data: field numbers out of bounds
+hflip 73 err gob: wrong type (int) for received field P.Y
+hflip 74 err gob: bad data: field numbers out of bounds
+hflip 75 err gob: bad data: field numbers out of bounds
+hflip 76 ok {"n", I({1, 2})}
+hflip 77 err unexpected EOF
+hflip 78 err unexpected EOF
+hflip 79 err gob: unknown type id or corrupted data
+hflip 80 ok {"n", I({1, 2})}
+hflip 81 err gob: bad data: field numbers out of bounds
+hflip 82 ok {"n", I({3, 2})}
+hflip 83 err gob: bad data: field numbers out of bounds
+hflip 84 ok {"n", I({1, 0})}
+hflip 85 err gob: bad data: field numbers out of bounds
+hflip 86 err gob: bad data: field numbers out of bounds
+holder 0 01 err EOF / err EOF
+holder 0 40 err extra data in buffer / err extra data in buffer
+holder 1 01 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+holder 1 40 err gob: encoded unsigned integer out of range / err gob: encoded unsigned integer out of range
+holder 2 01 err gob: unknown type id or corrupted data / err gob: bad data: undefined type P = struct { X int; Y int; }
+holder 2 40 err gob: unknown type id or corrupted data / err gob: bad data: undefined type Holder = struct { Name string; V interface; }
+holder 3 01 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+holder 3 40 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+holder 4 01 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+holder 4 40 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+holder 5 01 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+holder 5 40 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+holder 6 01 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+holder 6 40 err gob: bad string slice length: 0 / err gob: bad string slice length: 0
+holder 7 01 ok {"x", I({I({1, 2})})} / err gob: bad data: field numbers out of bounds
+holder 7 40 ok {"x", I({I({1, 2})})} / err gob: bad data: field numbers out of bounds
+holder 8 01 ok {"x", I({I({1, 2})})} / err gob: bad data: field numbers out of bounds
+holder 8 40 ok {"x", I({I({1, 2})})} / err gob: bad data: field numbers out of bounds
+holder 9 01 ok {"x", I({I({1, 2})})} / err gob: bad data: field numbers out of bounds
+holder 9 40 ok {"x", I({I({1, 2})})} / err gob: bad data: field numbers out of bounds
+holder 10 01 ok {"x", I({I({1, 2})})} / err gob: bad data: field numbers out of bounds
+holder 10 40 ok {"x", I({I({1, 2})})} / err gob: bad data: field numbers out of bounds
+holder 11 01 ok {"x", I({I({1, 2})})} / err gob: bad data: field numbers out of bounds
+holder 11 40 ok {"x", I({I({1, 2})})} / err gob: bad data: field numbers out of bounds
+holder 12 01 ok {"x", I({I({1, 2})})} / err gob: bad data: field numbers out of bounds
+holder 12 40 ok {"x", I({I({1, 2})})} / err gob: bad data: field numbers out of bounds
+holder 13 01 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+holder 13 40 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+holder 14 01 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+holder 14 40 err gob: encoded unsigned integer out of range / err gob: encoded unsigned integer out of range
+holder 15 01 ok {"x", I({I({1, 2})})} / err gob: bad data: field numbers out of bounds
+holder 15 40 ok {"x", I({I({1, 2})})} / err gob: bad data: field numbers out of bounds
+holder 16 01 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+holder 16 40 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+holder 17 01 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+holder 17 40 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+holder 18 01 err gob: empty name for remote field of type Holder / err gob: empty name for remote field of type Holder
+holder 18 40 err gob: decoding array or slice: length exceeds input size (66 elements) / err gob: decoding array or slice: length exceeds input size (66 elements)
+holder 19 01 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+holder 19 40 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+holder 20 01 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+holder 20 40 err gob: bad string slice length: 0 / err gob: bad string slice length: 0
+holder 21 01 ok {"", I({I({1, 2})})} / err gob: bad data: field numbers out of bounds
+holder 21 40 ok {"", I({I({1, 2})})} / err gob: bad data: field numbers out of bounds
+holder 22 01 ok {"", I({I({1, 2})})} / err gob: bad data: field numbers out of bounds
+holder 22 40 ok {"", I({I({1, 2})})} / err gob: bad data: field numbers out of bounds
+holder 23 01 ok {"", I({I({1, 2})})} / err gob: bad data: field numbers out of bounds
+holder 23 40 ok {"", I({I({1, 2})})} / err gob: bad data: field numbers out of bounds
+holder 24 01 ok {"", I({I({1, 2})})} / err gob: bad data: field numbers out of bounds
+holder 24 40 ok {"", I({I({1, 2})})} / err gob: bad data: field numbers out of bounds
+holder 25 01 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+holder 25 40 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+holder 26 01 err gob: wrong type (string) for received field Holder.Name / err gob: bad data: undefined type <nil>
+holder 26 40 err gob: wrong type (string) for received field Holder.Name / err gob: bad data: undefined type <nil>
+holder 27 01 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+holder 27 40 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+holder 28 01 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+holder 28 40 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+holder 29 01 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+holder 29 40 err gob: bad string slice length: 0 / err gob: bad string slice length: 0
+holder 30 01 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+holder 30 40 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+holder 31 01 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+holder 31 40 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+holder 32 01 err gob: wrong type (interface {}) for received field Holder.V / err gob: bad data: undefined type <nil>
+holder 32 40 err gob: wrong type (interface {}) for received field Holder.V / err gob: bad data: undefined type <nil>
+holder 33 01 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+holder 33 40 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+holder 34 01 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+holder 34 40 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+holder 35 01 ok {"x", I({I({1, 2})})} / err gob: bad data: field numbers out of bounds
+holder 35 40 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+holder 36 01 err unexpected EOF / err unexpected EOF
+holder 36 40 err unexpected EOF / err unexpected EOF
+holder 37 01 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+holder 37 40 err gob: encoded unsigned integer out of range / err gob: encoded unsigned integer out of range
+holder 38 01 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+holder 38 40 err gob: unknown type id or corrupted data / err gob: bad data: undefined type [2]Inner = struct { X int; Y string; }
+holder 39 01 ok {"", nil} / ok
+holder 39 40 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+holder 40 01 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+holder 40 40 err gob: bad string slice length: 0 / err gob: slice length too large
+holder 41 01 ok {"y", I({I({1, 2})})} / err gob: bad data: field numbers out of bounds
+holder 41 40 ok {"8", I({I({1, 2})})} / err gob: bad data: field numbers out of bounds
+holder 42 01 ok {"x", nil} / ok
+holder 42 40 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+holder 43 01 err gob: name not registered for interface: "main.Box\xff" / err gob: bad data: field numbers out of bounds
+holder 43 40 err gob: invalid type name length 72: exceeds input size / err gob: bad interface encoding: name too large for buffer
+holder 44 01 err gob: name not registered for interface: "lain.Box" / err gob: bad data: field numbers out of bounds
+holder 44 40 err gob: name not registered for interface: "-ain.Box" / err gob: bad data: field numbers out of bounds
+holder 45 01 err gob: name not registered for interface: "m`in.Box" / err gob: bad data: field numbers out of bounds
+holder 45 40 err gob: name not registered for interface: "m!in.Box" / err gob: bad data: field numbers out of bounds
+holder 46 01 err gob: name not registered for interface: "mahn.Box" / err gob: bad data: field numbers out of bounds
+holder 46 40 err gob: name not registered for interface: "ma)n.Box" / err gob: bad data: field numbers out of bounds
+holder 47 01 err gob: name not registered for interface: "maio.Box" / err gob: bad data: field numbers out of bounds
+holder 47 40 err gob: name not registered for interface: "mai..Box" / err gob: bad data: field numbers out of bounds
+holder 48 01 err gob: name not registered for interface: "main/Box" / err gob: bad data: field numbers out of bounds
+holder 48 40 err gob: name not registered for interface: "mainnBox" / err gob: bad data: field numbers out of bounds
+holder 49 01 err gob: name not registered for interface: "main.Cox" / err gob: bad data: field numbers out of bounds
+holder 49 40 err gob: name not registered for interface: "main.\x02ox" / err gob: bad data: field numbers out of bounds
+holder 50 01 err gob: name not registered for interface: "main.Bnx" / err gob: bad data: field numbers out of bounds
+holder 50 40 err gob: name not registered for interface: "main.B/x" / err gob: bad data: field numbers out of bounds
+holder 51 01 err gob: name not registered for interface: "main.Boy" / err gob: bad data: field numbers out of bounds
+holder 51 40 err gob: name not registered for interface: "main.Bo8" / err gob: bad data: field numbers out of bounds
+holder 52 01 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+holder 52 40 err gob: encoded unsigned integer out of range / err gob: encoded unsigned integer out of range
+holder 53 01 err gob: unknown type id or corrupted data / err gob: bad data: field numbers out of bounds
+holder 53 40 err gob: unknown type id or corrupted data / err gob: bad data: field numbers out of bounds
+holder 54 01 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+holder 54 40 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+holder 55 01 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+holder 55 40 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+holder 56 01 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+holder 56 40 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+holder 57 01 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+holder 57 40 err gob: bad string slice length: 0 / err gob: bad string slice length: 0
+holder 58 01 ok {"x", I({I({1, 2})})} / err gob: bad data: field numbers out of bounds
+holder 58 40 ok {"x", I({I({1, 2})})} / err gob: bad data: field numbers out of bounds
+holder 59 01 ok {"x", I({I({1, 2})})} / err gob: bad data: field numbers out of bounds
+holder 59 40 ok {"x", I({I({1, 2})})} / err gob: bad data: field numbers out of bounds
+holder 60 01 ok {"x", I({I({1, 2})})} / err gob: bad data: field numbers out of bounds
+holder 60 40 ok {"x", I({I({1, 2})})} / err gob: bad data: field numbers out of bounds
+holder 61 01 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+holder 61 40 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+holder 62 01 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+holder 62 40 err gob: encoded unsigned integer out of range / err gob: encoded unsigned integer out of range
+holder 63 01 ok {"x", I({I({1, 2})})} / err gob: bad data: field numbers out of bounds
+holder 63 40 ok {"x", I({I({1, 2})})} / err gob: bad data: field numbers out of bounds
+holder 64 01 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+holder 64 40 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+holder 65 01 err gob: bad string slice length: 0 / err gob: bad string slice length: 0
+holder 65 40 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+holder 66 01 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+holder 66 40 err gob: decoding array or slice: length exceeds input size (65 elements) / err gob: decoding array or slice: length exceeds input size (65 elements)
+holder 67 01 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+holder 67 40 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+holder 68 01 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+holder 68 40 err gob: bad string slice length: 0 / err gob: bad string slice length: 0
+holder 69 01 err gob: type mismatch: no fields matched compiling decoder for Box / err gob: bad data: field numbers out of bounds
+holder 69 40 err gob: type mismatch: no fields matched compiling decoder for Box / err gob: bad data: field numbers out of bounds
+holder 70 01 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+holder 70 40 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+holder 71 01 err gob: wrong type (interface {}) for received field Box.B / err gob: bad data: field numbers out of bounds
+holder 71 40 err gob: wrong type (interface {}) for received field Box.B / err gob: bad data: field numbers out of bounds
+holder 72 01 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+holder 72 40 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+holder 73 01 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+holder 73 40 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+holder 74 01 ok {"x", I({I({1, 2})})} / err gob: bad data: field numbers out of bounds
+holder 74 40 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+holder 75 01 ok {"x", I({I({1, 2})})} / err gob: bad data: field numbers out of bounds
+holder 75 40 err unexpected EOF / err unexpected EOF
+holder 76 01 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+holder 76 40 err gob: encoded unsigned integer out of range / err gob: encoded unsigned integer out of range
+holder 77 01 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+holder 77 40 err gob: unknown type id or corrupted data / err gob: bad data: field numbers out of bounds
+holder 78 01 ok {"x", I({I({1, 2})})} / ok
+holder 78 40 ok {"x", I({I({1, 2})})} / err gob: bad interface encoding: data length too large for buffer
+holder 79 01 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+holder 79 40 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+holder 80 01 err gob: name not registered for interface: "main.P\xff" / err gob: bad data: field numbers out of bounds
+holder 80 40 err gob: invalid type name length 70: exceeds input size / err gob: bad data: field numbers out of bounds
+holder 81 01 err gob: name not registered for interface: "lain.P" / err gob: bad data: field numbers out of bounds
+holder 81 40 err gob: name not registered for interface: "-ain.P" / err gob: bad data: field numbers out of bounds
+holder 82 01 err gob: name not registered for interface: "m`in.P" / err gob: bad data: field numbers out of bounds
+holder 82 40 err gob: name not registered for interface: "m!in.P" / err gob: bad data: field numbers out of bounds
+holder 83 01 err gob: name not registered for interface: "mahn.P" / err gob: bad data: field numbers out of bounds
+holder 83 40 err gob: name not registered for interface: "ma)n.P" / err gob: bad data: field numbers out of bounds
+holder 84 01 err gob: name not registered for interface: "maio.P" / err gob: bad data: field numbers out of bounds
+holder 84 40 err gob: name not registered for interface: "mai..P" / err gob: bad data: field numbers out of bounds
+holder 85 01 err gob: name not registered for interface: "main/P" / err gob: bad data: field numbers out of bounds
+holder 85 40 err gob: name not registered for interface: "mainnP" / err gob: bad data: field numbers out of bounds
+holder 86 01 err gob: name not registered for interface: "main.Q" / err gob: bad data: field numbers out of bounds
+holder 86 40 err gob: name not registered for interface: "main.\x10" / err gob: bad data: field numbers out of bounds
+holder 87 01 err gob: bad string slice length: 0 / err gob: bad data: field numbers out of bounds
+holder 87 40 err gob: encoded unsigned integer out of range / err gob: bad data: field numbers out of bounds
+holder 88 01 err gob: unknown type id or corrupted data / err gob: bad data: field numbers out of bounds
+holder 88 40 err gob: unknown type id or corrupted data / err gob: bad data: field numbers out of bounds
+holder 89 01 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+holder 89 40 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+holder 90 01 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+holder 90 40 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+holder 91 01 err gob: bad string slice length: 0 / err gob: bad data: field numbers out of bounds
+holder 91 40 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+holder 92 01 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+holder 92 40 err gob: bad string slice length: 0 / err gob: bad data: field numbers out of bounds
+holder 93 01 ok {"x", I({I({1, 2})})} / err gob: bad data: field numbers out of bounds
+holder 93 40 ok {"x", I({I({1, 2})})} / err gob: bad data: field numbers out of bounds
+holder 94 01 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+holder 94 40 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+holder 95 01 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+holder 95 40 err gob: encoded unsigned integer out of range / err gob: bad data: field numbers out of bounds
+holder 96 01 ok {"x", I({I({1, 2})})} / err gob: bad data: field numbers out of bounds
+holder 96 40 ok {"x", I({I({1, 2})})} / err gob: bad data: field numbers out of bounds
+holder 97 01 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+holder 97 40 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+holder 98 01 err gob: bad string slice length: 0 / err gob: bad data: field numbers out of bounds
+holder 98 40 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+holder 99 01 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+holder 99 40 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+holder 100 01 err gob: bad string slice length: 0 / err gob: bad data: field numbers out of bounds
+holder 100 40 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+holder 101 01 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+holder 101 40 err gob: bad string slice length: 0 / err gob: bad data: field numbers out of bounds
+holder 102 01 ok {"x", I({I({0, 2})})} / err gob: bad data: field numbers out of bounds
+holder 102 40 ok {"x", I({I({0, 2})})} / err gob: bad data: field numbers out of bounds
+holder 103 01 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+holder 103 40 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+holder 104 01 err gob: wrong type (int) for received field P.X / err gob: bad data: field numbers out of bounds
+holder 104 40 err gob: wrong type (int) for received field P.X / err gob: bad data: field numbers out of bounds
+holder 105 01 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+holder 105 40 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+holder 106 01 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+holder 106 40 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+holder 107 01 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+holder 107 40 err gob: bad string slice length: 0 / err gob: bad data: field numbers out of bounds
+holder 108 01 ok {"x", I({I({2, 0})})} / err gob: bad data: field numbers out of bounds
+holder 108 40 ok {"x", I({I({1, 0})})} / err gob: bad data: field numbers out of bounds
+holder 109 01 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+holder 109 40 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+holder 110 01 err gob: wrong type (int) for received field P.Y / err gob: bad data: field numbers out of bounds
+holder 110 40 err gob: wrong type (int) for received field P.Y / err gob: bad data: field numbers out of bounds
+holder 111 01 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+holder 111 40 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+holder 112 01 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+holder 112 40 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+holder 113 01 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+holder 113 40 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+holder 114 01 ok {"x", I({I({1, 2})})} / err gob: bad data: field numbers out of bounds
+holder 114 40 ok {"x", I({I({1, 2})})} / err gob: bad data: field numbers out of bounds
+holder 115 01 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+holder 115 40 err gob: encoded unsigned integer out of range / err gob: bad data: field numbers out of bounds
+holder 116 01 err gob: duplicate type received / err gob: bad data: field numbers out of bounds
+holder 116 40 err gob: unknown type id or corrupted data / err gob: bad data: field numbers out of bounds
+holder 117 01 ok {"x", I({I({1, 2})})} / err gob: bad data: field numbers out of bounds
+holder 117 40 ok {"x", I({I({1, 2})})} / err gob: bad data: field numbers out of bounds
+holder 118 01 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+holder 118 40 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+holder 119 01 ok {"x", I({I({-2, 2})})} / err gob: bad data: field numbers out of bounds
+holder 119 40 ok {"x", I({I({33, 2})})} / err gob: bad data: field numbers out of bounds
+holder 120 01 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+holder 120 40 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+holder 121 01 ok {"x", I({I({1, -3})})} / err gob: bad data: field numbers out of bounds
+holder 121 40 ok {"x", I({I({1, 34})})} / err gob: bad data: field numbers out of bounds
+holder 122 01 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+holder 122 40 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+holder 123 01 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+holder 123 40 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+holder 124 01 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+holder 124 40 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+node 0 01 err extra data in buffer / err extra data in buffer
+node 0 40 err unexpected EOF / err unexpected EOF
+node 1 01 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+node 1 40 err gob: encoded unsigned integer out of range / err gob: encoded unsigned integer out of range
+node 2 01 err gob: unknown type id or corrupted data / err gob: bad data: undefined type []interface
+node 2 40 err gob: unknown type id or corrupted data / err gob: bad data: undefined type Node = struct { V int; Next Node; }
+node 3 01 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+node 3 40 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+node 4 01 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+node 4 40 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+node 5 01 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+node 5 40 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+node 6 01 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+node 6 40 err gob: bad string slice length: 0 / err gob: bad string slice length: 0
+node 7 01 ok {5, {-6, nil}} / ok
+node 7 40 ok {5, {-6, nil}} / ok
+node 8 01 ok {5, {-6, nil}} / ok
+node 8 40 ok {5, {-6, nil}} / ok
+node 9 01 ok {5, {-6, nil}} / ok
+node 9 40 ok {5, {-6, nil}} / ok
+node 10 01 ok {5, {-6, nil}} / ok
+node 10 40 ok {5, {-6, nil}} / ok
+node 11 01 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+node 11 40 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+node 12 01 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+node 12 40 err gob: encoded unsigned integer out of range / err gob: encoded unsigned integer out of range
+node 13 01 ok {5, {-6, nil}} / ok
+node 13 40 ok {5, {-6, nil}} / ok
+node 14 01 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+node 14 40 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+node 15 01 err gob: bad string slice length: 0 / err gob: bad string slice length: 0
+node 15 40 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+node 16 01 err gob: empty name for remote field of type Node / err gob: empty name for remote field of type Node
+node 16 40 err gob: decoding array or slice: length exceeds input size (66 elements) / err gob: decoding array or slice: length exceeds input size (66 elements)
+node 17 01 err gob: bad string slice length: 0 / err gob: bad string slice length: 0
+node 17 40 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+node 18 01 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+node 18 40 err gob: bad string slice length: 0 / err gob: bad string slice length: 0
+node 19 01 ok {0, {0, nil}} / ok
+node 19 40 ok {0, {0, nil}} / ok
+node 20 01 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+node 20 40 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+node 21 01 err gob: wrong type (int) for received field Node.V / err gob: bad data: undefined type <nil>
+node 21 40 err gob: wrong type (int) for received field Node.V / err gob: bad data: undefined type <nil>
+node 22 01 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+node 22 40 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+node 23 01 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+node 23 40 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+node 24 01 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+node 24 40 err gob: bad string slice length: 0 / err gob: bad string slice length: 0
+node 25 01 ok {5, nil} / ok
+node 25 40 ok {5, nil} / ok
+node 26 01 ok {5, nil} / ok
+node 26 40 ok {5, nil} / ok
+node 27 01 ok {5, nil} / ok
+node 27 40 ok {5, nil} / ok
+node 28 01 ok {5, nil} / ok
+node 28 40 ok {5, nil} / ok
+node 29 01 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+node 29 40 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+node 30 01 err gob: unknown type id or corrupted data / err gob: bad data: undefined type <nil>
+node 30 40 err gob: encoded unsigned integer out of range / err gob: encoded unsigned integer out of range
+node 31 01 err gob: unknown type id or corrupted data / err gob: bad data: undefined type <nil>
+node 31 40 err gob: unknown type id or corrupted data / err gob: bad data: undefined type WithBin = struct { N int; B Bin; }
+node 32 01 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+node 32 40 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+node 33 01 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+node 33 40 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+node 34 01 ok {5, {-6, nil}} / err gob: bad data: undefined type <nil>
+node 34 40 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+node 35 01 ok {5, {-6, nil}} / ok
+node 35 40 err unexpected EOF / err unexpected EOF
+node 36 01 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+node 36 40 err gob: encoded unsigned integer out of range / err gob: encoded unsigned integer out of range
+node 37 01 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+node 37 40 err gob: unknown type id or corrupted data / err gob: bad data: undefined type WithBin = struct { N int; B Bin; }
+node 38 01 ok {0, nil} / ok
+node 38 40 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+node 39 01 ok {-6, {-6, nil}} / ok
+node 39 40 ok {37, {-6, nil}} / ok
+node 40 01 ok {5, nil} / ok
+node 40 40 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+node 41 01 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+node 41 40 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+node 42 01 ok {5, {5, nil}} / ok
+node 42 40 ok {5, {-38, nil}} / ok
+node 43 01 ok {5, {-6, {0, nil}}} / ok
+node 43 40 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+node 44 01 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+node 44 40 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+named 0 01 err extra data in buffer / err extra data in buffer
+named 0 40 err extra data in buffer / err extra data in buffer
+named 1 01 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+named 1 40 err gob: encoded unsigned integer out of range / err gob: encoded unsigned integer out of range
+named 2 01 err gob: unknown type id or corrupted data / err gob: bad data: undefined type Node = struct { V int; Next Node; }
+named 2 40 err gob: unknown type id or corrupted data / err gob: bad data: undefined type Named = struct { L []int; M map[string][]int; SS [][]string; PP []P = struct { X int; Y int; }; A [3]uint; }
+named 3 01 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+named 3 40 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+named 4 01 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+named 4 40 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+named 5 01 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+named 5 40 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+named 6 01 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+named 6 40 err gob: bad string slice length: 0 / err gob: bad string slice length: 0
+named 7 01 ok {[1], map["k":[2, 3]], [["s"]], [{4, 5}], [6, 7, 8]} / ok
+named 7 40 ok {[1], map["k":[2, 3]], [["s"]], [{4, 5}], [6, 7, 8]} / ok
+named 8 01 ok {[1], map["k":[2, 3]], [["s"]], [{4, 5}], [6, 7, 8]} / ok
+named 8 40 ok {[1], map["k":[2, 3]], [["s"]], [{4, 5}], [6, 7, 8]} / ok
+named 9 01 ok {[1], map["k":[2, 3]], [["s"]], [{4, 5}], [6, 7, 8]} / ok
+named 9 40 ok {[1], map["k":[2, 3]], [["s"]], [{4, 5}], [6, 7, 8]} / ok
+named 10 01 ok {[1], map["k":[2, 3]], [["s"]], [{4, 5}], [6, 7, 8]} / ok
+named 10 40 ok {[1], map["k":[2, 3]], [["s"]], [{4, 5}], [6, 7, 8]} / ok
+named 11 01 ok {[1], map["k":[2, 3]], [["s"]], [{4, 5}], [6, 7, 8]} / ok
+named 11 40 ok {[1], map["k":[2, 3]], [["s"]], [{4, 5}], [6, 7, 8]} / ok
+named 12 01 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+named 12 40 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+named 13 01 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+named 13 40 err gob: encoded unsigned integer out of range / err gob: encoded unsigned integer out of range
+named 14 01 ok {[1], map["k":[2, 3]], [["s"]], [{4, 5}], [6, 7, 8]} / ok
+named 14 40 ok {[1], map["k":[2, 3]], [["s"]], [{4, 5}], [6, 7, 8]} / ok
+named 15 01 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+named 15 40 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+named 16 01 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+named 16 40 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+named 17 01 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+named 17 40 err gob: decoding array or slice: length exceeds input size (69 elements) / err gob: decoding array or slice: length exceeds input size (69 elements)
+named 18 01 err gob: bad string slice length: 0 / err gob: bad string slice length: 0
+named 18 40 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+named 19 01 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+named 19 40 err gob: bad string slice length: 0 / err gob: bad string slice length: 0
+named 20 01 err gob: wrong type (map[string][]int) for received field Named.M / ok
+named 20 40 ok {[], map["k":[2, 3]], [["s"]], [{4, 5}], [6, 7, 8]} / ok
+named 21 01 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+named 21 40 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+named 22 01 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+named 22 40 err gob: encoded unsigned integer out of range / err gob: encoded unsigned integer out of range
+named 23 01 err gob: wrong type (main.IntList) for received field Named.L / err gob: bad data: undefined type <nil>
+named 23 40 err gob: wrong type (main.IntList) for received field Named.L / err gob: bad data: undefined type T1 = struct { A int; B string; C []int; }
+named 24 01 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+named 24 40 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+named 25 01 err gob: bad string slice length: 0 / err gob: bad string slice length: 0
+named 25 40 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+named 26 01 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+named 26 40 err gob: bad string slice length: 0 / err gob: bad string slice length: 0
+named 27 01 err gob: wrong type (main.IntList) for received field Named.L / ok
+named 27 40 ok {[1], map[], [["s"]], [{4, 5}], [6, 7, 8]} / ok
+named 28 01 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+named 28 40 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+named 29 01 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+named 29 40 err gob: encoded unsigned integer out of range / err gob: encoded unsigned integer out of range
+named 30 01 err gob: wrong type (map[string][]int) for received field Named.M / err gob: bad data: undefined type <nil>
+named 30 40 err gob: wrong type (map[string][]int) for received field Named.M / err gob: bad data: undefined type  = struct { F []float; }
+named 31 01 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+named 31 40 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+named 32 01 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+named 32 40 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+named 33 01 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+named 33 40 err gob: bad string slice length: 0 / err gob: bad string slice length: 0
+named 34 01 ok {[1], map["k":[2, 3]], [], [{4, 5}], [6, 7, 8]} / ok
+named 34 40 ok {[1], map["k":[2, 3]], [], [{4, 5}], [6, 7, 8]} / ok
+named 35 01 ok {[1], map["k":[2, 3]], [], [{4, 5}], [6, 7, 8]} / ok
+named 35 40 ok {[1], map["k":[2, 3]], [], [{4, 5}], [6, 7, 8]} / ok
+named 36 01 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+named 36 40 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+named 37 01 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+named 37 40 err gob: encoded unsigned integer out of range / err gob: encoded unsigned integer out of range
+named 38 01 err gob: wrong type ([][]string) for received field Named.SS / err gob: bad data: undefined type <nil>
+named 38 40 err gob: wrong type ([][]string) for received field Named.SS / err gob: bad data: undefined type <nil>
+named 39 01 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+named 39 40 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+named 40 01 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+named 40 40 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+named 41 01 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+named 41 40 err gob: bad string slice length: 0 / err gob: bad string slice length: 0
+named 42 01 ok {[1], map["k":[2, 3]], [["s"]], [], [6, 7, 8]} / ok
+named 42 40 ok {[1], map["k":[2, 3]], [["s"]], [], [6, 7, 8]} / ok
+named 43 01 ok {[1], map["k":[2, 3]], [["s"]], [], [6, 7, 8]} / ok
+named 43 40 ok {[1], map["k":[2, 3]], [["s"]], [], [6, 7, 8]} / ok
+named 44 01 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+named 44 40 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+named 45 01 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+named 45 40 err gob: encoded unsigned integer out of range / err gob: encoded unsigned integer out of range
+named 46 01 err gob: wrong type ([]*main.P) for received field Named.PP / err gob: bad data: undefined type <nil>
+named 46 40 err gob: wrong type ([]*main.P) for received field Named.PP / err gob: bad data: undefined type <nil>
+named 47 01 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+named 47 40 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+named 48 01 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+named 48 40 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+named 49 01 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+named 49 40 err gob: bad string slice length: 0 / err gob: bad string slice length: 0
+named 50 01 ok {[1], map["k":[2, 3]], [["s"]], [{4, 5}], [0, 0, 0]} / ok
+named 50 40 ok {[1], map["k":[2, 3]], [["s"]], [{4, 5}], [0, 0, 0]} / ok
+named 51 01 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+named 51 40 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+named 52 01 err gob: wrong type ([3]uint16) for received field Named.A / err gob: bad data: undefined type <nil>
+named 52 40 err gob: encoded unsigned integer out of range / err gob: encoded unsigned integer out of range
+named 53 01 err gob: wrong type ([3]uint16) for received field Named.A / err gob: bad data: undefined type <nil>
+named 53 40 err gob: wrong type ([3]uint16) for received field Named.A / err gob: bad data: undefined type <nil>
+named 54 01 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+named 54 40 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+named 55 01 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+named 55 40 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+named 56 01 ok {[1], map["k":[2, 3]], [["s"]], [{4, 5}], [6, 7, 8]} / ok
+named 56 40 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+named 57 01 err EOF / err EOF
+named 57 40 err extra data in buffer / err extra data in buffer
+named 58 01 err gob: unknown type id or corrupted data / err gob: bad data: undefined type <nil>
+named 58 40 err gob: encoded unsigned integer out of range / err gob: encoded unsigned integer out of range
+named 59 01 err gob: wrong type (main.IntList) for received field Named.L / err gob: bad data: undefined type []int
+named 59 40 err gob: wrong type (main.IntList) for received field Named.L / err gob: bad data: undefined type []int
+named 60 01 err gob: decoding array or slice: length exceeds input size (4 elements) / err gob: decoding array or slice: length exceeds input size (4 elements)
+named 60 40 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+named 61 01 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+named 61 40 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+named 62 01 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+named 62 40 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+named 63 01 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+named 63 40 err gob: bad string slice length: 0 / err gob: bad string slice length: 0
+named 64 01 ok {[1], map["k":[2, 3]], [["s"]], [{4, 5}], [6, 7, 8]} / ok
+named 64 40 ok {[1], map["k":[2, 3]], [["s"]], [{4, 5}], [6, 7, 8]} / ok
+named 65 01 ok {[1], map["k":[2, 3]], [["s"]], [{4, 5}], [6, 7, 8]} / ok
+named 65 40 ok {[1], map["k":[2, 3]], [["s"]], [{4, 5}], [6, 7, 8]} / ok
+named 66 01 ok {[1], map["k":[2, 3]], [["s"]], [{4, 5}], [6, 7, 8]} / ok
+named 66 40 ok {[1], map["k":[2, 3]], [["s"]], [{4, 5}], [6, 7, 8]} / ok
+named 67 01 ok {[1], map["k":[2, 3]], [["s"]], [{4, 5}], [6, 7, 8]} / ok
+named 67 40 ok {[1], map["k":[2, 3]], [["s"]], [{4, 5}], [6, 7, 8]} / ok
+named 68 01 ok {[1], map["k":[2, 3]], [["s"]], [{4, 5}], [6, 7, 8]} / ok
+named 68 40 ok {[1], map["k":[2, 3]], [["s"]], [{4, 5}], [6, 7, 8]} / ok
+named 69 01 ok {[1], map["k":[2, 3]], [["s"]], [{4, 5}], [6, 7, 8]} / ok
+named 69 40 ok {[1], map["k":[2, 3]], [["s"]], [{4, 5}], [6, 7, 8]} / ok
+named 70 01 ok {[1], map["k":[2, 3]], [["s"]], [{4, 5}], [6, 7, 8]} / ok
+named 70 40 ok {[1], map["k":[2, 3]], [["s"]], [{4, 5}], [6, 7, 8]} / ok
+named 71 01 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+named 71 40 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+named 72 01 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+named 72 40 err gob: encoded unsigned integer out of range / err gob: encoded unsigned integer out of range
+named 73 01 ok {[1], map["k":[2, 3]], [["s"]], [{4, 5}], [6, 7, 8]} / ok
+named 73 40 ok {[1], map["k":[2, 3]], [["s"]], [{4, 5}], [6, 7, 8]} / ok
+named 74 01 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+named 74 40 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+named 75 01 err gob: wrong type (main.IntList) for received field Named.L / err gob: bad data: undefined type <nil>
+named 75 40 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+named 76 01 err gob: wrong type (main.IntList) for received field Named.L / err gob: bad data: undefined type <nil>
+named 76 40 err gob: wrong type (main.IntList) for received field Named.L / err gob: bad data: undefined type <nil>
+named 77 01 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+named 77 40 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+named 78 01 ok {[1], map["k":[2, 3]], [["s"]], [{4, 5}], [6, 7, 8]} / ok
+named 78 40 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+named 79 01 err EOF / err EOF
+named 79 40 err extra data in buffer / err extra data in buffer
+named 80 01 err gob: unknown type id or corrupted data / err gob: bad data: undefined type <nil>
+named 80 40 err gob: encoded unsigned integer out of range / err gob: encoded unsigned integer out of range
+named 81 01 err gob: type mismatch in decoder: want struct type main.Named; got non-struct / err gob: decode: corrupted data: non-zero delta for singleton
+named 81 40 err gob: wrong type (map[string][]int) for received field Named.M / err gob: bad data: undefined type map[string][]int
+named 82 01 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+named 82 40 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+named 83 01 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+named 83 40 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+named 84 01 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+named 84 40 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+named 85 01 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+named 85 40 err gob: bad string slice length: 0 / err gob: bad string slice length: 0
+named 86 01 ok {[1], map["k":[2, 3]], [["s"]], [{4, 5}], [6, 7, 8]} / ok
+named 86 40 ok {[1], map["k":[2, 3]], [["s"]], [{4, 5}], [6, 7, 8]} / ok
+named 87 01 ok {[1], map["k":[2, 3]], [["s"]], [{4, 5}], [6, 7, 8]} / ok
+named 87 40 ok {[1], map["k":[2, 3]], [["s"]], [{4, 5}], [6, 7, 8]} / ok
+named 88 01 ok {[1], map["k":[2, 3]], [["s"]], [{4, 5}], [6, 7, 8]} / ok
+named 88 40 ok {[1], map["k":[2, 3]], [["s"]], [{4, 5}], [6, 7, 8]} / ok
+named 89 01 ok {[1], map["k":[2, 3]], [["s"]], [{4, 5}], [6, 7, 8]} / ok
+named 89 40 ok {[1], map["k":[2, 3]], [["s"]], [{4, 5}], [6, 7, 8]} / ok
+named 90 01 ok {[1], map["k":[2, 3]], [["s"]], [{4, 5}], [6, 7, 8]} / ok
+named 90 40 ok {[1], map["k":[2, 3]], [["s"]], [{4, 5}], [6, 7, 8]} / ok
+named 91 01 ok {[1], map["k":[2, 3]], [["s"]], [{4, 5}], [6, 7, 8]} / ok
+named 91 40 ok {[1], map["k":[2, 3]], [["s"]], [{4, 5}], [6, 7, 8]} / ok
+named 92 01 ok {[1], map["k":[2, 3]], [["s"]], [{4, 5}], [6, 7, 8]} / ok
+named 92 40 ok {[1], map["k":[2, 3]], [["s"]], [{4, 5}], [6, 7, 8]} / ok
+named 93 01 ok {[1], map["k":[2, 3]], [["s"]], [{4, 5}], [6, 7, 8]} / ok
+named 93 40 ok {[1], map["k":[2, 3]], [["s"]], [{4, 5}], [6, 7, 8]} / ok
+named 94 01 ok {[1], map["k":[2, 3]], [["s"]], [{4, 5}], [6, 7, 8]} / ok
+named 94 40 ok {[1], map["k":[2, 3]], [["s"]], [{4, 5}], [6, 7, 8]} / ok
+named 95 01 ok {[1], map["k":[2, 3]], [["s"]], [{4, 5}], [6, 7, 8]} / ok
+named 95 40 ok {[1], map["k":[2, 3]], [["s"]], [{4, 5}], [6, 7, 8]} / ok
+named 96 01 ok {[1], map["k":[2, 3]], [["s"]], [{4, 5}], [6, 7, 8]} / ok
+named 96 40 ok {[1], map["k":[2, 3]], [["s"]], [{4, 5}], [6, 7, 8]} / ok
+named 97 01 ok {[1], map["k":[2, 3]], [["s"]], [{4, 5}], [6, 7, 8]} / ok
+named 97 40 ok {[1], map["k":[2, 3]], [["s"]], [{4, 5}], [6, 7, 8]} / ok
+named 98 01 ok {[1], map["k":[2, 3]], [["s"]], [{4, 5}], [6, 7, 8]} / ok
+named 98 40 ok {[1], map["k":[2, 3]], [["s"]], [{4, 5}], [6, 7, 8]} / ok
+named 99 01 ok {[1], map["k":[2, 3]], [["s"]], [{4, 5}], [6, 7, 8]} / ok
+named 99 40 ok {[1], map["k":[2, 3]], [["s"]], [{4, 5}], [6, 7, 8]} / ok
+named 100 01 ok {[1], map["k":[2, 3]], [["s"]], [{4, 5}], [6, 7, 8]} / ok
+named 100 40 ok {[1], map["k":[2, 3]], [["s"]], [{4, 5}], [6, 7, 8]} / ok
+named 101 01 ok {[1], map["k":[2, 3]], [["s"]], [{4, 5}], [6, 7, 8]} / ok
+named 101 40 ok {[1], map["k":[2, 3]], [["s"]], [{4, 5}], [6, 7, 8]} / ok
+named 102 01 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+named 102 40 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+named 103 01 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+named 103 40 err gob: encoded unsigned integer out of range / err gob: encoded unsigned integer out of range
+named 104 01 ok {[1], map["k":[2, 3]], [["s"]], [{4, 5}], [6, 7, 8]} / ok
+named 104 40 ok {[1], map["k":[2, 3]], [["s"]], [{4, 5}], [6, 7, 8]} / ok
+named 105 01 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+named 105 40 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+named 106 01 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+named 106 40 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+named 107 01 err gob: wrong type (map[string][]int) for received field Named.M / err gob: bad data: undefined type <nil>
+named 107 40 err gob: wrong type (map[string][]int) for received field Named.M / err gob: bad data: undefined type <nil>
+named 108 01 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+named 108 40 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+named 109 01 err gob: wrong type (map[string][]int) for received field Named.M / err gob: bad data: undefined type <nil>
+named 109 40 err gob: encoded unsigned integer out of range / err gob: encoded unsigned integer out of range
+named 110 01 err gob: wrong type (map[string][]int) for received field Named.M / err gob: bad data: undefined type <nil>
+named 110 40 err gob: wrong type (map[string][]int) for received field Named.M / err gob: bad data: undefined type []bool
+named 111 01 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+named 111 40 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+named 112 01 err gob: wrong type (map[string][]int) for received field Named.M / ok
+named 112 40 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+named 113 01 err EOF / err EOF
+named 113 40 err extra data in buffer / err extra data in buffer
+named 114 01 err gob: unknown type id or corrupted data / err gob: bad data: undefined type <nil>
+named 114 40 err gob: duplicate type received / err gob: duplicate type received
+named 115 01 err gob: decoding array or slice: length exceeds input size (4 elements) / err gob: decoding array or slice: length exceeds input size (4 elements)
+named 115 40 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+named 116 01 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+named 116 40 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+named 117 01 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+named 117 40 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+named 118 01 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+named 118 40 err gob: encoded unsigned integer out of range / err gob: encoded unsigned integer out of range
+named 119 01 ok {[1], map["k":[2, 3]], [["s"]], [{4, 5}], [6, 7, 8]} / ok
+named 119 40 ok {[1], map["k":[2, 3]], [["s"]], [{4, 5}], [6, 7, 8]} / ok
+named 120 01 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+named 120 40 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+named 121 01 err gob: wrong type (map[string][]int) for received field Named.M / err gob: bad data: undefined type <nil>
+named 121 40 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+named 122 01 err gob: wrong type (map[string][]int) for received field Named.M / err gob: bad data: undefined type <nil>
+named 122 40 err gob: wrong type (map[string][]int) for received field Named.M / err gob: bad data: undefined type <nil>
+named 123 01 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+named 123 40 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+named 124 01 ok {[1], map["k":[2, 3]], [["s"]], [{4, 5}], [6, 7, 8]} / ok
+named 124 40 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+named 125 01 err EOF / err EOF
+named 125 40 err extra data in buffer / err extra data in buffer
+named 126 01 err gob: unknown type id or corrupted data / err gob: bad data: undefined type <nil>
+named 126 40 err gob: encoded unsigned integer out of range / err gob: encoded unsigned integer out of range
+named 127 01 err gob: type mismatch in decoder: want struct type main.Named; got non-struct / err gob: decode: corrupted data: non-zero delta for singleton
+named 127 40 err gob: wrong type ([][]string) for received field Named.SS / err gob: bad data: undefined type [][]string
+named 128 01 err gob: decoding array or slice: length exceeds input size (130 elements) / err gob: decoding array or slice: length exceeds input size (130 elements)
+named 128 40 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+named 129 01 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+named 129 40 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+named 130 01 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+named 130 40 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+named 131 01 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+named 131 40 err gob: bad string slice length: 0 / err gob: bad string slice length: 0
+named 132 01 ok {[1], map["k":[2, 3]], [["s"]], [{4, 5}], [6, 7, 8]} / ok
+named 132 40 ok {[1], map["k":[2, 3]], [["s"]], [{4, 5}], [6, 7, 8]} / ok
+named 133 01 ok {[1], map["k":[2, 3]], [["s"]], [{4, 5}], [6, 7, 8]} / ok
+named 133 40 ok {[1], map["k":[2, 3]], [["s"]], [{4, 5}], [6, 7, 8]} / ok
+named 134 01 ok {[1], map["k":[2, 3]], [["s"]], [{4, 5}], [6, 7, 8]} / ok
+named 134 40 ok {[1], map["k":[2, 3]], [["s"]], [{4, 5}], [6, 7, 8]} / ok
+named 135 01 ok {[1], map["k":[2, 3]], [["s"]], [{4, 5}], [6, 7, 8]} / ok
+named 135 40 ok {[1], map["k":[2, 3]], [["s"]], [{4, 5}], [6, 7, 8]} / ok
+named 136 01 ok {[1], map["k":[2, 3]], [["s"]], [{4, 5}], [6, 7, 8]} / ok
+named 136 40 ok {[1], map["k":[2, 3]], [["s"]], [{4, 5}], [6, 7, 8]} / ok
+named 137 01 ok {[1], map["k":[2, 3]], [["s"]], [{4, 5}], [6, 7, 8]} / ok
+named 137 40 ok {[1], map["k":[2, 3]], [["s"]], [{4, 5}], [6, 7, 8]} / ok
+named 138 01 ok {[1], map["k":[2, 3]], [["s"]], [{4, 5}], [6, 7, 8]} / ok
+named 138 40 ok {[1], map["k":[2, 3]], [["s"]], [{4, 5}], [6, 7, 8]} / ok
+named 139 01 ok {[1], map["k":[2, 3]], [["s"]], [{4, 5}], [6, 7, 8]} / ok
+named 139 40 ok {[1], map["k":[2, 3]], [["s"]], [{4, 5}], [6, 7, 8]} / ok
+named 140 01 ok {[1], map["k":[2, 3]], [["s"]], [{4, 5}], [6, 7, 8]} / ok
+named 140 40 ok {[1], map["k":[2, 3]], [["s"]], [{4, 5}], [6, 7, 8]} / ok
+named 141 01 ok {[1], map["k":[2, 3]], [["s"]], [{4, 5}], [6, 7, 8]} / ok
+named 141 40 ok {[1], map["k":[2, 3]], [["s"]], [{4, 5}], [6, 7, 8]} / ok
+named 142 01 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+named 142 40 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+named 143 01 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+named 143 40 err gob: encoded unsigned integer out of range / err gob: encoded unsigned integer out of range
+named 144 01 ok {[1], map["k":[2, 3]], [["s"]], [{4, 5}], [6, 7, 8]} / ok
+named 144 40 ok {[1], map["k":[2, 3]], [["s"]], [{4, 5}], [6, 7, 8]} / ok
+named 145 01 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+named 145 40 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+named 146 01 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+named 146 40 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+named 147 01 err gob: wrong type ([][]string) for received field Named.SS / err gob: bad data: undefined type <nil>
+named 147 40 err gob: encoded unsigned integer out of range / err gob: encoded unsigned integer out of range
+named 148 01 err gob: wrong type ([][]string) for received field Named.SS / err gob: bad data: undefined type <nil>
+named 148 40 err gob: wrong type ([][]string) for received field Named.SS / err gob: bad data: undefined type []uint
+named 149 01 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+named 149 40 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+named 150 01 ok {[1], map["k":[2, 3]], [["s"]], [{4, 5}], [6, 7, 8]} / ok
+named 150 40 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+named 151 01 err extra data in buffer / err extra data in buffer
+named 151 40 err extra data in buffer / err extra data in buffer
+named 152 01 err gob: unknown type id or corrupted data / err gob: bad data: undefined type <nil>
+named 152 40 err gob: encoded unsigned integer out of range / err gob: encoded unsigned integer out of range
+named 153 01 err gob: type mismatch in decoder: want struct type main.Named; got non-struct / err gob: decode: corrupted data: non-zero delta for singleton
+named 153 40 err gob: wrong type ([][]string) for received field Named.SS / err gob: bad data: undefined type []string
+named 154 01 err gob: decoding array or slice: length exceeds input size (12 elements) / err gob: decoding array or slice: length exceeds input size (12 elements)
+named 154 40 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+named 155 01 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+named 155 40 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+named 156 01 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+named 156 40 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+named 157 01 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+named 157 40 err gob: encoded unsigned integer out of range / err gob: encoded unsigned integer out of range
+named 158 01 ok {[1], map["k":[2, 3]], [["s"]], [{4, 5}], [6, 7, 8]} / ok
+named 158 40 ok {[1], map["k":[2, 3]], [["s"]], [{4, 5}], [6, 7, 8]} / ok
+named 159 01 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+named 159 40 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+named 160 01 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+named 160 40 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+named 161 01 err gob: wrong type ([][]string) for received field Named.SS / err gob: bad data: undefined type <nil>
+named 161 40 err gob: wrong type ([][]string) for received field Named.SS / err gob: bad data: undefined type <nil>
+named 162 01 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+named 162 40 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+named 163 01 ok {[1], map["k":[2, 3]], [["s"]], [{4, 5}], [6, 7, 8]} / ok
+named 163 40 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+named 164 01 err extra data in buffer / err extra data in buffer
+named 164 40 err extra data in buffer / err extra data in buffer
+named 165 01 err gob: unknown type id or corrupted data / err gob: bad data: undefined type <nil>
+named 165 40 err gob: encoded unsigned integer out of range / err gob: encoded unsigned integer out of range
+named 166 01 err gob: type mismatch in decoder: want struct type main.Named; got non-struct / err gob: decode: corrupted data: non-zero delta for singleton
+named 166 40 err gob: wrong type ([]*main.P) for received field Named.PP / err gob: bad data: undefined type []P = struct { X int; Y int; }
+named 167 01 err gob: decoding array or slice: length exceeds input size (146 elements) / err gob: decoding array or slice: length exceeds input size (146 elements)
+named 167 40 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+named 168 01 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+named 168 40 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+named 169 01 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+named 169 40 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+named 170 01 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+named 170 40 err gob: bad string slice length: 0 / err gob: bad string slice length: 0
+named 171 01 ok {[1], map["k":[2, 3]], [["s"]], [{4, 5}], [6, 7, 8]} / ok
+named 171 40 ok {[1], map["k":[2, 3]], [["s"]], [{4, 5}], [6, 7, 8]} / ok
+named 172 01 ok {[1], map["k":[2, 3]], [["s"]], [{4, 5}], [6, 7, 8]} / ok
+named 172 40 ok {[1], map["k":[2, 3]], [["s"]], [{4, 5}], [6, 7, 8]} / ok
+named 173 01 ok {[1], map["k":[2, 3]], [["s"]], [{4, 5}], [6, 7, 8]} / ok
+named 173 40 ok {[1], map["k":[2, 3]], [["s"]], [{4, 5}], [6, 7, 8]} / ok
+named 174 01 ok {[1], map["k":[2, 3]], [["s"]], [{4, 5}], [6, 7, 8]} / ok
+named 174 40 ok {[1], map["k":[2, 3]], [["s"]], [{4, 5}], [6, 7, 8]} / ok
+named 175 01 ok {[1], map["k":[2, 3]], [["s"]], [{4, 5}], [6, 7, 8]} / ok
+named 175 40 ok {[1], map["k":[2, 3]], [["s"]], [{4, 5}], [6, 7, 8]} / ok
+named 176 01 ok {[1], map["k":[2, 3]], [["s"]], [{4, 5}], [6, 7, 8]} / ok
+named 176 40 ok {[1], map["k":[2, 3]], [["s"]], [{4, 5}], [6, 7, 8]} / ok
+named 177 01 ok {[1], map["k":[2, 3]], [["s"]], [{4, 5}], [6, 7, 8]} / ok
+named 177 40 ok {[1], map["k":[2, 3]], [["s"]], [{4, 5}], [6, 7, 8]} / ok
+named 178 01 ok {[1], map["k":[2, 3]], [["s"]], [{4, 5}], [6, 7, 8]} / ok
+named 178 40 ok {[1], map["k":[2, 3]], [["s"]], [{4, 5}], [6, 7, 8]} / ok
+named 179 01 ok {[1], map["k":[2, 3]], [["s"]], [{4, 5}], [6, 7, 8]} / ok
+named 179 40 ok {[1], map["k":[2, 3]], [["s"]], [{4, 5}], [6, 7, 8]} / ok
+named 180 01 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+named 180 40 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+named 181 01 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+named 181 40 err gob: encoded unsigned integer out of range / err gob: encoded unsigned integer out of range
+named 182 01 ok {[1], map["k":[2, 3]], [["s"]], [{4, 5}], [6, 7, 8]} / ok
+named 182 40 ok {[1], map["k":[2, 3]], [["s"]], [{4, 5}], [6, 7, 8]} / ok
+named 183 01 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+named 183 40 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+named 184 01 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+named 184 40 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+named 185 01 err gob: unknown type id or corrupted data / err gob: bad data: undefined type <nil>
+named 185 40 err gob: encoded unsigned integer out of range / err gob: encoded unsigned integer out of range
+named 186 01 err gob: unknown type id or corrupted data / err gob: bad data: undefined type <nil>
+named 186 40 err gob: unknown type id or corrupted data / err gob: bad data: undefined type map[int]P = struct { X int; Y int; }
+named 187 01 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+named 187 40 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+named 188 01 ok {[1], map["k":[2, 3]], [["s"]], [{4, 5}], [6, 7, 8]} / ok
+named 188 40 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+named 189 01 err EOF / err EOF
+named 189 40 err unexpected EOF / err unexpected EOF
+named 190 01 err gob: bad string slice length: 0 / err gob: bad string slice length: 0
+named 190 40 err gob: encoded unsigned integer out of range / err gob: encoded unsigned integer out of range
+named 191 01 err gob: unknown type id or corrupted data / err gob: bad data: undefined type []Inner = struct { X int; Y string; }
+named 191 40 err gob: unknown type id or corrupted data / err gob: bad data: undefined type P = struct { X int; Y int; }
+named 192 01 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+named 192 40 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+named 193 01 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+named 193 40 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+named 194 01 err gob: bad string slice length: 0 / err gob: bad string slice length: 0
+named 194 40 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+named 195 01 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+named 195 40 err gob: bad string slice length: 0 / err gob: bad string slice length: 0
+named 196 01 ok {[1], map["k":[2, 3]], [["s"]], [{4, 5}], [6, 7, 8]} / ok
+named 196 40 ok {[1], map["k":[2, 3]], [["s"]], [{4, 5}], [6, 7, 8]} / ok
+named 197 01 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+named 197 40 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+named 198 01 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+named 198 40 err gob: encoded unsigned integer out of range / err gob: encoded unsigned integer out of range
+named 199 01 ok {[1], map["k":[2, 3]], [["s"]], [{4, 5}], [6, 7, 8]} / ok
+named 199 40 ok {[1], map["k":[2, 3]], [["s"]], [{4, 5}], [6, 7, 8]} / ok
+named 200 01 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+named 200 40 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+named 201 01 err gob: bad string slice length: 0 / err gob: bad string slice length: 0
+named 201 40 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+named 202 01 err gob: empty name for remote field of type P / err gob: empty name for remote field of type P
+named 202 40 err gob: decoding array or slice: length exceeds input size (66 elements) / err gob: decoding array or slice: length exceeds input size (66 elements)
+named 203 01 err gob: bad string slice length: 0 / err gob: bad string slice length: 0
+named 203 40 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+named 204 01 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+named 204 40 err gob: bad string slice length: 0 / err gob: bad string slice length: 0
+named 205 01 ok {[1], map["k":[2, 3]], [["s"]], [{0, 5}], [6, 7, 8]} / ok
+named 205 40 ok {[1], map["k":[2, 3]], [["s"]], [{0, 5}], [6, 7, 8]} / ok
+named 206 01 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+named 206 40 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+named 207 01 err gob: wrong type (int) for received field P.X / err gob: bad data: undefined type <nil>
+named 207 40 err gob: wrong type (int) for received field P.X / err gob: bad data: undefined type <nil>
+named 208 01 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+named 208 40 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+named 209 01 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+named 209 40 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+named 210 01 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+named 210 40 err gob: bad string slice length: 0 / err gob: bad string slice length: 0
+named 211 01 ok {[1], map["k":[2, 3]], [["s"]], [{5, 0}], [6, 7, 8]} / ok
+named 211 40 ok {[1], map["k":[2, 3]], [["s"]], [{4, 0}], [6, 7, 8]} / ok
+named 212 01 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+named 212 40 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+named 213 01 err gob: wrong type (int) for received field P.Y / err gob: bad data: undefined type <nil>
+named 213 40 err gob: wrong type (int) for received field P.Y / err gob: bad data: undefined type <nil>
+named 214 01 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+named 214 40 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+named 215 01 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+named 215 40 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+named 216 01 ok {[1], map["k":[2, 3]], [["s"]], [{4, 5}], [6, 7, 8]} / err gob: bad data: undefined type <nil>
+named 216 40 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+named 217 01 err EOF / err EOF
+named 217 40 err unexpected EOF / err unexpected EOF
+named 218 01 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+named 218 40 err gob: encoded unsigned integer out of range / err gob: encoded unsigned integer out of range
+named 219 01 err gob: type mismatch in decoder: want struct type main.Named; got non-struct / err gob: decode: corrupted data: non-zero delta for singleton
+named 219 40 err gob: wrong type ([3]uint16) for received field Named.A / err gob: bad data: undefined type [3]uint
+named 220 01 err extra data in buffer / err extra data in buffer
+named 220 40 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+named 221 01 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+named 221 40 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+named 222 01 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+named 222 40 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+named 223 01 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+named 223 40 err gob: bad string slice length: 0 / err gob: bad string slice length: 0
+named 224 01 ok {[1], map["k":[2, 3]], [["s"]], [{4, 5}], [6, 7, 8]} / ok
+named 224 40 ok {[1], map["k":[2, 3]], [["s"]], [{4, 5}], [6, 7, 8]} / ok
+named 225 01 ok {[1], map["k":[2, 3]], [["s"]], [{4, 5}], [6, 7, 8]} / ok
+named 225 40 ok {[1], map["k":[2, 3]], [["s"]], [{4, 5}], [6, 7, 8]} / ok
+named 226 01 ok {[1], map["k":[2, 3]], [["s"]], [{4, 5}], [6, 7, 8]} / ok
+named 226 40 ok {[1], map["k":[2, 3]], [["s"]], [{4, 5}], [6, 7, 8]} / ok
+named 227 01 ok {[1], map["k":[2, 3]], [["s"]], [{4, 5}], [6, 7, 8]} / ok
+named 227 40 ok {[1], map["k":[2, 3]], [["s"]], [{4, 5}], [6, 7, 8]} / ok
+named 228 01 ok {[1], map["k":[2, 3]], [["s"]], [{4, 5}], [6, 7, 8]} / ok
+named 228 40 ok {[1], map["k":[2, 3]], [["s"]], [{4, 5}], [6, 7, 8]} / ok
+named 229 01 ok {[1], map["k":[2, 3]], [["s"]], [{4, 5}], [6, 7, 8]} / ok
+named 229 40 ok {[1], map["k":[2, 3]], [["s"]], [{4, 5}], [6, 7, 8]} / ok
+named 230 01 ok {[1], map["k":[2, 3]], [["s"]], [{4, 5}], [6, 7, 8]} / ok
+named 230 40 ok {[1], map["k":[2, 3]], [["s"]], [{4, 5}], [6, 7, 8]} / ok
+named 231 01 ok {[1], map["k":[2, 3]], [["s"]], [{4, 5}], [6, 7, 8]} / ok
+named 231 40 ok {[1], map["k":[2, 3]], [["s"]], [{4, 5}], [6, 7, 8]} / ok
+named 232 01 ok {[1], map["k":[2, 3]], [["s"]], [{4, 5}], [6, 7, 8]} / ok
+named 232 40 ok {[1], map["k":[2, 3]], [["s"]], [{4, 5}], [6, 7, 8]} / ok
+named 233 01 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+named 233 40 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+named 234 01 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+named 234 40 err gob: encoded unsigned integer out of range / err gob: encoded unsigned integer out of range
+named 235 01 ok {[1], map["k":[2, 3]], [["s"]], [{4, 5}], [6, 7, 8]} / ok
+named 235 40 ok {[1], map["k":[2, 3]], [["s"]], [{4, 5}], [6, 7, 8]} / ok
+named 236 01 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+named 236 40 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+named 237 01 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+named 237 40 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+named 238 01 err gob: wrong type ([3]uint16) for received field Named.A / err gob: bad data: undefined type <nil>
+named 238 40 err gob: wrong type ([3]uint16) for received field Named.A / err gob: bad data: undefined type <nil>
+named 239 01 err gob: wrong type ([3]uint16) for received field Named.A / err gob: length mismatch in ignoreArray
+named 239 40 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+named 240 01 err gob: wrong type ([3]uint16) for received field Named.A / err gob: length mismatch in ignoreArray
+named 240 40 err gob: wrong type ([3]uint16) for received field Named.A / err gob: length mismatch in ignoreArray
+named 241 01 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+named 241 40 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+named 242 01 ok {[1], map["k":[2, 3]], [["s"]], [{4, 5}], [6, 7, 8]} / ok
+named 242 40 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+named 243 01 err unexpected EOF / err unexpected EOF
+named 243 40 err unexpected EOF / err unexpected EOF
+named 244 01 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+named 244 40 err gob: encoded unsigned integer out of range / err gob: encoded unsigned integer out of range
+named 245 01 err gob: duplicate type received / err gob: duplicate type received
+named 245 40 err gob: unknown type id or corrupted data / err gob: bad data: undefined type Bin
+named 246 01 ok {[], map[], [], [], [0, 0, 0]} / ok
+named 246 40 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+named 247 01 err gob: length mismatch in decodeArray / err gob: length mismatch in ignoreArray
+named 247 40 err gob: decoding array or slice: length exceeds input size (65 elements) / err gob: decoding array or slice: length exceeds input size (65 elements)
+named 248 01 ok {[-2], map["k":[2, 3]], [["s"]], [{4, 5}], [6, 7, 8]} / ok
+named 248 40 ok {[33], map["k":[2, 3]], [["s"]], [{4, 5}], [6, 7, 8]} / ok
+named 249 01 ok {[1], map[], [], [], [0, 0, 0]} / ok
+named 249 40 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+named 250 01 err gob: length of string exceeds input size (6 bytes) / err gob: slice length too large
+named 250 40 err gob: bad string slice length: 0 / err gob: slice length too large
+named 251 01 err gob: decoding int array or slice: length exceeds input size (107 elements) / err gob: decoding array or slice: length exceeds input size (107 elements)
+named 251 40 err gob: bad string slice length: 0 / err gob: slice length too large
+named 252 01 ok {[1], map["j":[2, 3]], [["s"]], [{4, 5}], [6, 7, 8]} / ok
+named 252 40 ok {[1], map["+":[2, 3]], [["s"]], [{4, 5}], [6, 7, 8]} / ok
+named 253 01 err gob: length of string exceeds input size (115 bytes) / err gob: slice length too large
+named 253 40 err gob: decoding int array or slice: length exceeds input size (66 elements) / err gob: decoding array or slice: length exceeds input size (66 elements)
+named 254 01 ok {[1], map["k":[-3, 3]], [["s"]], [{4, 5}], [6, 7, 8]} / ok
+named 254 40 ok {[1], map["k":[34, 3]], [["s"]], [{4, 5}], [6, 7, 8]} / ok
+named 255 01 ok {[1], map["k":[2, -4]], [["s"]], [{4, 5}], [6, 7, 8]} / ok
+named 255 40 ok {[1], map["k":[2, 35]], [["s"]], [{4, 5}], [6, 7, 8]} / ok
+named 256 01 ok {[1], map["k":[2, 3]], [], [], [0, 0, 0]} / ok
+named 256 40 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+named 257 01 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+named 257 40 err gob: length of string exceeds input size (6 bytes) / err gob: slice length too large
+named 258 01 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+named 258 40 err gob: length of string exceeds input size (6 bytes) / err gob: slice length too large
+named 259 01 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+named 259 40 err gob: length of string exceeds input size (65 bytes) / err gob: slice length too large
+named 260 01 ok {[1], map["k":[2, 3]], [["r"]], [{4, 5}], [6, 7, 8]} / ok
+named 260 40 ok {[1], map["k":[2, 3]], [["3"]], [{4, 5}], [6, 7, 8]} / ok
+named 261 01 ok {[1], map["k":[2, 3]], [["s"]], [], [0, 0, 0]} / ok
+named 261 40 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+named 262 01 err gob: length mismatch in decodeArray / err gob: length mismatch in ignoreArray
+named 262 40 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+named 263 01 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+named 263 40 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+named 264 01 ok {[1], map["k":[2, 3]], [["s"]], [{-5, 5}], [6, 7, 8]} / ok
+named 264 40 ok {[1], map["k":[2, 3]], [["s"]], [{36, 5}], [6, 7, 8]} / ok
+named 265 01 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+named 265 40 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+named 266 01 ok {[1], map["k":[2, 3]], [["s"]], [{4, -6}], [6, 7, 8]} / ok
+named 266 40 ok {[1], map["k":[2, 3]], [["s"]], [{4, 37}], [6, 7, 8]} / ok
+named 267 01 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+named 267 40 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+named 268 01 ok {[1], map["k":[2, 3]], [["s"]], [{4, 5}], [0, 0, 0]} / ok
+named 268 40 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+named 269 01 err gob: length mismatch in decodeArray / err gob: length mismatch in ignoreArray
+named 269 40 err gob: length mismatch in decodeArray / err gob: length mismatch in ignoreArray
+named 270 01 ok {[1], map["k":[2, 3]], [["s"]], [{4, 5}], [7, 7, 8]} / ok
+named 270 40 ok {[1], map["k":[2, 3]], [["s"]], [{4, 5}], [70, 7, 8]} / ok
+named 271 01 ok {[1], map["k":[2, 3]], [["s"]], [{4, 5}], [6, 6, 8]} / ok
+named 271 40 ok {[1], map["k":[2, 3]], [["s"]], [{4, 5}], [6, 71, 8]} / ok
+named 272 01 ok {[1], map["k":[2, 3]], [["s"]], [{4, 5}], [6, 7, 9]} / ok
+named 272 40 ok {[1], map["k":[2, 3]], [["s"]], [{4, 5}], [6, 7, 72]} / ok
+named 273 01 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+named 273 40 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+withg 0 01 err EOF / err EOF
+withg 0 40 err unexpected EOF / err unexpected EOF
+withg 1 01 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+withg 1 40 err gob: encoded unsigned integer out of range / err gob: encoded unsigned integer out of range
+withg 2 01 err gob: unknown type id or corrupted data / err gob: bad data: undefined type [3]uint
+withg 2 40 err gob: unknown type id or corrupted data / err gob: bad data: undefined type WithG = struct { A int; GG G; GP G; }
+withg 3 01 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+withg 3 40 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+withg 4 01 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+withg 4 40 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+withg 5 01 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+withg 5 40 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+withg 6 01 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+withg 6 40 err gob: bad string slice length: 0 / err gob: bad string slice length: 0
+withg 7 01 ok {1, b0102, b03} / ok
+withg 7 40 ok {1, b0102, b03} / ok
+withg 8 01 ok {1, b0102, b03} / ok
+withg 8 40 ok {1, b0102, b03} / ok
+withg 9 01 ok {1, b0102, b03} / ok
+withg 9 40 ok {1, b0102, b03} / ok
+withg 10 01 ok {1, b0102, b03} / ok
+withg 10 40 ok {1, b0102, b03} / ok
+withg 11 01 ok {1, b0102, b03} / ok
+withg 11 40 ok {1, b0102, b03} / ok
+withg 12 01 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+withg 12 40 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+withg 13 01 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+withg 13 40 err gob: encoded unsigned integer out of range / err gob: encoded unsigned integer out of range
+withg 14 01 ok {1, b0102, b03} / ok
+withg 14 40 ok {1, b0102, b03} / ok
+withg 15 01 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+withg 15 40 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+withg 16 01 err gob: bad string slice length: 0 / err gob: bad string slice length: 0
+withg 16 40 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+withg 17 01 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+withg 17 40 err gob: decoding array or slice: length exceeds input size (67 elements) / err gob: decoding array or slice: length exceeds input size (67 elements)
+withg 18 01 err gob: bad string slice length: 0 / err gob: bad string slice length: 0
+withg 18 40 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+withg 19 01 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+withg 19 40 err gob: bad string slice length: 0 / err gob: bad string slice length: 0
+withg 20 01 ok {0, b0102, b03} / ok
+withg 20 40 ok {0, b0102, b03} / ok
+withg 21 01 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+withg 21 40 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+withg 22 01 err gob: wrong type (int) for received field WithG.A / err gob: bad data: undefined type <nil>
+withg 22 40 err gob: wrong type (int) for received field WithG.A / err gob: bad data: undefined type <nil>
+withg 23 01 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+withg 23 40 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+withg 24 01 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+withg 24 40 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+withg 25 01 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+withg 25 40 err gob: bad string slice length: 0 / err gob: bad string slice length: 0
+withg 26 01 ok {1, b, b03} / ok
+withg 26 40 ok {1, b, b03} / ok
+withg 27 01 ok {1, b, b03} / ok
+withg 27 40 ok {1, b, b03} / ok
+withg 28 01 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+withg 28 40 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+withg 29 01 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+withg 29 40 err gob: encoded unsigned integer out of range / err gob: encoded unsigned integer out of range
+withg 30 01 err gob: wrong type (main.G) for received field WithG.GG / err gob: bad data: undefined type <nil>
+withg 30 40 err gob: wrong type (main.G) for received field WithG.GG / err gob: bad data: undefined type <nil>
+withg 31 01 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+withg 31 40 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+withg 32 01 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+withg 32 40 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+withg 33 01 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+withg 33 40 err gob: bad string slice length: 0 / err gob: bad string slice length: 0
+withg 34 01 ok {1, b0102, nil} / ok
+withg 34 40 ok {1, b0102, nil} / ok
+withg 35 01 ok {1, b0102, nil} / ok
+withg 35 40 ok {1, b0102, nil} / ok
+withg 36 01 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+withg 36 40 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+withg 37 01 err gob: wrong type (*main.G) for received field WithG.GP / err gob: bad data: undefined type <nil>
+withg 37 40 err gob: encoded unsigned integer out of range / err gob: encoded unsigned integer out of range
+withg 38 01 err gob: wrong type (*main.G) for received field WithG.GP / err gob: bad data: undefined type <nil>
+withg 38 40 err gob: wrong type (*main.G) for received field WithG.GP / err gob: bad data: undefined type <nil>
+withg 39 01 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+withg 39 40 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+withg 40 01 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+withg 40 40 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+withg 41 01 ok {1, b0102, b03} / ok
+withg 41 40 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+withg 42 01 err EOF / err EOF
+withg 42 40 err unexpected EOF / err unexpected EOF
+withg 43 01 err gob: bad string slice length: 0 / err gob: bad string slice length: 0
+withg 43 40 err gob: encoded unsigned integer out of range / err gob: encoded unsigned integer out of range
+withg 44 01 err gob: wrong type (main.G) for received field WithG.GG / err gob: bad data: undefined type G
+withg 44 40 err gob: wrong type (main.G) for received field WithG.GG / err gob: bad data: undefined type G
+withg 45 01 err gob: wrong type (main.G) for received field WithG.GG / err gob: bad data: undefined type <nil>
+withg 45 40 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+withg 46 01 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+withg 46 40 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+withg 47 01 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+withg 47 40 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+withg 48 01 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+withg 48 40 err gob: bad string slice length: 0 / err gob: bad string slice length: 0
+withg 49 01 ok {1, b0102, b03} / ok
+withg 49 40 ok {1, b0102, b03} / ok
+withg 50 01 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+withg 50 40 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+withg 51 01 ok {1, b0102, b03} / ok
+withg 51 40 err gob: encoded unsigned integer out of range / err gob: encoded unsigned integer out of range
+withg 52 01 ok {1, b0102, b03} / ok
+withg 52 40 ok {1, b0102, b03} / ok
+withg 53 01 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+withg 53 40 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+withg 54 01 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+withg 54 40 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+withg 55 01 err gob: wrong type (main.G) for received field WithG.GG / ok
+withg 55 40 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+withg 56 01 err unexpected EOF / err unexpected EOF
+withg 56 40 err unexpected EOF / err unexpected EOF
+withg 57 01 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+withg 57 40 err gob: encoded unsigned integer out of range / err gob: encoded unsigned integer out of range
+withg 58 01 err gob: duplicate type received / err gob: duplicate type received
+withg 58 40 err gob: unknown type id or corrupted data / err gob: bad data: undefined type <nil>
+withg 59 01 ok {0, b, nil} / ok
+withg 59 40 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+withg 60 01 ok {-2, b0102, b03} / ok
+withg 60 40 ok {33, b0102, b03} / ok
+withg 61 01 ok {1, b, nil} / ok
+withg 61 40 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+withg 62 01 err gob: GobDecoder: length too large for buffer / err gob: GobDecoder: length too large for buffer
+withg 62 40 err gob: GobDecoder: length too large for buffer / err gob: GobDecoder: length too large for buffer
+withg 63 01 ok {1, b0002, b03} / ok
+withg 63 40 ok {1, b4102, b03} / ok
+withg 64 01 ok {1, b0103, b03} / ok
+withg 64 40 ok {1, b0142, b03} / ok
+withg 65 01 ok {1, b0102, nil} / ok
+withg 65 40 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+withg 66 01 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+withg 66 40 err gob: GobDecoder: length too large for buffer / err gob: GobDecoder: length too large for buffer
+withg 67 01 ok {1, b0102, b02} / ok
+withg 67 40 ok {1, b0102, b43} / ok
+withg 68 01 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+withg 68 40 err gob: bad data: field numbers out of bounds / err gob: bad data: field numbers out of bounds
+bad-uint err gob: encoded unsigned integer out of range
+huge-len err unexpected EOF
+unknown-id err gob: decoding into local type *int, received remote type unknown type
+dup-type err gob: duplicate type received
+low-type err gob: duplicate type received
+nonzero-single err gob: decode: corrupted data: non-zero delta for singleton
+extra-after-type err extra data in buffer
+zero-len err EOF

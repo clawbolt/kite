@@ -1039,6 +1039,7 @@ Go 1.27 的 encoding/json（v1）改由 v2 实现，语法错误、Compact/Inden
 | `std.crypto.des` / `std.crypto.rc4` | crypto/des、crypto/rc4 | DES、3DES（返回 cipher.Block，可接 CBC 等模式）、RC4 |
 | `std.crypto.dsa` | crypto/dsa | generate_key、sign、verify（随机字节由调用方给出；不含 GenerateParameters） |
 | `std.crypto.elliptic` | crypto/elliptic | P-224/256/384/521 与自定义曲线：add、double、scalar_mult、marshal(_compressed)、unmarshal(_compressed)、generate_key；std.crypto.internal.nistec 增加 P-224 和压缩点解码 |
+| `std.encoding.gob` | encoding/gob | gob 编解码（线上格式与错误逐字节同 Go；Type/Value 显式描述，Registry 代替全局类型表） |
 | `std.crypto.hpke` | crypto/hpke | HPKE（RFC 9180 base 模式与 ML-KEM / 混合 KEM），KDF 含 HKDF 与 SHAKE，AEAD 含 AES-GCM、ChaCha20-Poly1305、Export-only |
 | `std.crypto.chacha20poly1305` | x/crypto/chacha20poly1305 | ChaCha20-Poly1305 与 XChaCha20-Poly1305 AEAD |
 | `std.crypto.mlkem` | crypto/mlkem | ML-KEM-768/1024：密钥、封装（含 mlkemtest 的确定性封装）、解封装、隐式拒绝 |

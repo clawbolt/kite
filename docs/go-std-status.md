@@ -110,12 +110,17 @@ image/color/palette、path/filepath、go/constant、net/http/cookiejar、crypto/
   对拍 tests/go/hpke 485 行（Go 的 crypto/hpke 内部测试，tests/go/hpke_regen.sh）：两份测试向量（rfc9180 24 组、hpke-pq 13 组，跳过 X448、
   ML-KEM-512、TurboSHAKE 同 Go）、9 种 KEM 的错误路径、ChaCha20/XChaCha20。累积次数默认 20；HPKE_N=1000 时 210 项与向量里的摘要全部一致。
 - std.crypto.chacha20poly1305（同日，x/crypto）：new / new_x、seal / open，及 chacha20_block、hchacha20、poly1305_sum。
+- std.encoding.gob（2026-10-21）：Encoder / Decoder 线上格式逐字节同 Go：类型描述（wireType）与编号分配顺序、字段增量、零值省略、
+  接口值（Register / RegisterName、类型描述在消息中途冲刷）、递归类型、GobEncoder / BinaryMarshaler、Decode(nil)；
+  解码按名字匹配字段、compatibleType、整数 / float32 范围检查、dec_helpers 的错误文字、dec.err 的“粘滞”语义。
+  没有反射：调用方给出 Type（TInt(位数)…TNamed / TRef / TExt）和 Value；类型编号表是显式传递的 Registry。另有 decode() 按线上类型解出 (Type, Value)。
+  对拍 tests/go/gob 1528 行：各种基本 / 复合 / 接口值的编码字节和回读、跨类型解码的错误、截断与逐字节翻转的坏数据（有目标类型和 Decode(nil) 两种）。
+  差异：map 按给出顺序编码；Debug 转储没移植；非法 UTF-8 字符串替换成 U+FFFD。
 
 ## 可以做（纯数据 / 算法，计划后续批次）
-- encoding/gob（值用类似 fmt.Arg 的枚举表示）
 - debug/dwarf、debug/macho、debug/pe、debug/plan9obj
 - html/template（上下文转义）
-- net/rpc（gob 编码部分，依赖 encoding/gob）
+- net/rpc（gob 编码部分，encoding/gob 已有）
 - io/fs（ValidPath / Glob / WalkDir 的纯逻辑）、testing/fstest（MapFS）、testing/iotest
 - hash/maphash（种子随机，只能对拍确定性的部分）、expvar、time/tzdata（时区数据）
 - os/user（读 /etc/passwd、/etc/group）、os/exec（借 system）

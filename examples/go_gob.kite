@@ -1,0 +1,485 @@
+// 对拍 tests/go/gob.go：编码的字节、解码结果、类型兼容 / 整数范围 / 坏数据的错误文字
+use std.encoding.gob
+use std.encoding.hex
+use std.strconv
+use std.math.bits
+use std.math
+
+fn fg(f: Float) -> Str { strconv.format_float_go(f, "g", -1, 64) }
+
+fn show(r: gob.Registry, t: gob.Type, v: gob.Value) -> Str {
+  let rt = r.resolve(t)
+  if let TPtr(e) = rt {
+    return if v == VNil { "nil" } else { show(r, e, v) }
+  }
+  if let TExt(_, _) = rt {
+    return match v {
+      VBytes(bs) => "b" + hex.encode_bytes(bs),
+      _ => "b",
+    }
+  }
+  if r.is_bytes(rt) {
+    return match v {
+      VBytes(bs) => "b" + hex.encode_bytes(bs),
+      _ => "b",
+    }
+  }
+  match r.under(rt) {
+    TBool => match v {
+      VBool(b) => if b { "true" } else { "false" },
+      _ => "?",
+    },
+    TInt(_) => match v {
+      VInt(i) => "{i}",
+      _ => "?",
+    },
+    TUint(_) => match v {
+      VUint(u) => bits.ustr(u),
+      _ => "?",
+    },
+    TFloat(_) => match v {
+      VFloat(f) => fg(f),
+      _ => "?",
+    },
+    TComplex(_) => match v {
+      VComplex(a, b) => "c(" + fg(a) + "," + fg(b) + ")",
+      _ => "?",
+    },
+    TString => match v {
+      VStr(s) => strconv.quote_go(s),
+      _ => "?",
+    },
+    TIface => match v {
+      VIface(ct, x) => "I(" + show(r.define(ct), ct, x) + ")",
+      _ => "nil",
+    },
+    TSlice(e) => match v {
+      VList(xs) => "[" + join(map(xs, (x) => show(r, e, x)), ", ") + "]",
+      _ => "[]",
+    },
+    TArray(e, _) => match v {
+      VList(xs) => "[" + join(map(xs, (x) => show(r, e, x)), ", ") + "]",
+      _ => "?",
+    },
+    TMap(k, e) => match v {
+      VMap(kvs) => "map[" + join(
+        sort(map(kvs, (kv) => show(r, k, kv.0) + ":" + show(r, e, kv.1))),
+        ", ",
+      ) + "]",
+      _ => "map[]",
+    },
+    TStruct(fs) => match v {
+      VStruct(xs) => "\{" + join(map(0..len(fs), (i) => show(r, fs[i].1, xs[i])), ", ") + "\}",
+      _ => "?",
+    },
+    _ => "?",
+  }
+}
+
+fn errs(r: Result<(), Str>) -> Str {
+  match r {
+    Ok(_) => "ok",
+    Err(e) => "err " + e,
+  }
+}
+
+fn round(reg: gob.Registry, label: Str, t: gob.Type, v: gob.Value) -> gob.Registry {
+  let (e, r) = gob.new_encoder_with(reg).encode(t, v)
+  print(label + " enc " + errs(r) + " " + hex.encode_bytes(e.bytes()))
+  let reg2 = e.registry()
+  let (d, res) = gob.new_decoder_with(e.bytes(), reg2).decode_into(t)
+  match res {
+    Ok(x) => print(label + " dec ok " + show(d.reg, t, x)),
+    Err(m) => print(label + " dec err " + m),
+  }
+  reg2
+}
+
+fn into(reg: gob.Registry, label: Str, t: gob.Type, data: List<Int>) {
+  let (d, res) = gob.new_decoder_with(data, reg).decode_into(t)
+  match res {
+    Ok(x) => print(label + " ok " + show(d.reg, t, x)),
+    Err(m) => print(label + " err " + m),
+  }
+}
+
+fn into2(reg: gob.Registry, label: Str, t: gob.Type, st: gob.Type, sv: gob.Value) -> gob.Registry {
+  let (r2, bs) = enc_bytes(reg, st, sv)
+  into(r2, label, t, bs)
+  r2
+}
+
+fn enc_bytes(reg: gob.Registry, t: gob.Type, v: gob.Value) -> (gob.Registry, List<Int>) {
+  let (e, r) = gob.new_encoder_with(reg).encode(t, v)
+  if let Err(m) = r { panic(m) }
+  (e.registry(), e.bytes())
+}
+
+fn i(x: Int) -> gob.Value { VInt(x) }
+
+fn s(x: Str) -> gob.Value { VStr(x) }
+
+fn st(xs: List<gob.Value>) -> gob.Value { VStruct(xs) }
+
+fn ints(xs: List<Int>) -> gob.Value { VList(map(xs, (x) => VInt(x))) }
+
+fn sf(fs: List<(Str, gob.Type)>) -> gob.Type { TStruct(fs) }
+
+fn main() {
+  let int_ = TInt(0)
+  let str_ = TString
+  let inner = TNamed("Inner", sf([("X", int_), ("Y", str_)]))
+  let p = TNamed("P", sf([("X", int_), ("Y", int_)]))
+  let q = TNamed("Q", sf([("Z", str_)]))
+  let holder = TNamed("Holder", sf([("Name", str_), ("V", TIface)]))
+  let node = TNamed("Node", sf([("V", int_), ("Next", TPtr(TRef("Node")))]))
+  let intlist = TNamed("IntList", TSlice(int_))
+  let named = TNamed(
+    "Named",
+    sf([
+      ("L", intlist),
+      ("M", TMap(str_, TSlice(int_))),
+      ("SS", TSlice(TSlice(str_))),
+      ("PP", TSlice(TPtr(p))),
+      ("A", TArray(TUint(16), 3)),
+    ]),
+  )
+  let g = TExt("G", 1)
+  let withg = TNamed("WithG", sf([("A", int_), ("GG", g), ("GP", TPtr(g))]))
+  let t = TNamed(
+    "T",
+    sf([
+      ("A", int_),
+      ("B", str_),
+      ("C", TSlice(int_)),
+      ("D", TMap(str_, int_)),
+      ("E", TArray(TBool, 2)),
+      ("F", TPtr(inner)),
+      ("G", inner),
+      ("H", TFloat(32)),
+      ("I", TIface),
+      ("J", TSlice(inner)),
+      ("k", int_),
+      ("L", TUint(8)),
+      ("M", TComplex(128)),
+      ("N", gob.bytes_type()),
+    ]),
+  )
+  let t1 = TNamed("T1", sf([("A", int_), ("B", str_), ("C", TSlice(int_))]))
+  let t2 = TNamed("T2", sf([("B", str_), ("C", int_)]))
+  let t3 = TNamed("T3", sf([("X", int_), ("B", str_)]))
+  let t4 = TNamed("T4", sf([("X", int_), ("Y", int_)]))
+  let s8 = TNamed("S8", sf([("A", TInt(8))]))
+  let sff = TNamed("SF", sf([("F", TSlice(TFloat(32)))]))
+  let u = TNamed("U", sf([("a", int_), ("b", int_)]))
+  let empty = TNamed("Empty", sf([]))
+  let ptrslice = TNamed("PtrSlice", sf([("P", TSlice(TPtr(int_)))]))
+  let pv = (x: Int, y: Int) => VIface(p, st([i(x), i(y)]))
+  let box = TNamed("Box", sf([("B", TIface)]))
+  let bin = TExt("Bin", 2)
+  let withbin = TNamed("WithBin", sf([("N", int_), ("B", bin)]))
+  let bx = (v: gob.Value) => VIface(box, st([v]))
+
+  var reg = gob.new_registry("main")
+  reg = unwrap(reg.register(p))
+  reg = unwrap(reg.register(TPtr(q)))
+  reg = unwrap(reg.register_name("node", node))
+  reg = unwrap(reg.register(box))
+
+  reg = round(reg, "int", int_, i(7))
+  reg = round(reg, "int-neg", int_, i(-1))
+  reg = round(reg, "int-min", int_, i(-9223372036854775807 - 1))
+  reg = round(reg, "int8", TInt(8), i(-100))
+  reg = round(reg, "uint", TUint(64), VUint(-9223372036854775803))
+  reg = round(reg, "uint-small", TUint(0), VUint(200))
+  reg = round(reg, "float", TFloat(64), VFloat(1.5))
+  reg = round(reg, "float-neg-zero", TFloat(64), VFloat(-0.0))
+  reg = round(reg, "float32", TFloat(32), VFloat(0.10000000149011612))
+  reg = round(reg, "complex", TComplex(128), VComplex(1.5, -2.0))
+  reg = round(reg, "string", str_, s("héllo, 世界"))
+  reg = round(reg, "string-empty", str_, s(""))
+  reg = round(reg, "bytes", gob.bytes_type(), VBytes([0, 1, 2, 255]))
+  reg = round(reg, "bool-true", TBool, VBool(true))
+  reg = round(reg, "bool-false", TBool, VBool(false))
+  reg = round(reg, "slice", TSlice(int_), ints([1, -2, 300]))
+  reg = round(reg, "slice-empty", TSlice(int_), ints([]))
+  reg = round(reg, "strings", TSlice(str_), VList([s("a"), s(""), s("c")]))
+  reg = round(reg, "array", TArray(int_, 3), ints([0, 5, 0]))
+  reg = round(reg, "map", TMap(str_, int_), VMap([(s("k"), i(9))]))
+  reg = round(reg, "map-empty", TMap(int_, str_), VMap([]))
+  reg = round(reg, "ptr", TPtr(inner), st([i(3), s("y")]))
+  reg = round(reg, "inner", inner, st([i(0), s("")]))
+  let tzero = st([
+    i(0),
+    s(""),
+    VNil,
+    VNil,
+    VList([VBool(false), VBool(false)]),
+    VNil,
+    st([i(0), s("")]),
+    VFloat(0.0),
+    VNil,
+    VNil,
+    i(0),
+    VUint(0),
+    VComplex(0.0, 0.0),
+    VNil,
+  ])
+  reg = round(reg, "struct-zero", t, tzero)
+  reg = round(
+    reg,
+    "struct",
+    t,
+    st([
+      i(-5),
+      s("bee"),
+      ints([1, 2]),
+      VMap([(s("one"), i(1))]),
+      VList([VBool(false), VBool(true)]),
+      st([i(1), s("")]),
+      st([i(0), s("g")]),
+      VFloat(2.5),
+      pv(3, 4),
+      VList([st([i(7), s("")]), st([i(0), s("")])]),
+      i(99),
+      VUint(200),
+      VComplex(0.0, 1.0),
+      VBytes(__bytes("nn")),
+    ]),
+  )
+  reg = round(reg, "holder-p", holder, st([s("p"), pv(1, 2)]))
+  reg = round(reg, "holder-qptr", holder, st([s("q"), VIface(TPtr(q), st([s("zz")]))]))
+  reg = round(reg, "holder-int", holder, st([s(""), VIface(int_, i(42))]))
+  reg = round(reg, "holder-nested", holder, st([s("outer"), VIface(holder, st([
+    s("inner"),
+    pv(5, 6),
+  ]))]))
+  reg = round(
+    reg,
+    "holder-slice",
+    holder,
+    st([s(""), VIface(TSlice(TIface), VList([
+      VIface(int_, i(1)),
+      VIface(str_, s("s")),
+      pv(0, 0),
+      VNil,
+      VIface(TSlice(int_), ints([1])),
+    ]))]),
+  )
+  reg = round(
+    reg,
+    "anys",
+    TSlice(TIface),
+    VList([pv(1, 1), VIface(TPtr(q), st([s("q")])), VNil, VIface(holder, st([s(""), pv(2, 2)]))]),
+  )
+  reg = round(reg, "node", node, st([i(1), st([i(2), st([i(3), VNil])])]))
+  reg = round(reg, "holder-node", holder, st([s(""), VIface(node, st([i(8), VNil]))]))
+  reg = round(
+    reg,
+    "named",
+    named,
+    st([
+      ints([4, 5]),
+      VMap([(s("m"), ints([1]))]),
+      VList([VList([s("a")]), VList([]), VList([s("b"), s("c")])]),
+      VList([st([i(1), i(2)])]),
+      VList([VUint(1), VUint(0), VUint(65535)]),
+    ]),
+  )
+  reg = round(reg, "intlist", intlist, ints([9, 8]))
+  reg = round(reg, "withg", withg, st([i(1), VBytes([1, 2, 3]), VBytes(__bytes("p"))]))
+  reg = round(reg, "withg-zero", withg, st([i(0), VNil, VNil]))
+  reg = round(reg, "g", g, VBytes([7]))
+  reg = round(reg, "empty", empty, st([]))
+  reg = round(reg, "u", u, st([i(1), i(2)]))
+  reg = round(reg, "ptrslice", ptrslice, st([VList([VNil])]))
+  reg = round(reg, "holder-unreg", holder, st([s(""), VIface(t4, st([i(1), i(2)]))]))
+  reg = round(reg, "big-uint8s", TSlice(TUint(8)), VBytes([]))
+  reg = round(reg, "nested-maps", TMap(str_, TMap(str_, int_)), VMap([(s("a"), VMap([
+    (s("b"), i(1)),
+  ]))]))
+
+  reg = round(reg, "uintptr", TUint(-1), VUint(77))
+  reg = round(reg, "complex64", TComplex(64), VComplex(1.0, 2.0))
+  reg = round(reg, "i16s", TSlice(TInt(16)), ints([-1, 32767]))
+  reg = round(reg, "u32arr", TArray(TUint(32), 2), VList([VUint(1), VUint(4294967295)]))
+  reg = round(reg, "f32s", TSlice(TFloat(32)), VList([VFloat(0.5), VFloat(-1.0)]))
+  reg = round(reg, "c64s", TSlice(TComplex(64)), VList([VComplex(1.0, 0.0), VComplex(0.0, -3.0)]))
+  reg = round(reg, "c128s", TSlice(TComplex(128)), VList([VComplex(2.0, 2.0)]))
+  reg = round(reg, "bools", TSlice(TBool), VList([VBool(true), VBool(false)]))
+  reg = round(reg, "uints", TSlice(TUint(0)), VList([VUint(0), VUint(-1)]))
+  reg = round(reg, "uptrs", TSlice(TUint(-1)), VList([VUint(3)]))
+  reg = round(reg, "i8s", TSlice(TInt(8)), ints([-128, 127]))
+  reg = round(reg, "i32s", TSlice(TInt(32)), ints([-5]))
+  reg = round(reg, "i64s", TSlice(TInt(64)), ints([1099511627776]))
+  reg = round(reg, "u16s", TSlice(TUint(16)), VList([VUint(9)]))
+  reg = round(reg, "u64s", TSlice(TUint(64)), VList([VUint(-9223372036854775807 - 1)]))
+  reg = round(reg, "f64s", TSlice(TFloat(64)), VList([
+    VFloat(math.inf),
+    VFloat(0.0 - math.inf),
+    VFloat(1e-310),
+  ]))
+  reg = round(reg, "mapstruct", TMap(int_, p), VMap([(i(1), st([i(1), i(2)]))]))
+  reg = round(reg, "arrstruct", TArray(inner, 2), VList([st([i(1), s("")]), st([i(0), s("")])]))
+  reg = round(reg, "iface-ints", holder, st([s(""), VIface(TSlice(int_), ints([1, 2]))]))
+  reg = round(reg, "iface-map", holder, st([s(""), VIface(TMap(str_, int_), VMap([
+    (s("a"), i(1)),
+  ]))]))
+  reg = round(reg, "iface-bytes", holder, st([s(""), VIface(gob.bytes_type(), VBytes([1]))]))
+  reg = round(reg, "iface-string", holder, st([s(""), VIface(str_, s("x"))]))
+  reg = round(reg, "iface-float", holder, st([s(""), VIface(TFloat(64), VFloat(1.5))]))
+  reg = round(reg, "iface-uint8", holder, st([s(""), VIface(TUint(8), VUint(3))]))
+  reg = round(reg, "iface-bool", holder, st([s(""), VIface(TBool, VBool(false))]))
+  reg = round(reg, "iface-complex", holder, st([s(""), VIface(TComplex(64), VComplex(1.0, 0.0))]))
+  reg = round(reg, "iface-strings", holder, st([s(""), VIface(TSlice(str_), VList([
+    s("p"),
+    s("q"),
+  ]))]))
+  reg = round(reg, "box-nested", holder, st([s("h"), bx(bx(pv(7, 8)))]))
+  reg = round(
+    reg,
+    "box-mixed",
+    TSlice(box),
+    VList([st([pv(1, 2)]), st([VIface(TPtr(q), st([s("z")]))]), st([bx(VIface(int_, i(3)))]), st([
+      VNil,
+    ])]),
+  )
+  reg = round(reg, "withbin", withbin, st([i(2), VBytes(__bytes("bin"))]))
+  reg = round(reg, "bin", bin, VBytes([9, 9]))
+
+  // 同一个编码器连续编码
+  {
+    var e = gob.new_encoder_with(reg)
+    let (e1, r1) = e.encode(p, st([i(1), i(2)]))
+    let (e2, r2) = e1.encode(p, st([i(3), i(4)]))
+    let (e3, r3) = e2.encode(holder, st([s(""), pv(5, 6)]))
+    let (e4, r4) = e3.encode(int_, i(5))
+    e = e4
+    reg = e.registry()
+    print("multi " + errs(r1) + " " + errs(r2) + " " + errs(r3) + " " + errs(r4))
+    print("multi " + hex.encode_bytes(e.bytes()))
+    let d0 = gob.new_decoder_with(e.bytes(), reg)
+    let (d1, a) = d0.decode_into(p)
+    let (d2, b) = d1.decode_into(p)
+    let (d3, h) = d2.decode_into(holder)
+    let (d4, n) = d3.decode_into(int_)
+    let (_, n2) = d4.decode_into(int_)
+    let rs = (x: Result<gob.Value, Str>, ty: gob.Type) => match x {
+      Ok(v) => "ok " + show(reg, ty, v),
+      Err(m) => "err " + m,
+    }
+    print(
+      "multi " + rs(a, p) + " " + rs(b, p) + " " + rs(h, holder) + " " + rs(n, int_) + " " + rs(
+        n2,
+        int_,
+      ),
+    )
+    let (g1, x1) = gob.new_decoder_with(e.bytes(), reg).decode_ignore()
+    let (g2, x2) = g1.decode_ignore()
+    let (g3, x3) = g2.decode_ignore()
+    let (_, x4) = g3.decode_into(int_)
+    print("ignore " + errs(x1) + " " + errs(x2) + " " + errs(x3) + " " + rs(x4, int_))
+  }
+
+  // 解码到别的类型
+  let (reg1, t1b) = enc_bytes(reg, t1, st([i(300), s("b"), ints([1, 200])]))
+  reg = reg1
+  into(reg, "t1", t1, t1b)
+  into(reg, "t2", t2, t1b)
+  into(reg, "t3", t3, t1b)
+  into(reg, "t4", t4, t1b)
+  into(reg, "t1-int", int_, t1b)
+  into(reg, "t1-any", TIface, t1b)
+  into(reg, "s8", s8, t1b)
+  into(reg, "c8", sf([("C", TSlice(TInt(8)))]), t1b)
+  into(reg, "cbytes", sf([("C", TSlice(TUint(8)))]), t1b)
+  into(reg, "carray", sf([("C", TArray(int_, 2))]), t1b)
+  into(reg, "bbytes", sf([("B", gob.bytes_type())]), t1b)
+  into(reg, "auint", sf([("A", TUint(0))]), t1b)
+  into(reg, "aptr", sf([("A", TPtr(int_))]), t1b)
+  into(reg, "aptr2", sf([("A", TPtr(TPtr(int_)))]), t1b)
+  reg = into2(reg, "int-int8", TInt(8), int_, i(300))
+  reg = into2(reg, "uint-uint8", TUint(8), TUint(0), VUint(256))
+  reg = into2(reg, "uint-uint16", TUint(16), TUint(0), VUint(65535))
+  reg = into2(reg, "float-float32", TFloat(32), TFloat(64), VFloat(1e300))
+  reg = into2(reg, "float-float32-ok", TFloat(32), TFloat(64), VFloat(1e30))
+  reg = into2(reg, "sf", sff, sf([("F", TSlice(TFloat(64)))]), st([VList([
+    VFloat(1.0),
+    VFloat(1e100),
+  ])]))
+  reg = into2(reg, "int-string", str_, int_, i(1))
+  reg = into2(reg, "ints-strings", TSlice(str_), TSlice(int_), ints([1]))
+  reg = into2(reg, "map-map", TMap(str_, int_), TMap(str_, int_), VMap([(s("x"), i(1))]))
+  reg = into2(reg, "map-int8", TMap(str_, TInt(8)), TMap(str_, int_), VMap([(s("x"), i(1000))]))
+  reg = into2(reg, "array-len", TArray(int_, 2), TArray(int_, 3), ints([1, 2, 3]))
+  reg = into2(reg, "array-ok", TArray(int_, 3), TArray(int_, 3), ints([1, 2, 3]))
+  reg = into2(reg, "holder-p", holder, holder, st([s(""), pv(1, 2)]))
+  reg = into2(reg, "holder-inner", inner, holder, st([s(""), pv(1, 2)]))
+  reg = into2(reg, "p-from-holder", p, holder, st([s(""), pv(1, 2)]))
+  reg = into2(reg, "any-from-int", TIface, int_, i(1))
+  reg = into2(reg, "g-from-int", g, int_, i(1))
+  into(reg, "withg-t1", withg, t1b)
+  reg = into2(reg, "node-node", node, node, st([i(1), st([i(2), VNil])]))
+  into(reg, "empty-t1", empty, t1b)
+  reg = into2(reg, "next-int", sf([("Next", int_)]), node, st([i(1), st([i(2), VNil])]))
+
+  // 坏数据
+  into(reg, "empty-stream", t1, [])
+  var n = 1
+  while n < len(t1b) {
+    into(reg, "trunc {n}", t1, t1b[..n])
+    n += 3
+  }
+  for k in 0..len(t1b) {
+    for x in [0x01, 0x80, 0xff] {
+      let bad = set(t1b, k, t1b[k] ^ x)
+      let xs = if x == 1 { "01" } else if x == 0x80 { "80" } else { "ff" }
+      into(reg, "flip {k} " + xs, t1, bad)
+    }
+  }
+  let (reg3, hb) = enc_bytes(reg, holder, st([s("n"), pv(1, 2)]))
+  reg = reg3
+  for k in 0..len(hb) {
+    into(reg, "hflip {k}", holder, set(hb, k, hb[k] ^ 4))
+  }
+  let streams = [
+    ("holder", holder, st([s("x"), bx(pv(1, 2))])),
+    ("node", node, st([i(5), st([i(-6), VNil])])),
+    (
+      "named",
+      named,
+      st([
+        ints([1]),
+        VMap([(s("k"), ints([2, 3]))]),
+        VList([VList([s("s")])]),
+        VList([st([i(4), i(5)])]),
+        VList([VUint(6), VUint(7), VUint(8)]),
+      ]),
+    ),
+    ("withg", withg, st([i(1), VBytes([1, 2]), VBytes([3])])),
+  ]
+  for sm in streams {
+    let (r4, data) = enc_bytes(reg, sm.1, sm.2)
+    reg = r4
+    for k in 0..len(data) {
+      for x in [0x01, 0x40] {
+        let bad = set(data, k, data[k] ^ x)
+        let (d, res) = gob.new_decoder_with(bad, reg).decode_into(sm.1)
+        let (_, ig) = gob.new_decoder_with(bad, reg).decode_ignore()
+        let xs = if x == 1 { "01" } else { "40" }
+        match res {
+          Ok(v) => print(sm.0 + " {k} " + xs + " ok " + show(d.reg, sm.1, v) + " / " + errs(ig)),
+          Err(m) => print(sm.0 + " {k} " + xs + " err " + m + " / " + errs(ig)),
+        }
+      }
+    }
+  }
+  into(reg, "bad-uint", int_, [0xf0, 1, 2])
+  into(reg, "huge-len", int_, [0xfc, 0x7f, 0xff, 0xff, 0xff])
+  into(reg, "unknown-id", int_, [0x03, 0x7e, 0x00, 0x02])
+  into(reg, "dup-type", int_, t1b[..t1b[0] + 1] + t1b)
+  into(reg, "low-type", int_, [0x03, 0x05, 0x01, 0x00])
+  into(reg, "nonzero-single", int_, [0x03, 0x04, 0x01, 0x02])
+  into(reg, "extra-after-type", int_, [t1b[0] + 1] + t1b[1..t1b[0] + 1] + [0])
+  into(reg, "zero-len", int_, [0])
+}

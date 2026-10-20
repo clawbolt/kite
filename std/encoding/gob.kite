@@ -1,0 +1,1840 @@
+// std.encoding.gob：对齐 Go 1.27 encoding/gob（编码器、解码器、线上格式逐字节一致）
+//
+// Go 的 gob 靠反射拿到值的类型；Kite 没有反射，所以由调用方给出 Type（对应 Go 的 reflect.Type）和 Value：
+//   类型：TBool、TInt(位数，0 是 int)、TUint(位数，0 是 uint，-1 是 uintptr)、TFloat(32/64)、TComplex(64/128)、TString、
+//         TIface（any）、TArray(元素, 长度)、TSlice(元素)（元素是 uint8 时就是 []byte）、TMap(键, 值)、TStruct([(字段名, 类型)])、
+//         TPtr(元素)、TNamed(名字, 底层类型)（Go 里有名字的类型）、TRef(名字)（引用外层的 TNamed，用于递归类型）、
+//         TExt(名字, 种类)（实现了 GobEncoder(1) / BinaryMarshaler(2) / TextMarshaler(3) 的类型，值是编码好的 VBytes）。
+//   值：VBool、VInt、VUint（uint64 按位存在 Int 里）、VFloat、VComplex、VStr、VBytes、VList（数组 / 切片）、VMap（键值对列表）、
+//       VStruct（按 TStruct 的字段顺序）、VIface(具体类型, 值)、VNil（nil 指针 / 切片 / map / 接口，或 TExt 的零值）。
+//       指针不单独包一层：非 nil 指针的值就是它指向的值。
+// Go 里类型编号是进程全局分配的（第一个用户类型是 64）；这里放在 Registry 里，编码器 / 解码器之间显式传递
+//   （new_registry(包名)；enc.registry() 取回，new_encoder_with(reg) / new_decoder_with(bytes, reg) 接着用）。
+//   Register / RegisterName 是 reg.register(t) / reg.register_name(name, t)。包名决定类型的 String（"main.T"）。
+// 编码：enc = gob.new_encoder()；(enc, r) = enc.encode(t, v)；enc.bytes() 是写出的全部字节。
+// 解码：dec = gob.new_decoder(bytes)；(dec, r) = dec.decode_into(t) 按目标类型解码（Go 的 Decode(&x)，字段按名字匹配、
+//   整数范围检查、类型兼容检查和 Go 一样）；dec.decode_ignore() 是 Decode(nil)；
+//   dec.decode() 不给目标类型，按线上的类型描述解出 (Type, Value)（Kite 扩展）。
+// 错误文字同 Go（"gob: …"、"EOF"、"unexpected EOF" 等）。
+// 和 Go 的差别：
+//   - map 按 VMap 给出的顺序编码（Go 是随机顺序）；解码出的 VMap 按线上出现顺序，重复的键后者覆盖。
+//   - 没有 GobEncode / MarshalBinary 方法可调：TExt 的值直接是编码结果，解码得到原始字节。
+//   - Go 编码 nil 指针等情形是 panic，这里返回同样文字的错误；Debug（调试转储）没有移植。
+//   - 解码出的非法 UTF-8 字符串会被替换成 U+FFFD（Kite 的 Str 必须是合法 UTF-8）。
+//   - 切片过大检查用的元素大小按 64 位 Go 的内存布局估算。
+
+use std.math.bits
+use std.strconv
+use std.unicode
+use std.bytes
+
+pub enum Type {
+  TBool
+  TInt(bits: Int)
+  TUint(bits: Int)
+  TFloat(bits: Int)
+  TComplex(bits: Int)
+  TString
+  TIface
+  TArray(elem: Type, n: Int)
+  TSlice(elem: Type)
+  TMap(key: Type, elem: Type)
+  TStruct(fields: List<(Str, Type)>)
+  TPtr(elem: Type)
+  TNamed(name: Str, under: Type)
+  TRef(name: Str)
+  TExt(name: Str, kind: Int)
+}
+
+pub enum Value {
+  VBool(b: Bool)
+  VInt(i: Int)
+  VUint(u: Int)
+  VFloat(f: Float)
+  VComplex(re: Float, im: Float)
+  VStr(s: Str)
+  VBytes(bs: List<Int>)
+  VList(items: List<Value>)
+  VMap(entries: List<(Value, Value)>)
+  VStruct(fields: List<Value>)
+  VIface(t: Type, v: Value)
+  VNil
+}
+
+pub fn bytes_type() -> Type { TSlice(TUint(8)) }
+
+const FIRST_USER_ID: Int = 64
+const TOO_BIG: Int = 2147483648
+const T_BOOL: Int = 1
+const T_INT: Int = 2
+const T_UINT: Int = 3
+const T_FLOAT: Int = 4
+const T_BYTES: Int = 5
+const T_STRING: Int = 6
+const T_COMPLEX: Int = 7
+const T_IFACE: Int = 8
+const T_WIRE: Int = 16
+
+// ───────────── 类型的名字（reflect 的 Name / String） ─────────────
+
+fn qual(pkg: Str, n: Str) -> Str { if pkg == "" { n } else { pkg + "." + n } }
+
+fn int_name(b: Int) -> Str { if b == 0 { "int" } else { "int{b}" } }
+
+fn uint_name(b: Int) -> Str {
+  if b == 0 { return "uint" }
+  if b == -1 { return "uintptr" }
+  "uint{b}"
+}
+
+// reflect.Type.Name()
+fn go_name(t: Type) -> Str {
+  match t {
+    TBool => "bool",
+    TInt(b) => int_name(b),
+    TUint(b) => uint_name(b),
+    TFloat(b) => "float{b}",
+    TComplex(b) => "complex{b}",
+    TString => "string",
+    TNamed(n, _) => n,
+    TRef(n) => n,
+    TExt(n, _) => n,
+    _ => "",
+  }
+}
+
+// reflect.Type.String()
+fn go_str(pkg: Str, t: Type) -> Str {
+  match t {
+    TNamed(n, _) => qual(pkg, n),
+    TRef(n) => qual(pkg, n),
+    TExt(n, _) => qual(pkg, n),
+    TIface => "interface \{\}",
+    TArray(e, n) => "[{n}]" + go_str(pkg, e),
+    TSlice(e) => "[]" + go_str(pkg, e),
+    TMap(k, v) => "map[" + go_str(pkg, k) + "]" + go_str(pkg, v),
+    TPtr(e) => "*" + go_str(pkg, e),
+    TStruct(fs) => {
+      if len(fs) == 0 { return "struct \{\}" }
+      "struct \{ " + join(map(fs, (f) => f.0 + " " + go_str(pkg, f.1)), "; ") + " \}"
+    },
+    _ => go_name(t),
+  }
+}
+
+fn is_exported(name: Str) -> Bool {
+  if name == "" { return false }
+  unicode.is_upper(chars(name)[0])
+}
+
+// ───────────── 注册表（Go 的全局类型表） ─────────────
+
+// kind：0 内建，1 数组，2 切片，3 结构体，4 map，5 GobEncoder 一类（n 是种类 1/2/3）
+type GT = { id: Int, kind: Int, name: Str, elem: Str, key: Str, n: Int, fields: List<(Str, Str)> }
+
+pub type Registry = {
+  pkg: Str,
+  next: Int,
+  types: Map<Str, GT>,
+  ids: Map<Int, Str>,
+  defs: Map<Str, Type>,
+  n2t: Map<Str, Type>,
+  t2n: Map<Str, Str>,
+}
+
+pub fn new_registry(pkg: Str) -> Registry {
+  var r = Registry {
+    pkg: pkg,
+    next: FIRST_USER_ID,
+    types: Map(),
+    ids: Map(),
+    defs: Map(),
+    n2t: Map(),
+    t2n: Map(),
+  }
+  let names = ["bool", "int", "uint", "float", "bytes", "string", "complex", "interface"]
+  for i in 0..8 {
+    let k = "#{i + 1}"
+    r = Registry {
+      types: set(r.types, k, GT {
+        id: i + 1,
+        kind: 0,
+        name: names[i],
+        elem: "",
+        key: "",
+        n: 0,
+        fields: [],
+      }),
+      ids: set(r.ids, i + 1, k),
+      ..r
+    }
+  }
+  // Go 自己的内部类型 9..24（typeId.string() 会用到）
+  let gt = (id: Int, kind: Int, name: Str, elem: Str, fields: List<(Str, Str)>) => GT {
+    id: id,
+    kind: kind,
+    name: name,
+    elem: elem,
+    key: "",
+    n: 0,
+    fields: fields,
+  }
+  let common = ("CommonType", "#18")
+  let builtins = [
+    gt(16, 3, "wireType", "", [
+      ("ArrayT", "#17"),
+      ("SliceT", "#19"),
+      ("StructT", "#20"),
+      ("MapT", "#23"),
+      ("GobEncoderT", "#24"),
+      ("BinaryMarshalerT", "#24"),
+      ("TextMarshalerT", "#24"),
+    ]),
+    gt(17, 3, "arrayType", "", [common, ("Elem", "#2"), ("Len", "#2")]),
+    gt(18, 3, "CommonType", "", [("Name", "#6"), ("Id", "#2")]),
+    gt(19, 3, "sliceType", "", [common, ("Elem", "#2")]),
+    gt(20, 3, "structType", "", [common, ("Field", "#22")]),
+    gt(21, 3, "fieldType", "", [("Name", "#6"), ("Id", "#2")]),
+    gt(22, 2, "[]gob.fieldType", "#21", []),
+    gt(23, 3, "mapType", "", [common, ("Key", "#2"), ("Elem", "#2")]),
+    gt(24, 3, "gobEncoderType", "", [common]),
+  ] + map(0..7, (j) => gt(9 + j, 3, "_reserved{7 - j}", "", []))
+  for b in builtins {
+    let k = "#{b.id}"
+    r = Registry { types: set(r.types, k, b), ids: set(r.ids, b.id, k), ..r }
+  }
+  // registerBasics
+  let basics = [
+    TInt(0),
+    TInt(8),
+    TInt(16),
+    TInt(32),
+    TInt(64),
+    TUint(0),
+    TUint(8),
+    TUint(16),
+    TUint(32),
+    TUint(64),
+    TFloat(32),
+    TFloat(64),
+    TComplex(64),
+    TComplex(128),
+    TUint(-1),
+    TBool,
+    TString,
+  ]
+  for b in basics + [bytes_type()] + map(basics, (b) => TSlice(b)) {
+    let n = go_str("", b)
+    r = Registry { n2t: set(r.n2t, n, b), t2n: set(r.t2n, n, n), ..r }
+  }
+  r
+}
+
+fn collect(defs: Map<Str, Type>, t: Type) -> Map<Str, Type> {
+  match t {
+    TNamed(n, u) => collect(set(defs, n, t), u),
+    TArray(e, _) => collect(defs, e),
+    TSlice(e) => collect(defs, e),
+    TPtr(e) => collect(defs, e),
+    TMap(k, v) => collect(collect(defs, k), v),
+    TStruct(fs) => fold(fs, defs, (d, f) => collect(d, f.1)),
+    _ => defs,
+  }
+}
+
+impl Registry {
+  fn define(self, t: Type) -> Registry { Registry { defs: collect(self.defs, t), ..self } }
+
+  // gob.RegisterName
+  fn register_name(self, name: Str, t: Type) -> Result<Registry, Str> {
+    if name == "" { return Err("attempt to register empty name") }
+    let r = self.define(t)
+    let ts = go_str(r.pkg, t)
+    let bk = go_str(r.pkg, r.base(t))
+    if let Some(old) = get(r.n2t, name) {
+      if go_str(r.pkg, old) != ts {
+        return Err(
+          "gob: registering duplicate types for " + strconv.quote_go(name) + ": " + go_str(
+            r.pkg,
+            old,
+          ) + " != " + ts,
+        )
+      }
+    }
+    if let Some(n) = get(r.t2n, bk) {
+      if n != name {
+        return Err(
+          "gob: registering duplicate names for " + ts + ": " + strconv
+            .quote_go(n) + " != " + strconv
+            .quote_go(name),
+        )
+      }
+    }
+    Ok(Registry { n2t: set(r.n2t, name, t), t2n: set(r.t2n, bk, name), ..r })
+  }
+
+  // gob.Register：名字是类型的 String（Go 的规则在这里总是得到 String）
+  fn register(self, t: Type) -> Result<Registry, Str> { self.register_name(go_str(self.pkg, t), t) }
+
+  fn resolve(self, t: Type) -> Type {
+    match t {
+      TRef(n) => match get(self.defs, n) {
+        Some(d) => d,
+        None => t,
+      },
+      _ => t,
+    }
+  }
+
+  // userType(t).base：去掉指针
+  fn base(self, t: Type) -> Type {
+    match self.resolve(t) {
+      TPtr(e) => self.base(e),
+      x => x,
+    }
+  }
+
+  fn indir(self, t: Type) -> Int {
+    match self.resolve(t) {
+      TPtr(e) => 1 + self.indir(e),
+      _ => 0,
+    }
+  }
+
+  // 底层类型（去掉指针和名字）
+  fn under(self, t: Type) -> Type {
+    match self.base(t) {
+      TNamed(_, u) => self.under(u),
+      x => x,
+    }
+  }
+
+  fn is_ext(self, t: Type) -> Bool {
+    match self.base(t) {
+      TExt(_, _) => true,
+      _ => false,
+    }
+  }
+
+  fn is_bytes(self, t: Type) -> Bool {
+    match self.under(t) {
+      TSlice(e) => match self.under(e) {
+        TUint(8) => true,
+        _ => false,
+      },
+      _ => false,
+    }
+  }
+
+  fn builtin_id(self, t: Type) -> Int {
+    if self.is_ext(t) { return 0 }
+    if self.is_bytes(t) { return T_BYTES }
+    match self.under(t) {
+      TBool => T_BOOL,
+      TInt(_) => T_INT,
+      TUint(_) => T_UINT,
+      TFloat(_) => T_FLOAT,
+      TString => T_STRING,
+      TComplex(_) => T_COMPLEX,
+      TIface => T_IFACE,
+      _ => 0,
+    }
+  }
+
+  fn str(self, t: Type) -> Str { go_str(self.pkg, t) }
+
+  fn gt(self, key: Str) -> GT { unwrap(get(self.types, key)) }
+
+  fn id_of(self, key: Str) -> Int { self.gt(key).id }
+
+  fn put(self, key: Str, g: GT) -> Registry { Registry { types: set(self.types, key, g), ..self } }
+
+  fn set_type_id(self, key: Str) -> Registry {
+    let g = self.gt(key)
+    if g.id != 0 { return self }
+    Registry {
+      types: set(self.types, key, GT { id: self.next, ..g }),
+      ids: set(self.ids, self.next, key),
+      next: self.next + 1,
+      ..self
+    }
+  }
+
+  // getBaseType(name, rt)：返回 gob 类型在表里的键
+  fn get_base_type(self, name: Str, t: Type) -> (Registry, Str) {
+    let b = self.base(t)
+    let bid = self.builtin_id(b)
+    if bid > 0 { return (self, "#{bid}") }
+    let key = self.str(b)
+    if let Some(_) = get(self.types, key) { return (self, key) }
+    self.new_type_object(name, b, key)
+  }
+
+  fn new_type_object(self, name: Str, b: Type, key: Str) -> (Registry, Str) {
+    let g0 = GT { id: 0, kind: 0, name: name, elem: "", key: "", n: 0, fields: [] }
+    if let TExt(_, k) = b {
+      return (self.put(key, GT { kind: 5, n: k, ..g0 }).set_type_id(key), key)
+    }
+    match self.under(b) {
+      TArray(e, n) => {
+        let r0 = self.put(key, GT { kind: 1, ..g0 })
+        let (r1, ek) = r0.get_base_type("", e)
+        let r2 = r1.set_type_id(key)
+        (r2.put(key, GT { elem: ek, n: n, ..r2.gt(key) }), key)
+      },
+      TMap(k, v) => {
+        let r0 = self.put(key, GT { kind: 4, ..g0 })
+        let (r1, kk) = r0.get_base_type("", k)
+        let (r2, vk) = r1.get_base_type("", v)
+        let r3 = r2.set_type_id(key)
+        (r3.put(key, GT { key: kk, elem: vk, ..r3.gt(key) }), key)
+      },
+      TSlice(e) => {
+        let r0 = self.put(key, GT { kind: 2, ..g0 })
+        let (r1, ek) = r0.get_base_type(go_name(self.resolve(e)), e)
+        let r2 = r1.set_type_id(key).set_type_id(ek)
+        (r2.put(key, GT { elem: ek, ..r2.gt(key) }), key)
+      },
+      TStruct(fs) => {
+        var r = self.put(key, GT { kind: 3, ..g0 }).set_type_id(key)
+        var fields: List<(Str, Str)> = []
+        for f in fs {
+          if !is_exported(f.0) { continue }
+          let typ = r.base(f.1)
+          let tname = if go_name(typ) == "" { r.str(typ) } else { go_name(typ) }
+          let (r1, fk) = r.get_base_type(tname, f.1)
+          r = r1.set_type_id(fk)
+          fields = push(fields, (f.0, fk))
+        }
+        (r.put(key, GT { fields: fields, ..r.gt(key) }), key)
+      },
+      _ => (self, "#0"),
+    }
+  }
+
+  // typeId.string()：本地表里的类型描述（safeString）
+  fn id_string(self, id: Int) -> Str {
+    match get(self.ids, id) {
+      Some(k) => self.safe_string(k, Map()),
+      None => "<nil>",
+    }
+  }
+
+  fn safe_string(self, key: Str, seen: Map<Int, Bool>) -> Str {
+    let g = self.gt(key)
+    if g.kind == 0 || g.kind == 5 { return g.name }
+    if let Some(_) = get(seen, g.id) { return g.name }
+    let s2 = set(seen, g.id, true)
+    if g.kind == 1 { return "[{g.n}]" + self.safe_string(g.elem, s2) }
+    if g.kind == 2 { return "[]" + self.safe_string(g.elem, s2) }
+    if g.kind == 4 {
+      return "map[" + self.safe_string(g.key, s2) + "]" + self.safe_string(g.elem, s2)
+    }
+    var out = g.name + " = struct \{ "
+    var s = s2
+    for f in g.fields {
+      out = out + f.0 + " " + self.safe_string(f.1, s) + "; "
+      s = set(s, self.id_of(f.1), true)
+    }
+    out + "\}"
+  }
+}
+
+// ───────────── 基本编码 ─────────────
+
+pub fn encode_uint(x: Int) -> List<Int> {
+  if x >= 0 && x <= 0x7f { return [x] }
+  var bs: List<Int> = []
+  var v = x
+  while v != 0 {
+    bs = push(bs, v & 255)
+    v = bits.shr(v, 8)
+  }
+  [256 - len(bs)] + reverse(bs)
+}
+
+pub fn encode_int(i: Int) -> List<Int> {
+  if i < 0 { encode_uint(((~i) << 1) | 1) } else { encode_uint(i << 1) }
+}
+
+fn enc_str(s: List<Int>) -> List<Int> { encode_uint(len(s)) + s }
+
+fn float_bits(f: Float) -> Int { bits.reverse_bytes64(strconv.float64_bits(f)) }
+
+// 结构体编码：[(字段号, 已编码的值)]，按字段号递增，末尾 0
+fn struct_enc(items: List<(Int, List<Int>)>) -> List<Int> {
+  var out: List<Int> = []
+  var last = -1
+  for it in items {
+    out = out + encode_uint(it.0 - last) + it.1
+    last = it.0
+  }
+  push(out, 0)
+}
+
+fn wire_bytes(r: Registry, g: GT) -> List<Int> {
+  var ci: List<(Int, List<Int>)> = []
+  if g.name != "" { ci = push(ci, (0, enc_str(__bytes(g.name)))) }
+  if g.id != 0 { ci = push(ci, (1, encode_int(g.id))) }
+  let common = (0, struct_enc(ci))
+  let opt = (i: Int, v: Int) => if v != 0 { [(i, encode_int(v))] } else { [] }
+  if g.kind == 1 {
+    return struct_enc([(0, struct_enc([common] + opt(1, r.id_of(g.elem)) + opt(2, g.n)))])
+  }
+  if g.kind == 2 { return struct_enc([(1, struct_enc([common] + opt(1, r.id_of(g.elem))))]) }
+  if g.kind == 4 {
+    return struct_enc([
+      (3, struct_enc([common] + opt(1, r.id_of(g.key)) + opt(2, r.id_of(g.elem)))),
+    ])
+  }
+  if g.kind == 5 { return struct_enc([(3 + g.n, struct_enc([common]))]) }
+  var fs: List<(Int, List<Int>)> = [common]
+  if len(g.fields) > 0 {
+    var body = encode_uint(len(g.fields))
+    for f in g.fields {
+      var fi: List<(Int, List<Int>)> = []
+      if f.0 != "" { fi = push(fi, (0, enc_str(__bytes(f.0)))) }
+      let fid = r.id_of(f.1)
+      if fid != 0 { fi = push(fi, (1, encode_int(fid))) }
+      body = body + struct_enc(fi)
+    }
+    fs = push(fs, (1, body))
+  }
+  struct_enc([(2, struct_enc(fs))])
+}
+
+// ───────────── 编码器 ─────────────
+
+pub type Encoder = { reg: Registry, sent: Map<Str, Int>, out: List<Int> }
+
+pub fn new_encoder() -> Encoder { new_encoder_with(new_registry("main")) }
+
+pub fn new_encoder_with(reg: Registry) -> Encoder { Encoder { reg: reg, sent: Map(), out: [] } }
+
+// 编码过程的状态：w 是当前的“写出目标”，b 是正在拼的消息（Go 的 encBuffer，不含 9 字节的长度预留）
+type St = { reg: Registry, sent: Map<Str, Int>, w: List<Int>, b: List<Int>, err: Option<Str> }
+
+fn fail(st: St, msg: Str) -> St { if st.err == None { St { err: Some(msg), ..st } } else { st } }
+
+fn bad(st: St) -> Bool { st.err != None }
+
+fn emit(st: St, bs: List<Int>) -> St { St { b: st.b + bs, ..st } }
+
+// writeMessage(w, b)
+fn write_msg(st: St) -> St {
+  if len(st.b) >= TOO_BIG { return fail(St { b: [], ..st }, "gob: encoder: message too big") }
+  St { w: st.w + encode_uint(len(st.b)) + st.b, b: [], ..st }
+}
+
+// getTypeInfo(ut)：(st, 类型编号, gob 类型的键)
+fn type_info(st: St, t: Type) -> (St, Int, Str) {
+  let r = st.reg
+  let rt = if r.is_ext(t) { t } else { r.base(t) }
+  let (r1, key) = r.get_base_type(go_name(r.resolve(rt)), rt)
+  (St { reg: r1, ..st }, r1.id_of(key), key)
+}
+
+fn send_actual_type(st0: St, t: Type) -> (St, Bool) {
+  let r = st0.reg
+  let actual = r.base(t)
+  let ak = r.str(actual)
+  if let Some(_) = get(st0.sent, ak) { return (st0, false) }
+  let (st1, id, key) = type_info(st0, t)
+  var st = emit(st1, encode_int(-id))
+  st = emit(st, wire_bytes(st.reg, st.reg.gt(key)))
+  st = write_msg(st)
+  if bad(st) { return (st, true) }
+  st = St { sent: set(set(st.sent, ak, id), r.str(t), id), ..st }
+  match r.under(actual) {
+    TStruct(fs) => {
+      for f in fs {
+        if is_exported(f.0) { st = send_type(st, f.1).0 }
+      }
+    },
+    TArray(e, _) => { st = send_type(st, e).0 },
+    TSlice(e) => { st = send_type(st, e).0 },
+    TMap(k, v) => { st = send_type(send_type(st, k).0, v).0 },
+    _ => {},
+  }
+  (st, true)
+}
+
+fn send_type(st: St, t: Type) -> (St, Bool) {
+  let r = st.reg
+  if r.is_ext(t) { return send_actual_type(st, r.base(t)) }
+  if r.is_bytes(t) { return (st, false) }
+  match r.under(t) {
+    TArray(_, _) => send_actual_type(st, r.base(t)),
+    TSlice(_) => send_actual_type(st, r.base(t)),
+    TMap(_, _) => send_actual_type(st, r.base(t)),
+    TStruct(_) => send_actual_type(st, r.base(t)),
+    _ => (st, false),
+  }
+}
+
+fn send_type_descriptor(st: St, t: Type) -> St {
+  let r = st.reg
+  let rt = if r.is_ext(t) { t } else { r.base(t) }
+  let k = r.str(rt)
+  if let Some(_) = get(st.sent, k) { return st }
+  let (st1, sent) = send_type(st, rt)
+  if bad(st1) { return st1 }
+  if sent { return st1 }
+  let (st2, id, _) = type_info(st1, t)
+  St { sent: set(st2.sent, k, id), ..st2 }
+}
+
+fn send_type_id(st: St, t: Type) -> St {
+  let id = unwrap_or(get(st.sent, st.reg.str(st.reg.base(t))), 0)
+  emit(st, encode_int(id))
+}
+
+// state.update(instr)：field < 0 表示没有 instr（数组元素等）
+fn upd(st: St, field: Int, fieldnum: Int) -> (St, Int) {
+  if field < 0 { return (st, fieldnum) }
+  (emit(st, encode_uint(field - fieldnum)), field)
+}
+
+fn mismatch(st: St, t: Type, v: Value) -> St {
+  let _ = v
+  fail(st, "gob: value does not match type " + st.reg.str(t))
+}
+
+// 一个值（encOp）：返回新的 fieldnum；指针已经由调用方处理
+fn enc_op(st: St, t: Type, v: Value, field: Int, fieldnum: Int, send_zero: Bool) -> (St, Int) {
+  let r = st.reg
+  if r.is_ext(t) {
+    if !send_zero && v == VNil { return (st, fieldnum) }
+    let (s1, fnum) = upd(st, field, fieldnum)
+    return match v {
+      VBytes(bs) => (emit(s1, enc_str(bs)), fnum),
+      VNil => (emit(s1, enc_str([])), fnum),
+      _ => (mismatch(s1, t, v), fnum),
+    }
+  }
+  if r.is_bytes(t) {
+    let bs = match v {
+      VBytes(x) => x,
+      VNil => [],
+      _ => { return (mismatch(st, t, v), fieldnum) },
+    }
+    if len(bs) == 0 && !send_zero { return (st, fieldnum) }
+    let (s1, fnum) = upd(st, field, fieldnum)
+    return (emit(s1, enc_str(bs)), fnum)
+  }
+  match r.under(t) {
+    TBool => {
+      let VBool(b) = v else { return (mismatch(st, t, v), fieldnum) }
+      if !b && !send_zero { return (st, fieldnum) }
+      let (s1, fnum) = upd(st, field, fieldnum)
+      (emit(s1, [if b { 1 } else { 0 }]), fnum)
+    },
+    TInt(_) => {
+      let VInt(i) = v else { return (mismatch(st, t, v), fieldnum) }
+      if i == 0 && !send_zero { return (st, fieldnum) }
+      let (s1, fnum) = upd(st, field, fieldnum)
+      (emit(s1, encode_int(i)), fnum)
+    },
+    TUint(_) => {
+      let VUint(u) = v else { return (mismatch(st, t, v), fieldnum) }
+      if u == 0 && !send_zero { return (st, fieldnum) }
+      let (s1, fnum) = upd(st, field, fieldnum)
+      (emit(s1, encode_uint(u)), fnum)
+    },
+    TFloat(_) => {
+      let VFloat(f) = v else { return (mismatch(st, t, v), fieldnum) }
+      if f == 0.0 && !send_zero { return (st, fieldnum) }
+      let (s1, fnum) = upd(st, field, fieldnum)
+      (emit(s1, encode_uint(float_bits(f))), fnum)
+    },
+    TComplex(_) => {
+      let VComplex(re, im) = v else { return (mismatch(st, t, v), fieldnum) }
+      if re == 0.0 && im == 0.0 && !send_zero { return (st, fieldnum) }
+      let (s1, fnum) = upd(st, field, fieldnum)
+      (emit(s1, encode_uint(float_bits(re)) + encode_uint(float_bits(im))), fnum)
+    },
+    TString => {
+      let VStr(s) = v else { return (mismatch(st, t, v), fieldnum) }
+      if s == "" && !send_zero { return (st, fieldnum) }
+      let (s1, fnum) = upd(st, field, fieldnum)
+      (emit(s1, enc_str(__bytes(s))), fnum)
+    },
+    TSlice(e) => {
+      let items = match v {
+        VList(xs) => xs,
+        VNil => [],
+        _ => { return (mismatch(st, t, v), fieldnum) },
+      }
+      if !send_zero && len(items) == 0 { return (st, fieldnum) }
+      let (s1, fnum) = upd(st, field, fieldnum)
+      (enc_array(s1, e, items), fnum)
+    },
+    TArray(e, n) => {
+      let VList(items) = v else { return (mismatch(st, t, v), fieldnum) }
+      if len(items) != n { return (mismatch(st, t, v), fieldnum) }
+      let (s1, fnum) = upd(st, field, fieldnum)
+      (enc_array(s1, e, items), fnum)
+    },
+    TMap(k, e) => {
+      let entries = match v {
+        VMap(xs) => xs,
+        VNil => { if !send_zero { return (st, fieldnum) } else { [] } },
+        _ => { return (mismatch(st, t, v), fieldnum) },
+      }
+      let (s1, fnum) = upd(st, field, fieldnum)
+      (enc_map(s1, k, e, entries), fnum)
+    },
+    TStruct(_) => {
+      let (s1, fnum) = upd(st, field, fieldnum)
+      (enc_struct(s1, t, v), fnum)
+    },
+    TIface => {
+      if !send_zero && v == VNil { return (st, fieldnum) }
+      let (s1, fnum) = upd(st, field, fieldnum)
+      (enc_iface(s1, v), fnum)
+    },
+    _ => (fail(st, "gob: can't happen: encode type " + r.str(t)), fieldnum),
+  }
+}
+
+fn is_nil_ptr(r: Registry, t: Type, v: Value) -> Bool { r.indir(t) > 0 && v == VNil }
+
+fn enc_array(st0: St, e: Type, items: List<Value>) -> St {
+  var st = emit(st0, encode_uint(len(items)))
+  for x in items {
+    if is_nil_ptr(st.reg, e, x) { return fail(st, "gob: encodeArray: nil element") }
+    st = enc_op(st, e, x, -1, -1, true).0
+    if bad(st) { return st }
+  }
+  st
+}
+
+fn enc_map(st0: St, k: Type, e: Type, entries: List<(Value, Value)>) -> St {
+  var st = emit(st0, encode_uint(len(entries)))
+  for kv in entries {
+    if is_nil_ptr(st.reg, k, kv.0) || is_nil_ptr(st.reg, e, kv.1) {
+      return fail(st, "gob: encodeReflectValue: nil element")
+    }
+    st = enc_op(st, k, kv.0, -1, -1, true).0
+    st = enc_op(st, e, kv.1, -1, -1, true).0
+    if bad(st) { return st }
+  }
+  st
+}
+
+fn enc_struct(st0: St, t: Type, v: Value) -> St {
+  let r = st0.reg
+  let TStruct(fs) = r.under(t) else {
+    return fail(st0, "gob: can't happen: encode type " + r.str(t))
+  }
+  if len(fs) > 0 && !any(fs, (f) => is_exported(f.0)) {
+    return fail(st0, "gob: type " + r.str(r.base(t)) + " has no exported fields")
+  }
+  let vals = match v {
+    VStruct(xs) => xs,
+    _ => { return mismatch(st0, t, v) },
+  }
+  if len(vals) != len(fs) { return mismatch(st0, t, v) }
+  var st = st0
+  var fieldnum = -1
+  var wire = 0
+  for i in 0..len(fs) {
+    let f = fs[i]
+    if !is_exported(f.0) { continue }
+    let x = vals[i]
+    if !(st.reg.indir(f.1) > 0 && x == VNil) {
+      let (s1, fnum) = enc_op(st, f.1, x, wire, fieldnum, false)
+      st = s1
+      fieldnum = fnum
+      if bad(st) { return st }
+    }
+    wire += 1
+  }
+  emit(st, [0])
+}
+
+fn enc_iface(st0: St, v: Value) -> St {
+  let (ct, cv) = match v {
+    VNil => { return emit(st0, [0]) },
+    VIface(t, x) => (t, x),
+    _ => { return fail(st0, "gob: value does not match type interface \{\}") },
+  }
+  let r = st0.reg.define(ct)
+  if is_nil_ptr(r, ct, cv) {
+    return fail(st0, "gob: cannot encode nil pointer of type " + r.str(ct) + " inside interface")
+  }
+  let name = match get(r.t2n, r.str(r.base(ct))) {
+    Some(n) => n,
+    None => { return fail(st0, "gob: type not registered for interface: " + r.str(r.base(ct))) },
+  }
+  var st = emit(St { reg: r, ..st0 }, enc_str(__bytes(name)))
+  st = send_type_descriptor(st, ct)
+  if bad(st) { return st }
+  st = send_type_id(st, ct)
+  let outer_w = st.w
+  let inner = enc_value(St { w: st.b, b: [], ..st }, ct, cv)
+  if bad(inner) { return St { w: outer_w, ..inner } }
+  let s2 = write_msg(St { w: inner.w, b: inner.b, ..inner })
+  St { w: outer_w, b: s2.w, ..s2 }
+}
+
+// enc.encode(b, value, ut)
+fn enc_value(st: St, t: Type, v: Value) -> St {
+  let r = st.reg
+  if !r.is_ext(t) {
+    if let TStruct(_) = r.under(t) {
+      if v == VNil { return st }
+      return enc_struct(st, t, v)
+    }
+  }
+  // encodeSingle：fieldnum = 0，sendZero
+  if r.indir(t) > 0 && v == VNil { return st }
+  enc_op(st, r.base(t), v, 0, 0, true).0
+}
+
+impl Encoder {
+  fn bytes(self) -> List<Int> { self.out }
+
+  fn registry(self) -> Registry { self.reg }
+
+  // Encoder.Encode / EncodeValue
+  fn encode(self, t: Type, v: Value) -> (Encoder, Result<(), Str>) {
+    let reg = self.reg.define(t)
+    if reg.indir(t) > 0 && v == VNil {
+      return (
+        Encoder { reg: reg, ..self },
+        Err("gob: cannot encode nil pointer of type " + reg.str(t)),
+      )
+    }
+    var st = St { reg: reg, sent: self.sent, w: self.out, b: [], err: None }
+    st = send_type_descriptor(st, t)
+    if !bad(st) {
+      st = send_type_id(st, t)
+      st = enc_value(st, t, v)
+      if !bad(st) { st = write_msg(st) }
+    }
+    let e = Encoder { reg: st.reg, sent: st.sent, out: st.w }
+    match st.err {
+      Some(m) => (e, Err(m)),
+      None => (e, Ok(())),
+    }
+  }
+}
+
+// ───────────── 解码器 ─────────────
+
+// 线上的类型描述（wireType）；kind：1 数组，2 切片，3 结构体，4 map，5 GobEncoder，6 BinaryMarshaler，7 TextMarshaler
+pub type Wire = {
+  kind: Int,
+  name: Str,
+  id: Int,
+  elem: Int,
+  key: Int,
+  n: Int,
+  fields: List<(Str, Int)>,
+}
+
+pub type Decoder = {
+  data: List<Int>,
+  pos: Int,
+  buf: List<Int>,
+  off: Int,
+  // 每个编号的 wireType 里不是 nil 的那些部分（按字段顺序，kind 1..7）
+  wire: Map<Int, List<Wire>>,
+  reg: Registry,
+  err: Option<Str>,
+  depth: Int,
+}
+
+pub fn new_decoder(data: List<Int>) -> Decoder { new_decoder_with(data, new_registry("main")) }
+
+pub fn new_decoder_with(data: List<Int>, reg: Registry) -> Decoder {
+  Decoder { data: data, pos: 0, buf: [], off: 0, wire: Map(), reg: reg, err: None, depth: 0 }
+}
+
+type DR<T> = Result<(Decoder, T), Str>
+
+fn ovfl(name: Str) -> Str { "value for \"" + name + "\" out of range" }
+
+fn wfield(name: Str, id: Int) -> (Str, Int) { (name, id) }
+
+// Go 自己的那几个内部类型（编号 16 起，见 type.go 的 init）
+fn builtin_wire(id: Int) -> Option<Wire> {
+  let w0 = Wire { kind: 3, name: "", id: id, elem: 0, key: 0, n: 0, fields: [] }
+  let common = wfield("CommonType", 18)
+  if id == 16 {
+    return Some(Wire {
+      name: "wireType",
+      fields: [
+        wfield("ArrayT", 17),
+        wfield("SliceT", 19),
+        wfield("StructT", 20),
+        wfield("MapT", 23),
+        wfield("GobEncoderT", 24),
+        wfield("BinaryMarshalerT", 24),
+        wfield("TextMarshalerT", 24),
+      ],
+      ..w0
+    })
+  }
+  if id == 17 {
+    return Some(Wire {
+      name: "arrayType",
+      fields: [common, wfield("Elem", 2), wfield("Len", 2)],
+      ..w0
+    })
+  }
+  if id == 18 {
+    return Some(Wire { name: "CommonType", fields: [wfield("Name", 6), wfield("Id", 2)], ..w0 })
+  }
+  if id == 19 { return Some(Wire { name: "sliceType", fields: [common, wfield("Elem", 2)], ..w0 }) }
+  if id == 20 {
+    return Some(Wire { name: "structType", fields: [common, wfield("Field", 22)], ..w0 })
+  }
+  if id == 21 {
+    return Some(Wire { name: "fieldType", fields: [wfield("Name", 6), wfield("Id", 2)], ..w0 })
+  }
+  if id == 22 { return Some(Wire { kind: 2, name: "[]gob.fieldType", elem: 21, ..w0 }) }
+  if id == 23 {
+    return Some(Wire {
+      name: "mapType",
+      fields: [common, wfield("Key", 2), wfield("Elem", 2)],
+      ..w0
+    })
+  }
+  if id == 24 { return Some(Wire { name: "gobEncoderType", fields: [common], ..w0 }) }
+  None
+}
+
+// Go 端解码 wireType 时用的本地类型
+fn wire_local() -> Type {
+  let common = ("CommonType", TNamed("CommonType", TStruct([("Name", TString), ("Id", TInt(32))])))
+  let ge = TPtr(TNamed("gobEncoderType", TStruct([common])))
+  TNamed(
+    "wireType",
+    TStruct([
+      ("ArrayT", TPtr(TNamed("arrayType", TStruct([
+        common,
+        ("Elem", TInt(32)),
+        ("Len", TInt(0)),
+      ])))),
+      ("SliceT", TPtr(TNamed("sliceType", TStruct([common, ("Elem", TInt(32))])))),
+      (
+        "StructT",
+        TPtr(TNamed(
+          "structType",
+          TStruct([common, ("Field", TSlice(TNamed("fieldType", TStruct([
+            ("Name", TString),
+            ("Id", TInt(32)),
+          ]))))]),
+        )),
+      ),
+      ("MapT", TPtr(TNamed("mapType", TStruct([common, ("Key", TInt(32)), ("Elem", TInt(32))])))),
+      ("GobEncoderT", ge),
+      ("BinaryMarshalerT", ge),
+      ("TextMarshalerT", ge),
+    ]),
+  )
+}
+
+fn vint(v: Value) -> Int {
+  match v {
+    VInt(i) => i,
+    _ => 0,
+  }
+}
+
+fn vstr(v: Value) -> Str {
+  match v {
+    VStr(s) => s,
+    _ => "",
+  }
+}
+
+fn vfields(v: Value) -> List<Value> {
+  match v {
+    VStruct(xs) => xs,
+    _ => [],
+  }
+}
+
+fn to_wire(v: Value) -> List<Wire> {
+  let fs = vfields(v)
+  var parts: List<Wire> = []
+  let w0 = Wire { kind: 0, name: "", id: 0, elem: 0, key: 0, n: 0, fields: [] }
+  let common = (x: Value) => {
+    let c = vfields(vfields(x)[0])
+    (vstr(c[0]), vint(c[1]))
+  }
+  for i in 0..7 {
+    let x = fs[i]
+    if x == VNil { continue }
+    let (name, id) = common(x)
+    let s = vfields(x)
+    let w = Wire { name: name, id: id, ..w0 }
+    parts = push(parts, to_part(i, w, s))
+  }
+  parts
+}
+
+fn to_part(i: Int, w: Wire, s: List<Value>) -> Wire {
+  if true {
+    if i == 0 { return Wire { kind: 1, elem: vint(s[1]), n: vint(s[2]), ..w } }
+    if i == 1 { return Wire { kind: 2, elem: vint(s[1]), ..w } }
+    if i == 2 {
+      let flist = match s[1] {
+        VList(xs) => map(xs, (f) => (vstr(vfields(f)[0]), vint(vfields(f)[1]))),
+        _ => [],
+      }
+      return Wire { kind: 3, fields: flist, ..w }
+    }
+    if i == 3 { return Wire { kind: 4, key: vint(s[1]), elem: vint(s[2]), ..w } }
+  }
+  Wire { kind: 5 + (i - 4), ..w }
+}
+
+fn wire_string(w: Option<List<Wire>>) -> Str {
+  match w {
+    None => "unknown type",
+    Some(ps) => if len(ps) == 0 { "unknown type" } else { ps[0].name },
+  }
+}
+
+// decIgnoreOpFor 的判断顺序：ArrayT、MapT、SliceT、StructT、各种 Marshaler
+fn ignore_part(ps: List<Wire>) -> Option<Wire> {
+  for k in [1, 4, 2, 3, 5, 6, 7] {
+    for x in ps {
+      if x.kind == k { return Some(x) }
+    }
+  }
+  None
+}
+
+impl Decoder {
+  fn blen(self) -> Int { len(self.buf) - self.off }
+
+  // dec.wireType[id] 里 kind 那一部分
+  fn part(self, id: Int, kind: Int) -> Option<Wire> {
+    match get(self.wire, id) {
+      None => None,
+      Some(ps) => {
+        for x in ps {
+          if x.kind == kind { return Some(x) }
+        }
+        None
+      },
+    }
+  }
+
+  // decodeUintReader（从流里读）：(值, 错误)
+  fn stream_uint(self) -> (Decoder, Int, Option<Str>) {
+    if self.pos >= len(self.data) { return (self, 0, Some("EOF")) }
+    let b = self.data[self.pos]
+    let d = Decoder { pos: self.pos + 1, ..self }
+    if b <= 0x7f { return (d, b, None) }
+    let n = 256 - b
+    if n > 8 { return (d, 0, Some("gob: encoded unsigned integer out of range")) }
+    if d.pos + n > len(d.data) {
+      return (Decoder { pos: len(d.data), ..d }, 0, Some("unexpected EOF"))
+    }
+    var x = 0
+    for i in 0..n { x = (x << 8) | d.data[d.pos + i] }
+    (Decoder { pos: d.pos + n, ..d }, x, None)
+  }
+
+  // decodeUintReader（从当前消息里读，nextInt / nextUint 用）
+  fn buf_uint_reader(self) -> (Decoder, Int, Option<Str>) {
+    if self.blen() == 0 { return (self, 0, Some("EOF")) }
+    let b = self.buf[self.off]
+    let d = Decoder { off: self.off + 1, ..self }
+    if b <= 0x7f { return (d, b, None) }
+    let n = 256 - b
+    if n > 8 { return (d, 0, Some("gob: encoded unsigned integer out of range")) }
+    if d.blen() < n { return (Decoder { off: len(d.buf), ..d }, 0, Some("unexpected EOF")) }
+    var x = 0
+    for i in 0..n { x = (x << 8) | d.buf[d.off + i] }
+    (Decoder { off: d.off + n, ..d }, x, None)
+  }
+
+  fn recv_message(self) -> Result<Decoder, Str> {
+    let (d, n, e) = self.stream_uint()
+    if let Some(m) = e { return Err(m) }
+    if n < 0 || n >= TOO_BIG { return Err("invalid message length") }
+    if d.pos + n > len(d.data) { return Err("unexpected EOF") }
+    Ok(Decoder { buf: d.data[d.pos..d.pos + n], off: 0, pos: d.pos + n, ..d })
+  }
+
+  // state.decodeUint
+  fn dec_uint(self) -> DR<Int> {
+    if self.blen() == 0 { return Err("EOF") }
+    let b = self.buf[self.off]
+    let d = Decoder { off: self.off + 1, ..self }
+    if b <= 0x7f { return Ok((d, b)) }
+    let n = 256 - b
+    if n > 8 { return Err("gob: encoded unsigned integer out of range") }
+    if d.blen() < n {
+      return Err("gob: invalid uint data length {n}: exceeds input size {d.blen()}")
+    }
+    var x = 0
+    for i in 0..n { x = (x << 8) | d.buf[d.off + i] }
+    Ok((Decoder { off: d.off + n, ..d }, x))
+  }
+
+  fn dec_int(self) -> DR<Int> {
+    let (d, x) = self.dec_uint()?
+    let i = bits.shr(x, 1)
+    Ok((d, if x & 1 != 0 { ~i } else { i }))
+  }
+
+  fn get_length(self) -> DR<(Int, Bool)> {
+    let (d, n) = self.dec_uint()?
+    if n < 0 || d.blen() < n || TOO_BIG <= n { return Ok((d, (0, false))) }
+    Ok((d, (n, true)))
+  }
+
+  fn take(self, n: Int) -> (Decoder, List<Int>) {
+    (Decoder { off: self.off + n, ..self }, self.buf[self.off..self.off + n])
+  }
+
+  fn type_string(self, id: Int) -> Str {
+    if let Some(_) = get(self.reg.ids, id) { return self.reg.id_string(id) }
+    wire_string(get(self.wire, id))
+  }
+
+  fn recv_type(self, id: Int) -> Result<Decoder, Str> {
+    if id < FIRST_USER_ID {
+      return Err("gob: duplicate type received")
+    }
+    if let Some(_) = get(self.wire, id) { return Err("gob: duplicate type received") }
+    let (d, v) = self.decode_value(T_WIRE, Some(wire_local()))?
+    Ok(Decoder { wire: set(d.wire, id, to_wire(v)), ..d })
+  }
+
+  // decodeTypeSequence
+  fn type_sequence(self, is_iface: Bool) -> DR<Int> {
+    var d = self
+    var first = true
+    loop {
+      if d.blen() == 0 {
+        match d.recv_message() {
+          Ok(x) => { d = x },
+          Err(e) => { return Err(if !first && e == "EOF" { "unexpected EOF" } else { e }) },
+        }
+      }
+      let (d1, x, e) = d.buf_uint_reader()
+      // Go 的 nextInt 只记下 dec.err，返回 0（id >= 0，于是直接返回）
+      if let Some(m) = e { return Ok((Decoder { err: Some(m), ..d1 }, 0)) }
+      let i0 = bits.shr(x, 1)
+      let id64 = if x & 1 != 0 { ~i0 } else { i0 }
+      // typeId 是 int32
+      let id = ((id64 & 0xffffffff) ^ 0x80000000) - 0x80000000
+      d = d1
+      if id >= 0 { return Ok((d, id)) }
+      d = d.recv_type(-id)?
+      if d.blen() > 0 {
+        if !is_iface { return Err("extra data in buffer") }
+        let (d2, _, e2) = d.buf_uint_reader()
+        d = d2
+        if let Some(m) = e2 {
+          d = Decoder { err: Some(m), ..d }
+          return Err(m)
+        }
+      }
+      first = false
+    }
+    Err("unreachable")
+  }
+
+  // Decoder.Decode(&v)：按目标类型解码
+  fn decode_into(self, t: Type) -> (Decoder, Result<Value, Str>) {
+    let d0 = Decoder { buf: [], off: 0, err: None, reg: self.reg.define(t), ..self }
+    match d0.type_sequence(false) {
+      Err(e) => (d0, Err(e)),
+      Ok((d1, id)) => {
+        if let Some(m) = d1.err { return (d1, Err(m)) }
+        match d1.decode_value(id, Some(TPtr(t))) {
+          Err(e) => (d1, Err(e)),
+          Ok((d2, v)) => match d2.err {
+            Some(m) => (d2, Err(m)),
+            None => (d2, Ok(v)),
+          },
+        }
+      },
+    }
+  }
+
+  // Decoder.Decode(nil)
+  fn decode_ignore(self) -> (Decoder, Result<(), Str>) {
+    let d0 = Decoder { buf: [], off: 0, err: None, ..self }
+    match d0.type_sequence(false) {
+      Err(e) => (d0, Err(e)),
+      Ok((d1, id)) => {
+        if let Some(m) = d1.err { return (d1, Err(m)) }
+        match d1.decode_value(id, None) {
+          Err(e) => (d1, Err(e)),
+          Ok((d2, _)) => match d2.err {
+            Some(m) => (d2, Err(m)),
+            None => (d2, Ok(())),
+          },
+        }
+      },
+    }
+  }
+
+  // 不给目标类型：按线上类型构造一个 Type（Kite 扩展）
+  fn decode(self) -> (Decoder, Result<(Type, Value), Str>) {
+    let d0 = Decoder { buf: [], off: 0, err: None, ..self }
+    match d0.type_sequence(false) {
+      Err(e) => (d0, Err(e)),
+      Ok((d1, id)) => {
+        if let Some(m) = d1.err { return (d1, Err(m)) }
+        let t = d1.wire_type(id, [])
+        let d1r = Decoder { reg: d1.reg.define(t), ..d1 }
+        match d1r.decode_value(id, Some(TPtr(t))) {
+          Err(e) => (d1r, Err(e)),
+          Ok((d2, v)) => (d2, Ok((t, v))),
+        }
+      },
+    }
+  }
+
+  // 线上类型 → Type（结构体用名字，递归用 TRef）
+  fn wire_type(self, id: Int, seen: List<Int>) -> Type {
+    if id == T_BOOL { return TBool }
+    if id == T_INT { return TInt(0) }
+    if id == T_UINT { return TUint(0) }
+    if id == T_FLOAT { return TFloat(64) }
+    if id == T_BYTES { return bytes_type() }
+    if id == T_STRING { return TString }
+    if id == T_COMPLEX { return TComplex(128) }
+    if id == T_IFACE { return TIface }
+    let w = match get(self.wire, id) {
+      Some(ps) => if len(ps) == 0 { return TStruct([]) } else { ps[0] },
+      None => match builtin_wire(id) {
+        Some(x) => x,
+        None => { return TStruct([]) },
+      },
+    }
+    let nm = if w.name == "" { "T{id}" } else { w.name }
+    if contains(seen, id) { return TRef(nm) }
+    let s2 = push(seen, id)
+    if w.kind == 1 { return TArray(self.wire_type(w.elem, s2), w.n) }
+    if w.kind == 2 { return TSlice(self.wire_type(w.elem, s2)) }
+    if w.kind == 4 { return TMap(self.wire_type(w.key, s2), self.wire_type(w.elem, s2)) }
+    if w.kind >= 5 { return TExt(nm, w.kind - 4) }
+    TNamed(nm, TStruct(map(w.fields, (f) => (f.0, self.wire_type(f.1, s2)))))
+  }
+
+  // ── 兼容性检查与“编译”（compatibleType / compileDec 的检查部分） ──
+
+  fn compatible(self, fr: Type, fw: Int, prog: Map<Str, Int>) -> Bool {
+    let r = self.reg
+    let k = r.str(fr)
+    if let Some(x) = get(prog, k) { return x == fw }
+    let p = set(prog, k, fw)
+    let ext = match r.base(fr) {
+      TExt(_, x) => x,
+      _ => 0,
+    }
+    let has = (k: Int) => self.part(fw, k) != None
+    if (ext == 1) != has(5) || (ext == 2) != has(6) || (ext == 3) != has(7) { return false }
+    if ext != 0 { return true }
+    if r.is_bytes(fr) { return fw == T_BYTES }
+    match r.under(fr) {
+      TBool => fw == T_BOOL,
+      TInt(_) => fw == T_INT,
+      TUint(_) => fw == T_UINT,
+      TFloat(_) => fw == T_FLOAT,
+      TComplex(_) => fw == T_COMPLEX,
+      TString => fw == T_STRING,
+      TIface => fw == T_IFACE,
+      TArray(e, n) => {
+        let Some(w) = self.part(fw, 1) else { return false }
+        n == w.n && self.compatible(e, w.elem, p)
+      },
+      TMap(kt, et) => {
+        let Some(w) = self.part(fw, 4) else { return false }
+        self.compatible(kt, w.key, p) && self.compatible(et, w.elem, p)
+      },
+      TSlice(e) => {
+        let sw = match builtin_wire(fw) {
+          Some(b) => if fw < FIRST_USER_ID { Some(b) } else { self.part(fw, 2) },
+          None => self.part(fw, 2),
+        }
+        match sw {
+          Some(w) => w.kind == 2 && self.compatible(r.base(e), w.elem, p),
+          None => false,
+        }
+      },
+      TStruct(_) => true,
+      _ => false,
+    }
+  }
+
+  fn struct_wire(self, id: Int) -> Result<Option<Wire>, Str> {
+    if id < FIRST_USER_ID {
+      if let Some(b) = builtin_wire(id) { return Ok(if b.kind == 3 { Some(b) } else { None }) }
+      if id <= T_IFACE && id > 0 { return Ok(None) }
+    }
+    match get(self.wire, id) {
+      None => Err("gob: unknown type id or corrupted data"),
+      Some(_) => Ok(self.part(id, 3)),
+    }
+  }
+
+  // decIgnoreOpFor 的检查部分
+  fn check_ignore(self, id: Int, prog: List<Int>, depth: Int) -> Result<(), Str> {
+    if depth > 10000 { return Err("invalid nesting depth") }
+    if id >= 1 && id <= T_IFACE { return Ok(()) }
+    if contains(prog, id) { return Ok(()) }
+    let p = push(prog, id)
+    let ps = match get(self.wire, id) {
+      Some(x) => x,
+      None => { return Err("gob: bad data: undefined type " + self.reg.id_string(id)) },
+    }
+    let w = match ignore_part(ps) {
+      Some(x) => x,
+      None => { return Err("gob: bad data: ignore can't handle type " + self.reg.id_string(id)) },
+    }
+    if w.kind == 1 || w.kind == 2 { return self.check_ignore(w.elem, p, depth + 1) }
+    if w.kind == 4 {
+      self.check_ignore(w.key, p, depth + 1)?
+      return self.check_ignore(w.elem, p, depth + 1)
+    }
+    if w.kind == 3 {
+      for f in w.fields {
+        if f.0 == "" { return Err("gob: empty name for remote field of type " + w.name) }
+        self.check_ignore(f.1, p, depth + 1)?
+      }
+      return Ok(())
+    }
+    if w.kind >= 5 { return Ok(()) }
+    Err("gob: bad data: ignore can't handle type " + self.reg.id_string(id))
+  }
+
+  // decOpFor 的检查部分：结构体会递归编译它的引擎
+  fn check_op(self, id: Int, t: Type, prog: List<Str>) -> Result<(), Str> {
+    let r = self.reg
+    if r.is_ext(t) { return Ok(()) }
+    let k = r.str(t)
+    if contains(prog, k) { return Ok(()) }
+    let p = push(prog, k)
+    if r.is_bytes(t) { return Ok(()) }
+    match r.under(t) {
+      TArray(e, _) => self.check_op(unwrap(self.part(id, 1)).elem, e, p),
+      TMap(kt, et) => {
+        let w = unwrap(self.part(id, 4))
+        self.check_op(w.key, kt, p)?
+        self.check_op(w.elem, et, p)
+      },
+      TSlice(e) => {
+        let el = if id < FIRST_USER_ID && builtin_wire(id) != None {
+          unwrap(builtin_wire(id)).elem
+        } else {
+          unwrap(self.part(id, 2)).elem
+        }
+        self.check_op(el, e, p)
+      },
+      TStruct(_) => self.compile(id, r.base(t), p),
+      _ => Ok(()),
+    }
+  }
+
+  // compileDec / compileSingle 的检查部分
+  fn compile(self, id: Int, t: Type, prog: List<Str>) -> Result<(), Str> {
+    let r = self.reg
+    let is_struct = match r.under(t) {
+      TStruct(_) => !r.is_ext(t),
+      _ => false,
+    }
+    if !is_struct {
+      if !self.compatible(t, id, Map()) {
+        let remote = self.type_string(id)
+        if r.under(t) == TIface && id != T_IFACE {
+          return Err(
+            "gob: local interface type " + r.str(
+              t,
+            ) + " can only be decoded from remote interface type; received concrete type " + remote,
+          )
+        }
+        return Err("gob: decoding into local type " + r.str(t) + ", received remote type " + remote)
+      }
+      return self.check_op(id, t, prog)
+    }
+    let TStruct(fs) = r.under(t) else { return Ok(()) }
+    let ws = match self.struct_wire(id)? {
+      Some(w) => w,
+      None => {
+        return Err(
+          "gob: type mismatch in decoder: want struct type " + r.str(
+            r.base(t),
+          ) + "; got non-struct",
+        )
+      },
+    }
+    var seen = prog
+    for wf in ws.fields {
+      if wf.0 == "" { return Err("gob: empty name for remote field of type " + ws.name) }
+      let local = filter(fs, (f) => f.0 == wf.0)
+      if len(local) == 0 || !is_exported(wf.0) {
+        self.check_ignore(wf.1, [], 0)?
+        continue
+      }
+      let lf = local[0]
+      if !self.compatible(lf.1, wf.1, Map()) {
+        return Err(
+          "gob: wrong type (" + r.str(lf.1) + ") for received field " + ws.name + "." + wf.0,
+        )
+      }
+      self.check_op(wf.1, lf.1, seen)?
+      seen = push(seen, r.str(lf.1))
+    }
+    Ok(())
+  }
+
+  // ── 解码 ──
+
+  fn decode_value(self, id: Int, t: Option<Type>) -> DR<Value> {
+    let lt = match t {
+      None => { return Decoder { err: None, ..self }.ignore_value(id) },
+      Some(x) => x,
+    }
+    let r = self.reg
+    let ut = r.base(lt)
+    let is_struct = match r.under(ut) {
+      TStruct(_) => !r.is_ext(ut),
+      _ => false,
+    }
+    let me = Decoder { err: None, ..self }
+    if !is_struct {
+      me.compile(id, lt, [])?
+      return me.dec_single(id, lt, r.str(lt))
+    }
+    me.compile(id, ut, [])?
+    if is_struct {
+      let TStruct(fs) = r.under(ut) else { return Err("unreachable") }
+      let ws = unwrap_or(self.struct_wire(id)?, Wire {
+        kind: 3,
+        name: "",
+        id: 0,
+        elem: 0,
+        key: 0,
+        n: 0,
+        fields: [],
+      })
+      let matched = filter(ws.fields, (wf) => is_exported(wf.0) && any(fs, (f) => f.0 == wf.0))
+      if len(matched) == 0 && len(fs) > 0 {
+        if let Some(w) = self.part(id, 3) {
+          if len(w.fields) > 0 {
+            return Err("gob: type mismatch: no fields matched compiling decoder for " + go_name(ut))
+          }
+        }
+      }
+      return me.dec_struct(id, ut)
+    }
+    me.dec_single(id, lt, r.str(lt))
+  }
+
+  fn dec_single(self, id: Int, t: Type, name: Str) -> DR<Value> {
+    let (d, delta) = self.dec_uint()?
+    if delta != 0 { return Err("gob: decode: corrupted data: non-zero delta for singleton") }
+    d.dec_op(id, t, name, ovfl(name))
+  }
+
+  fn dec_struct(self, id: Int, t: Type) -> DR<Value> {
+    let r = self.reg
+    let TStruct(fs) = r.under(t) else { return Err("unreachable") }
+    let ws = unwrap(self.struct_wire(id)?)
+    var vals = map(fs, (f) => r.zero(f.1))
+    var d = self
+    var fieldnum = -1
+    while d.blen() > 0 {
+      let (d1, delta) = d.dec_uint()?
+      d = d1
+      if delta < 0 { return Err("gob: decode: corrupted data: negative delta") }
+      if delta == 0 { break }
+      if fieldnum >= len(ws.fields) - delta {
+        return Err("gob: bad data: field numbers out of bounds")
+      }
+      let fnum = fieldnum + delta
+      let wf = ws.fields[fnum]
+      var li = -1
+      if is_exported(wf.0) {
+        for i in 0..len(fs) {
+          if fs[i].0 == wf.0 && li < 0 { li = i }
+        }
+      }
+      if li < 0 {
+        d = d.ignore_op(wf.1)?
+      } else {
+        let (d2, v) = d.dec_op(wf.1, fs[li].1, fs[li].0, ovfl(wf.0))?
+        d = d2
+        vals = set(vals, li, v)
+      }
+      fieldnum = fnum
+    }
+    Ok((d, VStruct(vals)))
+  }
+
+  // decOp：name 是 decOpFor 的 name，ov 是 instr.ovfl
+  fn dec_op(self, id: Int, t0: Type, name: Str, ov: Str) -> DR<Value> {
+    let r = self.reg
+    let t = r.base(t0)
+    if r.is_ext(t) {
+      let (d, (n, ok)) = self.get_length()?
+      if !ok { return Err("gob: GobDecoder: length too large for buffer") }
+      if d.blen() < n {
+        return Err("gob: GobDecoder: invalid data length {n}: exceeds input size {d.blen()}")
+      }
+      let (d2, bs) = d.take(n)
+      return Ok((d2, VBytes(bs)))
+    }
+    if r.is_bytes(t) {
+      let (d, (n, ok)) = self.get_length()?
+      if !ok { return Err("gob: bad " + r.str(t) + " slice length: {n}") }
+      let (d2, bs) = d.take(n)
+      return Ok((d2, VBytes(bs)))
+    }
+    match r.under(t) {
+      TBool => {
+        let (d, x) = self.dec_uint()?
+        Ok((d, VBool(x != 0)))
+      },
+      TInt(b) => {
+        let (d, x) = self.dec_int()?
+        if b == 8 && (x < -128 || x > 127) { return Err(ov) }
+        if b == 16 && (x < -32768 || x > 32767) { return Err(ov) }
+        if b == 32 && (x < -2147483648 || x > 2147483647) { return Err(ov) }
+        Ok((d, VInt(x)))
+      },
+      TUint(b) => {
+        let (d, x) = self.dec_uint()?
+        if b == 8 && bits.ult(255, x) { return Err(ov) }
+        if b == 16 && bits.ult(65535, x) { return Err(ov) }
+        if b == 32 && bits.ult(4294967295, x) { return Err(ov) }
+        Ok((d, VUint(x)))
+      },
+      TFloat(b) => {
+        let (d, x) = self.dec_uint()?
+        let f = strconv.float64_from_bits(bits.reverse_bytes64(x))
+        if b == 32 && f32_over(f) { return Err(ov) }
+        Ok((d, VFloat(if b == 32 { f32(f) } else { f })))
+      },
+      TComplex(b) => {
+        let (d, x) = self.dec_uint()?
+        let re = strconv.float64_from_bits(bits.reverse_bytes64(x))
+        if b == 64 && f32_over(re) { return Err(ov) }
+        let (d2, y) = d.dec_uint()?
+        let im = strconv.float64_from_bits(bits.reverse_bytes64(y))
+        if b == 64 && f32_over(im) { return Err(ov) }
+        Ok((d2, if b == 64 { VComplex(f32(re), f32(im)) } else { VComplex(re, im) }))
+      },
+      TString => {
+        let (d, (n, ok)) = self.get_length()?
+        if !ok { return Err("gob: bad " + r.str(t) + " slice length: {n}") }
+        let (d2, bs) = d.take(n)
+        Ok((d2, VStr(bytes_str(bs))))
+      },
+      TArray(e, n) => {
+        let el = unwrap(self.part(id, 1)).elem
+        let (d, cnt) = self.dec_uint()?
+        if cnt != n { return Err("gob: length mismatch in decodeArray") }
+        let nm = "element of " + name
+        d.dec_elems(el, e, n, nm, ovfl(nm), true)
+      },
+      TSlice(e) => {
+        let el = if id < FIRST_USER_ID && builtin_wire(id) != None {
+          unwrap(builtin_wire(id)).elem
+        } else {
+          unwrap(self.part(id, 2)).elem
+        }
+        let (d, u) = self.dec_uint()?
+        let size = r.type_size(e)
+        if u < 0 || (size > 0 && u > TOO_BIG / size) {
+          return Err(
+            "gob: " + r.str(e) + " slice too big: " + bits.ustr(u) + " elements of {size} bytes",
+          )
+        }
+        let nm = "element of " + name
+        let unnamed = match t {
+          TNamed(_, _) => false,
+          _ => true,
+        }
+        d.dec_elems(el, e, u, nm, ovfl(nm), unnamed)
+      },
+      TMap(kt, et) => {
+        let w = unwrap(self.part(id, 4))
+        let (d0, n) = self.dec_uint()?
+        var d = d0
+        var entries: List<(Value, Value)> = []
+        for _ in 0..n {
+          let (d1, k) = d.dec_op(w.key, kt, "key of " + name, ov)?
+          let (d2, v) = d1.dec_op(w.elem, et, "element of " + name, ov)?
+          d = d2
+          entries = push(filter(entries, (kv) => kv.0 != k), (k, v))
+        }
+        Ok((d, VMap(entries)))
+      },
+      TStruct(_) => self.dec_struct(id, t),
+      TIface => self.dec_iface(),
+      _ => Err("gob: decode can't handle type " + r.str(t)),
+    }
+  }
+
+  fn dec_elems(self, el: Int, e: Type, n: Int, name: Str, ov: Str, helper_ok: Bool) -> DR<Value> {
+    // dec_helpers.go：元素是无名的内建类型（切片本身也无名）时走专门的循环（错误文字带上种类名）
+    let h = if helper_ok { helper_name(e) } else { "" }
+    let what = if h == "" { "" } else { h + " " }
+    var d = self
+    var out: List<Value> = []
+    for _ in 0..n {
+      if d.blen() == 0 {
+        return Err(
+          "gob: decoding " + what + "array or slice: length exceeds input size ({n} elements)",
+        )
+      }
+      if h == "string" {
+        let (d1, u) = d.dec_uint()?
+        if u < 0 || u > d1.blen() {
+          return Err("gob: length of string exceeds input size (" + bits.ustr(u) + " bytes)")
+        }
+        let (d2, bs) = d1.take(u)
+        d = d2
+        out = push(out, VStr(bytes_str(bs)))
+        continue
+      }
+      let (d1, v) = d.dec_op(el, e, name, ov)?
+      d = d1
+      out = push(out, v)
+    }
+    Ok((d, VList(out)))
+  }
+
+  fn dec_iface(self) -> DR<Value> {
+    let (d, nr) = self.dec_uint()?
+    if nr < 0 || nr > 2147483648 { return Err("gob: invalid type name length " + bits.ustr(nr)) }
+    if nr > d.blen() { return Err("gob: invalid type name length {nr}: exceeds input size") }
+    let (d1, nb) = d.take(nr)
+    if nr == 0 { return Ok((d1, VNil)) }
+    let name = bytes_str(nb)
+    if nr > 1024 {
+      return Err(
+        "gob: name too long ({nr} bytes): " + strconv.quote_bytes_with(
+          nb[..20],
+          34,
+          false,
+          false,
+        ) + "...",
+      )
+    }
+    let ct = match get(d1.reg.n2t, name) {
+      Some(x) => if __bytes(name) == nb {
+        x
+      } else {
+        return Err(
+          "gob: name not registered for interface: " + strconv.quote_bytes_with(
+            nb,
+            34,
+            false,
+            false,
+          ),
+        )
+      },
+      None => {
+        return Err(
+          "gob: name not registered for interface: " + strconv.quote_bytes_with(
+            nb,
+            34,
+            false,
+            false,
+          ),
+        )
+      },
+    }
+    let (d2, cid) = d1.type_sequence(true)?
+    let (d3, _) = d2.dec_uint()?
+    let (d4, v) = d3.decode_value(cid, Some(ct))?
+    Ok((d4, VIface(ct, v)))
+  }
+
+  // ── 忽略 ──
+
+  fn ignore_value(self, id: Int) -> DR<Value> {
+    match self.part(id, 3) {
+      Some(w) => {
+        if true {
+          for f in w.fields {
+            if f.0 == "" { return Err("gob: empty name for remote field of type " + w.name) }
+            self.check_ignore(f.1, [id], 0)?
+          }
+          return Ok((self.ignore_struct(w)?, VNil))
+        }
+      },
+      None => {},
+    }
+    self.check_ignore(id, [], 0)?
+    let (d, delta) = self.dec_uint()?
+    if delta != 0 { return Err("gob: decode: corrupted data: non-zero delta for singleton") }
+    Ok((d.ignore_op(id)?, VNil))
+  }
+
+  fn ignore_struct(self, w: Wire) -> Result<Decoder, Str> {
+    var d = self
+    var fieldnum = -1
+    while d.blen() > 0 {
+      let (d1, delta) = d.dec_uint()?
+      d = d1
+      if delta < 0 { return Err("gob: ignore decode: corrupted data: negative delta") }
+      if delta == 0 { break }
+      let fnum = fieldnum + delta
+      if fnum >= len(w.fields) { return Err("gob: bad data: field numbers out of bounds") }
+      d = d.ignore_op(w.fields[fnum].1)?
+      fieldnum = fnum
+    }
+    Ok(d)
+  }
+
+  fn ignore_op(self, id: Int) -> Result<Decoder, Str> {
+    if id == T_BOOL || id == T_INT || id == T_UINT || id == T_FLOAT {
+      return Ok(self.dec_uint()?.0)
+    }
+    if id == T_COMPLEX { return Ok(self.dec_uint()?.0.dec_uint()?.0) }
+    if id == T_BYTES || id == T_STRING {
+      let (d, (n, ok)) = self.get_length()?
+      if !ok { return Err("gob: slice length too large") }
+      if d.blen() < n { return Err("gob: invalid slice length {n}: exceeds input size {d.blen()}") }
+      return Ok(d.take(n).0)
+    }
+    if id == T_IFACE {
+      let (d, (n, ok)) = self.get_length()?
+      if !ok { return Err("gob: bad interface encoding: name too large for buffer") }
+      if d.blen() < n {
+        return Err("gob: invalid interface value length {n}: exceeds input size {d.blen()}")
+      }
+      let (d2, _) = d.take(n).0.type_sequence(true)?
+      let (d3, (m, ok2)) = d2.get_length()?
+      if !ok2 { return Err("gob: bad interface encoding: data length too large for buffer") }
+      return Ok(d3.take(m).0)
+    }
+    let ps = match get(self.wire, id) {
+      Some(x) => x,
+      None => { return Err("gob: bad data: undefined type " + self.reg.id_string(id)) },
+    }
+    let w = match ignore_part(ps) {
+      Some(x) => x,
+      None => { return Err("gob: bad data: ignore can't handle type " + self.reg.id_string(id)) },
+    }
+    if w.kind == 1 {
+      let (d0, n) = self.dec_uint()?
+      if n != w.n { return Err("gob: length mismatch in ignoreArray") }
+      return d0.ignore_elems(w.elem, n)
+    }
+    if w.kind == 2 {
+      let (d0, n) = self.dec_uint()?
+      return d0.ignore_elems(w.elem, n)
+    }
+    if w.kind == 4 {
+      let (d0, n) = self.dec_uint()?
+      var d = d0
+      for _ in 0..n { d = d.ignore_op(w.key)?.ignore_op(w.elem)? }
+      return Ok(d)
+    }
+    if w.kind == 3 { return self.ignore_struct(w) }
+    let (d, (n, ok)) = self.get_length()?
+    if !ok { return Err("gob: GobDecoder: length too large for buffer") }
+    if d.blen() < n {
+      return Err("gob: GobDecoder: invalid data length {n}: exceeds input size {d.blen()}")
+    }
+    Ok(d.take(n).0)
+  }
+
+  fn ignore_elems(self, el: Int, n: Int) -> Result<Decoder, Str> {
+    var d = self
+    for _ in 0..n {
+      if d.blen() == 0 {
+        return Err("gob: decoding array or slice: length exceeds input size ({n} elements)")
+      }
+      d = d.ignore_op(el)?
+    }
+    Ok(d)
+  }
+}
+
+fn f32_over(f: Float) -> Bool {
+  let a = if f < 0.0 { 0.0 - f } else { f }
+  a > 3.4028234663852886e38 && a <= 1.7976931348623157e308
+}
+
+fn helper_name(t: Type) -> Str {
+  match t {
+    TBool => "bool",
+    TInt(b) => int_name(b),
+    TUint(b) => if b == 8 { "" } else { uint_name(b) },
+    TFloat(b) => "float{b}",
+    TComplex(b) => "complex{b}",
+    TString => "string",
+    _ => "",
+  }
+}
+
+fn f32(f: Float) -> Float { strconv.float32_from_bits(strconv.float32_bits(f)) }
+
+fn bytes_str(bs: List<Int>) -> Str {
+  match __from_bytes(bs) {
+    Some(s) => s,
+    None => unwrap_or(__from_bytes(bytes.to_valid_utf8(bs, [0xef, 0xbf, 0xbd])), ""),
+  }
+}
+
+impl Registry {
+  // 零值
+  fn zero(self, t: Type) -> Value {
+    if self.indir(t) > 0 || self.is_ext(t) || self.is_bytes(t) { return VNil }
+    match self.under(t) {
+      TBool => VBool(false),
+      TInt(_) => VInt(0),
+      TUint(_) => VUint(0),
+      TFloat(_) => VFloat(0.0),
+      TComplex(_) => VComplex(0.0, 0.0),
+      TString => VStr(""),
+      TArray(e, n) => VList(map(0..n, (_) => self.zero(e))),
+      TStruct(fs) => VStruct(map(fs, (f) => self.zero(f.1))),
+      _ => VNil,
+    }
+  }
+
+  // 64 位 Go 里的 (大小, 对齐)
+  fn size_align(self, t: Type, depth: Int) -> (Int, Int) {
+    if depth > 50 { return (8, 8) }
+    if self.indir(t) > 0 { return (8, 8) }
+    if self.is_ext(t) { return (8, 8) }
+    match self.under(t) {
+      TBool => (1, 1),
+      TInt(b) => if b == 0 { (8, 8) } else { (b / 8, b / 8) },
+      TUint(b) => if b <= 0 { (8, 8) } else { (b / 8, b / 8) },
+      TFloat(b) => (b / 8, b / 8),
+      TComplex(b) => (b / 8, b / 16),
+      TString => (16, 8),
+      TIface => (16, 8),
+      TSlice(_) => (24, 8),
+      TMap(_, _) => (8, 8),
+      TArray(e, n) => {
+        let (s, a) = self.size_align(e, depth + 1)
+        (s * n, a)
+      },
+      TStruct(fs) => {
+        var off = 0
+        var al = 1
+        for f in fs {
+          let (s, a) = self.size_align(f.1, depth + 1)
+          if a > al { al = a }
+          off = (off + a - 1) / a * a + s
+        }
+        ((off + al - 1) / al * al, al)
+      },
+      _ => (8, 8),
+    }
+  }
+
+  fn type_size(self, t: Type) -> Int { self.size_align(t, 0).0 }
+}
