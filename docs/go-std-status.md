@@ -92,7 +92,7 @@ image/color/palette、path/filepath、go/constant、net/http/cookiejar、crypto/
 - encoding/gob（值用类似 fmt.Arg 的枚举表示）
 - debug/dwarf、debug/macho、debug/pe、debug/plan9obj
 - html/template（上下文转义）
-- net/http/httptest（ResponseRecorder）、net/http/httputil（Dump*、反向代理的纯逻辑部分）、net/smtp（协议层）、net/rpc/jsonrpc（编解码）
+- net/rpc/jsonrpc（编解码）、net/rpc（依赖 encoding/gob）、DNS 报文（x/net/dns/dnsmessage，给 MX/TXT/SRV/NS 用）
 - io/fs（ValidPath / Glob / WalkDir 的纯逻辑）、testing/fstest（MapFS）、testing/iotest
 - hash/maphash（种子随机，只能对拍确定性的部分）、expvar、time/tzdata（时区数据）
 - os/user（读 /etc/passwd、/etc/group）、os/exec（借 system）
