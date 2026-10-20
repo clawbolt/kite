@@ -1,0 +1,1392 @@
+// std.net.dnsmessage：对齐 Go 1.27 golang.org/x/net/dns/dnsmessage（DNS 报文的打包与解析，RFC 1035 + EDNS(0) + SVCB/HTTPS）
+//
+// 对应关系：
+//   Type / Class / RCode / OpCode / SVCParamKey 都是 Int；type_string / type_go_string 等同 Go 的 String / GoString
+//   Name = { data: 字节 }（new_name / must_new_name / name_string / name_go_string）
+//   ResourceBody 接口 → enum Body（CNAMEBody、MXBody、NSBody、PTRBody、SOABody、TXTBody、SRVBody、ABody、AAAABody、
+//     OPTBody、SVCBBody、HTTPSBody、UnknownBody），Resource.body 为 None 相当于 Go 的 nil
+//   Message：pack / append_pack / unpack / message_go_string
+//   Parser、Builder 是不可变值：每个方法返回 (新值, 结果)，出错时状态的变化同 Go（例如 Builder 失败时压缩表里已登记的后缀保留）
+//   TXT 文字和各种数据都是字节列表；错误是 Go 的错误文字（ERR_SECTION_DONE / ERR_NOT_STARTED 可直接比较）
+// 与 Go 的差异：Message.Pack 不回写 Resource 头里的 Type / Length（Kite 值不可变）；没有零值 Builder（只有 new_builder）。
+
+pub const TYPE_A: Int = 1
+pub const TYPE_NS: Int = 2
+pub const TYPE_CNAME: Int = 5
+pub const TYPE_SOA: Int = 6
+pub const TYPE_PTR: Int = 12
+pub const TYPE_MX: Int = 15
+pub const TYPE_TXT: Int = 16
+pub const TYPE_AAAA: Int = 28
+pub const TYPE_SRV: Int = 33
+pub const TYPE_OPT: Int = 41
+pub const TYPE_SVCB: Int = 64
+pub const TYPE_HTTPS: Int = 65
+pub const TYPE_WKS: Int = 11
+pub const TYPE_HINFO: Int = 13
+pub const TYPE_MINFO: Int = 14
+pub const TYPE_AXFR: Int = 252
+pub const TYPE_ALL: Int = 255
+
+pub const CLASS_INET: Int = 1
+pub const CLASS_CSNET: Int = 2
+pub const CLASS_CHAOS: Int = 3
+pub const CLASS_HESIOD: Int = 4
+pub const CLASS_ANY: Int = 255
+
+pub const RCODE_SUCCESS: Int = 0
+pub const RCODE_FORMAT_ERROR: Int = 1
+pub const RCODE_SERVER_FAILURE: Int = 2
+pub const RCODE_NAME_ERROR: Int = 3
+pub const RCODE_NOT_IMPLEMENTED: Int = 4
+pub const RCODE_REFUSED: Int = 5
+
+pub const SVC_PARAM_MANDATORY: Int = 0
+pub const SVC_PARAM_ALPN: Int = 1
+pub const SVC_PARAM_NO_DEFAULT_ALPN: Int = 2
+pub const SVC_PARAM_PORT: Int = 3
+pub const SVC_PARAM_IPV4_HINT: Int = 4
+pub const SVC_PARAM_ECH: Int = 5
+pub const SVC_PARAM_IPV6_HINT: Int = 6
+pub const SVC_PARAM_DOH_PATH: Int = 7
+pub const SVC_PARAM_OHTTP: Int = 8
+pub const SVC_PARAM_TLS_SUPPORTED_GROUPS: Int = 9
+
+pub const ERR_NOT_STARTED: Str = "parsing/packing of this type isn't available yet"
+pub const ERR_SECTION_DONE: Str = "parsing/packing of this section has completed"
+const ERR_BASE_LEN: Str = "insufficient data for base length type"
+const ERR_CALC_LEN: Str = "insufficient data for calculated length type"
+const ERR_RESERVED: Str = "segment prefix is reserved"
+const ERR_TOO_MANY_PTR: Str = "too many pointers (>10)"
+const ERR_INVALID_PTR: Str = "invalid pointer"
+const ERR_INVALID_NAME: Str = "invalid dns name"
+const ERR_NIL_RESOURCE_BODY: Str = "nil resource body"
+const ERR_RESOURCE_LEN: Str = "insufficient data for resource body length"
+const ERR_SEG_TOO_LONG: Str = "segment length too long"
+const ERR_NAME_TOO_LONG: Str = "name too long"
+const ERR_ZERO_SEG_LEN: Str = "zero length segment"
+const ERR_RES_TOO_LONG: Str = "resource length too long"
+const ERR_TOO_MANY_QUESTIONS: Str = "too many Questions to pack (>65535)"
+const ERR_TOO_MANY_ANSWERS: Str = "too many Answers to pack (>65535)"
+const ERR_TOO_MANY_AUTHORITIES: Str = "too many Authorities to pack (>65535)"
+const ERR_TOO_MANY_ADDITIONALS: Str = "too many Additionals to pack (>65535)"
+const ERR_NON_CANONICAL_NAME: Str = "name is not in canonical format (it must end with a .)"
+const ERR_STRING_TOO_LONG: Str = "character string exceeds maximum length (255)"
+const ERR_PARAM_OUT_OF_ORDER: Str = "parameter out of order"
+const ERR_TOO_LONG_SVCB_VALUE: Str = "value too long (>65535 bytes)"
+
+fn nested(s: Str, e: Str) -> Str { s + ": " + e }
+
+// ───────────── 名字表与打印 ─────────────
+
+fn type_name(t: Int) -> Str {
+  if t == 1 { return "TypeA" }
+  if t == 2 { return "TypeNS" }
+  if t == 5 { return "TypeCNAME" }
+  if t == 6 { return "TypeSOA" }
+  if t == 12 { return "TypePTR" }
+  if t == 15 { return "TypeMX" }
+  if t == 16 { return "TypeTXT" }
+  if t == 28 { return "TypeAAAA" }
+  if t == 33 { return "TypeSRV" }
+  if t == 41 { return "TypeOPT" }
+  if t == 64 { return "TypeSVCB" }
+  if t == 65 { return "TypeHTTPS" }
+  if t == 11 { return "TypeWKS" }
+  if t == 13 { return "TypeHINFO" }
+  if t == 14 { return "TypeMINFO" }
+  if t == 252 { return "TypeAXFR" }
+  if t == 255 { return "TypeALL" }
+  ""
+}
+
+fn class_name(c: Int) -> Str {
+  if c == 1 { return "ClassINET" }
+  if c == 2 { return "ClassCSNET" }
+  if c == 3 { return "ClassCHAOS" }
+  if c == 4 { return "ClassHESIOD" }
+  if c == 255 { return "ClassANY" }
+  ""
+}
+
+fn rcode_name(r: Int) -> Str {
+  if r == 0 { return "RCodeSuccess" }
+  if r == 1 { return "RCodeFormatError" }
+  if r == 2 { return "RCodeServerFailure" }
+  if r == 3 { return "RCodeNameError" }
+  if r == 4 { return "RCodeNotImplemented" }
+  if r == 5 { return "RCodeRefused" }
+  ""
+}
+
+fn svc_key_name(k: Int) -> Str {
+  let names = [
+    "Mandatory",
+    "ALPN",
+    "NoDefaultALPN",
+    "Port",
+    "IPv4Hint",
+    "ECH",
+    "IPv6Hint",
+    "DOHPath",
+    "OHTTP",
+    "TLSSupportedGroups",
+  ]
+  if k >= 0 && k < len(names) { names[k] } else { "" }
+}
+
+fn named(n: Str, v: Int, prefix: Str) -> Str { if n != "" { prefix + n } else { "{v}" } }
+
+pub fn type_string(t: Int) -> Str { named(type_name(t), t, "") }
+
+pub fn type_go_string(t: Int) -> Str { named(type_name(t), t, "dnsmessage.") }
+
+pub fn class_string(c: Int) -> Str { named(class_name(c), c, "") }
+
+pub fn class_go_string(c: Int) -> Str { named(class_name(c), c, "dnsmessage.") }
+
+pub fn rcode_string(r: Int) -> Str { named(rcode_name(r), r, "") }
+
+pub fn rcode_go_string(r: Int) -> Str { named(rcode_name(r), r, "dnsmessage.") }
+
+pub fn opcode_go_string(o: Int) -> Str { "{o}" }
+
+pub fn svc_param_key_string(k: Int) -> Str { named(svc_key_name(k), k, "") }
+
+pub fn svc_param_key_go_string(k: Int) -> Str { named(svc_key_name(k), k, "dnsmessage.SVCParam") }
+
+fn print_bool(b: Bool) -> Str { if b { "true" } else { "false" } }
+
+fn print_byte_slice(b: List<Int>) -> Str { join(map(b, (x) => "{x}"), ", ") }
+
+// printString：字母数字和 . - 空格原样，其余 \xHH
+fn print_string(b: List<Int>) -> Str {
+  let hx = chars("0123456789abcdef")
+  var out = ""
+  for c in b {
+    let keep = c == 46
+      || c == 45
+      || c == 32
+      || (c >= 65 && c <= 90)
+      || (c >= 97 && c <= 122)
+      || (c >= 48 && c <= 57)
+    out = out + (if keep { __chr(c) } else { "\\x" + hx[c >> 4] + hx[c & 15] })
+  }
+  out
+}
+
+// 字节 → 每字节一个字符的串（压缩表的键）
+fn latin1(b: List<Int>) -> Str { join(map(b, (x) => __chr(x)), "") }
+
+// ───────────── 定长字段 ─────────────
+
+fn p16(msg: List<Int>, v: Int) -> List<Int> { msg + [(v >> 8) & 255, v & 255] }
+
+fn p32(msg: List<Int>, v: Int) -> List<Int> {
+  msg + [(v >> 24) & 255, (v >> 16) & 255, (v >> 8) & 255, v & 255]
+}
+
+fn u16(msg: List<Int>, off: Int) -> Result<(Int, Int), Str> {
+  if off + 2 > len(msg) { return Err(ERR_BASE_LEN) }
+  Ok(((msg[off] << 8) | msg[off + 1], off + 2))
+}
+
+fn u32(msg: List<Int>, off: Int) -> Result<(Int, Int), Str> {
+  if off + 4 > len(msg) { return Err(ERR_BASE_LEN) }
+  Ok(((msg[off] << 24) | (msg[off + 1] << 16) | (msg[off + 2] << 8) | msg[off + 3], off + 4))
+}
+
+fn wrap<T>(r: Result<T, Str>, s: Str) -> Result<T, Str> {
+  match r {
+    Ok(x) => Ok(x),
+    Err(e) => Err(nested(s, e)),
+  }
+}
+
+fn pack_text(msg: List<Int>, t: List<Int>) -> Result<List<Int>, Str> {
+  if len(t) > 255 { return Err(ERR_STRING_TOO_LONG) }
+  Ok(push(msg, len(t)) + t)
+}
+
+fn unpack_text(msg: List<Int>, off: Int) -> Result<(List<Int>, Int), Str> {
+  if off >= len(msg) { return Err(ERR_BASE_LEN) }
+  let b = off + 1
+  let e = b + msg[off]
+  if e > len(msg) { return Err(ERR_CALC_LEN) }
+  Ok((msg[b..e], e))
+}
+
+fn unpack_bytes(msg: List<Int>, off: Int, n: Int) -> Result<List<Int>, Str> {
+  if off + n > len(msg) { return Err(ERR_BASE_LEN) }
+  Ok(msg[off..off + n])
+}
+
+// ───────────── Name ─────────────
+
+pub type Name = { data: List<Int> }
+
+pub fn new_name_bytes(b: List<Int>) -> Result<Name, Str> {
+  if len(b) > 255 { return Err(ERR_CALC_LEN) }
+  Ok(Name { data: b })
+}
+
+pub fn new_name(s: Str) -> Result<Name, Str> { new_name_bytes(__bytes(s)) }
+
+pub fn must_new_name(s: Str) -> Name {
+  match new_name(s) {
+    Ok(n) => n,
+    Err(e) => panic("creating name: " + e),
+  }
+}
+
+pub fn name_string(n: Name) -> Str { unwrap_or(__from_bytes(n.data), latin1(n.data)) }
+
+pub fn name_go_string(n: Name) -> Str { "dnsmessage.MustNewName(\"" + print_string(n.data) + "\")" }
+
+pub type Compression = Option<Map<Str, Int>>
+
+// Name.pack：返回 (压缩表, 结果)；压缩表在出错前登记的后缀保留（同 Go 的 map）
+fn pack_name(
+  msg: List<Int>,
+  n: Name,
+  comp: Compression,
+  coff: Int,
+) -> (Compression, Result<List<Int>, Str>) {
+  let d = n.data
+  let l = len(d)
+  if l > 254 { return (comp, Err(ERR_NAME_TOO_LONG)) }
+  if l == 0 || d[l - 1] != 46 { return (comp, Err(ERR_NON_CANONICAL_NAME)) }
+  if d[0] == 46 && l == 1 { return (comp, Ok(push(msg, 0))) }
+  var out = msg
+  var cm = comp
+  var begin = 0
+  for i in 0..l {
+    if d[i] == 46 {
+      if i - begin >= 64 { return (cm, Err(ERR_SEG_TOO_LONG)) }
+      if i - begin == 0 { return (cm, Err(ERR_ZERO_SEG_LEN)) }
+      out = push(out, i - begin) + d[begin..i]
+      begin = i + 1
+      continue
+    }
+    if i == 0 || d[i - 1] == 46 {
+      if let Some(m) = cm {
+        let key = latin1(d[i..l])
+        if let Some(ptr) = get(m, key) {
+          return (cm, Ok(out + [((ptr >> 8) | 0xC0) & 255, ptr & 255]))
+        }
+        let np = len(out) - coff
+        if np <= 0x3FFF { cm = Some(set(m, key, np)) }
+      }
+    }
+  }
+  (cm, Ok(push(out, 0)))
+}
+
+fn unpack_name(msg: List<Int>, off: Int) -> Result<(Name, Int), Str> {
+  var cur = off
+  var new_off = off
+  var ptr = 0
+  var name: List<Int> = []
+  loop {
+    if cur >= len(msg) { return Err(ERR_BASE_LEN) }
+    let c = msg[cur]
+    cur += 1
+    let k = c & 0xC0
+    if k == 0 {
+      if c == 0 { break }
+      let e = cur + c
+      if e > len(msg) { return Err(ERR_CALC_LEN) }
+      for v in msg[cur..e] {
+        if v == 46 { return Err(ERR_INVALID_NAME) }
+      }
+      if len(name) + (e - cur) >= 254 { return Err(ERR_NAME_TOO_LONG) }
+      name = push(name + msg[cur..e], 46)
+      cur = e
+    } else if k == 0xC0 {
+      if cur >= len(msg) { return Err(ERR_INVALID_PTR) }
+      let c1 = msg[cur]
+      cur += 1
+      if ptr == 0 { new_off = cur }
+      ptr += 1
+      if ptr > 10 { return Err(ERR_TOO_MANY_PTR) }
+      cur = ((c ^ 0xC0) << 8) | c1
+    } else {
+      return Err(ERR_RESERVED)
+    }
+  }
+  if len(name) == 0 { name = [46] }
+  if ptr == 0 { new_off = cur }
+  Ok((Name { data: name }, new_off))
+}
+
+fn skip_name(msg: List<Int>, off: Int) -> Result<Int, Str> {
+  var n = off
+  loop {
+    if n >= len(msg) { return Err(ERR_BASE_LEN) }
+    let c = msg[n]
+    n += 1
+    let k = c & 0xC0
+    if k == 0 {
+      if c == 0 { break }
+      n += c
+      if n > len(msg) { return Err(ERR_CALC_LEN) }
+    } else if k == 0xC0 {
+      n += 1
+      break
+    } else {
+      return Err(ERR_RESERVED)
+    }
+  }
+  Ok(n)
+}
+
+// ───────────── Header ─────────────
+
+pub type Header = {
+  id: Int,
+  response: Bool,
+  op_code: Int,
+  authoritative: Bool,
+  truncated: Bool,
+  recursion_desired: Bool,
+  recursion_available: Bool,
+  authentic_data: Bool,
+  checking_disabled: Bool,
+  rcode: Int,
+}
+
+pub fn new_header() -> Header {
+  Header {
+    id: 0,
+    response: false,
+    op_code: 0,
+    authoritative: false,
+    truncated: false,
+    recursion_desired: false,
+    recursion_available: false,
+    authentic_data: false,
+    checking_disabled: false,
+    rcode: 0,
+  }
+}
+
+fn bit(b: Bool, v: Int) -> Int { if b { v } else { 0 } }
+
+fn header_bits(h: Header) -> Int {
+  (((h.op_code << 11) | h.rcode) & 0xFFFF) | bit(h.recursion_available, 1 << 7) | bit(
+    h.recursion_desired,
+    1 << 8,
+  ) |
+    bit(h.truncated, 1 << 9) | bit(h.authoritative, 1 << 10) | bit(h.response, 1 << 15) |
+    bit(h.authentic_data, 1 << 5) | bit(h.checking_disabled, 1 << 4)
+}
+
+pub fn header_go_string(h: Header) -> Str {
+  "dnsmessage.Header\{" + "ID: {h.id}, " + "Response: " + print_bool(
+    h.response,
+  ) + ", " + "OpCode: " +
+    opcode_go_string(h.op_code) + ", " + "Authoritative: " + print_bool(h.authoritative) + ", " +
+    "Truncated: " + print_bool(h.truncated) + ", " + "RecursionDesired: " + print_bool(
+      h.recursion_desired,
+    ) +
+    ", " + "RecursionAvailable: " + print_bool(h.recursion_available) + ", " + "AuthenticData: " +
+    print_bool(h.authentic_data) + ", " + "CheckingDisabled: " + print_bool(
+      h.checking_disabled,
+    ) + ", " +
+    "RCode: " + rcode_go_string(h.rcode) + "\}"
+}
+
+// 线上的报文头（计数部分）
+type Wire = { id: Int, bits: Int, counts: List<Int> }
+
+fn wire_pack(msg: List<Int>, w: Wire) -> List<Int> {
+  var m = p16(p16(msg, w.id), w.bits)
+  for c in w.counts { m = p16(m, c) }
+  m
+}
+
+fn wire_unpack(msg: List<Int>, off: Int) -> (Wire, Result<Int, Str>) {
+  let names = ["id", "bits", "questions", "answers", "authorities", "additionals"]
+  var vals = [0, 0, 0, 0, 0, 0]
+  var o = off
+  for i in 0..6 {
+    match u16(msg, o) {
+      Ok((v, o2)) => {
+        vals[i] = v
+        o = o2
+      },
+      Err(e) => {
+        return (Wire { id: vals[0], bits: vals[1], counts: vals[2..] }, Err(nested(names[i], e)))
+      },
+    }
+  }
+  (Wire { id: vals[0], bits: vals[1], counts: vals[2..] }, Ok(o))
+}
+
+fn wire_header(w: Wire) -> Header {
+  let b = w.bits
+  Header {
+    id: w.id,
+    response: (b & (1 << 15)) != 0,
+    op_code: (b >> 11) & 0xF,
+    authoritative: (b & (1 << 10)) != 0,
+    truncated: (b & (1 << 9)) != 0,
+    recursion_desired: (b & (1 << 8)) != 0,
+    recursion_available: (b & (1 << 7)) != 0,
+    authentic_data: (b & (1 << 5)) != 0,
+    checking_disabled: (b & (1 << 4)) != 0,
+    rcode: b & 0xF,
+  }
+}
+
+// ───────────── 资源记录 ─────────────
+
+pub type Question = { name: Name, typ: Int, class: Int }
+
+pub type ResourceHeader = { name: Name, typ: Int, class: Int, ttl: Int, length: Int }
+
+pub type MX = { pref: Int, mx: Name }
+
+pub type SOA = {
+  ns: Name,
+  mbox: Name,
+  serial: Int,
+  refresh: Int,
+  retry: Int,
+  expire: Int,
+  min_ttl: Int,
+}
+
+pub type SRV = { priority: Int, weight: Int, port: Int, target: Name }
+
+pub type Opt = { code: Int, data: List<Int> }
+
+pub type SVCParam = { key: Int, value: List<Int> }
+
+pub type SVCB = { priority: Int, target: Name, params: List<SVCParam> }
+
+pub type Unknown = { typ: Int, data: List<Int> }
+
+pub enum Body {
+  CNAMEBody(cname: Name)
+  MXBody(mx: MX)
+  NSBody(ns: Name)
+  PTRBody(ptr: Name)
+  SOABody(soa: SOA)
+  TXTBody(txt: List<List<Int>>)
+  SRVBody(srv: SRV)
+  ABody(a: List<Int>)
+  AAAABody(aaaa: List<Int>)
+  OPTBody(options: List<Opt>)
+  SVCBBody(svcb: SVCB)
+  HTTPSBody(https: SVCB)
+  UnknownBody(unknown: Unknown)
+}
+
+pub type Resource = { header: ResourceHeader, body: Option<Body> }
+
+pub fn new_resource_header(name: Name, typ: Int, class: Int, ttl: Int) -> ResourceHeader {
+  ResourceHeader { name: name, typ: typ, class: class, ttl: ttl, length: 0 }
+}
+
+pub fn question_go_string(q: Question) -> Str {
+  "dnsmessage.Question\{" + "Name: " + name_go_string(q.name) + ", " + "Type: " + type_go_string(
+    q.typ,
+  ) +
+    ", " + "Class: " + class_go_string(q.class) + "\}"
+}
+
+pub fn resource_header_go_string(h: ResourceHeader) -> Str {
+  "dnsmessage.ResourceHeader\{" + "Name: " + name_go_string(
+    h.name,
+  ) + ", " + "Type: " + type_go_string(h.typ) +
+    ", " + "Class: " + class_go_string(h.class) + ", " + "TTL: {h.ttl}, " + "Length: {h.length}\}"
+}
+
+fn svc_param_go_string(p: SVCParam) -> Str {
+  "dnsmessage.SVCParam\{" + "Key: " + svc_param_key_go_string(p.key) + ", " + "Value: []byte\{" +
+    print_byte_slice(p.value) + "\}\}"
+}
+
+fn svcb_go_string(r: SVCB) -> Str {
+  "dnsmessage.SVCBResource\{" + "Priority: {r.priority}, " + "Target: " + name_go_string(
+    r.target,
+  ) + ", " +
+    "Params: []dnsmessage.SVCParam\{" + join(
+      map(r.params, (p) => svc_param_go_string(p)),
+      ", ",
+    ) + "\}\}"
+}
+
+pub fn body_go_string(b: Body) -> Str {
+  match b {
+    CNAMEBody(n) => "dnsmessage.CNAMEResource\{CNAME: " + name_go_string(n) + "\}",
+    MXBody(r) => "dnsmessage.MXResource\{" + "Pref: {r.pref}, " + "MX: " + name_go_string(
+      r.mx,
+    ) + "\}",
+    NSBody(n) => "dnsmessage.NSResource\{NS: " + name_go_string(n) + "\}",
+    PTRBody(n) => "dnsmessage.PTRResource\{PTR: " + name_go_string(n) + "\}",
+    SOABody(r) => "dnsmessage.SOAResource\{" + "NS: " + name_go_string(r.ns) + ", " + "MBox: " +
+      name_go_string(
+        r.mbox,
+      ) + ", " + "Serial: {r.serial}, " + "Refresh: {r.refresh}, " + "Retry: {r.retry}, " +
+      "Expire: {r.expire}, " + "MinTTL: {r.min_ttl}\}",
+    TXTBody(ts) => {
+      let s = "dnsmessage.TXTResource\{TXT: []string\{"
+      if len(ts) == 0 { return s + "\}\}" }
+      s + "\"" + join(map(ts, (t) => print_string(t)), "\", \"") + "\"\}\}"
+    },
+    SRVBody(r) => "dnsmessage.SRVResource\{" + "Priority: {r.priority}, " + "Weight: {r.weight}, " +
+      "Port: {r.port}, " + "Target: " + name_go_string(r.target) + "\}",
+    ABody(a) => "dnsmessage.AResource\{" + "A: [4]byte\{" + print_byte_slice(a) + "\}\}",
+    AAAABody(a) => "dnsmessage.AAAAResource\{" + "AAAA: [16]byte\{" + print_byte_slice(a) + "\}\}",
+    OPTBody(os) => "dnsmessage.OPTResource\{Options: []dnsmessage.Option\{" + join(
+      map(
+        os,
+        (o) => "dnsmessage.Option\{" + "Code: {o.code}, " + "Data: []byte\{" + print_byte_slice(
+          o.data,
+        ) + "\}\}",
+      ),
+      ", ",
+    ) + "\}\}",
+    SVCBBody(r) => svcb_go_string(r),
+    HTTPSBody(r) => "dnsmessage.HTTPSResource\{SVCBResource: " + svcb_go_string(r) + "\}",
+    UnknownBody(r) => "dnsmessage.UnknownResource\{" + "Type: " + type_go_string(r.typ) + ", " +
+      "Data: []byte\{" + print_byte_slice(r.data) + "\}\}",
+  }
+}
+
+pub fn resource_go_string(r: Resource) -> Str {
+  let b = match r.body {
+    Some(x) => body_go_string(x),
+    None => "<nil>",
+  }
+  "dnsmessage.Resource\{" + "Header: " + resource_header_go_string(
+    r.header,
+  ) + ", Body: &" + b + "\}"
+}
+
+pub fn body_type(b: Body) -> Int {
+  match b {
+    CNAMEBody(_) => TYPE_CNAME,
+    MXBody(_) => TYPE_MX,
+    NSBody(_) => TYPE_NS,
+    PTRBody(_) => TYPE_PTR,
+    SOABody(_) => TYPE_SOA,
+    TXTBody(_) => TYPE_TXT,
+    SRVBody(_) => TYPE_SRV,
+    ABody(_) => TYPE_A,
+    AAAABody(_) => TYPE_AAAA,
+    OPTBody(_) => TYPE_OPT,
+    SVCBBody(_) => TYPE_SVCB,
+    HTTPSBody(_) => TYPE_HTTPS,
+    UnknownBody(r) => r.typ,
+  }
+}
+
+// Builder 里 nestedError 的前缀
+fn body_kind(b: Body) -> Str {
+  match b {
+    CNAMEBody(_) => "CNAMEResource body",
+    MXBody(_) => "MXResource body",
+    NSBody(_) => "NSResource body",
+    PTRBody(_) => "PTRResource body",
+    SOABody(_) => "SOAResource body",
+    TXTBody(_) => "TXTResource body",
+    SRVBody(_) => "SRVResource body",
+    ABody(_) => "AResource body",
+    AAAABody(_) => "AAAAResource body",
+    OPTBody(_) => "OPTResource body",
+    SVCBBody(_) => "ResourceBody",
+    HTTPSBody(_) => "ResourceBody",
+    UnknownBody(_) => "UnknownResource body",
+  }
+}
+
+// 定长数组：多的截掉，少的补 0（Go 的 [4]byte / [16]byte）
+fn fixed(b: List<Int>, n: Int) -> List<Int> {
+  if len(b) >= n { b[..n] } else { b + __repeat_list(n - len(b)) }
+}
+
+fn __repeat_list(n: Int) -> List<Int> {
+  var out: List<Int> = []
+  for _ in 0..n { out = push(out, 0) }
+  out
+}
+
+fn pack_svcb(msg: List<Int>, r: SVCB) -> Result<List<Int>, Str> {
+  let (_, t) = pack_name(p16(msg, r.priority), r.target, None, 0)
+  var out = match t {
+    Ok(x) => x,
+    Err(e) => { return Err(nested("SVCBResource.Target", e)) },
+  }
+  // 同 Go：previousKey 从不更新，所以只拒绝第二个及以后为 0 的键
+  for i in 0..len(r.params) {
+    let p = r.params[i]
+    if i > 0 && p.key <= 0 { return Err(nested("SVCBResource.Params", ERR_PARAM_OUT_OF_ORDER)) }
+    if len(p.value) > 65535 { return Err(nested("SVCBResource.Params", ERR_TOO_LONG_SVCB_VALUE)) }
+    out = p16(p16(out, p.key), len(p.value)) + p.value
+  }
+  Ok(out)
+}
+
+fn pack_body(msg: List<Int>, b: Body, comp: Compression, coff: Int) -> (
+  Compression,
+  Result<List<Int>, Str>,
+) {
+  match b {
+    CNAMEBody(n) => pack_name(msg, n, comp, coff),
+    NSBody(n) => pack_name(msg, n, comp, coff),
+    PTRBody(n) => pack_name(msg, n, comp, coff),
+    MXBody(r) => {
+      let (c, x) = pack_name(p16(msg, r.pref), r.mx, comp, coff)
+      (c, wrap(x, "MXResource.MX"))
+    },
+    SOABody(r) => {
+      let (c1, x1) = pack_name(msg, r.ns, comp, coff)
+      let m1 = match x1 {
+        Ok(m) => m,
+        Err(e) => { return (c1, Err(nested("SOAResource.NS", e))) },
+      }
+      let (c2, x2) = pack_name(m1, r.mbox, c1, coff)
+      let m2 = match x2 {
+        Ok(m) => m,
+        Err(e) => { return (c2, Err(nested("SOAResource.MBox", e))) },
+      }
+      (c2, Ok(p32(p32(p32(p32(p32(m2, r.serial), r.refresh), r.retry), r.expire), r.min_ttl)))
+    },
+    TXTBody(ts) => {
+      var m = msg
+      for t in ts {
+        match pack_text(m, t) {
+          Ok(x) => { m = x },
+          Err(e) => { return (comp, Err(e)) },
+        }
+      }
+      (comp, Ok(m))
+    },
+    SRVBody(r) => {
+      let (_, x) = pack_name(p16(p16(p16(msg, r.priority), r.weight), r.port), r.target, None, coff)
+      (comp, wrap(x, "SRVResource.Target"))
+    },
+    ABody(a) => (comp, Ok(msg + fixed(a, 4))),
+    AAAABody(a) => (comp, Ok(msg + fixed(a, 16))),
+    OPTBody(os) => {
+      var m = msg
+      for o in os { m = p16(p16(m, o.code), len(o.data) & 0xFFFF) + o.data }
+      (comp, Ok(m))
+    },
+    SVCBBody(r) => (comp, pack_svcb(msg, r)),
+    HTTPSBody(r) => (comp, pack_svcb(msg, r)),
+    UnknownBody(r) => (comp, Ok(msg + r.data)),
+  }
+}
+
+// ResourceHeader.pack：(压缩表, (报文, 长度字段的位置))
+fn pack_rh(
+  msg: List<Int>,
+  h: ResourceHeader,
+  comp: Compression,
+  coff: Int,
+) -> (Compression, Result<(List<Int>, Int), Str>) {
+  let (c, x) = pack_name(msg, h.name, comp, coff)
+  match x {
+    Err(e) => (c, Err(nested("Name", e))),
+    Ok(m) => {
+      let m2 = p32(p16(p16(m, h.typ), h.class), h.ttl)
+      (c, Ok((p16(m2, h.length), len(m2))))
+    },
+  }
+}
+
+fn fix_len(msg: List<Int>, len_off: Int, pre: Int) -> Result<List<Int>, Str> {
+  let n = len(msg) - pre
+  if n > 65535 { return Err(ERR_RES_TOO_LONG) }
+  Ok(msg[..len_off] + [(n >> 8) & 255, n & 255] + msg[len_off + 2..])
+}
+
+// Resource.pack（Message.Pack 用）
+fn pack_resource(msg: List<Int>, r: Resource, comp: Compression, coff: Int) -> (
+  Compression,
+  Result<List<Int>, Str>,
+) {
+  let b = match r.body {
+    Some(x) => x,
+    None => { return (comp, Err(ERR_NIL_RESOURCE_BODY)) },
+  }
+  let h = ResourceHeader { typ: body_type(b), ..r.header }
+  let (c1, x1) = pack_rh(msg, h, comp, coff)
+  let (m1, len_off) = match x1 {
+    Ok(v) => v,
+    Err(e) => { return (c1, Err(nested("ResourceHeader", e))) },
+  }
+  let pre = len(m1)
+  let (c2, x2) = pack_body(m1, b, c1, coff)
+  match x2 {
+    Err(e) => (c2, Err(nested("content", e))),
+    Ok(m2) => (c2, fix_len(m2, len_off, pre)),
+  }
+}
+
+fn pack_question(msg: List<Int>, q: Question, comp: Compression, coff: Int) -> (
+  Compression,
+  Result<List<Int>, Str>,
+) {
+  let (c, x) = pack_name(msg, q.name, comp, coff)
+  match x {
+    Err(e) => (c, Err(nested("Name", e))),
+    Ok(m) => (c, Ok(p16(p16(m, q.typ), q.class))),
+  }
+}
+
+fn unpack_rh(msg: List<Int>, off: Int) -> Result<(ResourceHeader, Int), Str> {
+  let (name, o1) = wrap(unpack_name(msg, off), "Name")?
+  let (typ, o2) = wrap(u16(msg, o1), "Type")?
+  let (class, o3) = wrap(u16(msg, o2), "Class")?
+  let (ttl, o4) = wrap(u32(msg, o3), "TTL")?
+  let (length, o5) = wrap(u16(msg, o4), "Length")?
+  Ok((ResourceHeader { name: name, typ: typ, class: class, ttl: ttl, length: length }, o5))
+}
+
+fn skip_resource_at(msg: List<Int>, off: Int) -> Result<Int, Str> {
+  let o1 = wrap(skip_name(msg, off), "Name")?
+  if o1 + 2 > len(msg) { return Err(nested("Type", ERR_BASE_LEN)) }
+  if o1 + 4 > len(msg) { return Err(nested("Class", ERR_BASE_LEN)) }
+  if o1 + 8 > len(msg) { return Err(nested("TTL", ERR_BASE_LEN)) }
+  let (length, o2) = wrap(u16(msg, o1 + 8), "Length")?
+  if o2 + length > len(msg) { return Err(ERR_RESOURCE_LEN) }
+  Ok(o2 + length)
+}
+
+fn unpack_mx(msg: List<Int>, off: Int) -> Result<MX, Str> {
+  let (pref, o) = wrap(u16(msg, off), "Pref")?
+  let (mx, _) = wrap(unpack_name(msg, o), "MX")?
+  Ok(MX { pref: pref, mx: mx })
+}
+
+fn unpack_soa(msg: List<Int>, off: Int) -> Result<SOA, Str> {
+  let (ns, o1) = wrap(unpack_name(msg, off), "NS")?
+  let (mbox, o2) = wrap(unpack_name(msg, o1), "MBox")?
+  let (serial, o3) = wrap(u32(msg, o2), "Serial")?
+  let (refresh, o4) = wrap(u32(msg, o3), "Refresh")?
+  let (retry, o5) = wrap(u32(msg, o4), "Retry")?
+  let (expire, o6) = wrap(u32(msg, o5), "Expire")?
+  let (min_ttl, _) = wrap(u32(msg, o6), "MinTTL")?
+  Ok(SOA {
+    ns: ns,
+    mbox: mbox,
+    serial: serial,
+    refresh: refresh,
+    retry: retry,
+    expire: expire,
+    min_ttl: min_ttl,
+  })
+}
+
+fn unpack_txt(msg: List<Int>, off0: Int, length: Int) -> Result<List<List<Int>>, Str> {
+  var txts: List<List<Int>> = []
+  var off = off0
+  var n = 0
+  while n < length {
+    let (t, o) = wrap(unpack_text(msg, off), "text")?
+    off = o
+    if length - n < len(t) + 1 { return Err(ERR_CALC_LEN) }
+    n += len(t) + 1
+    txts = push(txts, t)
+  }
+  Ok(txts)
+}
+
+fn unpack_srv(msg: List<Int>, off: Int) -> Result<SRV, Str> {
+  let (priority, o1) = wrap(u16(msg, off), "Priority")?
+  let (weight, o2) = wrap(u16(msg, o1), "Weight")?
+  let (port, o3) = wrap(u16(msg, o2), "Port")?
+  let (target, _) = wrap(unpack_name(msg, o3), "Target")?
+  Ok(SRV { priority: priority, weight: weight, port: port, target: target })
+}
+
+fn unpack_opt(msg: List<Int>, off0: Int, length: Int) -> Result<List<Opt>, Str> {
+  var opts: List<Opt> = []
+  var off = off0
+  while off < off0 + length {
+    let (code, o1) = wrap(u16(msg, off), "Code")?
+    let (l, o2) = wrap(u16(msg, o1), "Data")?
+    if len(msg) - o2 < l { return Err(nested("Data", ERR_CALC_LEN)) }
+    opts = push(opts, Opt { code: code, data: msg[o2..o2 + l] })
+    off = o2 + l
+  }
+  Ok(opts)
+}
+
+fn unpack_svcb(msg: List<Int>, off: Int, length: Int) -> Result<SVCB, Str> {
+  let body_end = off + length
+  let (priority, o1) = wrap(u16(msg, off), "Priority")?
+  let (target, params_off) = wrap(unpack_name(msg, o1), "Target")?
+  var n = 0
+  var o = params_off
+  while o < body_end {
+    let (key, o2) = wrap(u16(msg, o), "Params key")?
+    // Go 里 previousKey 从不更新，所以只有第二个及以后的键为 0 时才报错
+    if n > 0 && key <= 0 { return Err(nested("Params", ERR_PARAM_OUT_OF_ORDER)) }
+    let (size, o3) = wrap(u16(msg, o2), "Params value length")?
+    if o3 + size > body_end { return Err(ERR_RESOURCE_LEN) }
+    o = o3 + size
+    n += 1
+  }
+  if o != body_end { return Err(ERR_RESOURCE_LEN) }
+  var params: List<SVCParam> = []
+  o = params_off
+  for _ in 0..n {
+    let (key, o2) = wrap(u16(msg, o), "param key")?
+    let (size, o3) = wrap(u16(msg, o2), "param length")?
+    if len(msg) - o3 < size { return Err(nested("param value", ERR_CALC_LEN)) }
+    params = push(params, SVCParam { key: key, value: msg[o3..o3 + size] })
+    o = o3 + size
+  }
+  Ok(SVCB { priority: priority, target: target, params: params })
+}
+
+fn unpack_one(msg: List<Int>, off: Int, typ: Int, length: Int) -> Result<Body, Str> {
+  if typ == TYPE_A { return Ok(ABody(unpack_bytes(msg, off, 4)?)) }
+  if typ == TYPE_NS {
+    let (n, _) = unpack_name(msg, off)?
+    return Ok(NSBody(n))
+  }
+  if typ == TYPE_CNAME {
+    let (n, _) = unpack_name(msg, off)?
+    return Ok(CNAMEBody(n))
+  }
+  if typ == TYPE_SOA { return Ok(SOABody(unpack_soa(msg, off)?)) }
+  if typ == TYPE_PTR {
+    let (n, _) = unpack_name(msg, off)?
+    return Ok(PTRBody(n))
+  }
+  if typ == TYPE_MX { return Ok(MXBody(unpack_mx(msg, off)?)) }
+  if typ == TYPE_TXT { return Ok(TXTBody(unpack_txt(msg, off, length)?)) }
+  if typ == TYPE_AAAA { return Ok(AAAABody(unpack_bytes(msg, off, 16)?)) }
+  if typ == TYPE_SRV { return Ok(SRVBody(unpack_srv(msg, off)?)) }
+  if typ == TYPE_SVCB { return Ok(SVCBBody(unpack_svcb(msg, off, length)?)) }
+  if typ == TYPE_HTTPS { return Ok(HTTPSBody(unpack_svcb(msg, off, length)?)) }
+  if typ == TYPE_OPT { return Ok(OPTBody(unpack_opt(msg, off, length)?)) }
+  Ok(UnknownBody(Unknown { typ: typ, data: unpack_bytes(msg, off, length)? }))
+}
+
+fn record_name(typ: Int) -> Str {
+  if typ == TYPE_A { return "A" }
+  if typ == TYPE_NS { return "NS" }
+  if typ == TYPE_CNAME { return "CNAME" }
+  if typ == TYPE_SOA { return "SOA" }
+  if typ == TYPE_PTR { return "PTR" }
+  if typ == TYPE_MX { return "MX" }
+  if typ == TYPE_TXT { return "TXT" }
+  if typ == TYPE_AAAA { return "AAAA" }
+  if typ == TYPE_SRV { return "SRV" }
+  if typ == TYPE_SVCB { return "SVCB" }
+  if typ == TYPE_HTTPS { return "HTTPS" }
+  if typ == TYPE_OPT { return "OPT" }
+  "Unknown"
+}
+
+// ───────────── EDNS(0) ─────────────
+
+pub fn set_edns0(
+  h: ResourceHeader,
+  udp_payload_len: Int,
+  ext_rcode: Int,
+  dnssec_ok: Bool,
+) -> ResourceHeader {
+  var ttl = ((ext_rcode & 0xFFFF) >> 4 << 24) & 0xFFFFFFFF
+  if dnssec_ok { ttl = ttl | 0x8000 }
+  ResourceHeader {
+    name: Name { data: [46] },
+    typ: TYPE_OPT,
+    class: udp_payload_len & 0xFFFF,
+    ttl: ttl,
+    ..h
+  }
+}
+
+pub fn dnssec_allowed(h: ResourceHeader) -> Bool { (h.ttl & 0x00ff8000) == 0x8000 }
+
+pub fn extended_rcode(h: ResourceHeader, rcode: Int) -> Int {
+  if (h.ttl & 0x00ff0000) == 0 { return (((h.ttl >> 24) << 4) & 0xFFFF) | rcode }
+  rcode
+}
+
+// ───────────── SVCB 参数 ─────────────
+
+pub fn svcb_get_param(r: SVCB, key: Int) -> Option<List<Int>> {
+  for p in r.params {
+    if p.key == key { return Some(p.value) }
+    if p.key > key { break }
+  }
+  None
+}
+
+pub fn svcb_set_param(r: SVCB, key: Int, value: List<Int>) -> SVCB {
+  var i = 0
+  while i < len(r.params) {
+    if r.params[i].key >= key { break }
+    i += 1
+  }
+  let ps = r.params
+  if i < len(ps) && ps[i].key == key {
+    return SVCB { params: ps[..i] + [SVCParam { key: key, value: value }] + ps[i + 1..], ..r }
+  }
+  SVCB { params: ps[..i] + [SVCParam { key: key, value: value }] + ps[i..], ..r }
+}
+
+pub fn svcb_delete_param(r: SVCB, key: Int) -> (SVCB, Bool) {
+  for i in 0..len(r.params) {
+    let k = r.params[i].key
+    if k == key { return (SVCB { params: r.params[..i] + r.params[i + 1..], ..r }, true) }
+    if k > key { break }
+  }
+  (r, false)
+}
+
+// ───────────── Parser ─────────────
+
+pub type Parser = {
+  msg: List<Int>,
+  wire: Wire,
+  // 0 未开始 1 header 2 问题 3 回答 4 权威 5 附加 6 完成
+  section: Int,
+  off: Int,
+  index: Int,
+  rh_valid: Bool,
+  rh_off: Int,
+  rh_type: Int,
+  rh_len: Int,
+}
+
+fn section_name(s: Int) -> Str {
+  if s == 1 { return "header" }
+  if s == 2 { return "Question" }
+  if s == 3 { return "Answer" }
+  if s == 4 { return "Authority" }
+  if s == 5 { return "Additional" }
+  ""
+}
+
+pub fn new_parser() -> Parser {
+  Parser {
+    msg: [],
+    wire: Wire { id: 0, bits: 0, counts: [0, 0, 0, 0] },
+    section: 0,
+    off: 0,
+    index: 0,
+    rh_valid: false,
+    rh_off: 0,
+    rh_type: 0,
+    rh_len: 0,
+  }
+}
+
+// Parser.Start
+pub fn start(msg: List<Int>) -> (Parser, Result<Header, Str>) {
+  let p0 = Parser { msg: msg, ..new_parser() }
+  let (w, r) = wire_unpack(msg, 0)
+  match r {
+    Err(e) => (Parser { wire: w, ..p0 }, Err(nested("unpacking header", e))),
+    Ok(off) => (Parser { wire: w, off: off, section: 2, ..p0 }, Ok(wire_header(w))),
+  }
+}
+
+fn count(p: Parser, sec: Int) -> Int {
+  if sec >= 2 && sec <= 5 { p.wire.counts[sec - 2] } else { 0 }
+}
+
+fn check_advance(p: Parser, sec: Int) -> (Parser, Str) {
+  if p.section < sec { return (p, ERR_NOT_STARTED) }
+  if p.section > sec { return (p, ERR_SECTION_DONE) }
+  let p1 = Parser { rh_valid: false, ..p }
+  if p1.index == count(p1, sec) {
+    return (Parser { index: 0, section: p1.section + 1, ..p1 }, ERR_SECTION_DONE)
+  }
+  (p1, "")
+}
+
+fn resource_header_in(p0: Parser, sec: Int) -> (Parser, Result<ResourceHeader, Str>) {
+  let p = if p0.rh_valid { Parser { off: p0.rh_off, ..p0 } } else { p0 }
+  let (p1, e) = check_advance(p, sec)
+  if e != "" { return (p1, Err(e)) }
+  match unpack_rh(p1.msg, p1.off) {
+    Err(e2) => (p1, Err(e2)),
+    Ok((h, off)) => (
+      Parser { rh_valid: true, rh_off: p1.off, rh_type: h.typ, rh_len: h.length, off: off, ..p1 },
+      Ok(h),
+    ),
+  }
+}
+
+fn resource_in(p: Parser, sec: Int) -> (Parser, Result<Resource, Str>) {
+  let (p1, r) = resource_header_in(p, sec)
+  let h = match r {
+    Ok(x) => x,
+    Err(e) => { return (p1, Err(e)) },
+  }
+  let p2 = Parser { rh_valid: false, ..p1 }
+  match unpack_one(p2.msg, p2.off, h.typ, h.length) {
+    Err(e) => (
+      p2,
+      Err(nested("unpacking " + section_name(sec), nested(record_name(h.typ) + " record", e))),
+    ),
+    Ok(b) => (Parser { off: p2.off + h.length, index: p2.index + 1, ..p2 }, Ok(Resource {
+      header: h,
+      body: Some(b),
+    })),
+  }
+}
+
+fn skip_in(p: Parser, sec: Int) -> (Parser, Result<Unit, Str>) {
+  if p.rh_valid && p.section == sec {
+    let n = p.off + p.rh_len
+    if n > len(p.msg) { return (p, Err(ERR_RESOURCE_LEN)) }
+    return (Parser { off: n, rh_valid: false, index: p.index + 1, ..p }, Ok(()))
+  }
+  let (p1, e) = check_advance(p, sec)
+  if e != "" { return (p1, Err(e)) }
+  match skip_resource_at(p1.msg, p1.off) {
+    Err(e2) => (p1, Err(nested("skipping: " + section_name(sec), e2))),
+    Ok(o) => (Parser { off: o, index: p1.index + 1, ..p1 }, Ok(())),
+  }
+}
+
+fn all_in(p0: Parser, sec: Int) -> (Parser, Result<List<Resource>, Str>) {
+  var p = p0
+  var out: List<Resource> = []
+  loop {
+    let (p1, r) = resource_in(p, sec)
+    p = p1
+    match r {
+      Ok(x) => { out = push(out, x) },
+      Err(e) => {
+        if e == ERR_SECTION_DONE { return (p, Ok(out)) }
+        return (p, Err(e))
+      },
+    }
+  }
+  (p, Ok(out))
+}
+
+fn skip_all_in(p0: Parser, sec: Int) -> (Parser, Result<Unit, Str>) {
+  var p = p0
+  loop {
+    let (p1, r) = skip_in(p, sec)
+    p = p1
+    if let Err(e) = r {
+      if e == ERR_SECTION_DONE { return (p, Ok(())) }
+      return (p, Err(e))
+    }
+  }
+  (p, Ok(()))
+}
+
+fn typed_body(p: Parser, typ: Int, any_type: Bool) -> (Parser, Result<Body, Str>) {
+  if !p.rh_valid || (!any_type && p.rh_type != typ) { return (p, Err(ERR_NOT_STARTED)) }
+  let t = if any_type { p.rh_type } else { typ }
+  let r = if any_type {
+    match unpack_bytes(p.msg, p.off, p.rh_len) {
+      Ok(d) => Ok(UnknownBody(Unknown { typ: t, data: d })),
+      Err(e) => Err(e),
+    }
+  } else {
+    unpack_one(p.msg, p.off, t, p.rh_len)
+  }
+  match r {
+    Err(e) => (p, Err(e)),
+    Ok(b) => (Parser { off: p.off + p.rh_len, rh_valid: false, index: p.index + 1, ..p }, Ok(b)),
+  }
+}
+
+impl Parser {
+  fn question(self) -> (Parser, Result<Question, Str>) {
+    let (p, e) = check_advance(self, 2)
+    if e != "" { return (p, Err(e)) }
+    let (name, o1) = match unpack_name(p.msg, p.off) {
+      Ok(x) => x,
+      Err(e2) => { return (p, Err(nested("unpacking Question.Name", e2))) },
+    }
+    let (typ, o2) = match u16(p.msg, o1) {
+      Ok(x) => x,
+      Err(e2) => { return (p, Err(nested("unpacking Question.Type", e2))) },
+    }
+    let (class, o3) = match u16(p.msg, o2) {
+      Ok(x) => x,
+      Err(e2) => { return (p, Err(nested("unpacking Question.Class", e2))) },
+    }
+    (Parser { off: o3, index: p.index + 1, ..p }, Ok(Question {
+      name: name,
+      typ: typ,
+      class: class,
+    }))
+  }
+
+  fn all_questions(self) -> (Parser, Result<List<Question>, Str>) {
+    var p = self
+    var out: List<Question> = []
+    loop {
+      let (p1, r) = p.question()
+      p = p1
+      match r {
+        Ok(q) => { out = push(out, q) },
+        Err(e) => {
+          if e == ERR_SECTION_DONE { return (p, Ok(out)) }
+          return (p, Err(e))
+        },
+      }
+    }
+    (p, Ok(out))
+  }
+
+  fn skip_question(self) -> (Parser, Result<Unit, Str>) {
+    let (p, e) = check_advance(self, 2)
+    if e != "" { return (p, Err(e)) }
+    let o1 = match skip_name(p.msg, p.off) {
+      Ok(x) => x,
+      Err(e2) => { return (p, Err(nested("skipping Question Name", e2))) },
+    }
+    if o1 + 2 > len(p.msg) { return (p, Err(nested("skipping Question Type", ERR_BASE_LEN))) }
+    if o1 + 4 > len(p.msg) { return (p, Err(nested("skipping Question Class", ERR_BASE_LEN))) }
+    (Parser { off: o1 + 4, index: p.index + 1, ..p }, Ok(()))
+  }
+
+  fn skip_all_questions(self) -> (Parser, Result<Unit, Str>) {
+    var p = self
+    loop {
+      let (p1, r) = p.skip_question()
+      p = p1
+      if let Err(e) = r {
+        if e == ERR_SECTION_DONE { return (p, Ok(())) }
+        return (p, Err(e))
+      }
+    }
+    (p, Ok(()))
+  }
+
+  fn answer_header(self) -> (Parser, Result<ResourceHeader, Str>) { resource_header_in(self, 3) }
+
+  fn answer(self) -> (Parser, Result<Resource, Str>) { resource_in(self, 3) }
+
+  fn all_answers(self) -> (Parser, Result<List<Resource>, Str>) { all_in(self, 3) }
+
+  fn skip_answer(self) -> (Parser, Result<Unit, Str>) { skip_in(self, 3) }
+
+  fn skip_all_answers(self) -> (Parser, Result<Unit, Str>) { skip_all_in(self, 3) }
+
+  fn authority_header(self) -> (Parser, Result<ResourceHeader, Str>) { resource_header_in(self, 4) }
+
+  fn authority(self) -> (Parser, Result<Resource, Str>) { resource_in(self, 4) }
+
+  fn all_authorities(self) -> (Parser, Result<List<Resource>, Str>) { all_in(self, 4) }
+
+  fn skip_authority(self) -> (Parser, Result<Unit, Str>) { skip_in(self, 4) }
+
+  fn skip_all_authorities(self) -> (Parser, Result<Unit, Str>) { skip_all_in(self, 4) }
+
+  fn additional_header(self) -> (Parser, Result<ResourceHeader, Str>) {
+    resource_header_in(self, 5)
+  }
+
+  fn additional(self) -> (Parser, Result<Resource, Str>) { resource_in(self, 5) }
+
+  fn all_additionals(self) -> (Parser, Result<List<Resource>, Str>) { all_in(self, 5) }
+
+  fn skip_additional(self) -> (Parser, Result<Unit, Str>) { skip_in(self, 5) }
+
+  fn skip_all_additionals(self) -> (Parser, Result<Unit, Str>) { skip_all_in(self, 5) }
+
+  // 在 *Header 之后读出记录体：typ 必须和头里的类型相同（同 Go 的 CNAMEResource、MXResource …）
+  fn resource_body(self, typ: Int) -> (Parser, Result<Body, Str>) { typed_body(self, typ, false) }
+
+  // UnknownResource：任何类型都按原始字节读出
+  fn unknown_resource(self) -> (Parser, Result<Unknown, Str>) {
+    let (p, r) = typed_body(self, 0, true)
+    match r {
+      Ok(UnknownBody(u)) => (p, Ok(u)),
+      Ok(_) => (p, Err("unreachable")),
+      Err(e) => (p, Err(e)),
+    }
+  }
+}
+
+// ───────────── Message ─────────────
+
+pub type Message = {
+  header: Header,
+  questions: List<Question>,
+  answers: List<Resource>,
+  authorities: List<Resource>,
+  additionals: List<Resource>,
+}
+
+pub fn new_message(h: Header) -> Message {
+  Message { header: h, questions: [], answers: [], authorities: [], additionals: [] }
+}
+
+pub fn unpack(msg: List<Int>) -> Result<Message, Str> {
+  let (p0, hr) = start(msg)
+  let h = hr?
+  let (p1, qs) = p0.all_questions()
+  let q = qs?
+  let (p2, an) = p1.all_answers()
+  let a = an?
+  let (p3, ns) = p2.all_authorities()
+  let n = ns?
+  let (_, ad) = p3.all_additionals()
+  let d = ad?
+  Ok(Message { header: h, questions: q, answers: a, authorities: n, additionals: d })
+}
+
+pub fn append_pack(m: Message, b: List<Int>) -> Result<List<Int>, Str> {
+  if len(m.questions) > 65535 { return Err(ERR_TOO_MANY_QUESTIONS) }
+  if len(m.answers) > 65535 { return Err(ERR_TOO_MANY_ANSWERS) }
+  if len(m.authorities) > 65535 { return Err(ERR_TOO_MANY_AUTHORITIES) }
+  if len(m.additionals) > 65535 { return Err(ERR_TOO_MANY_ADDITIONALS) }
+  let w = Wire {
+    id: m.header.id,
+    bits: header_bits(m.header),
+    counts: [len(m.questions), len(m.answers), len(m.authorities), len(m.additionals)],
+  }
+  let coff = len(b)
+  var msg = wire_pack(b, w)
+  var comp: Compression = Some(Map())
+  for q in m.questions {
+    let (c, r) = pack_question(msg, q, comp, coff)
+    comp = c
+    msg = wrap(r, "packing Question")?
+  }
+  let secs = [
+    ("packing Answer", m.answers),
+    ("packing Authority", m.authorities),
+    ("packing Additional", m.additionals),
+  ]
+  for (label, rs) in secs {
+    for r in rs {
+      let (c, x) = pack_resource(msg, r, comp, coff)
+      comp = c
+      msg = wrap(x, label)?
+    }
+  }
+  Ok(msg)
+}
+
+pub fn pack(m: Message) -> Result<List<Int>, Str> { append_pack(m, []) }
+
+fn list_go<T>(xs: List<T>, f: fn(T) -> Str) -> Str { join(map(xs, f), ", ") }
+
+pub fn message_go_string(m: Message) -> Str {
+  "dnsmessage.Message\{Header: " + header_go_string(
+    m.header,
+  ) + ", " + "Questions: []dnsmessage.Question\{" +
+    list_go(m.questions, (q) => question_go_string(q)) + "\}, Answers: []dnsmessage.Resource\{" +
+    list_go(m.answers, (r) => resource_go_string(r)) + "\}, Authorities: []dnsmessage.Resource\{" +
+    list_go(
+      m.authorities,
+      (r) => resource_go_string(r),
+    ) + "\}, Additionals: []dnsmessage.Resource\{" +
+    list_go(m.additionals, (r) => resource_go_string(r)) + "\}\}"
+}
+
+// ───────────── Builder ─────────────
+
+pub type Builder = { msg: List<Int>, section: Int, wire: Wire, start: Int, comp: Compression }
+
+pub fn new_builder(buf: List<Int>, h: Header) -> Builder {
+  Builder {
+    msg: buf + [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+    section: 1,
+    wire: Wire { id: h.id, bits: header_bits(h), counts: [0, 0, 0, 0] },
+    start: len(buf),
+    comp: None,
+  }
+}
+
+fn start_check(b: Builder, s: Int) -> Result<Unit, Str> {
+  if b.section <= 0 { return Err(ERR_NOT_STARTED) }
+  if b.section > s { return Err(ERR_SECTION_DONE) }
+  Ok(())
+}
+
+fn begin(b: Builder, s: Int) -> (Builder, Result<Unit, Str>) {
+  match start_check(b, s) {
+    Err(e) => (b, Err(e)),
+    Ok(_) => (Builder { section: s, ..b }, Ok(())),
+  }
+}
+
+fn increment(b: Builder) -> Result<Builder, Str> {
+  let i = b.section - 2
+  let errs = [
+    ERR_TOO_MANY_QUESTIONS,
+    ERR_TOO_MANY_ANSWERS,
+    ERR_TOO_MANY_AUTHORITIES,
+    ERR_TOO_MANY_ADDITIONALS,
+  ]
+  let c = b.wire.counts
+  if c[i] == 65535 { return Err(errs[i]) }
+  Ok(Builder { wire: Wire { counts: c[..i] + [c[i] + 1] + c[i + 1..], ..b.wire }, ..b })
+}
+
+impl Builder {
+  fn enable_compression(self) -> Builder { Builder { comp: Some(Map()), ..self } }
+
+  fn start_questions(self) -> (Builder, Result<Unit, Str>) { begin(self, 2) }
+
+  fn start_answers(self) -> (Builder, Result<Unit, Str>) { begin(self, 3) }
+
+  fn start_authorities(self) -> (Builder, Result<Unit, Str>) { begin(self, 4) }
+
+  fn start_additionals(self) -> (Builder, Result<Unit, Str>) { begin(self, 5) }
+
+  fn question(self, q: Question) -> (Builder, Result<Unit, Str>) {
+    if self.section < 2 { return (self, Err(ERR_NOT_STARTED)) }
+    if self.section > 2 { return (self, Err(ERR_SECTION_DONE)) }
+    let (c, r) = pack_question(self.msg, q, self.comp, self.start)
+    let b = Builder { comp: c, ..self }
+    let msg = match r {
+      Ok(m) => m,
+      Err(e) => { return (b, Err(e)) },
+    }
+    match increment(b) {
+      Err(e) => (b, Err(e)),
+      Ok(b2) => (Builder { msg: msg, ..b2 }, Ok(())),
+    }
+  }
+
+  // CNAMEResource、MXResource … UnknownResource、SVCBResource、HTTPSResource 合在一起：类型取自 body
+  fn resource(self, h0: ResourceHeader, body: Body) -> (Builder, Result<Unit, Str>) {
+    if self.section < 3 { return (self, Err(ERR_NOT_STARTED)) }
+    if self.section > 5 { return (self, Err(ERR_SECTION_DONE)) }
+    let h = ResourceHeader { typ: body_type(body), ..h0 }
+    let (c1, r1) = pack_rh(self.msg, h, self.comp, self.start)
+    let b1 = Builder { comp: c1, ..self }
+    let (m1, len_off) = match r1 {
+      Ok(x) => x,
+      Err(e) => { return (b1, Err(nested("ResourceHeader", e))) },
+    }
+    let pre = len(m1)
+    let (c2, r2) = pack_body(m1, body, c1, self.start)
+    let b2 = Builder { comp: c2, ..self }
+    let m2 = match r2 {
+      Ok(x) => x,
+      Err(e) => { return (b2, Err(nested(body_kind(body), e))) },
+    }
+    let m3 = match fix_len(m2, len_off, pre) {
+      Ok(x) => x,
+      Err(e) => { return (b2, Err(e)) },
+    }
+    match increment(b2) {
+      Err(e) => (b2, Err(e)),
+      Ok(b3) => (Builder { msg: m3, ..b3 }, Ok(())),
+    }
+  }
+
+  fn finish(self) -> (Builder, Result<List<Int>, Str>) {
+    if self.section < 1 { return (self, Err(ERR_NOT_STARTED)) }
+    let hb = wire_pack([], self.wire)
+    let msg = self.msg[..self.start] + hb + self.msg[self.start + 12..]
+    (Builder { section: 6, msg: msg, ..self }, Ok(msg))
+  }
+}

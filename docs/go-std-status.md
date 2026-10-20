@@ -74,7 +74,7 @@ image/color/palette、path/filepath、go/constant、net/http/cookiejar、crypto/
 - std.net：`split_host_port` / `join_host_port`（错误文字同 Go）。
 - std.net（2026-10-20）：IP / IPMask / IPNet / HardwareAddr 的纯函数（parse_ip、parse_cidr、cidr_mask、ip_mask、ip_to4/to16、ip_is_*、ipnet_contains/string、mask_size、parse_mac 等，Go 对拍 tests/go/net_ip 2107 行，输入是 Go 测试里的全部字符串字面量）；
   UDP（listen_udp / dial_udp → PacketConn，read_from / write_to）、Unix 流套接字（listen_unix / dial_unix / close_unix）、unixgram、TCP 支持 IPv6、
-  DNS（lookup_host / lookup_ip / lookup_addr / lookup_cname / lookup_port，走系统 getaddrinfo；MX/TXT/SRV/NS 未做）。行为测试 examples/net_sockets。
+  DNS（lookup_host / lookup_ip / lookup_addr / lookup_cname / lookup_port，走系统 getaddrinfo；MX/TXT/SRV/NS 见下面 dnsmessage 一条）。行为测试 examples/net_sockets。
 - std.net.http.httptest（2026-10-20）：new_request（NewRequest，非法参数返回 Err，文字同 Go 的 panic）、ResponseRecorder（不可变值：write / write_string / write_header / flush / result，含 Content-Type 嗅探、头快照、Trailer 和 "Trailer:" 前缀）、valid_trailer_header；
   Go 对拍 tests/go/httptest 619 行。NewServer/Close 改成结构化的 with_server(handler, body)（行为测试 examples/httptest_server）；NewTLSServer、NewUnstartedServer 未做。
 - std.net.http.httputil（2026-10-20）：dump_request / dump_response / dump_request_out（模拟 Transport：校验头和方法、Accept-Encoding: gzip）、
@@ -92,14 +92,25 @@ image/color/palette、path/filepath、go/constant、net/http/cookiejar、crypto/
   统一报错。Go 对拍 tests/go/jsonrpc 296 行（52 段服务端输入 + 51 段客户端脚本，含大小写不敏感的键、重复键、非法 id、语法错误、截断）；
   行为测试 examples/jsonrpc_tcp。注意 Go 1.27 默认 GOEXPERIMENT=jsonv2，RawMessage 是 jsontext.Value。
   与 Go 的差异：服务端按顺序处理（Go 并发，应答顺序不定）；参数 [] 表示 nil；net/rpc 的 gob 编码、HTTP 隧道、debug 页面不移植（net/rpc 等 encoding/gob）。
-- 计划：DNS 报文（dnsmessage）以支持 MX/TXT/SRV/NS。
+- std.net.dnsmessage（2026-10-20）：x/net/dns/dnsmessage 全部（Name、Header、Question、ResourceHeader、13 种记录体含 SVCB/HTTPS/OPT、
+  Message pack / append_pack / unpack、Parser、Builder、EDNS(0)、SVCB 参数、GoString），Parser / Builder 是不可变值，出错时的状态变化同 Go
+  （包括 Builder 失败后压缩表保留已登记的后缀、SVCB 键序检查里 previousKey 从不更新的怪癖）。对拍 tests/go/dnsmessage 2063 行
+  （17 组报文 × Pack/AppendPack/两种 Builder/Parser 混合走法/每个截断长度/40 次改字节，加 22 段手写的指针与记录体边界）。
+  Go 外的程序不能 import vendor 包，重新生成用 tests/go/dnsmessage_regen.sh。差异：Message.Pack 不回写 Type/Length；没有零值 Builder。
+- std.net 解析器（同日）：dns_parse_config / dns_read_config（resolv.conf）、dns_name_list（搜索域、ndots、.onion）、is_domain_name、
+  Resolver（default_resolver / resolver_with_servers）的 lookup_mx / lookup_txt / lookup_srv / lookup_ns 和同名顶层函数：UDP + EDNS(0)、
+  checkHeader（NXDOMAIN、扩展 RCODE、lame referral、server misbehaving）、skipToAnswer、MX 按优先级（同级随机）、SRV 按权重洗牌、
+  非法名字过滤、错误文字 "lookup 名字 on 服务器: …"。对拍 tests/go/dnsclient 188 行：Go 的 net 内部测试（tests/go/dnsclient_regen.sh）
+  对本机假 DNS 服务查询，Kite 起同样的假服务（testdata/dnsclient/responses.txt）；另含 Go 自带的 14 个 resolv.conf 样例。
+  差异：截断的 UDP 应答直接用、不改走 TCP；rotate 不轮换；有非法名字时只返回错误（Go 还返回剩下的记录）。
+- 计划：crypto/hpke。
 
 ## 可以做（纯数据 / 算法，计划后续批次）
 - crypto/hpke
 - encoding/gob（值用类似 fmt.Arg 的枚举表示）
 - debug/dwarf、debug/macho、debug/pe、debug/plan9obj
 - html/template（上下文转义）
-- net/rpc（gob 编码部分，依赖 encoding/gob）、DNS 报文（x/net/dns/dnsmessage，给 MX/TXT/SRV/NS 用）
+- net/rpc（gob 编码部分，依赖 encoding/gob）
 - io/fs（ValidPath / Glob / WalkDir 的纯逻辑）、testing/fstest（MapFS）、testing/iotest
 - hash/maphash（种子随机，只能对拍确定性的部分）、expvar、time/tzdata（时区数据）
 - os/user（读 /etc/passwd、/etc/group）、os/exec（借 system）

@@ -1,0 +1,550 @@
+// 对拍 tests/go/dnsmessage.go：同一组报文的 Pack / Unpack / Builder / Parser / 截断 / 改字节，以及 EDNS(0)、SVCB 参数、类型名
+use std.strings
+use std.encoding.hex
+use std.net.dnsmessage as dm
+
+fn nm(s: Str) -> dm.Name { dm.must_new_name(s) }
+
+fn nmb(b: List<Int>) -> dm.Name { unwrap(dm.new_name_bytes(b)) }
+
+fn rh(name: Str, class: Int, ttl: Int) -> dm.ResourceHeader {
+  dm.new_resource_header(nm(name), 0, class, ttl)
+}
+
+fn res(h: dm.ResourceHeader, b: dm.Body) -> dm.Resource { dm.Resource { header: h, body: Some(b) } }
+
+fn q(name: Str, t: Int, c: Int) -> dm.Question { dm.Question { name: nm(name), typ: t, class: c } }
+
+fn hdr(id: Int) -> dm.Header { dm.Header { id: id, ..dm.new_header() } }
+
+fn msg(h: dm.Header, qs: List<dm.Question>, an: List<dm.Resource>) -> dm.Message {
+  dm.Message { questions: qs, answers: an, ..dm.new_message(h) }
+}
+
+fn rep(s: Str, n: Int) -> Str { strings.repeat(s, n) }
+
+fn fixtures() -> List<dm.Message> {
+  let opt = dm.set_edns0(dm.new_resource_header(nm("."), 0, 0, 0), 1232, 0x1234, true)
+  let long = rep("x", 255)
+  let seg63 = rep("a", 63)
+  let seg64 = rep("b", 64)
+  let name250 = rep(seg63 + ".", 3) + rep("c", 61) + "."
+  let name255 = strings.slice(rep(seg63 + ".", 4), 0, 255)
+  let svcb = dm.SVCB {
+    priority: 1,
+    target: nm("svc.example.com."),
+    params: [
+      dm.SVCParam { key: dm.SVC_PARAM_ALPN, value: [2, 104, 50, 2, 104, 51] },
+      dm.SVCParam { key: dm.SVC_PARAM_PORT, value: [1, 187] },
+      dm.SVCParam { key: dm.SVC_PARAM_IPV4_HINT, value: [192, 0, 2, 1] },
+      dm.SVCParam { key: 65000, value: [] },
+    ],
+  }
+  let inet = dm.CLASS_INET
+  let ex = "example.com."
+  [
+    msg(
+      dm.Header { id: 1, recursion_desired: true, ..dm.new_header() },
+      [q(ex, dm.TYPE_A, inet)],
+      [],
+    ),
+    dm.Message {
+      header: dm.Header {
+        id: 0xbeef,
+        response: true,
+        authoritative: true,
+        recursion_available: true,
+        ..dm.new_header()
+      },
+      questions: [q(ex, dm.TYPE_ALL, inet)],
+      answers: [
+        res(rh(ex, inet, 300), ABody([93, 184, 216, 34])),
+        res(rh(ex, inet, 300), NSBody(nm("ns1.example.com."))),
+        res(rh("www.example.com.", inet, 60), CNAMEBody(nm(ex))),
+        res(rh(ex, inet, 3600), SOABody(dm.SOA {
+          ns: nm("ns1.example.com."),
+          mbox: nm("hostmaster.example.com."),
+          serial: 2026102001,
+          refresh: 7200,
+          retry: 3600,
+          expire: 1209600,
+          min_ttl: 4294967295,
+        })),
+        res(rh("34.216.184.93.in-addr.arpa.", inet, 86400), PTRBody(nm(ex))),
+        res(rh(ex, inet, 300), MXBody(dm.MX { pref: 10, mx: nm("mail.example.com.") })),
+        res(rh(ex, inet, 300), MXBody(dm.MX { pref: 20, mx: nm("mail2.example.org.") })),
+        res(rh(ex, inet, 300), TXTBody([__bytes("v=spf1 -all"), [], [97, 0, 98, 255, 99]])),
+        res(rh(ex, inet, 300), AAAABody([
+          0x20, 0x01, 0x0d, 0xb8, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1,
+        ])),
+        res(rh("_sip._tcp.example.com.", inet, 300), SRVBody(dm.SRV {
+          priority: 1,
+          weight: 5,
+          port: 5060,
+          target: nm("sip.example.com."),
+        })),
+        res(rh(ex, inet, 300), SVCBBody(svcb)),
+        res(rh(ex, inet, 300), HTTPSBody(svcb)),
+        res(rh(ex, dm.CLASS_CHAOS, 7), UnknownBody(dm.Unknown { typ: 99, data: [1, 2, 3] })),
+        res(rh(ex, 9, 0), UnknownBody(dm.Unknown { typ: dm.TYPE_WKS, data: [] })),
+      ],
+      authorities: [res(rh(ex, inet, 300), NSBody(nm("ns2.example.net.")))],
+      additionals: [
+        res(rh("ns1.example.com.", inet, 300), ABody([192, 0, 2, 53])),
+        res(opt, OPTBody([dm.Opt { code: 10, data: [1, 2, 3, 4, 5, 6, 7, 8] }, dm.Opt {
+          code: 12,
+          data: [],
+        }])),
+      ],
+    },
+    msg(
+      dm.Header {
+        id: 65535,
+        response: true,
+        op_code: 5,
+        authoritative: true,
+        truncated: true,
+        recursion_desired: true,
+        recursion_available: true,
+        authentic_data: true,
+        checking_disabled: true,
+        rcode: dm.RCODE_NAME_ERROR,
+      },
+      [],
+      [],
+    ),
+    msg(
+      dm.Header { id: 3, op_code: 15, rcode: 15, ..dm.new_header() },
+      [
+        q("a.b.c.", dm.TYPE_MX, inet),
+        q("b.c.", dm.TYPE_NS, dm.CLASS_ANY),
+        q("c.", 1000, 77),
+        q("x.a.b.c.", dm.TYPE_TXT, inet),
+        q(".", dm.TYPE_NS, inet),
+        q("A.B.C.", dm.TYPE_A, inet),
+      ],
+      [
+        res(rh("c.", inet, 1), CNAMEBody(nm("y.x.a.b.c."))),
+        res(rh("b.c.", inet, 1), SRVBody(dm.SRV {
+          priority: 0,
+          weight: 0,
+          port: 0,
+          target: nm("a.b.c."),
+        })),
+        res(rh(".", inet, 1), MXBody(dm.MX { pref: 0, mx: nm(".") })),
+        res(rh(name250, inet, 1), PTRBody(nm(seg63 + ".b.c."))),
+      ],
+    ),
+    msg(
+      hdr(4),
+      [],
+      [
+        res(rh("t.", inet, 0), TXTBody([__bytes(long), __bytes("x")])),
+        res(rh("t.", inet, 0), TXTBody([])),
+        res(rh("t.", inet, 0), TXTBody([[]])),
+        res(rh("o.", inet, 0), OPTBody([])),
+        res(rh("s.", inet, 0), SVCBBody(dm.SVCB { priority: 0, target: nm("."), params: [] })),
+      ],
+    ),
+    msg(hdr(5), [], [dm.Resource { header: rh("nil.", inet, 0), body: None }]),
+    msg(hdr(6), [q("example.com", dm.TYPE_A, inet)], []),
+    msg(hdr(7), [q("ok.example.", dm.TYPE_A, inet), q(seg64 + ".example.", dm.TYPE_A, inet)], []),
+    msg(hdr(8), [], [res(rh("a..b.", inet, 0), ABody([0, 0, 0, 0]))]),
+    msg(hdr(9), [], [res(rh("t.", inet, 0), TXTBody([__bytes("ok"), __bytes(long + "y")]))]),
+    msg(
+      hdr(10),
+      [],
+      [
+        res(rh("s.", inet, 0), SVCBBody(dm.SVCB {
+          priority: 0,
+          target: nm("."),
+          params: [dm.SVCParam { key: 3, value: [] }, dm.SVCParam { key: 3, value: [] }],
+        })),
+      ],
+    ),
+    msg(hdr(11), [], [res(rh(name255, inet, 0), ABody([0, 0, 0, 0]))]),
+    msg(hdr(12), [], [res(rh("m.", inet, 0), MXBody(dm.MX { pref: 1, mx: nm("bad") }))]),
+    msg(
+      hdr(13),
+      [],
+      [
+        res(rh("s.", inet, 0), SOABody(dm.SOA {
+          ns: nm("ns."),
+          mbox: nm(""),
+          serial: 0,
+          refresh: 0,
+          retry: 0,
+          expire: 0,
+          min_ttl: 0,
+        })),
+      ],
+    ),
+    msg(hdr(14), [], [res(rh("s.", inet, 0), SRVBody(dm.SRV {
+      priority: 0,
+      weight: 0,
+      port: 0,
+      target: nm("t"),
+    }))]),
+    msg(hdr(15), [], [res(rh("s.", inet, 0), HTTPSBody(dm.SVCB {
+      priority: 0,
+      target: nm("u"),
+      params: [],
+    }))]),
+    msg(hdr(16), [q("q.example.", dm.TYPE_A, inet)], [res(rh("bad", inet, 0), ABody([
+      0, 0, 0, 0,
+    ]))]),
+  ]
+}
+
+fn errs(e: Str) -> Str { "err: " + e }
+
+fn out(what: Str, r: Result<Unit, Str>) {
+  if let Err(e) = r { print("  " + what + " " + errs(e)) }
+}
+
+fn build(m: dm.Message, compress: Bool) {
+  var b = dm.new_builder([], m.header)
+  if compress { b = b.enable_compression() }
+  let (b1, r1) = b.question(q("early.", dm.TYPE_A, dm.CLASS_INET))
+  out("question-early", r1)
+  let (b2, r2) = b1.start_questions()
+  out("start-q", r2)
+  b = b2
+  for x in m.questions {
+    let (b3, r) = b.question(x)
+    b = b3
+    out("q", r)
+  }
+  let secs = [m.answers, m.authorities, m.additionals]
+  for i in 0..3 {
+    let (b4, r) = if i == 0 {
+      b.start_answers()
+    } else if i == 1 {
+      b.start_authorities()
+    } else {
+      b.start_additionals()
+    }
+    b = b4
+    out("start", r)
+    for x in secs[i] {
+      if let Some(body) = x.body {
+        let (b5, r5) = b.resource(x.header, body)
+        b = b5
+        out("r", r5)
+      }
+    }
+  }
+  let (b6, r6) = b.start_questions()
+  out("start-q-late", r6)
+  let (b7, fin) = b6.finish()
+  match fin {
+    Err(e) => print("  finish " + errs(e)),
+    Ok(bs) => print("  finish " + hex.encode_bytes(bs)),
+  }
+  let (b8, r8) = b7.start_additionals()
+  out("after-finish", r8)
+  let (_, r9) = b8.resource(rh("z.", dm.CLASS_INET, 0), ABody([0, 0, 0, 0]))
+  out("r-after-finish", r9)
+}
+
+fn is_known(t: Int) -> Bool {
+  any(
+    [
+      dm.TYPE_A,
+      dm.TYPE_NS,
+      dm.TYPE_CNAME,
+      dm.TYPE_SOA,
+      dm.TYPE_PTR,
+      dm.TYPE_MX,
+      dm.TYPE_TXT,
+      dm.TYPE_AAAA,
+      dm.TYPE_SRV,
+      dm.TYPE_SVCB,
+      dm.TYPE_HTTPS,
+      dm.TYPE_OPT,
+    ],
+    (x) => x == t,
+  )
+}
+
+fn typed(p: dm.Parser, t: Int) -> (dm.Parser, Str) {
+  if is_known(t) {
+    let (p2, r) = p.resource_body(t)
+    match r {
+      Ok(b) => (p2, dm.body_go_string(b)),
+      Err(e) => (p2, errs(e)),
+    }
+  } else {
+    let (p2, r) = p.unknown_resource()
+    match r {
+      Ok(u) => (p2, dm.body_go_string(UnknownBody(u))),
+      Err(e) => (p2, errs(e)),
+    }
+  }
+}
+
+fn pr(what: Str, s: Str) { print("  " + what + " " + s) }
+
+fn walk(bs: List<Int>) {
+  let (_, r0) = dm.new_parser().answer()
+  if let Err(e) = r0 { pr("answer-before-start", errs(e)) }
+  let (p0, hr) = dm.start(bs)
+  let h = match hr {
+    Err(e) => {
+      pr("start", errs(e))
+      return
+    },
+    Ok(x) => x,
+  }
+  pr("start", dm.header_go_string(h))
+  var p = p0
+  let (p1, r1) = p.answer_header()
+  p = p1
+  if let Err(e) = r1 { pr("answer-header-early", errs(e)) }
+  var i = 0
+  loop {
+    var err = ""
+    if i % 2 == 0 {
+      let (p2, r) = p.question()
+      p = p2
+      match r {
+        Ok(x) => pr("q", dm.question_go_string(x)),
+        Err(e) => { err = e },
+      }
+    } else {
+      let (p2, r) = p.skip_question()
+      p = p2
+      match r {
+        Ok(_) => pr("skip-q", "ok"),
+        Err(e) => { err = e },
+      }
+    }
+    if err != "" {
+      pr("q-end", errs(err))
+      break
+    }
+    i += 1
+  }
+  for sec in 3..6 {
+    var j = 0
+    loop {
+      var err = ""
+      let k = j % 4
+      if k == 0 || k == 2 {
+        let (p2, r) = if sec == 3 {
+          p.answer_header()
+        } else if sec == 4 {
+          p.authority_header()
+        } else {
+          p.additional_header()
+        }
+        p = p2
+        match r {
+          Err(e) => { err = e },
+          Ok(rhd) => {
+            pr("hdr", dm.resource_header_go_string(rhd))
+            if k == 0 {
+              let (pa, s1) = typed(p, (rhd.typ + 1000) & 0xFFFF)
+              pr("wrong-body", s1)
+              let (pb, s2) = typed(pa, rhd.typ)
+              pr("body", s2)
+              let (pc, s3) = typed(pb, rhd.typ)
+              pr("body-again", s3)
+              p = pc
+            } else {
+              let (pd, rs) = if sec == 3 {
+                p.skip_answer()
+              } else if sec == 4 {
+                p.skip_authority()
+              } else {
+                p.skip_additional()
+              }
+              p = pd
+              match rs {
+                Ok(_) => pr("skip-after-hdr", "ok"),
+                Err(e) => { err = e },
+              }
+            }
+          },
+        }
+      } else if k == 1 {
+        let (p2, r) = if sec == 3 {
+          p.answer()
+        } else if sec == 4 {
+          p.authority()
+        } else {
+          p.additional()
+        }
+        p = p2
+        match r {
+          Ok(x) => pr("res", dm.resource_go_string(x)),
+          Err(e) => { err = e },
+        }
+      } else {
+        let (p2, r) = if sec == 3 {
+          p.skip_answer()
+        } else if sec == 4 {
+          p.skip_authority()
+        } else {
+          p.skip_additional()
+        }
+        p = p2
+        match r {
+          Ok(_) => pr("skip", "ok"),
+          Err(e) => { err = e },
+        }
+      }
+      if err != "" {
+        pr("sec-end", errs(err))
+        break
+      }
+      j += 1
+    }
+  }
+  let (p3, rq) = p.question()
+  if let Err(e) = rq { pr("q-late", errs(e)) }
+  let (_, rs) = p3.skip_all_answers()
+  if let Err(e) = rs { pr("skip-all-late", errs(e)) }
+}
+
+fn unpack_pack(b: List<Int>) -> Str {
+  match dm.unpack(b) {
+    Err(e) => errs(e),
+    Ok(m) => {
+      let s = dm.message_go_string(m)
+      match dm.pack(m) {
+        Err(e) => s + " | pack " + errs(e),
+        Ok(o) => s + " | pack " + hex.encode_bytes(o),
+      }
+    },
+  }
+}
+
+fn bl(b: Bool) -> Str { if b { "true" } else { "false" } }
+
+fn byte_list(b: List<Int>) -> Str { "[" + join(map(b, (x) => "{x}"), " ") + "]" }
+
+fn main() {
+  var seed = 12345
+  var fi = 0
+  for m in fixtures() {
+    print("fixture {fi}")
+    fi += 1
+    let pr0 = dm.pack(m)
+    match pr0 {
+      Err(e) => print("  pack " + errs(e)),
+      Ok(b) => print("  pack " + hex.encode_bytes(b)),
+    }
+    match dm.append_pack(m, [0xaa, 0xbb]) {
+      Err(e) => print("  append-pack " + errs(e)),
+      Ok(b) => print("  append-pack " + hex.encode_bytes(b)),
+    }
+    build(m, false)
+    build(m, true)
+    let b = match pr0 {
+      Err(_) => { continue },
+      Ok(x) => x,
+    }
+    print("  unpack " + unpack_pack(b))
+    walk(b)
+    for l in 0..len(b) {
+      match dm.unpack(b[..l]) {
+        Err(e) => print("  trunc {l} " + errs(e)),
+        Ok(_) => print("  trunc {l} ok"),
+      }
+    }
+    for _ in 0..40 {
+      var c = b
+      seed = (seed * 1103515245 + 12345) % 2147483648
+      let n = 1 + seed % 3
+      var desc: List<Str> = []
+      for _ in 0..n {
+        seed = (seed * 1103515245 + 12345) % 2147483648
+        let pos = seed % len(c)
+        seed = (seed * 1103515245 + 12345) % 2147483648
+        let v = seed % 256
+        c[pos] = v
+        desc = push(desc, "{pos}={v}")
+      }
+      print("  mut " + join(desc, ",") + " " + unpack_pack(c))
+    }
+  }
+  let ptrs = [
+    "0000000000010000000000000000c00c00010001",
+    "000000000001000000000000c00c00010001",
+    "000000000001000000000000c00000010001",
+    "0000000000010000000000000161c00c00010001",
+    "000000000001000000000000c0",
+    "00000000000100000000000080000001",
+    "00000000000100000000000040000001",
+    "000000000001000000000000026162",
+    "000000000001000000000000022e2e0000010001",
+    "0000000000010000000000003f" + rep("61", 63) + "3f" + rep("62", 63) + "3f" + rep(
+      "63",
+      63,
+    ) + "3f" + rep("64", 63) +
+      "0000010001",
+    "0000000000010000000000003f" + rep("61", 63) + "3f" + rep("62", 63) + "3f" + rep(
+      "63",
+      63,
+    ) + "3d" + rep("64", 61) +
+      "0000010001",
+    "000000000001000000000000c00e0000c00c0001",
+    "000000000000000100000000000010000100000000000501ff0000",
+    "000000000000000100000000000010000100000000000301ff",
+    "000000000000000100000000000041000100000000000a0001000000000000000000",
+    "000000000000000100000000000041000100000000000a0001000000010001000000",
+    "000000000000000100000000000040000100000000000b00010000010000000000",
+    "000000000000000100000000000040000100000000000500010000000002",
+    "000000000000000100000000000029000100000000000a000a0004010203",
+    "00000000000000010000000000002900010000000000080001000201020003",
+    "000000000000000100000000000006000100000000000300",
+    "00000000000000010000000000000f000100000000000300",
+  ]
+  for h in ptrs { print("raw " + h + " " + unpack_pack(unwrap(hex.decode(h)))) }
+  var e = dm.new_resource_header(nm("."), 0, 0, 0)
+  for c in [(512, 0, false), (4096, 0xfff, true), (70000, 16, true), (0, 0x10000 + 0x20, false)] {
+    let (u, x, d) = c
+    e = dm.set_edns0(e, u, x, d)
+    print(
+      "edns " + dm.resource_header_go_string(e) + " " + bl(
+        dm.dnssec_allowed(e),
+      ) + " {dm.extended_rcode(e, 3)} {dm.extended_rcode(e, 0)}",
+    )
+  }
+  e = dm.ResourceHeader { ttl: 0x01010000, ..e }
+  print("edns-ver " + bl(dm.dnssec_allowed(e)) + " {dm.extended_rcode(e, 3)}")
+  var s = dm.SVCB { priority: 0, target: nm("."), params: [] }
+  s = dm.svcb_set_param(s, 5, [5])
+  s = dm.svcb_set_param(s, 1, [1])
+  s = dm.svcb_set_param(s, 9, [])
+  s = dm.svcb_set_param(s, 5, [55])
+  let g5 = dm.svcb_get_param(s, 5)
+  print(
+    "svcb " + dm.body_go_string(SVCBBody(s)) + " " + byte_list(unwrap_or(g5, [])) + " " + bl(
+      is_some(g5),
+    ),
+  )
+  let g4 = dm.svcb_get_param(s, 4)
+  print("svcb-get4 " + byte_list(unwrap_or(g4, [])) + " " + bl(is_some(g4)))
+  let (s1, d1) = dm.svcb_delete_param(s, 1)
+  let (s2, d2) = dm.svcb_delete_param(s1, 2)
+  print("svcb-del " + bl(d1) + " " + bl(d2) + " " + dm.body_go_string(SVCBBody(s2)))
+  for t in [0, 1, 2, 5, 6, 11, 12, 13, 14, 15, 16, 28, 33, 41, 64, 65, 252, 255, 256, 65535] {
+    print(
+      "type {t} " + dm
+        .type_string(t) + " " + dm
+        .type_go_string(t) + " " + dm
+        .class_string(t) + " " +
+        dm.class_go_string(t) + " " + dm.rcode_string(t) + " " + dm.rcode_go_string(t) + " " +
+        dm.svc_param_key_go_string(t),
+    )
+  }
+  for k in [0, 3, 9, 10] { print("key " + dm.svc_param_key_string(k)) }
+  match dm.new_name(rep("a", 256)) {
+    Err(x) => print("newname-256 " + x),
+    Ok(_) => print("newname-256 <nil>"),
+  }
+  let n255 = unwrap(dm.new_name(rep("a", 255)))
+  print("newname-255 {len(dm.name_string(n255))} <nil> \"a\\x00.b\"")
+}

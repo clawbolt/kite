@@ -1,0 +1,228 @@
+// 对拍 tests/go/dnsclient.go：本机假 DNS 服务（按 testdata/dnsclient/responses.txt 应答）上的 lookup_mx / txt / srv / ns，
+// 以及 resolv.conf 解析、搜索名单、is_domain_name
+use std.fs
+use std.strings
+use std.strconv
+use std.encoding.hex
+use std.net
+use std.net.dnsmessage as dm
+
+fn q(s: Str) -> Str { strconv.quote_go(s) }
+
+fn ql(xs: List<Str>) -> Str { "[" + join(map(xs, (x) => q(x)), " ") + "]" }
+
+fn bl(b: Bool) -> Str { if b { "true" } else { "false" } }
+
+fn serve(pc: net.PacketConn, table: Map<Str, List<Int>>) -> Int {
+  var n = 0
+  loop {
+    let pk = match pc.read_from(2048) {
+      Ok(x) => x,
+      Err(_) => { break },
+    }
+    let qb = pk.data
+    let (p, hr) = dm.start(qb)
+    if is_err(hr) { continue }
+    let (_, qr) = p.question()
+    let qq = match qr {
+      Ok(x) => x,
+      Err(_) => { continue },
+    }
+    let name = lower(dm.name_string(qq.name))
+    if name == "quit." { break }
+    n += 1
+    var resp = match get(table, name + "|" + dm.type_string(qq.typ)) {
+      Some(r) => r,
+      None => {
+        var r = qb
+        r[2] = 0x81
+        r[3] = 0x85
+        r
+      },
+    }
+    resp[0] = qb[0]
+    resp[1] = qb[1]
+    let _ = pc.write_to(resp, pk.host, pk.port)
+  }
+  n
+}
+
+fn quit(port: Int) {
+  let b0 = dm.new_builder([], dm.new_header())
+  let (b1, _) = b0.start_questions()
+  let (b2, _) = b1.question(dm.Question { name: dm.must_new_name("quit."), typ: 1, class: 1 })
+  let (_, r) = b2.finish()
+  let c = unwrap(net.dial_udp("127.0.0.1", port))
+  let _ = c.write(unwrap(r))
+  c.close()
+}
+
+fn pr(what: Str, r: Result<Str, Str>, port: Int) {
+  let s = match r {
+    Ok(v) => "ok " + v,
+    Err(e) => "err " + e,
+  }
+  print(what + " " + strings.replace_all(s, ":{port}", ":PORT"))
+}
+
+fn lookups(port: Int) {
+  let server = "127.0.0.1:{port}"
+  let r = net.Resolver {
+    conf: net.DNSConfig {
+      servers: [server],
+      search: ["search.test."],
+      ndots: 1,
+      timeout_ms: 2000,
+      attempts: 1,
+      ..net.resolver_with_servers([]).conf
+    },
+  }
+  for n in [
+    "mx.test",
+    "mx.test.",
+    "MX.Test.",
+    "badmx.test.",
+    "ipmx.test.",
+    "nx.test.",
+    "fail.test.",
+    "lame.test.",
+    "empty.test.",
+    "ext.test.",
+    "extnx.test.",
+    "txt.test.",
+    "bad..name",
+    "nothere.test.",
+    "x.onion.",
+    "",
+  ] {
+    let v = match r.lookup_mx(n) {
+      Ok(ms) => Ok("[" + join(map(ms, (m) => m.host + "/{m.pref}"), " ") + "]"),
+      Err(e) => Err(e),
+    }
+    pr("mx " + n, v, port)
+  }
+  for n in ["txt.test.", "host", "a.b", "a.b.", "nothere", "mx.test."] {
+    let v = match r.lookup_txt(n) {
+      Ok(ts) => Ok(ql(ts)),
+      Err(e) => Err(e),
+    }
+    pr("txt " + n, v, port)
+  }
+  for c in [
+    ("sip", "tcp", "srv.test."),
+    ("", "", "plain.srv.test."),
+    ("xmpp", "tcp", "srv.test."),
+  ] {
+    let (a, b, n) = c
+    let v = match r.lookup_srv(a, b, n) {
+      Ok((cname, srvs)) => Ok(
+        cname + " [" + join(
+          map(srvs, (s) => s.target + ":{s.port}/{s.priority}/{s.weight}"),
+          " ",
+        ) + "]",
+      ),
+      Err(e) => Err(e),
+    }
+    pr("srv " + a + "," + b + "," + n, v, port)
+  }
+  for n in ["ns.test.", "nx.test."] {
+    let v = match r.lookup_ns(n) {
+      Ok(ns) => Ok("[" + join(map(ns, (x) => x.host), " ") + "]"),
+      Err(e) => Err(e),
+    }
+    pr("ns " + n, v, port)
+  }
+  quit(port)
+}
+
+fn main() {
+  var table: Map<Str, List<Int>> = Map()
+  for line in split(unwrap(fs.read("tests/go/testdata/dnsclient/responses.txt")), "\n") {
+    if line == "" { continue }
+    let p = split(line, "|")
+    table = set(table, p[0] + "|" + dm.type_string(unwrap(parse_int(p[1]))), unwrap(hex.decode(p[
+      2
+    ])))
+  }
+  let pc = unwrap(net.listen_udp("127.0.0.1", 0))
+  let port = pc.local_port()
+  let (_, _) = spawn {
+    serve(pc, table),
+    lookups(port),
+  }
+  pc.close()
+  let files = [
+    "domain-resolv.conf",
+    "empty-resolv.conf",
+    "freebsd-usevc-resolv.conf",
+    "invalid-ndots-resolv.conf",
+    "large-ndots-resolv.conf",
+    "linux-use-vc-resolv.conf",
+    "negative-ndots-resolv.conf",
+    "openbsd-resolv.conf",
+    "openbsd-tcp-resolv.conf",
+    "resolv.conf",
+    "search-resolv.conf",
+    "search-single-dot-resolv.conf",
+    "single-request-reopen-resolv.conf",
+    "single-request-resolv.conf",
+  ]
+  for f in files {
+    let c = net.dns_parse_config(
+      match fs.read("tests/go/testdata/dnsclient/" + f) {
+        Ok(t) => Some(t),
+        Err(_) => None,
+      },
+      "",
+      "host.domain.local",
+    )
+    print(
+      "conf " + f + " servers=" + ql(c.servers) + " search=" + ql(
+        c.search,
+      ) + " ndots={c.ndots} timeout={c.timeout_ms} attempts={c.attempts} rotate=" +
+        bl(c.rotate) + " single=" + bl(c.single_request) + " tcp=" + bl(c.use_tcp) + " ad=" + bl(
+          c.trust_ad,
+        ) + " noreload=" +
+        bl(c.no_reload) + " unknown=" + bl(c.unknown_opt) + " lookup=" + ql(c.lookup),
+    )
+    let a253 = strings.repeat("a", 253)
+    for n in [
+      "foo",
+      "foo.bar",
+      "foo.bar.",
+      "a.b.c.d.e",
+      "x.onion",
+      "x.onion.",
+      a253,
+      a253 + "a",
+      a253 + ".",
+    ] {
+      print("  names {len(__bytes(n))} " + ql(net.dns_name_list(c, n)))
+    }
+  }
+  for n in [
+    ".",
+    "",
+    "a",
+    "1",
+    "123.456",
+    "a-b.c",
+    "-a.b",
+    "a-.b",
+    "a..b",
+    "a.b.",
+    "a_b",
+    "x!y",
+    strings.repeat("a", 63) + ".b",
+    strings.repeat("a", 64) + ".b",
+    strings.repeat("a.", 126) + "b",
+    strings.repeat("a.", 127),
+    strings.repeat("a.", 126) + "bc",
+    "a.-b",
+    "0.0",
+    "a.1",
+    "é.com",
+  ] {
+    print("domain " + q(n) + " " + bl(net.is_domain_name(n)))
+  }
+}

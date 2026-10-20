@@ -1,0 +1,188 @@
+mx mx.test ok [a.mx.test./10 b.mx.test./20 c.mx.test./30]
+mx mx.test. ok [a.mx.test./10 b.mx.test./20 c.mx.test./30]
+mx MX.Test. ok [a.mx.test./10 b.mx.test./20 c.mx.test./30]
+mx badmx.test. err lookup badmx.test.: DNS response contained records which contain invalid names
+mx ipmx.test. ok [x.test./1 192.0.2.1./2]
+mx nx.test. err lookup nx.test. on 127.0.0.1:PORT: no such host
+mx fail.test. err lookup fail.test. on 127.0.0.1:PORT: server misbehaving
+mx lame.test. err lookup lame.test. on 127.0.0.1:PORT: lame referral
+mx empty.test. err lookup empty.test. on 127.0.0.1:PORT: no such host
+mx ext.test. err lookup ext.test. on 127.0.0.1:PORT: server misbehaving
+mx extnx.test. err lookup extnx.test. on 127.0.0.1:PORT: no such host
+mx txt.test. err lookup txt.test. on 127.0.0.1:PORT: server misbehaving
+mx bad..name err lookup bad..name: no such host
+mx nothere.test. err lookup nothere.test. on 127.0.0.1:PORT: server misbehaving
+mx x.onion. err lookup x.onion.: cannot unmarshal DNS message
+mx  err lookup : no such host
+txt txt.test. ok ["v=spf1 include:x -all" "hello" ""]
+txt host ok ["found via search"]
+txt a.b ok ["absolute first"]
+txt a.b. ok ["absolute first"]
+txt nothere err lookup nothere on 127.0.0.1:PORT: server misbehaving
+txt mx.test. err lookup mx.test. on 127.0.0.1:PORT: server misbehaving
+srv sip,tcp,srv.test. ok _sip._tcp.srv.test. [a.srv.test.:5060/1/0 c.srv.test.:5062/2/0 d.srv.test.:5063/3/0]
+srv ,,plain.srv.test. err lookup plain.srv.test.: DNS response contained records which contain invalid names
+srv xmpp,tcp,srv.test. err lookup _xmpp._tcp.srv.test. on 127.0.0.1:PORT: server misbehaving
+ns ns.test. ok [ns1.test. ns2.test.]
+ns nx.test. err lookup nx.test. on 127.0.0.1:PORT: server misbehaving
+conf domain-resolv.conf servers=["8.8.8.8:53"] search=["localdomain."] ndots=1 timeout=5000 attempts=2 rotate=false single=false tcp=false ad=false noreload=false unknown=false lookup=[]
+  names 3 ["foo.localdomain." "foo."]
+  names 7 ["foo.bar." "foo.bar.localdomain."]
+  names 8 ["foo.bar."]
+  names 9 ["a.b.c.d.e." "a.b.c.d.e.localdomain."]
+  names 7 ["x.onion.localdomain."]
+  names 8 []
+  names 253 ["aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa."]
+  names 254 []
+  names 254 ["aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa."]
+conf empty-resolv.conf servers=["127.0.0.1:53" "[::1]:53"] search=["domain.local."] ndots=1 timeout=5000 attempts=2 rotate=false single=false tcp=false ad=false noreload=false unknown=false lookup=[]
+  names 3 ["foo.domain.local." "foo."]
+  names 7 ["foo.bar." "foo.bar.domain.local."]
+  names 8 ["foo.bar."]
+  names 9 ["a.b.c.d.e." "a.b.c.d.e.domain.local."]
+  names 7 ["x.onion.domain.local."]
+  names 8 []
+  names 253 ["aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa."]
+  names 254 []
+  names 254 ["aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa."]
+conf freebsd-usevc-resolv.conf servers=["127.0.0.1:53" "[::1]:53"] search=["domain.local."] ndots=1 timeout=5000 attempts=2 rotate=false single=false tcp=true ad=false noreload=false unknown=false lookup=[]
+  names 3 ["foo.domain.local." "foo."]
+  names 7 ["foo.bar." "foo.bar.domain.local."]
+  names 8 ["foo.bar."]
+  names 9 ["a.b.c.d.e." "a.b.c.d.e.domain.local."]
+  names 7 ["x.onion.domain.local."]
+  names 8 []
+  names 253 ["aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa."]
+  names 254 []
+  names 254 ["aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa."]
+conf invalid-ndots-resolv.conf servers=["127.0.0.1:53" "[::1]:53"] search=["domain.local."] ndots=0 timeout=5000 attempts=2 rotate=false single=false tcp=false ad=false noreload=false unknown=false lookup=[]
+  names 3 ["foo." "foo.domain.local."]
+  names 7 ["foo.bar." "foo.bar.domain.local."]
+  names 8 ["foo.bar."]
+  names 9 ["a.b.c.d.e." "a.b.c.d.e.domain.local."]
+  names 7 ["x.onion.domain.local."]
+  names 8 []
+  names 253 ["aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa."]
+  names 254 []
+  names 254 ["aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa."]
+conf large-ndots-resolv.conf servers=["127.0.0.1:53" "[::1]:53"] search=["domain.local."] ndots=15 timeout=5000 attempts=2 rotate=false single=false tcp=false ad=false noreload=false unknown=false lookup=[]
+  names 3 ["foo.domain.local." "foo."]
+  names 7 ["foo.bar.domain.local." "foo.bar."]
+  names 8 ["foo.bar."]
+  names 9 ["a.b.c.d.e.domain.local." "a.b.c.d.e."]
+  names 7 ["x.onion.domain.local."]
+  names 8 []
+  names 253 ["aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa."]
+  names 254 []
+  names 254 ["aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa."]
+conf linux-use-vc-resolv.conf servers=["127.0.0.1:53" "[::1]:53"] search=["domain.local."] ndots=1 timeout=5000 attempts=2 rotate=false single=false tcp=true ad=false noreload=false unknown=false lookup=[]
+  names 3 ["foo.domain.local." "foo."]
+  names 7 ["foo.bar." "foo.bar.domain.local."]
+  names 8 ["foo.bar."]
+  names 9 ["a.b.c.d.e." "a.b.c.d.e.domain.local."]
+  names 7 ["x.onion.domain.local."]
+  names 8 []
+  names 253 ["aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa."]
+  names 254 []
+  names 254 ["aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa."]
+conf negative-ndots-resolv.conf servers=["127.0.0.1:53" "[::1]:53"] search=["domain.local."] ndots=0 timeout=5000 attempts=2 rotate=false single=false tcp=false ad=false noreload=false unknown=false lookup=[]
+  names 3 ["foo." "foo.domain.local."]
+  names 7 ["foo.bar." "foo.bar.domain.local."]
+  names 8 ["foo.bar."]
+  names 9 ["a.b.c.d.e." "a.b.c.d.e.domain.local."]
+  names 7 ["x.onion.domain.local."]
+  names 8 []
+  names 253 ["aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa."]
+  names 254 []
+  names 254 ["aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa."]
+conf openbsd-resolv.conf servers=["169.254.169.254:53" "10.240.0.1:53"] search=["c.symbolic-datum-552.internal."] ndots=1 timeout=5000 attempts=2 rotate=false single=false tcp=false ad=false noreload=false unknown=false lookup=["file" "bind"]
+  names 3 ["foo.c.symbolic-datum-552.internal." "foo."]
+  names 7 ["foo.bar." "foo.bar.c.symbolic-datum-552.internal."]
+  names 8 ["foo.bar."]
+  names 9 ["a.b.c.d.e." "a.b.c.d.e.c.symbolic-datum-552.internal."]
+  names 7 ["x.onion.c.symbolic-datum-552.internal."]
+  names 8 []
+  names 253 ["aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa."]
+  names 254 []
+  names 254 ["aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa."]
+conf openbsd-tcp-resolv.conf servers=["127.0.0.1:53" "[::1]:53"] search=["domain.local."] ndots=1 timeout=5000 attempts=2 rotate=false single=false tcp=true ad=false noreload=false unknown=false lookup=[]
+  names 3 ["foo.domain.local." "foo."]
+  names 7 ["foo.bar." "foo.bar.domain.local."]
+  names 8 ["foo.bar."]
+  names 9 ["a.b.c.d.e." "a.b.c.d.e.domain.local."]
+  names 7 ["x.onion.domain.local."]
+  names 8 []
+  names 253 ["aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa."]
+  names 254 []
+  names 254 ["aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa."]
+conf resolv.conf servers=["8.8.8.8:53" "[2001:4860:4860::8888]:53" "[fe80::1%lo0]:53"] search=["localdomain."] ndots=5 timeout=10000 attempts=3 rotate=true single=false tcp=false ad=false noreload=false unknown=true lookup=[]
+  names 3 ["foo.localdomain." "foo."]
+  names 7 ["foo.bar.localdomain." "foo.bar."]
+  names 8 ["foo.bar."]
+  names 9 ["a.b.c.d.e.localdomain." "a.b.c.d.e."]
+  names 7 ["x.onion.localdomain."]
+  names 8 []
+  names 253 ["aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa."]
+  names 254 []
+  names 254 ["aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa."]
+conf search-resolv.conf servers=["8.8.8.8:53"] search=["test." "invalid."] ndots=1 timeout=5000 attempts=2 rotate=false single=false tcp=false ad=false noreload=false unknown=false lookup=[]
+  names 3 ["foo.test." "foo.invalid." "foo."]
+  names 7 ["foo.bar." "foo.bar.test." "foo.bar.invalid."]
+  names 8 ["foo.bar."]
+  names 9 ["a.b.c.d.e." "a.b.c.d.e.test." "a.b.c.d.e.invalid."]
+  names 7 ["x.onion.test." "x.onion.invalid."]
+  names 8 []
+  names 253 ["aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa."]
+  names 254 []
+  names 254 ["aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa."]
+conf search-single-dot-resolv.conf servers=["8.8.8.8:53"] search=["domain.local."] ndots=1 timeout=5000 attempts=2 rotate=false single=false tcp=false ad=false noreload=false unknown=false lookup=[]
+  names 3 ["foo.domain.local." "foo."]
+  names 7 ["foo.bar." "foo.bar.domain.local."]
+  names 8 ["foo.bar."]
+  names 9 ["a.b.c.d.e." "a.b.c.d.e.domain.local."]
+  names 7 ["x.onion.domain.local."]
+  names 8 []
+  names 253 ["aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa."]
+  names 254 []
+  names 254 ["aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa."]
+conf single-request-reopen-resolv.conf servers=["127.0.0.1:53" "[::1]:53"] search=["domain.local."] ndots=1 timeout=5000 attempts=2 rotate=false single=true tcp=false ad=false noreload=false unknown=false lookup=[]
+  names 3 ["foo.domain.local." "foo."]
+  names 7 ["foo.bar." "foo.bar.domain.local."]
+  names 8 ["foo.bar."]
+  names 9 ["a.b.c.d.e." "a.b.c.d.e.domain.local."]
+  names 7 ["x.onion.domain.local."]
+  names 8 []
+  names 253 ["aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa."]
+  names 254 []
+  names 254 ["aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa."]
+conf single-request-resolv.conf servers=["127.0.0.1:53" "[::1]:53"] search=["domain.local."] ndots=1 timeout=5000 attempts=2 rotate=false single=true tcp=false ad=false noreload=false unknown=false lookup=[]
+  names 3 ["foo.domain.local." "foo."]
+  names 7 ["foo.bar." "foo.bar.domain.local."]
+  names 8 ["foo.bar."]
+  names 9 ["a.b.c.d.e." "a.b.c.d.e.domain.local."]
+  names 7 ["x.onion.domain.local."]
+  names 8 []
+  names 253 ["aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa."]
+  names 254 []
+  names 254 ["aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa."]
+domain "." true
+domain "" false
+domain "a" true
+domain "1" false
+domain "123.456" false
+domain "a-b.c" true
+domain "-a.b" false
+domain "a-.b" false
+domain "a..b" false
+domain "a.b." true
+domain "a_b" true
+domain "x!y" false
+domain "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.b" true
+domain "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.b" false
+domain "a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.b" true
+domain "a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a." true
+domain "a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.bc" false
+domain "a.-b" false
+domain "0.0" false
+domain "a.1" true
+domain "é.com" false

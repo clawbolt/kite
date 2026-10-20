@@ -3,6 +3,7 @@
 // 数据按 UTF-8 文本处理；read_bytes 的长度按字节计
 
 use std.net.netip
+use std.net.dnsmessage as dm
 use std.fs
 
 // tls 为 0 时是普通 TCP；否则是服务端 TLS 上下文的编号（listen_tls 创建）
@@ -682,4 +683,633 @@ pub fn lookup_port(network: Str, service: Str) -> Result<Int, Str> {
     },
     Err(_) => __dns_port(network, service),
   }
+}
+
+// ───────────── DNS 解析器（对齐 Go 1.27 的纯 Go 解析器：dnsconfig_unix.go、dnsclient_unix.go、lookup.go） ─────────────
+// lookup_mx / lookup_txt / lookup_srv / lookup_ns 按 /etc/resolv.conf 直接发 UDP 查询（报文用 std.net.dnsmessage），
+// 搜索域、ndots、timeout、attempts、EDNS(0) 和错误文字（"lookup 名字 on 服务器: no such host" 等）同 Go。
+// Resolver 可以指定服务器（resolver_with_servers），测试时指向本机的假 DNS 服务。
+// 与 Go 的差异：截断（TC）的 UDP 应答直接使用，不改走 TCP；rotate 选项不轮换；含非法名字的记录被滤掉后
+//   Go 同时返回剩下的记录和错误，这里只返回错误。
+
+pub type DNSConfig = {
+  servers: List<Str>,
+  search: List<Str>,
+  ndots: Int,
+  timeout_ms: Int,
+  attempts: Int,
+  rotate: Bool,
+  single_request: Bool,
+  use_tcp: Bool,
+  trust_ad: Bool,
+  no_reload: Bool,
+  unknown_opt: Bool,
+  lookup: List<Str>,
+  // 读文件失败时的错误（Go 的 conf.err）；"" 表示没有
+  err: Str,
+}
+
+const DEFAULT_NS: List<Str> = ["127.0.0.1:53", "[::1]:53"]
+
+fn base_dns_config() -> DNSConfig {
+  DNSConfig {
+    servers: [],
+    search: [],
+    ndots: 1,
+    timeout_ms: 5000,
+    attempts: 2,
+    rotate: false,
+    single_request: false,
+    use_tcp: false,
+    trust_ad: false,
+    no_reload: false,
+    unknown_opt: false,
+    lookup: [],
+    err: "",
+  }
+}
+
+fn ensure_rooted(s: Str) -> Str { if ends_with(s, ".") { s } else { s + "." } }
+
+// dnsDefaultSearch：主机名里第一个点之后的部分
+pub fn dns_default_search(hostname: Str) -> List<Str> {
+  let i = __str_find(hostname, ".", 0)
+  if i >= 0 && i < __byte_len(hostname) - 1 {
+    return [ensure_rooted(__str_slice(hostname, i + 1, __byte_len(hostname)))]
+  }
+  []
+}
+
+fn dtoi0(s: Str) -> Int {
+  let (n, _, _) = dtoi(s)
+  n
+}
+
+fn fields(line: Str) -> List<Str> {
+  var out: List<Str> = []
+  var cur = ""
+  for c in chars(line) {
+    if c == " " || c == "\r" || c == "\t" || c == "\n" {
+      if cur != "" { out = push(out, cur) }
+      cur = ""
+    } else {
+      cur = cur + c
+    }
+  }
+  if cur != "" { out = push(out, cur) }
+  out
+}
+
+// dnsReadConfig 的解析部分：text 为 None 表示文件打不开（err 是原因）；hostname 给默认搜索域用
+pub fn dns_parse_config(text: Option<Str>, err: Str, hostname: Str) -> DNSConfig {
+  var conf = base_dns_config()
+  let body = match text {
+    None => {
+      return DNSConfig {
+        servers: DEFAULT_NS,
+        search: dns_default_search(hostname),
+        err: err,
+        ..conf
+      }
+    },
+    Some(t) => t,
+  }
+  for line in split(body, "\n") {
+    if starts_with(line, ";") || starts_with(line, "#") { continue }
+    let f = fields(line)
+    if len(f) < 1 { continue }
+    let k = f[0]
+    if k == "nameserver" {
+      if len(f) > 1 && len(conf.servers) < 3 {
+        if is_ok(netip.parse_addr(f[1])) {
+          conf = DNSConfig { servers: push(conf.servers, join_host_port(f[1], "53")), ..conf }
+        }
+      }
+    } else if k == "domain" {
+      if len(f) > 1 { conf = DNSConfig { search: [ensure_rooted(f[1])], ..conf } }
+    } else if k == "search" {
+      var sr: List<Str> = []
+      for x in f[1..] {
+        let n = ensure_rooted(x)
+        if n != "." { sr = push(sr, n) }
+      }
+      conf = DNSConfig { search: sr, ..conf }
+    } else if k == "options" {
+      for o in f[1..] {
+        if starts_with(o, "ndots:") {
+          let n = dtoi0(__str_slice(o, 6, __byte_len(o)))
+          conf = DNSConfig { ndots: if n > 15 { 15 } else { n }, ..conf }
+        } else if starts_with(o, "timeout:") {
+          let n = dtoi0(__str_slice(o, 8, __byte_len(o)))
+          conf = DNSConfig { timeout_ms: (if n < 1 { 1 } else { n }) * 1000, ..conf }
+        } else if starts_with(o, "attempts:") {
+          let n = dtoi0(__str_slice(o, 9, __byte_len(o)))
+          conf = DNSConfig { attempts: if n < 1 { 1 } else { n }, ..conf }
+        } else if o == "rotate" {
+          conf = DNSConfig { rotate: true, ..conf }
+        } else if o == "single-request" || o == "single-request-reopen" {
+          conf = DNSConfig { single_request: true, ..conf }
+        } else if o == "use-vc" || o == "usevc" || o == "tcp" {
+          conf = DNSConfig { use_tcp: true, ..conf }
+        } else if o == "trust-ad" {
+          conf = DNSConfig { trust_ad: true, ..conf }
+        } else if o == "edns0" {
+          conf = conf
+        } else if o == "no-reload" {
+          conf = DNSConfig { no_reload: true, ..conf }
+        } else {
+          conf = DNSConfig { unknown_opt: true, ..conf }
+        }
+      }
+    } else if k == "lookup" {
+      conf = DNSConfig { lookup: f[1..], ..conf }
+    } else {
+      conf = DNSConfig { unknown_opt: true, ..conf }
+    }
+  }
+  if len(conf.servers) == 0 { conf = DNSConfig { servers: DEFAULT_NS, ..conf } }
+  if len(conf.search) == 0 { conf = DNSConfig { search: dns_default_search(hostname), ..conf } }
+  conf
+}
+
+pub fn dns_read_config(path: Str) -> DNSConfig {
+  match fs.read(path) {
+    Ok(t) => dns_parse_config(Some(t), "", __hostname()),
+    Err(e) => dns_parse_config(None, e, __hostname()),
+  }
+}
+
+// isDomainName（RFC 1035 / 3696 的展示格式检查）
+pub fn is_domain_name(s: Str) -> Bool {
+  if s == "." { return true }
+  let b = __bytes(s)
+  let l = len(b)
+  if l == 0 || l > 254 || (l == 254 && b[l - 1] != 46) { return false }
+  var last = 46
+  var non_numeric = false
+  var partlen = 0
+  for c in b {
+    if (c >= 97 && c <= 122) || (c >= 65 && c <= 90) || c == 95 {
+      non_numeric = true
+      partlen += 1
+    } else if c >= 48 && c <= 57 {
+      partlen += 1
+    } else if c == 45 {
+      if last == 46 { return false }
+      partlen += 1
+      non_numeric = true
+    } else if c == 46 {
+      if last == 46 || last == 45 { return false }
+      if partlen > 63 || partlen == 0 { return false }
+      partlen = 0
+    } else {
+      return false
+    }
+    last = c
+  }
+  if last == 45 || partlen > 63 { return false }
+  non_numeric
+}
+
+fn avoid_dns(name: Str) -> Bool {
+  if name == "" { return true }
+  let n = if ends_with(name, ".") { __str_slice(name, 0, __byte_len(name) - 1) } else { name }
+  let l = __byte_len(n)
+  l >= 6 && lower(__str_slice(n, l - 6, l)) == ".onion"
+}
+
+// dnsConfig.nameList：要依次尝试的完整名字
+pub fn dns_name_list(conf: DNSConfig, name: Str) -> List<Str> {
+  let l = __byte_len(name)
+  let rooted = l > 0 && ends_with(name, ".")
+  if l > 254 || (l == 254 && !rooted) { return [] }
+  if rooted { return if avoid_dns(name) { [] } else { [name] } }
+  let has_ndots = len(filter(chars(name), (c) => c == ".")) >= conf.ndots
+  let n = name + "."
+  var names: List<Str> = []
+  if has_ndots && !avoid_dns(n) { names = push(names, n) }
+  for suffix in conf.search {
+    let fq = n + suffix
+    if !avoid_dns(fq) && __byte_len(fq) <= 254 { names = push(names, fq) }
+  }
+  if !has_ndots && !avoid_dns(n) { names = push(names, n) }
+  names
+}
+
+pub type Resolver = { conf: DNSConfig }
+
+pub type MX = { host: Str, pref: Int }
+
+pub type NS = { host: Str }
+
+pub type SRV = { target: Str, port: Int, priority: Int, weight: Int }
+
+pub fn default_resolver() -> Resolver { Resolver { conf: dns_read_config("/etc/resolv.conf") } }
+
+// 指定服务器（"host:port"），不用搜索域
+pub fn resolver_with_servers(servers: List<Str>) -> Resolver {
+  Resolver { conf: DNSConfig { servers: servers, ..base_dns_config() } }
+}
+
+fn dns_error(err: Str, name: Str, server: Str) -> Str {
+  "lookup " + name + (if server != "" { " on " + server } else { "" }) + ": " + err
+}
+
+fn rand_below(n: Int) -> Int {
+  if n <= 1 { return 0 }
+  let b = __random_bytes(4)
+  ((b[0] << 24) | (b[1] << 16) | (b[2] << 8) | b[3]) % n
+}
+
+fn new_request(q: dm.Question, ad: Bool) -> (Int, List<Int>) {
+  let rb = __random_bytes(2)
+  let id = (rb[0] << 8) | rb[1]
+  let b0 = dm.new_builder([], dm.Header {
+    id: id,
+    recursion_desired: true,
+    authentic_data: ad,
+    ..dm.new_header()
+  })
+  let (b1, _) = b0.start_questions()
+  let (b2, _) = b1.question(q)
+  let (b3, _) = b2.start_additionals()
+  let rh = dm.set_edns0(dm.new_resource_header(dm.must_new_name("."), 0, 0, 0), 1232, 0, false)
+  let (b4, _) = b3.resource(rh, OPTBody([]))
+  let (_, r) = b4.finish()
+  (id, unwrap_or(r, []))
+}
+
+fn equal_ascii_name(x: dm.Name, y: dm.Name) -> Bool {
+  if len(x.data) != len(y.data) { return false }
+  for i in 0..len(x.data) {
+    var a = x.data[i]
+    var b = y.data[i]
+    if a >= 65 && a <= 90 { a += 32 }
+    if b >= 65 && b <= 90 { b += 32 }
+    if a != b { return false }
+  }
+  true
+}
+
+// exchange：Err 是 Go 的错误文字（不带 "lookup …" 前缀）
+fn dns_exchange(server: Str, q: dm.Question, timeout_ms: Int, ad: Bool) -> Result<(
+  dm.Parser, dm.Header
+), Str> {
+  let (id, req) = new_request(q, ad)
+  let (host, port) = split_host_port(server)?
+  let pn = match parse_int(port) {
+    Ok(x) => x,
+    Err(_) => { return Err("dial udp " + server + ": unknown port") },
+  }
+  let c = dial_udp(host, pn)?
+  let r = timeout(timeout_ms, () => {
+    match c.write(req) {
+      Err(e) => Err(e),
+      Ok(_) => {
+        loop {
+          let data = match c.read(1232) {
+            Ok(d) => d,
+            Err(e) => { return Err(e) },
+          }
+          let (p, hr) = dm.start(data)
+          let h = match hr {
+            Ok(x) => x,
+            Err(_) => { continue },
+          }
+          let (p2, qr) = p.question()
+          match qr {
+            Err(_) => { continue },
+            Ok(rq) => {
+              if !h.response
+                || h.id != id
+                || rq.typ != q.typ
+                || rq.class != q.class
+                || !equal_ascii_name(rq.name, q.name) {
+                continue
+              }
+              return Ok((p2, h))
+            },
+          }
+        }
+        Err("unreachable")
+      },
+    }
+  })
+  let local = c.local_addr()
+  c.close()
+  let (p, h) = match r {
+    None => { return Err("read udp " + local + "->" + server + ": i/o timeout") },
+    Some(x) => x?,
+  }
+  let (p3, sk) = p.skip_question()
+  match sk {
+    Err(e) => if e != dm.ERR_SECTION_DONE { return Err("invalid DNS response") },
+    Ok(_) => { return Err("invalid DNS response") },
+  }
+  Ok((p3, h))
+}
+
+fn extract_ext_rcode(p0: dm.Parser, h: dm.Header) -> (Int, Bool) {
+  let (p1, _) = p0.skip_all_answers()
+  let (p2, _) = p1.skip_all_authorities()
+  var p = p2
+  var has_add = false
+  loop {
+    let (p3, r) = p.additional_header()
+    let ah = match r {
+      Err(_) => { return (h.rcode, has_add) },
+      Ok(x) => x,
+    }
+    has_add = true
+    if ah.typ == dm.TYPE_OPT { return (dm.extended_rcode(ah, h.rcode), has_add) }
+    let (p4, sr) = p3.skip_additional()
+    if is_err(sr) { return (h.rcode, has_add) }
+    p = p4
+  }
+  (h.rcode, has_add)
+}
+
+// checkHeader：""、"no such host" 或其它错误文字
+fn check_header(p: dm.Parser, h: dm.Header) -> Str {
+  let (rcode, has_add) = extract_ext_rcode(p, h)
+  if rcode == dm.RCODE_NAME_ERROR { return "no such host" }
+  let (_, r) = p.answer_header()
+  let done = match r {
+    Ok(_) => false,
+    Err(e) => {
+      if e != dm.ERR_SECTION_DONE { return "cannot unmarshal DNS message" }
+      true
+    },
+  }
+  if rcode == dm.RCODE_SUCCESS && !h.authoritative && !h.recursion_available && done && !has_add {
+    return "lame referral"
+  }
+  if rcode != dm.RCODE_SUCCESS && rcode != dm.RCODE_NAME_ERROR { return "server misbehaving" }
+  ""
+}
+
+fn skip_to_answer(p0: dm.Parser, qtype: Int) -> (dm.Parser, Str) {
+  var p = p0
+  loop {
+    let (p1, r) = p.answer_header()
+    match r {
+      Err(e) => {
+        return (p1, if e == dm.ERR_SECTION_DONE {
+          "no such host"
+        } else {
+          "cannot unmarshal DNS message"
+        })
+      },
+      Ok(h) => {
+        if h.typ == qtype { return (p, "") }
+        let (p2, sr) = p1.skip_answer()
+        if is_err(sr) { return (p2, "cannot unmarshal DNS message") }
+        p = p2
+      },
+    }
+  }
+  (p, "")
+}
+
+// tryOneName：Ok((解析器停在第一条匹配的回答之前, 服务器))；Err((错误文字, 服务器))
+fn try_one_name(conf: DNSConfig, name: Str, qtype: Int) -> Result<(dm.Parser, Str), (Str, Str)> {
+  let n = match dm.new_name(name) {
+    Ok(x) => x,
+    Err(_) => { return Err(("cannot marshal DNS message", "")) },
+  }
+  let q = dm.Question { name: n, typ: qtype, class: dm.CLASS_INET }
+  var last = ("", "")
+  for _ in 0..conf.attempts {
+    for server in conf.servers {
+      match dns_exchange(server, q, conf.timeout_ms, conf.trust_ad) {
+        Err(e) => { last = (e, server) },
+        Ok((p, h)) => {
+          let he = check_header(p, h)
+          if he == "no such host" { return Err((he, server)) }
+          if he != "" {
+            last = (he, server)
+            continue
+          }
+          let (p2, se) = skip_to_answer(p, qtype)
+          if se == "no such host" { return Err((se, server)) }
+          if se != "" {
+            last = (se, server)
+            continue
+          }
+          return Ok((p2, server))
+        },
+      }
+    }
+  }
+  Err(last)
+}
+
+// Resolver.lookup：最后一个名字的错误，名字换回调用者给的名字（同 Go 的 DNSError.Name = name）
+fn dns_lookup(conf: DNSConfig, name: Str, qtype: Int) -> Result<(dm.Parser, Str), Str> {
+  if !is_domain_name(name) { return Err(dns_error("no such host", name, "")) }
+  var err: Option<(Str, Str)> = None
+  for fq in dns_name_list(conf, name) {
+    match try_one_name(conf, fq, qtype) {
+      Ok(x) => { return Ok(x) },
+      Err(e) => { err = Some(e) },
+    }
+  }
+  match err {
+    None => Ok((dm.new_parser(), "")),
+    Some((e, server)) => Err(dns_error(e, name, server)),
+  }
+}
+
+// 逐条回答：类型对的交给 f，其它跳过；任何解析错误都是 "cannot unmarshal DNS message"
+fn each_answer(p0: dm.Parser, qtype: Int, name: Str, server: Str) -> Result<List<dm.Body>, Str> {
+  let bad = dns_error("cannot unmarshal DNS message", name, server)
+  var p = p0
+  var out: List<dm.Body> = []
+  loop {
+    let (p1, r) = p.answer_header()
+    p = p1
+    let h = match r {
+      Err(e) => {
+        if e == dm.ERR_SECTION_DONE { return Ok(out) }
+        return Err(bad)
+      },
+      Ok(x) => x,
+    }
+    if h.typ != qtype {
+      let (p2, sr) = p.skip_answer()
+      if is_err(sr) { return Err(bad) }
+      p = p2
+      continue
+    }
+    let (p3, br) = p.resource_body(qtype)
+    p = p3
+    match br {
+      Err(_) => { return Err(bad) },
+      Ok(b) => { out = push(out, b) },
+    }
+  }
+  Ok(out)
+}
+
+fn malformed(name: Str) -> Str {
+  dns_error("DNS response contained records which contain invalid names", name, "")
+}
+
+fn mx_sort(xs: List<MX>) -> List<MX> {
+  var s = xs
+  for i in 0..len(s) {
+    let j = rand_below(i + 1)
+    let t = s[i]
+    s[i] = s[j]
+    s[j] = t
+  }
+  sort_by(s, (m) => m.pref)
+}
+
+fn shuffle_by_weight(xs: List<SRV>) -> List<SRV> {
+  var a = xs
+  var sum = 0
+  for x in a { sum += x.weight }
+  var start = 0
+  while sum > 0 && len(a) - start > 1 {
+    var s = 0
+    let n = rand_below(sum)
+    for i in start..len(a) {
+      s += a[i].weight
+      if s > n {
+        if i > start {
+          let t = a[start]
+          a[start] = a[i]
+          a[i] = t
+        }
+        break
+      }
+    }
+    sum -= a[start].weight
+    start += 1
+  }
+  a
+}
+
+fn srv_sort(xs: List<SRV>) -> List<SRV> {
+  let s = sort_by(xs, (x) => x.priority * 65536 + x.weight)
+  var out: List<SRV> = []
+  var i = 0
+  for j in 1..len(s) + 1 {
+    if j == len(s) || s[i].priority != s[j].priority {
+      out = out + shuffle_by_weight(s[i..j])
+      i = j
+    }
+  }
+  out
+}
+
+impl Resolver {
+  fn lookup_mx(self, name: Str) -> Result<List<MX>, Str> {
+    let (p, server) = dns_lookup(self.conf, name, dm.TYPE_MX)?
+    var mxs: List<MX> = []
+    for b in each_answer(p, dm.TYPE_MX, name, server)? {
+      if let MXBody(m) = b { mxs = push(mxs, MX { host: dm.name_string(m.mx), pref: m.pref }) }
+    }
+    let all = mx_sort(mxs)
+    let ok = filter(all, (m) => {
+      if is_domain_name(m.host) { return true }
+      let h = if ends_with(m.host, ".") {
+        __str_slice(m.host, 0, __byte_len(m.host) - 1)
+      } else {
+        m.host
+      }
+      match netip.parse_addr(h) {
+        Ok(a) => a.zone() == "",
+        Err(_) => false,
+      }
+    })
+    if len(ok) != len(all) { return Err(malformed(name)) }
+    Ok(ok)
+  }
+
+  fn lookup_ns(self, name: Str) -> Result<List<NS>, Str> {
+    let (p, server) = dns_lookup(self.conf, name, dm.TYPE_NS)?
+    var nss: List<NS> = []
+    for b in each_answer(p, dm.TYPE_NS, name, server)? {
+      if let NSBody(n) = b { nss = push(nss, NS { host: dm.name_string(n) }) }
+    }
+    if any(nss, (n) => !is_domain_name(n.host)) { return Err(malformed(name)) }
+    Ok(nss)
+  }
+
+  // 每条 TXT 记录的各段直接拼接（同 Go）
+  fn lookup_txt(self, name: Str) -> Result<List<Str>, Str> {
+    let (p, server) = dns_lookup(self.conf, name, dm.TYPE_TXT)?
+    var txts: List<Str> = []
+    for b in each_answer(p, dm.TYPE_TXT, name, server)? {
+      if let TXTBody(ts) = b {
+        var all: List<Int> = []
+        for t in ts { all = all + t }
+        txts = push(txts, unwrap_or(__from_bytes(all), dm.name_string(dm.Name { data: all })))
+      }
+    }
+    Ok(txts)
+  }
+
+  // LookupSRV：service 和 proto 都为空时直接查 name，否则查 _service._proto.name；返回 (规范名, 记录)
+  fn lookup_srv(self, service: Str, proto: Str, name: Str) -> Result<(Str, List<SRV>), Str> {
+    let target = if service == "" && proto == "" {
+      name
+    } else {
+      "_" + service + "._" + proto + "." + name
+    }
+    let (p0, server) = dns_lookup(self.conf, target, dm.TYPE_SRV)?
+    let bad = dns_error("cannot unmarshal DNS message", name, server)
+    var p = p0
+    var cname = ""
+    var srvs: List<SRV> = []
+    loop {
+      let (p1, r) = p.answer_header()
+      p = p1
+      let h = match r {
+        Err(e) => {
+          if e == dm.ERR_SECTION_DONE { break }
+          return Err(bad)
+        },
+        Ok(x) => x,
+      }
+      if h.typ != dm.TYPE_SRV {
+        let (p2, sr) = p.skip_answer()
+        if is_err(sr) { return Err(bad) }
+        p = p2
+        continue
+      }
+      if cname == "" { cname = dm.name_string(h.name) }
+      let (p3, br) = p.resource_body(dm.TYPE_SRV)
+      p = p3
+      match br {
+        Ok(SRVBody(x)) => {
+          srvs = push(srvs, SRV {
+            target: dm.name_string(x.target),
+            port: x.port,
+            priority: x.priority,
+            weight: x.weight,
+          })
+        },
+        _ => { return Err(bad) },
+      }
+    }
+    let sorted = srv_sort(srvs)
+    if cname != "" && !is_domain_name(cname) {
+      return Err(dns_error("SRV header name is invalid", name, ""))
+    }
+    if any(sorted, (x) => !is_domain_name(x.target)) { return Err(malformed(name)) }
+    Ok((cname, sorted))
+  }
+}
+
+pub fn lookup_mx(name: Str) -> Result<List<MX>, Str> { default_resolver().lookup_mx(name) }
+
+pub fn lookup_ns(name: Str) -> Result<List<NS>, Str> { default_resolver().lookup_ns(name) }
+
+pub fn lookup_txt(name: Str) -> Result<List<Str>, Str> { default_resolver().lookup_txt(name) }
+
+pub fn lookup_srv(service: Str, proto: Str, name: Str) -> Result<(Str, List<SRV>), Str> {
+  default_resolver().lookup_srv(service, proto, name)
 }
