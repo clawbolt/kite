@@ -85,14 +85,21 @@ image/color/palette、path/filepath、go/constant、net/http/cookiejar、crypto/
   extension/reset/noop/quit/start_tls（真实连接，用新增的 net.start_tls）、send_mail/send_mail_via、plain_auth/cram_md5_auth（Auth = start/next 闭包）。
   Go 对拍 tests/go/smtp 122 行（26 组脚本会话 + 8 次真实 SendMail）；行为测试 examples/smtp_server。顺带修了 textproto.read_response：多行应答首行码不符时错误被后续行覆盖。
   限制：真实连接写出的字节须是合法 UTF-8（Kite Str）。
-- 计划：jsonrpc；之后 DNS 报文（dnsmessage）以支持 MX/TXT/SRV/NS。
+- std.net.rpc.jsonrpc（2026-10-20）：Server（handle / handle_json 登记 "服务.方法" 闭包，Handler 拿 params[0] 原始 JSON、返回回复原始 JSON）、
+  serve_conn / serve_bytes / serve_request；Client（不可变值，dial / new_client / new_script_client，go_call + wait、call_raw、call、close）、
+  encode_request / decode_request / decode_response。行为同 Go 的 net/rpc 服务端 / 客户端循环加 jsonrpc 编解码：方法名错误、找不到服务 / 方法、
+  params 缺失或不是数组的错误文字，请求解码失败就停，id 原样回送；客户端 "invalid error %v"、"unspecified error"、未完成调用在头解码失败 / EOF 时
+  统一报错。Go 对拍 tests/go/jsonrpc 296 行（52 段服务端输入 + 51 段客户端脚本，含大小写不敏感的键、重复键、非法 id、语法错误、截断）；
+  行为测试 examples/jsonrpc_tcp。注意 Go 1.27 默认 GOEXPERIMENT=jsonv2，RawMessage 是 jsontext.Value。
+  与 Go 的差异：服务端按顺序处理（Go 并发，应答顺序不定）；参数 [] 表示 nil；net/rpc 的 gob 编码、HTTP 隧道、debug 页面不移植（net/rpc 等 encoding/gob）。
+- 计划：DNS 报文（dnsmessage）以支持 MX/TXT/SRV/NS。
 
 ## 可以做（纯数据 / 算法，计划后续批次）
 - crypto/hpke
 - encoding/gob（值用类似 fmt.Arg 的枚举表示）
 - debug/dwarf、debug/macho、debug/pe、debug/plan9obj
 - html/template（上下文转义）
-- net/rpc/jsonrpc（编解码）、net/rpc（依赖 encoding/gob）、DNS 报文（x/net/dns/dnsmessage，给 MX/TXT/SRV/NS 用）
+- net/rpc（gob 编码部分，依赖 encoding/gob）、DNS 报文（x/net/dns/dnsmessage，给 MX/TXT/SRV/NS 用）
 - io/fs（ValidPath / Glob / WalkDir 的纯逻辑）、testing/fstest（MapFS）、testing/iotest
 - hash/maphash（种子随机，只能对拍确定性的部分）、expvar、time/tzdata（时区数据）
 - os/user（读 /etc/passwd、/etc/group）、os/exec（借 system）

@@ -1,0 +1,68 @@
+// 对拍 tests/go/jsonrpc.go：server 行用 serve_bytes，client 行用脚本客户端（先 go_call 全部调用，再逐个 wait）
+use std.fs
+use std.encoding.hex
+use std.encoding.json
+use std.strconv
+use std.net.rpc.jsonrpc
+
+fn qb(b: List<Int>) -> Str { strconv.quote_bytes_with(b, 34, false, false) }
+
+fn dec(s: Str) -> List<Int> { unwrap(hex.decode(s)) }
+
+// Go 测试里的 Echo 服务
+fn echo_server(name: Str, s0: jsonrpc.Server) -> jsonrpc.Server {
+  var s = s0
+  s = unwrap(jsonrpc.handle(s, name + ".Raw", (a) => Ok(a)))
+  s = unwrap(jsonrpc.handle(s, name + ".Fail", (a) => {
+    let msg = match json.unmarshal(a) {
+      Ok(JStr(x)) => x,
+      _ => "",
+    }
+    Err(msg)
+  }))
+  s = unwrap(jsonrpc.handle(s, name + ".Bad", (_) => Ok(__bytes("\{"))))
+  s = unwrap(jsonrpc.handle(s, name + ".Len", (a) => Ok(__bytes("{len(a)}"))))
+  s
+}
+
+fn main() {
+  let srv = echo_server("x.y", echo_server("Echo", jsonrpc.new_server()))
+  var n = 0
+  for line in split(unwrap(fs.read("tests/go/testdata/jsonrpc/cases.txt")), "\n") {
+    if line == "" { continue }
+    let p = split(line, "|")
+    n += 1
+    if p[0] == "server" {
+      print("server {n}")
+      print("out " + qb(jsonrpc.serve_bytes(srv, dec(p[1]))))
+    } else {
+      print("client {n}")
+      var c = jsonrpc.new_script_client(dec(p[2]))
+      var calls: List<Result<Int, Str>> = []
+      if p[1] != "" {
+        for x in split(p[1], ",") {
+          let mp = split(x, ":")
+          let param = if mp[1] == "-" { [] } else { dec(mp[1]) }
+          let (c2, r) = jsonrpc.go_call(c, unwrap(__from_bytes(dec(mp[0]))), param)
+          c = c2
+          calls = push(calls, r)
+        }
+      }
+      print("out " + qb(c.out))
+      for i in 0..len(calls) {
+        let r = match calls[i] {
+          Err(e) => Err(e),
+          Ok(seq) => {
+            let (c2, v) = jsonrpc.wait(c, seq)
+            c = c2
+            v
+          },
+        }
+        match r {
+          Ok(b) => print("call {i} ok " + qb(b)),
+          Err(e) => print("call {i} err " + strconv.quote_go(e)),
+        }
+      }
+    }
+  }
+}

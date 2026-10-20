@@ -1,0 +1,14 @@
+Add: Ok(JNum(15.0))
+Div: Ok(JObj({"Quo": JNum(3.5)}))
+Div by 0: Err("divide by zero")
+Mul: Err("rpc: can't find method Arith.Mul")
+Echo: [1,2,3] {"k":"\u003cv\u003e"}
+after close: Err("connection is shut down")
+server wrote:
+{"id":0,"result":15,"error":null}
+{"id":1,"result":{"Quo":3.5},"error":null}
+{"id":2,"result":null,"error":"divide by zero"}
+{"id":3,"result":null,"error":"rpc: can't find method Arith.Mul"}
+{"id":4,"result":[1,2,3],"error":null}
+{"id":5,"result":{"k":"\u003cv\u003e"},"error":null}
+

@@ -1,0 +1,63 @@
+// std.net.rpc.jsonrpc 真实连接：本机起 JSON-RPC 服务（Arith.Add / Arith.Div / Echo.Raw），客户端连上去调用
+use std.net
+use std.encoding.json
+use std.net.rpc.jsonrpc
+
+fn num(v: json.Json, k: Str) -> Float {
+  match json.field(v, k) {
+    Some(JNum(f)) => f,
+    Some(JInt(i)) => float(i),
+    _ => 0.0,
+  }
+}
+
+fn server() -> jsonrpc.Server {
+  var s = jsonrpc.new_server()
+  s = unwrap(jsonrpc.handle_json(s, "Arith.Add", (a) => Ok(JNum(num(a, "A") + num(a, "B")))))
+  s = unwrap(jsonrpc.handle_json(s, "Arith.Div", (a) => {
+    if num(a, "B") == 0.0 { return Err("divide by zero") }
+    Ok(JObj(Map([("Quo", JNum(num(a, "A") / num(a, "B")))])))
+  }))
+  s = unwrap(jsonrpc.handle(s, "Echo.Raw", (a) => Ok(a)))
+  s
+}
+
+fn args(a: Float, b: Float) -> json.Json { JObj(Map([("A", JNum(a)), ("B", JNum(b))])) }
+
+fn client(port: Int) -> List<Str> {
+  var c = unwrap(jsonrpc.dial("127.0.0.1:{port}"))
+  var log: List<Str> = []
+  let (c1, r1) = jsonrpc.call(c, "Arith.Add", args(7.0, 8.0))
+  log = push(log, "Add: {r1}")
+  let (c2, r2) = jsonrpc.call(c1, "Arith.Div", args(7.0, 2.0))
+  log = push(log, "Div: {r2}")
+  let (c3, r3) = jsonrpc.call(c2, "Arith.Div", args(1.0, 0.0))
+  log = push(log, "Div by 0: {r3}")
+  let (c4, r4) = jsonrpc.call(c3, "Arith.Mul", args(1.0, 2.0))
+  log = push(log, "Mul: {r4}")
+  // 先发两个再取结果（序号 4、5），顺序反着等
+  let (c5, s1) = jsonrpc.go_call(c4, "Echo.Raw", __bytes("[1, 2,  3]"))
+  let (c6, s2) = jsonrpc.go_call(c5, "Echo.Raw", __bytes("\{ \"k\" : \"<v>\" }"))
+  let (c7, b2) = jsonrpc.wait(c6, unwrap(s2))
+  let (c8, b1) = jsonrpc.wait(c7, unwrap(s1))
+  log = push(
+    log,
+    "Echo: " + unwrap(__from_bytes(unwrap(b1))) + " " + unwrap(__from_bytes(unwrap(b2))),
+  )
+  let (c9, _) = jsonrpc.close(c8)
+  let (_, r5) = jsonrpc.call(c9, "Arith.Add", args(1.0, 1.0))
+  log = push(log, "after close: {r5}")
+  log
+}
+
+fn main() {
+  let l = unwrap(net.listen("127.0.0.1", 0))
+  let (sent, log) = spawn {
+    jsonrpc.serve_conn(server(), unwrap(l.accept())),
+    client(l.port),
+  }
+  l.close()
+  for x in log { print(x) }
+  print("server wrote:")
+  print(unwrap(__from_bytes(sent)))
+}

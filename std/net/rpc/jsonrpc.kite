@@ -1,0 +1,588 @@
+// std.net.rpc.jsonrpc：对齐 Go 1.27 net/rpc/jsonrpc（JSON-RPC 1.0，连同它用到的 net/rpc 客户端 / 服务端逻辑）
+//
+// Go 的 net/rpc 靠反射找方法、按参数类型解码；Kite 没有反射，所以方法是闭包 Handler：
+//   拿到 params[0] 的原始 JSON 字节（缺省或 null 时为 []，相当于 Go 方法的参数是 json.RawMessage），
+//   返回回复的原始 JSON 字节（[] = null）或错误文字。handle_json 把 fn(Json) -> Result<Json, Str> 包成 Handler。
+// 线上格式和 Go 逐字节相同：
+//   请求 {"method":M,"params":[P],"id":N}\n（客户端的 id 从 0 递增）
+//   应答 {"id":ID,"result":R,"error":E}\n（ID 原样回送，紧凑化并转义 < > &）
+// 服务端按顺序处理请求（Go 每个调用一个 goroutine，应答顺序不定）：
+//   方法名格式不对、找不到服务 / 方法、params 缺失或不是数组 → 应答里带错误文字（同 Go）；
+//   请求本身解码失败（不是对象、method 不是字符串、语法错误）或读到结尾 → 停止并关闭连接；
+//   回复不是合法 JSON → 这个请求不应答（Go 只记日志）。
+// 客户端是不可变值：go_call 发请求得到序号，wait 读应答直到这个序号有结果（中间读到的其它应答先记下）；
+//   应答头解码失败或连接结束时，所有未完成的调用都以同一个错误结束，之后的调用得到 "connection is shut down"。
+//   错误文字同 Go：服务端错误原样；"invalid error %v"；"unspecified error"；"unexpected EOF"；JSON 语法 / 类型错误。
+// 底层可以是真实 TCP 连接（dial / new_client / serve_conn），也可以是脚本（new_script_client / serve_bytes），后者用于测试和对拍。
+// 与 Go 的差异：参数 [] 表示 nil（Go 里非 nil 的空 RawMessage 会报错）；Handler 返回 Err("") 时不应答（同 Go 方法返回空文字的错误且没设回复）；
+//   真实连接写出的字节须是合法 UTF-8（Kite Str）；net/rpc 自己的 gob 编码、HTTP 隧道和 debug 页面不移植。
+
+use std.net
+use std.strings
+use std.strconv
+use std.unicode
+use std.encoding.json
+use std.encoding.json.jsontext as jt
+
+pub type Handler = fn(List<Int>) -> Result<List<Int>, Str>
+
+fn s2b(s: Str) -> List<Int> { __bytes(s) }
+
+fn b2s(b: List<Int>) -> Str { unwrap_or(__from_bytes(b), "") }
+
+// ───────────── 输入流（json.Decoder 的取值部分） ─────────────
+
+pub type Stream = { conn: Option<net.Conn>, buf: List<Int>, eof: Bool }
+
+fn script_stream(b: List<Int>) -> Stream { Stream { conn: None, buf: b, eof: true } }
+
+fn conn_stream(c: net.Conn) -> Stream { Stream { conn: Some(c), buf: [], eof: false } }
+
+// 缓冲区开头的下一个 JSON 值 → (起点, 终点)；Err 为 "EOF"、"unexpected EOF" 或 v1 的语法错误文字
+fn next_span(b: List<Int>) -> Result<(Int, Int), Str> {
+  match jt.read_value(b, jt.v1_opts()) {
+    Ok(x) => Ok(x),
+    Err(e) => {
+      if e.ioeof { return Err("EOF") }
+      if e.eof { return Err("unexpected EOF") }
+      Err(jt.v1_message(e))
+    },
+  }
+}
+
+// 读出下一个值的原始字节。真实连接上数据不够时按行继续读（Go 的 Encoder 每个值后跟 \n）；
+// 数字、字面量、字符串在缓冲区末尾时可能还没完，要等下一个字节或连接结束（同 Go 的扫描器）
+fn stream_next(st0: Stream) -> (Stream, Result<List<Int>, Str>) {
+  var st = st0
+  loop {
+    let r = next_span(st.buf)
+    let more = match r {
+      Ok((s, e)) => !st.eof && e >= len(st.buf) && st.buf[s] != 123 && st.buf[s] != 91,
+      Err(m) => !st.eof && (m == "EOF" || m == "unexpected EOF"),
+    }
+    if !more {
+      return match r {
+        Ok((s, e)) => (Stream { buf: st.buf[e..], ..st }, Ok(st.buf[s..e])),
+        Err(m) => (st, Err(m)),
+      }
+    }
+    match st.conn {
+      None => { st = Stream { eof: true, ..st } },
+      Some(c) => match c.read_line() {
+        Ok(l) => { st = Stream { buf: st.buf + s2b(l) + [10], ..st } },
+        Err(_) => { st = Stream { eof: true, ..st } },
+      },
+    }
+  }
+  (st, Err("EOF"))
+}
+
+// ───────────── 解码到结构体（encoding/json v1 的规则） ─────────────
+
+fn kind_name(c: Int) -> Str {
+  if c == 123 { return "object" }
+  if c == 91 { return "array" }
+  if c == 34 { return "string" }
+  if c == 116 || c == 102 { return "bool" }
+  if c == 110 { return "null" }
+  "number"
+}
+
+fn value_end(b: List<Int>, p: Int) -> Int {
+  match jt.read_value(b[p..], jt.v1_opts()) {
+    Ok((_, e)) => p + e,
+    Err(_) => len(b),
+  }
+}
+
+fn unquote(b: List<Int>) -> Str { unwrap_or(__from_bytes(jt.append_unquote(b)), "") }
+
+// Go 的 foldName：ASCII 转大写，其余字符取 SimpleFold 轨道里最小的那个
+fn fold_name(s: Str) -> Str {
+  var out = ""
+  for c in chars(s) {
+    let o = __ord(c)
+    if o < 128 {
+      out = out + (if o >= 97 && o <= 122 { __chr(o - 32) } else { c })
+    } else {
+      var r = o
+      loop {
+        let r2 = unicode.simple_fold(r)
+        if r2 <= r {
+          r = r2
+          break
+        }
+        r = r2
+      }
+      out = out + __chr(r)
+    }
+  }
+  out
+}
+
+// 对象成员里能对上字段的那些，按出现顺序：(字段名, 值起点, 值终点)；b 是一个合法的 JSON 对象
+fn members(b: List<Int>, fields: List<Str>) -> List<(Str, Int, Int)> {
+  let folded = map(fields, (f) => fold_name(f))
+  var out: List<(Str, Int, Int)> = []
+  var q = jt.consume_ws(b, 1)
+  if b[q] == 125 { return out }
+  loop {
+    q = jt.consume_ws(b, q)
+    let (k, _) = jt.consume_string(b, q, false)
+    let key = unquote(b[q..k])
+    let vs = jt.consume_ws(b, jt.consume_ws(b, k) + 1)
+    let ve = value_end(b, vs)
+    var hit = ""
+    for i in 0..len(fields) {
+      if fields[i] == key {
+        hit = fields[i]
+        break
+      }
+    }
+    if hit == "" {
+      let fk = fold_name(key)
+      for i in 0..len(fields) {
+        if folded[i] == fk {
+          hit = fields[i]
+          break
+        }
+      }
+    }
+    if hit != "" { out = push(out, (hit, vs, ve)) }
+    q = jt.consume_ws(b, ve)
+    if b[q] == 125 { return out }
+    q += 1
+  }
+  out
+}
+
+fn type_err(value: Str, strct: Str, field: Str, typ: Str) -> Str {
+  "json: cannot unmarshal " + value + " into Go struct field " + strct + "." + field + " of type " + typ
+}
+
+// ───────────── 服务端 ─────────────
+
+pub type Server = { services: Map<Str, Map<Str, Handler>> }
+
+pub fn new_server() -> Server { Server { services: Map() } }
+
+// 登记 "服务.方法"（以最后一个点分开，同 Go 查找时的规则）
+pub fn handle(s: Server, name: Str, h: Handler) -> Result<Server, Str> {
+  let dot = strings.last_index(name, ".")
+  if dot < 0 { return Err("rpc: method name must be Service.Method: " + name) }
+  let cs = chars(name)
+  let svc = join(cs[..dot], "")
+  let m = join(cs[dot + 1..], "")
+  let ms = unwrap_or(get(s.services, svc), Map())
+  if contains(ms, m) { return Err("rpc: method already defined: " + name) }
+  Ok(Server { services: set(s.services, svc, set(ms, m, h)) })
+}
+
+// 参数和回复都是 Json 值的方法（参数缺省时为 JNull）
+pub fn json_handler(f: fn(json.Json) -> Result<json.Json, Str>) -> Handler {
+  (raw) => {
+    let arg = if len(raw) == 0 { JNull } else { json.unmarshal(raw)? }
+    json.marshal(f(arg)?)
+  }
+}
+
+pub fn handle_json(
+  s: Server,
+  name: Str,
+  f: fn(json.Json) -> Result<json.Json, Str>,
+) -> Result<Server, Str> {
+  handle(s, name, json_handler(f))
+}
+
+// Encoder.Encode 写 RawMessage：紧凑化并转义 HTML 字符；[] 写成 null
+fn raw_out(b: List<Int>) -> Result<List<Int>, Str> {
+  if len(b) == 0 { return Ok(s2b("null")) }
+  match json.compact(b) {
+    Ok(x) => Ok(json.html_escape(x)),
+    Err(e) => Err(e.msg),
+  }
+}
+
+fn quote_out(s: Str) -> List<Int> { jt.append_quote([], s2b(s), true, true) }
+
+pub type Request = { method: Str, params: Option<List<Int>>, id: Option<List<Int>> }
+
+// serverCodec.ReadRequestHeader：解码一个请求值；Err = 解码失败（服务端就此停止）
+pub fn decode_request(b: List<Int>) -> Result<Request, Str> {
+  let c = b[0]
+  if c == 110 { return Ok(Request { method: "", params: None, id: None }) }
+  if c != 123 {
+    return Err(
+      "json: cannot unmarshal " + kind_name(c) + " into Go value of type jsonrpc.serverRequest",
+    )
+  }
+  var r = Request { method: "", params: None, id: None }
+  var err = ""
+  for (f, s, e) in members(b, ["method", "params", "id"]) {
+    let v = b[s..e]
+    let null = b[s] == 110
+    if f == "method" {
+      if b[s] == 34 {
+        r = Request { method: unquote(v), ..r }
+      } else if !null && err == "" {
+        err = type_err(kind_name(b[s]), "serverRequest", "method", "string")
+      }
+    } else if f == "params" {
+      r = Request { params: if null { None } else { Some(v) }, ..r }
+    } else {
+      r = Request { id: if null { None } else { Some(v) }, ..r }
+    }
+  }
+  if err != "" { return Err(err) }
+  Ok(r)
+}
+
+// serverCodec.ReadRequestBody：params 解到 [1]any{&arg}
+fn request_arg(params: Option<List<Int>>) -> Result<List<Int>, Str> {
+  let p = match params {
+    None => { return Err("jsonrpc: request body missing params") },
+    Some(x) => x,
+  }
+  if p[0] != 91 {
+    return Err(
+      "json: cannot unmarshal " + kind_name(p[0]) + " into Go value of type [1]interface \{}",
+    )
+  }
+  let q = jt.consume_ws(p, 1)
+  if p[q] == 93 || p[q] == 110 { return Ok([]) }
+  Ok(p[q..value_end(p, q)])
+}
+
+fn response_bytes(id: Option<List<Int>>, result: Result<List<Int>, Str>) -> Option<List<Int>> {
+  let idb = match id {
+    None => s2b("null"),
+    Some(x) => match raw_out(x) {
+      Ok(y) => y,
+      Err(_) => { return None },
+    },
+  }
+  let (rb, eb) = match result {
+    Ok(x) => match raw_out(x) {
+      Ok(y) => (y, s2b("null")),
+      Err(_) => { return None },
+    },
+    // Go：方法返回的错误文字为空时，按回复编码，而没设置过的回复是空的 RawMessage，编码失败，不应答
+    Err(m) => {
+      if m == "" { return None }
+      (s2b("null"), quote_out(m))
+    },
+  }
+  Some(s2b("\{\"id\":") + idb + s2b(",\"result\":") + rb + s2b(",\"error\":") + eb + s2b("}\n"))
+}
+
+// 处理一个请求值：Err = 停止；Ok(bytes) = 要写回的应答（可能为空）
+pub fn serve_request(s: Server, raw: List<Int>) -> Result<List<Int>, Str> {
+  let req = match decode_request(raw) {
+    Ok(r) => r,
+    Err(e) => { return Err("rpc: server cannot decode request: " + e) },
+  }
+  let m = req.method
+  let dot = strings.last_index(m, ".")
+  let result: Result<List<Int>, Str> = if dot < 0 {
+    Err("rpc: service/method request ill-formed: " + m)
+  } else {
+    let cs = chars(m)
+    match get(s.services, join(cs[..dot], "")) {
+      None => Err("rpc: can't find service " + m),
+      Some(ms) => match get(ms, join(cs[dot + 1..], "")) {
+        None => Err("rpc: can't find method " + m),
+        Some(h) => match request_arg(req.params) {
+          Err(e) => Err(e),
+          Ok(arg) => h(arg),
+        },
+      },
+    }
+  }
+  Ok(unwrap_or(response_bytes(req.id, result), []))
+}
+
+fn serve_stream(s: Server, st0: Stream) -> List<Int> {
+  var st = st0
+  var out: List<Int> = []
+  loop {
+    let (st2, r) = stream_next(st)
+    st = st2
+    let raw = match r {
+      Ok(x) => x,
+      Err(_) => { break },
+    }
+    let resp = match serve_request(s, raw) {
+      Ok(x) => x,
+      Err(_) => { break },
+    }
+    out = out + resp
+    if len(resp) > 0 {
+      if let Some(c) = st.conn {
+        if is_err(c.write(b2s(resp))) { break }
+      }
+    }
+  }
+  out
+}
+
+// 脚本连接：输入是客户端发来的全部字节，返回服务端写出的全部字节（= Go 的 ServeCodec，逐个处理）
+pub fn serve_bytes(s: Server, input: List<Int>) -> List<Int> {
+  serve_stream(s, script_stream(input))
+}
+
+// ServeConn：处理到连接结束或请求解码失败，然后关闭连接；返回写出的字节
+pub fn serve_conn(s: Server, c: net.Conn) -> List<Int> {
+  let out = serve_stream(s, conn_stream(c))
+  c.close()
+  out
+}
+
+// ───────────── 客户端 ─────────────
+
+pub type Client = {
+  st: Stream,
+  // 写出的全部字节（脚本模式下就是发给服务端的内容）
+  out: List<Int>,
+  seq: Int,
+  pending: List<Int>,
+  done: Map<Int, Result<List<Int>, Str>>,
+  // 非空 = 已关闭（输入循环结束的原因）
+  shut: Str,
+  closing: Bool,
+}
+
+fn mk_client(st: Stream) -> Client {
+  Client { st: st, out: [], seq: 0, pending: [], done: Map(), shut: "", closing: false }
+}
+
+pub fn new_client(c: net.Conn) -> Client { mk_client(conn_stream(c)) }
+
+// 服务端的应答预先给定；客户端写出的字节记在 Client.out
+pub fn new_script_client(responses: List<Int>) -> Client { mk_client(script_stream(responses)) }
+
+pub fn dial(address: Str) -> Result<Client, Str> {
+  let (host, port) = net.split_host_port(address)?
+  let p = match parse_int(port) {
+    Ok(x) => x,
+    Err(_) => { return Err("dial tcp " + address + ": unknown port") },
+  }
+  Ok(new_client(net.connect(host, p)?))
+}
+
+// clientCodec.WriteRequest 的字节；params 是原始 JSON（[] = null）
+pub fn encode_request(method: Str, params: List<Int>, seq: Int) -> Result<List<Int>, Str> {
+  let p = match raw_out(params) {
+    Ok(x) => x,
+    Err(e) => { return Err("json: error calling MarshalJSON for type *jsontext.Value: " + e) },
+  }
+  Ok(s2b("\{\"method\":") + quote_out(method) + s2b(",\"params\":[") + p + s2b("],\"id\":{seq}}\n"))
+}
+
+// 发出一个调用，得到它的序号；已关闭时为 Err("connection is shut down")，参数编码失败时为那个错误（序号照样用掉）
+pub fn go_call(c: Client, method: Str, params: List<Int>) -> (Client, Result<Int, Str>) {
+  if c.shut != "" || c.closing { return (c, Err("connection is shut down")) }
+  let seq = c.seq
+  let c1 = Client { seq: seq + 1, ..c }
+  let b = match encode_request(method, params, seq) {
+    Ok(x) => x,
+    Err(e) => { return (c1, Err(e)) },
+  }
+  let c2 = Client { out: c1.out + b, pending: push(c1.pending, seq), ..c1 }
+  if let Some(conn) = c.st.conn {
+    if let Err(e) = conn.write(b2s(b)) {
+      return (Client { pending: filter(c2.pending, (x) => x != seq), ..c2 }, Err(e))
+    }
+  }
+  (c2, Ok(seq))
+}
+
+pub type Response = { id: Int, error: Str, result: List<Int> }
+
+// %v 打印 any（Go 的 fmt）
+fn fmt_v(v: json.Json) -> Str {
+  match v {
+    JNull => "<nil>",
+    JBool(b) => if b { "true" } else { "false" },
+    JInt(i) => "{i}",
+    JNum(f) => strconv.format_float_go(f, "g", -1, 64),
+    JStr(s) => s,
+    JArr(items) => "[" + join(map(items, (x) => fmt_v(x)), " ") + "]",
+    JObj(m) => "map[" + join(
+      map(sort(keys(m)), (k) => k + ":" + fmt_v(unwrap(get(m, k)))),
+      " ",
+    ) + "]",
+  }
+}
+
+// uint64：不合法为 None；超出 Kite Int 但不超 uint64 的给 -1（不会对上任何调用）
+fn parse_u64(t: List<Int>) -> Option<Int> {
+  if len(t) == 0 || len(t) > 20 { return None }
+  for c in t {
+    if c < 48 || c > 57 { return None }
+  }
+  let s = b2s(t)
+  if len(t) == 20 && s > "18446744073709551615" { return None }
+  if len(t) == 20 || (len(t) == 19 && s > "9223372036854775807") { return Some(-1) }
+  match parse_int(s) {
+    Ok(x) => Some(x),
+    Err(_) => None,
+  }
+}
+
+// clientCodec.ReadResponseHeader：Err = 头解码失败（客户端就此关闭）
+pub fn decode_response(b: List<Int>) -> Result<Response, Str> {
+  let c = b[0]
+  var id = 0
+  var result: Option<List<Int>> = None
+  var error: Option<json.Json> = None
+  var err = ""
+  if c == 123 {
+    for (f, s, e) in members(b, ["id", "result", "error"]) {
+      let v = b[s..e]
+      let null = b[s] == 110
+      if f == "id" {
+        if !null {
+          match if b[s] == 45 || (b[s] >= 48 && b[s] <= 57) {
+            parse_u64(v)
+          } else {
+            None
+          } {
+            Some(n) => { id = n },
+            None => {
+              if err == "" {
+                let what = if kind_name(b[s]) == "number" {
+                  "number " + b2s(v)
+                } else {
+                  kind_name(b[s])
+                }
+                err = type_err(what, "clientResponse", "id", "uint64")
+              }
+            },
+          }
+        }
+      } else if f == "result" {
+        result = if null { None } else { Some(v) }
+      } else {
+        match json.unmarshal(v) {
+          Ok(j) => { error = if null { None } else { Some(j) } },
+          Err(m) => {
+            // json.unmarshal 的路径从根开始，这里接到 clientResponse.error 后面
+            if err == "" {
+              let i = __str_find(m, " into ", 0) + 6
+              let head = __str_slice(m, 0, i)
+              let rest = __str_slice(m, i, __byte_len(m))
+              err = if starts_with(rest, "Go value of type") {
+                head + "Go struct field clientResponse.error" + __str_slice(
+                  rest,
+                  8,
+                  __byte_len(rest),
+                )
+              } else if starts_with(rest, "Go struct field .") {
+                head + "Go struct field clientResponse.error" + __str_slice(
+                  rest,
+                  16,
+                  __byte_len(rest),
+                )
+              } else {
+                head + "clientResponse.error" + rest
+              }
+            }
+          },
+        }
+      }
+    }
+  } else if c != 110 {
+    err = "json: cannot unmarshal " + kind_name(c) + " into Go value of type jsonrpc.clientResponse"
+  }
+  if err != "" { return Err(err) }
+  match (error, result) {
+    (None, Some(r)) => Ok(Response { id: id, error: "", result: r }),
+    (Some(JStr(x)), _) => Ok(Response {
+      id: id,
+      error: if x == "" { "unspecified error" } else { x },
+      result: [],
+    }),
+    (e, _) => Err("invalid error " + fmt_v(unwrap_or(e, JNull))),
+  }
+}
+
+fn shutdown(c: Client, err0: Str) -> Client {
+  let err = if err0 == "EOF" {
+    if c.closing { "connection is shut down" } else { "unexpected EOF" }
+  } else {
+    err0
+  }
+  var done = c.done
+  for s in c.pending { done = set(done, s, Err(err)) }
+  Client { pending: [], done: done, shut: err, ..c }
+}
+
+// Client.input 的一轮：读一个应答，交给对应的调用；出错时关闭
+fn pump(c: Client) -> Client {
+  let (st, r) = stream_next(c.st)
+  let c1 = Client { st: st, ..c }
+  let raw = match r {
+    Ok(x) => x,
+    Err(e) => { return shutdown(c1, e) },
+  }
+  match decode_response(raw) {
+    Err(e) => shutdown(c1, e),
+    Ok(resp) => {
+      if !any(c1.pending, (x) => x == resp.id) { return c1 }
+      let v: Result<List<Int>, Str> = if resp.error != "" {
+        Err(resp.error)
+      } else {
+        Ok(resp.result)
+      }
+      Client {
+        pending: filter(c1.pending, (x) => x != resp.id),
+        done: set(c1.done, resp.id, v),
+        ..c1
+      }
+    },
+  }
+}
+
+// 等序号 seq 的结果：回复的原始 JSON 或错误文字
+pub fn wait(c0: Client, seq: Int) -> (Client, Result<List<Int>, Str>) {
+  var c = c0
+  loop {
+    if let Some(v) = get(c.done, seq) { return (Client { done: remove(c.done, seq), ..c }, v) }
+    if !any(c.pending, (x) => x == seq) { return (c, Err("jsonrpc: no such call {seq}")) }
+    c = pump(c)
+  }
+  (c, Err("unreachable"))
+}
+
+// Client.Call：参数和回复都是原始 JSON
+pub fn call_raw(c: Client, method: Str, params: List<Int>) -> (Client, Result<List<Int>, Str>) {
+  let (c1, r) = go_call(c, method, params)
+  match r {
+    Err(e) => (c1, Err(e)),
+    Ok(seq) => wait(c1, seq),
+  }
+}
+
+// Client.Call：参数和回复都是 Json 值
+pub fn call(c: Client, method: Str, params: json.Json) -> (Client, Result<json.Json, Str>) {
+  let p = match json.marshal(params) {
+    Ok(x) => x,
+    Err(e) => { return (c, Err(e)) },
+  }
+  let (c1, r) = call_raw(c, method, p)
+  match r {
+    Err(e) => (c1, Err(e)),
+    Ok(raw) => match json.unmarshal(raw) {
+      Ok(j) => (c1, Ok(j)),
+      Err(e) => (c1, Err("reading body " + e)),
+    },
+  }
+}
+
+// Client.Close：已关闭过时为 Err("connection is shut down")；未完成的调用都以这个错误结束
+pub fn close(c: Client) -> (Client, Result<Unit, Str>) {
+  if c.closing { return (c, Err("connection is shut down")) }
+  if let Some(conn) = c.st.conn { conn.close() }
+  let c1 = Client { closing: true, ..c }
+  (shutdown(c1, "EOF"), Ok(()))
+}

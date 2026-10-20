@@ -1,0 +1,296 @@
+server 1
+out "{\"id\":1,\"result\":{\"b\":1,\"a\":[1,2.50]},\"error\":null}\n"
+server 2
+out "{\"id\":\"s\",\"result\":1,\"error\":null}\n{\"id\":{\"k\":[1,2]},\"result\":true,\"error\":null}\n{\"id\":null,\"result\":\"x\",\"error\":null}\n{\"id\":null,\"result\":2,\"error\":null}\n{\"id\":[1,2],\"result\":3,\"error\":null}\n{\"id\":1.0,\"result\":4,\"error\":null}\n{\"id\":\"\\u003c\\u0026\\u003e\\u2028\",\"result\":\"\\u003c\\u0026\\u003e\",\"error\":null}\n{\"id\":-0,\"result\":5,\"error\":null}\n{\"id\":1e400,\"result\":6,\"error\":null}\n"
+server 3
+out "{\"id\":7,\"result\":null,\"error\":\"jsonrpc: request body missing params\"}\n{\"id\":8,\"result\":9,\"error\":null}\n"
+server 4
+out "{\"id\":7,\"result\":null,\"error\":\"jsonrpc: request body missing params\"}\n{\"id\":8,\"result\":9,\"error\":null}\n"
+server 5
+out "{\"id\":7,\"result\":null,\"error\":null}\n{\"id\":8,\"result\":9,\"error\":null}\n"
+server 6
+out "{\"id\":7,\"result\":null,\"error\":null}\n{\"id\":8,\"result\":9,\"error\":null}\n"
+server 7
+out "{\"id\":7,\"result\":1,\"error\":null}\n{\"id\":8,\"result\":9,\"error\":null}\n"
+server 8
+out "{\"id\":7,\"result\":null,\"error\":\"json: cannot unmarshal object into Go value of type [1]interface {}\"}\n{\"id\":8,\"result\":9,\"error\":null}\n"
+server 9
+out "{\"id\":7,\"result\":null,\"error\":\"json: cannot unmarshal string into Go value of type [1]interface {}\"}\n{\"id\":8,\"result\":9,\"error\":null}\n"
+server 10
+out "{\"id\":7,\"result\":null,\"error\":\"json: cannot unmarshal number into Go value of type [1]interface {}\"}\n{\"id\":8,\"result\":9,\"error\":null}\n"
+server 11
+out "{\"id\":7,\"result\":null,\"error\":\"json: cannot unmarshal bool into Go value of type [1]interface {}\"}\n{\"id\":8,\"result\":9,\"error\":null}\n"
+server 12
+out "{\"id\":7,\"result\":[],\"error\":null}\n{\"id\":8,\"result\":9,\"error\":null}\n"
+server 13
+out "{\"id\":7,\"result\":{\"a\":1},\"error\":null}\n{\"id\":8,\"result\":9,\"error\":null}\n"
+server 14
+out "{\"id\":1,\"result\":0,\"error\":null}\n{\"id\":2,\"result\":0,\"error\":null}\n{\"id\":3,\"result\":5,\"error\":null}\n"
+server 15
+out "{\"id\":1,\"result\":null,\"error\":\"rpc: service/method request ill-formed: \"}\n{\"id\":2,\"result\":2,\"error\":null}\n"
+server 16
+out "{\"id\":1,\"result\":null,\"error\":\"rpc: service/method request ill-formed: Echo\"}\n{\"id\":2,\"result\":2,\"error\":null}\n"
+server 17
+out "{\"id\":1,\"result\":null,\"error\":\"rpc: can't find service Nope.Raw\"}\n{\"id\":2,\"result\":2,\"error\":null}\n"
+server 18
+out "{\"id\":1,\"result\":null,\"error\":\"rpc: can't find method Echo.Nope\"}\n{\"id\":2,\"result\":2,\"error\":null}\n"
+server 19
+out "{\"id\":1,\"result\":1,\"error\":null}\n{\"id\":2,\"result\":2,\"error\":null}\n"
+server 20
+out "{\"id\":1,\"result\":null,\"error\":\"rpc: can't find service x.y\"}\n{\"id\":2,\"result\":2,\"error\":null}\n"
+server 21
+out "{\"id\":1,\"result\":null,\"error\":\"rpc: can't find service .Raw\"}\n{\"id\":2,\"result\":2,\"error\":null}\n"
+server 22
+out "{\"id\":1,\"result\":null,\"error\":\"rpc: can't find service Echo.Raw.\"}\n{\"id\":2,\"result\":2,\"error\":null}\n"
+server 23
+out "{\"id\":1,\"result\":null,\"error\":\"rpc: can't find method Echo.raw\"}\n{\"id\":2,\"result\":2,\"error\":null}\n"
+server 24
+out "{\"id\":1,\"result\":1,\"error\":null}\n{\"id\":2,\"result\":2,\"error\":null}\n"
+server 25
+out "{\"id\":1,\"result\":null,\"error\":\"rpc: can't find service Echo..Raw\"}\n{\"id\":2,\"result\":2,\"error\":null}\n"
+server 26
+out "{\"id\":1,\"result\":null,\"error\":\"rpc: can't find service é.Raw\"}\n{\"id\":2,\"result\":2,\"error\":null}\n"
+server 27
+out "{\"id\":1,\"result\":null,\"error\":\"boom\"}\n{\"id\":3,\"result\":null,\"error\":\"\\u003cb\\u003e\\u0026\\u2028�\"}\n{\"id\":6,\"result\":1,\"error\":null}\n"
+server 28
+out "{\"id\":1,\"result\":1,\"error\":null}\n{\"id\":2,\"result\":2,\"error\":null}\n{\"id\":3,\"result\":2,\"error\":null}\n{\"id\":4,\"result\":4,\"error\":null}\n{\"id\":5,\"result\":5,\"error\":null}\n{\"id\":6,\"result\":6,\"error\":null}\n{\"id\":null,\"result\":7,\"error\":null}\n{\"id\":null,\"result\":8,\"error\":null}\n{\"id\":9,\"result\":null,\"error\":\"jsonrpc: request body missing params\"}\n{\"id\":10,\"result\":10,\"error\":null}\n"
+server 29
+out "{\"id\":0,\"result\":0,\"error\":null}\n"
+server 30
+out "{\"id\":0,\"result\":0,\"error\":null}\n"
+server 31
+out "{\"id\":0,\"result\":0,\"error\":null}\n"
+server 32
+out "{\"id\":0,\"result\":0,\"error\":null}\n"
+server 33
+out "{\"id\":0,\"result\":0,\"error\":null}\n"
+server 34
+out "{\"id\":0,\"result\":0,\"error\":null}\n"
+server 35
+out "{\"id\":0,\"result\":0,\"error\":null}\n"
+server 36
+out "{\"id\":0,\"result\":0,\"error\":null}\n"
+server 37
+out "{\"id\":0,\"result\":0,\"error\":null}\n"
+server 38
+out "{\"id\":0,\"result\":0,\"error\":null}\n"
+server 39
+out "{\"id\":0,\"result\":0,\"error\":null}\n"
+server 40
+out "{\"id\":0,\"result\":0,\"error\":null}\n"
+server 41
+out "{\"id\":0,\"result\":0,\"error\":null}\n"
+server 42
+out "{\"id\":null,\"result\":null,\"error\":\"rpc: service/method request ill-formed: \"}\n{\"id\":1,\"result\":1,\"error\":null}\n"
+server 43
+out "{\"id\":null,\"result\":null,\"error\":\"rpc: service/method request ill-formed: \"}\n{\"id\":1,\"result\":1,\"error\":null}\n"
+server 44
+out "{\"id\":1,\"result\":1,\"error\":null}\n"
+server 45
+out "{\"id\":1,\"result\":1,\"error\":null}\n{\"id\":2,\"result\":2,\"error\":null}\n"
+server 46
+out "{\"id\":1,\"result\":1,\"error\":null}\n"
+server 47
+out "{\"id\":12,\"result\":1,\"error\":null}\n"
+server 48
+out "{\"id\":12,\"result\":1,\"error\":null}\n{\"id\":3,\"result\":2,\"error\":null}\n"
+server 49
+out "{\"id\":12,\"result\":1,\"error\":null}\n"
+server 50
+out "{\"id\":\"\xff\",\"result\":\"\xff\xfe\",\"error\":null}\n{\"id\":2,\"result\":null,\"error\":\"rpc: can't find service �Echo.Raw\"}\n"
+server 51
+out ""
+server 52
+out "{\"id\":1,\"result\":1,\"error\":null}\n"
+client 53
+out "{\"method\":\"Echo.A\",\"params\":[[1]],\"id\":0}\n{\"method\":\"Echo.B\",\"params\":[{\"x\":\"\\u003c\"}],\"id\":1}\n"
+call 0 ok "{\"r\" : 1}"
+call 1 ok "\"two\""
+client 54
+out "{\"method\":\"Echo.A\",\"params\":[[1]],\"id\":0}\n{\"method\":\"Echo.B\",\"params\":[{\"x\":\"\\u003c\"}],\"id\":1}\n"
+call 0 ok "1"
+call 1 ok "2"
+client 55
+out "{\"method\":\"Echo.A\",\"params\":[[1]],\"id\":0}\n{\"method\":\"Echo.B\",\"params\":[{\"x\":\"\\u003c\"}],\"id\":1}\n{\"method\":\"Echo.N\",\"params\":[null],\"id\":2}\n"
+call 0 ok "1"
+call 1 err "unexpected EOF"
+call 2 err "unexpected EOF"
+client 56
+out "{\"method\":\"Echo.A\",\"params\":[[1]],\"id\":0}\n"
+call 0 err "boom"
+client 57
+out "{\"method\":\"Echo.A\",\"params\":[[1]],\"id\":0}\n{\"method\":\"Echo.B\",\"params\":[{\"x\":\"\\u003c\"}],\"id\":1}\n"
+call 0 err "unspecified error"
+call 1 ok "2"
+client 58
+out "{\"method\":\"Echo.A\",\"params\":[[1]],\"id\":0}\n{\"method\":\"Echo.B\",\"params\":[{\"x\":\"\\u003c\"}],\"id\":1}\n"
+call 0 err "unspecified error"
+call 1 ok "2"
+client 59
+out "{\"method\":\"Echo.A\",\"params\":[[1]],\"id\":0}\n{\"method\":\"Echo.B\",\"params\":[{\"x\":\"\\u003c\"}],\"id\":1}\n"
+call 0 err "invalid error <nil>"
+call 1 err "invalid error <nil>"
+client 60
+out "{\"method\":\"Echo.A\",\"params\":[[1]],\"id\":0}\n{\"method\":\"Echo.B\",\"params\":[{\"x\":\"\\u003c\"}],\"id\":1}\n"
+call 0 err "invalid error map[code:1 data:map[z:[1 a <nil> true]] message:x]"
+call 1 err "invalid error map[code:1 data:map[z:[1 a <nil> true]] message:x]"
+client 61
+out "{\"method\":\"Echo.A\",\"params\":[[1]],\"id\":0}\n"
+call 0 err "invalid error [1 a <nil> true 1e+06 1.234567e+06 1e-06 1e-07 1e+21 1.2345678901234568e+20 -0 map[]]"
+client 62
+out "{\"method\":\"Echo.A\",\"params\":[[1]],\"id\":0}\n"
+call 0 err "invalid error 3"
+client 63
+out "{\"method\":\"Echo.A\",\"params\":[[1]],\"id\":0}\n"
+call 0 err "invalid error true"
+client 64
+out "{\"method\":\"Echo.A\",\"params\":[[1]],\"id\":0}\n"
+call 0 err "json: cannot unmarshal number 1e400 into Go struct field clientResponse.error of type float64"
+client 65
+out "{\"method\":\"Echo.A\",\"params\":[[1]],\"id\":0}\n"
+call 0 err "json: cannot unmarshal number 2e400 into clientResponse.error.1 of type float64"
+client 66
+out "{\"method\":\"Echo.A\",\"params\":[[1]],\"id\":0}\n{\"method\":\"Echo.B\",\"params\":[{\"x\":\"\\u003c\"}],\"id\":1}\n"
+call 0 ok "0"
+call 1 ok "1"
+client 67
+out "{\"method\":\"Echo.A\",\"params\":[[1]],\"id\":0}\n{\"method\":\"Echo.B\",\"params\":[{\"x\":\"\\u003c\"}],\"id\":1}\n"
+call 0 err "json: cannot unmarshal string into Go struct field clientResponse.id of type uint64"
+call 1 err "json: cannot unmarshal string into Go struct field clientResponse.id of type uint64"
+client 68
+out "{\"method\":\"Echo.A\",\"params\":[[1]],\"id\":0}\n{\"method\":\"Echo.B\",\"params\":[{\"x\":\"\\u003c\"}],\"id\":1}\n"
+call 0 err "json: cannot unmarshal number -1 into Go struct field clientResponse.id of type uint64"
+call 1 err "json: cannot unmarshal number -1 into Go struct field clientResponse.id of type uint64"
+client 69
+out "{\"method\":\"Echo.A\",\"params\":[[1]],\"id\":0}\n{\"method\":\"Echo.B\",\"params\":[{\"x\":\"\\u003c\"}],\"id\":1}\n"
+call 0 err "json: cannot unmarshal number 1.5 into Go struct field clientResponse.id of type uint64"
+call 1 err "json: cannot unmarshal number 1.5 into Go struct field clientResponse.id of type uint64"
+client 70
+out "{\"method\":\"Echo.A\",\"params\":[[1]],\"id\":0}\n{\"method\":\"Echo.B\",\"params\":[{\"x\":\"\\u003c\"}],\"id\":1}\n"
+call 0 err "json: cannot unmarshal number 0.0 into Go struct field clientResponse.id of type uint64"
+call 1 err "json: cannot unmarshal number 0.0 into Go struct field clientResponse.id of type uint64"
+client 71
+out "{\"method\":\"Echo.A\",\"params\":[[1]],\"id\":0}\n{\"method\":\"Echo.B\",\"params\":[{\"x\":\"\\u003c\"}],\"id\":1}\n"
+call 0 err "json: cannot unmarshal number 1e0 into Go struct field clientResponse.id of type uint64"
+call 1 err "json: cannot unmarshal number 1e0 into Go struct field clientResponse.id of type uint64"
+client 72
+out "{\"method\":\"Echo.A\",\"params\":[[1]],\"id\":0}\n{\"method\":\"Echo.B\",\"params\":[{\"x\":\"\\u003c\"}],\"id\":1}\n"
+call 0 err "json: cannot unmarshal bool into Go struct field clientResponse.id of type uint64"
+call 1 err "json: cannot unmarshal bool into Go struct field clientResponse.id of type uint64"
+client 73
+out "{\"method\":\"Echo.A\",\"params\":[[1]],\"id\":0}\n{\"method\":\"Echo.B\",\"params\":[{\"x\":\"\\u003c\"}],\"id\":1}\n"
+call 0 err "json: cannot unmarshal array into Go struct field clientResponse.id of type uint64"
+call 1 err "json: cannot unmarshal array into Go struct field clientResponse.id of type uint64"
+client 74
+out "{\"method\":\"Echo.A\",\"params\":[[1]],\"id\":0}\n{\"method\":\"Echo.B\",\"params\":[{\"x\":\"\\u003c\"}],\"id\":1}\n"
+call 0 err "json: cannot unmarshal object into Go struct field clientResponse.id of type uint64"
+call 1 err "json: cannot unmarshal object into Go struct field clientResponse.id of type uint64"
+client 75
+out "{\"method\":\"Echo.A\",\"params\":[[1]],\"id\":0}\n{\"method\":\"Echo.B\",\"params\":[{\"x\":\"\\u003c\"}],\"id\":1}\n"
+call 0 ok "0"
+call 1 ok "1"
+client 76
+out "{\"method\":\"Echo.A\",\"params\":[[1]],\"id\":0}\n{\"method\":\"Echo.B\",\"params\":[{\"x\":\"\\u003c\"}],\"id\":1}\n"
+call 0 err "json: cannot unmarshal number 18446744073709551616 into Go struct field clientResponse.id of type uint64"
+call 1 err "json: cannot unmarshal number 18446744073709551616 into Go struct field clientResponse.id of type uint64"
+client 77
+out "{\"method\":\"Echo.A\",\"params\":[[1]],\"id\":0}\n{\"method\":\"Echo.B\",\"params\":[{\"x\":\"\\u003c\"}],\"id\":1}\n"
+call 0 ok "0"
+call 1 ok "1"
+client 78
+out "{\"method\":\"Echo.A\",\"params\":[[1]],\"id\":0}\n{\"method\":\"Echo.B\",\"params\":[{\"x\":\"\\u003c\"}],\"id\":1}\n"
+call 0 ok "7"
+call 1 ok "1"
+client 79
+out "{\"method\":\"Echo.A\",\"params\":[[1]],\"id\":0}\n{\"method\":\"Echo.B\",\"params\":[{\"x\":\"\\u003c\"}],\"id\":1}\n"
+call 0 err "json: cannot unmarshal number -0 into Go struct field clientResponse.id of type uint64"
+call 1 err "json: cannot unmarshal number -0 into Go struct field clientResponse.id of type uint64"
+client 80
+out "{\"method\":\"Echo.A\",\"params\":[[1]],\"id\":0}\n{\"method\":\"Echo.B\",\"params\":[{\"x\":\"\\u003c\"}],\"id\":1}\n"
+call 0 ok "11"
+call 1 ok "22"
+client 81
+out "{\"method\":\"Echo.A\",\"params\":[[1]],\"id\":0}\n"
+call 0 ok "2"
+client 82
+out "{\"method\":\"Echo.A\",\"params\":[[1]],\"id\":0}\n"
+call 0 err "invalid error <nil>"
+client 83
+out "{\"method\":\"Echo.A\",\"params\":[[1]],\"id\":0}\n"
+call 0 ok "1"
+client 84
+out "{\"method\":\"Echo.A\",\"params\":[[1]],\"id\":0}\n"
+call 0 err "unexpected EOF"
+client 85
+out "{\"method\":\"Echo.A\",\"params\":[[1]],\"id\":0}\n"
+call 0 ok "1"
+client 86
+out "{\"method\":\"Echo.A\",\"params\":[[1]],\"id\":0}\n"
+call 0 err "invalid error <nil>"
+client 87
+out "{\"method\":\"Echo.A\",\"params\":[[1]],\"id\":0}\n{\"method\":\"Echo.B\",\"params\":[{\"x\":\"\\u003c\"}],\"id\":1}\n"
+call 0 ok "1"
+call 1 err "invalid character 'x' looking for beginning of value"
+client 88
+out "{\"method\":\"Echo.A\",\"params\":[[1]],\"id\":0}\n{\"method\":\"Echo.B\",\"params\":[{\"x\":\"\\u003c\"}],\"id\":1}\n"
+call 0 ok "1"
+call 1 err "unexpected EOF"
+client 89
+out "{\"method\":\"Echo.A\",\"params\":[[1]],\"id\":0}\n{\"method\":\"Echo.B\",\"params\":[{\"x\":\"\\u003c\"}],\"id\":1}\n"
+call 0 err "json: cannot unmarshal array into Go value of type jsonrpc.clientResponse"
+call 1 err "json: cannot unmarshal array into Go value of type jsonrpc.clientResponse"
+client 90
+out "{\"method\":\"Echo.A\",\"params\":[[1]],\"id\":0}\n{\"method\":\"Echo.B\",\"params\":[{\"x\":\"\\u003c\"}],\"id\":1}\n"
+call 0 err "json: cannot unmarshal string into Go value of type jsonrpc.clientResponse"
+call 1 err "json: cannot unmarshal string into Go value of type jsonrpc.clientResponse"
+client 91
+out "{\"method\":\"Echo.A\",\"params\":[[1]],\"id\":0}\n{\"method\":\"Echo.B\",\"params\":[{\"x\":\"\\u003c\"}],\"id\":1}\n"
+call 0 err "json: cannot unmarshal number into Go value of type jsonrpc.clientResponse"
+call 1 err "json: cannot unmarshal number into Go value of type jsonrpc.clientResponse"
+client 92
+out "{\"method\":\"Echo.A\",\"params\":[[1]],\"id\":0}\n{\"method\":\"Echo.B\",\"params\":[{\"x\":\"\\u003c\"}],\"id\":1}\n"
+call 0 err "json: cannot unmarshal bool into Go value of type jsonrpc.clientResponse"
+call 1 err "json: cannot unmarshal bool into Go value of type jsonrpc.clientResponse"
+client 93
+out "{\"method\":\"Echo.A\",\"params\":[[1]],\"id\":0}\n{\"method\":\"Echo.B\",\"params\":[{\"x\":\"\\u003c\"}],\"id\":1}\n"
+call 0 err "invalid error <nil>"
+call 1 err "invalid error <nil>"
+client 94
+out "{\"method\":\"Echo.A\",\"params\":[[1]],\"id\":0}\n{\"method\":\"Echo.B\",\"params\":[{\"x\":\"\\u003c\"}],\"id\":1}\n"
+call 0 err "unexpected EOF"
+call 1 err "unexpected EOF"
+client 95
+out "{\"method\":\"Echo.A\",\"params\":[[1]],\"id\":0}\n{\"method\":\"Echo.B\",\"params\":[{\"x\":\"\\u003c\"}],\"id\":1}\n"
+call 0 err "unexpected EOF"
+call 1 err "unexpected EOF"
+client 96
+out "{\"method\":\"Echo.A\",\"params\":[[1]],\"id\":0}\n{\"method\":\"Echo.B\",\"params\":[{\"x\":\"\\u003c\"}],\"id\":1}\n"
+call 0 err "invalid character '}' looking for beginning of value"
+call 1 err "invalid character '}' looking for beginning of value"
+client 97
+out "{\"method\":\"Echo.A\",\"params\":[[1]],\"id\":0}\n{\"method\":\"Echo.B\",\"params\":[{\"x\":\"\\u003c\"}],\"id\":1}\n"
+call 0 err "invalid character '3' after array element"
+call 1 err "invalid character '3' after array element"
+client 98
+out "{\"method\":\"Echo.B\",\"params\":[{\"x\":\"\\u003c\"}],\"id\":1}\n"
+call 0 err "json: error calling MarshalJSON for type *jsontext.Value: unexpected end of JSON input"
+call 1 ok "1"
+call 2 err "json: error calling MarshalJSON for type *jsontext.Value: invalid character ']' looking for beginning of value"
+call 3 err "json: error calling MarshalJSON for type *jsontext.Value: invalid character '2' after top-level value"
+client 99
+out "{\"method\":\"\\u003cEcho\\u0026\\u003e\",\"params\":[\"\\u003c\\u0026\\u003e\\u2028\"],\"id\":0}\n{\"method\":\"Echo.\\u2028\",\"params\":[[1,{\"a\":2}]],\"id\":1}\n{\"method\":\"Echo.ÿ\",\"params\":[1],\"id\":2}\n"
+call 0 ok "1"
+call 1 ok "2"
+call 2 ok "3"
+client 100
+out "{\"method\":\"Echo.A\",\"params\":[[1]],\"id\":0}\n"
+call 0 ok "{  \"a\" :  [ 1 , 2 ]  }"
+client 101
+out ""
+client 102
+out "{\"method\":\"Echo.A\",\"params\":[[1]],\"id\":0}\n"
+call 0 ok "\"x\""
+client 103
+out "{\"method\":\"Echo.N\",\"params\":[null],\"id\":0}\n{\"method\":\"Echo.N\",\"params\":[null],\"id\":1}\n"
+call 0 ok "\"\xff\""
+call 1 err "�"

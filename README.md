@@ -1050,6 +1050,7 @@ Go 1.27 的 encoding/json（v1）改由 v2 实现，语法错误、Compact/Inden
 | `std.net.http.httptest` | net/http/httptest | new_request、ResponseRecorder（write / write_header / flush / result，Content-Type 嗅探、Trailer）、with_server（结构化的 NewServer） |
 | `std.net.http.httputil` | net/http/httputil | dump_request / dump_response / dump_request_out、反向代理的请求和响应改写、reverse_proxy(target) |
 | `std.net.smtp` | net/smtp | SMTP 客户端（EHLO/HELO、AUTH PLAIN/CRAM-MD5、STARTTLS、MAIL/RCPT/DATA）、send_mail |
+| `std.net.rpc.jsonrpc` | net/rpc/jsonrpc | JSON-RPC 1.0 客户端 / 服务端（方法是闭包，线上格式和错误文字同 Go 的 net/rpc + jsonrpc） |
 | `std.crypto.x509.pkix` | crypto/x509/pkix | Name、RDNSequence、fill_from_rdn_sequence、to_rdn_sequence、name_string / rdn_string（转义和 #十六进制同 Go）、Extension、AlgorithmIdentifier |
 | `std.crypto.x509` | crypto/x509 | parse_certificate(s)、parse_revocation_list、parse_pkix_public_key（RSA / ECDSA P-224…P-521 / Ed25519 / X25519 / ML-DSA / DSA）、全部标准扩展、OID（parse_oid、oid_from_ints、oid_string …）；parse_certificate_request（CSR）；PKCS#1 / SEC1 / PKCS#8 私钥与 PKCS#1 公钥的解析和编码、marshal_pkix_public_key；check_signature、check_signature_from、CRL / CSR 签名校验；verify（链构建、名称约束、EKU、证书策略）、verify_hostname、CertPool、system_cert_pool；create_certificate、create_certificate_request、create_revocation_list、certificate_create_crl；错误文字同 Go |
 | `std.debug.elf` | debug/elf | new_file/open、头部/节/段、Section.data（含 zlib 压缩节）、symbols、dynamic_symbols、imported_symbols/libraries、dyn_string/dyn_value、版本表；全部常量及 String/GoString（不含 DWARF、重定位、zstd） |
